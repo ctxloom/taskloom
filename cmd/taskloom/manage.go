@@ -34,10 +34,11 @@ var manageInstallCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Add the taskloom MCP server to backend configs",
 	Long: `Register ` + "`taskloom mcp`" + ` as an MCP server. By default every backend
-present at the chosen scope is updated (user-level: Claude Code, Gemini,
-Codex configs under your home directory). Name one with --engine to register
-just that backend — creating its config if needed. --project writes the
-project-scoped config under --dir instead of the user-level one.`,
+present at the chosen scope is updated (user-level: Claude Code and Codex
+configs under your home directory; Antigravity is project-scope only). Name
+one with --engine to register just that backend — creating its config if
+needed. --project writes the project-scoped config under --dir instead of
+the user-level one.`,
 	Args: cobra.NoArgs,
 	RunE: func(*cobra.Command, []string) error {
 		return manageInstall(manageEngine, manageDir, !manageProject, managePrintOnly, os.Stderr)
@@ -87,9 +88,9 @@ func manageInstall(name, dir string, global, printOnly bool, errOut io.Writer) e
 		return err
 	}
 	if len(engines) == 0 {
-		return errors.New("no agent backends detected; name one with --engine (claude-code, gemini, codex)")
+		return errors.New("no agent backends detected; name one with --engine (claude-code, antigravity, codex)")
 	}
-	entry := engine.TaskloomEntry()
+	server := engine.TaskloomServer()
 	for _, e := range engines {
 		path, err := e.ConfigPath(dir, global)
 		if err != nil {
@@ -99,7 +100,7 @@ func manageInstall(name, dir string, global, printOnly bool, errOut io.Writer) e
 		if err != nil {
 			return err
 		}
-		merged, err := e.Install(existing, entry)
+		merged, err := e.Install(existing, engine.TaskloomName, server)
 		if err != nil {
 			return fmt.Errorf("%s: %w", e.Name(), err)
 		}
@@ -132,7 +133,7 @@ func manageUninstall(name, dir string, global bool, errOut io.Writer) error {
 		if existing == nil {
 			continue
 		}
-		cleaned, err := e.Uninstall(existing, entryName())
+		cleaned, err := e.Uninstall(existing, engine.TaskloomName)
 		if err != nil {
 			return fmt.Errorf("%s: %w", e.Name(), err)
 		}
@@ -163,7 +164,7 @@ func manageStatus(dir string, out io.Writer) error {
 			if err != nil || raw == nil {
 				continue
 			}
-			ok, err := e.Installed(raw, entryName())
+			ok, err := e.Installed(raw, engine.TaskloomName)
 			if err != nil {
 				fmt.Fprintf(out, "%-12s %-8s unreadable: %v (%s)\n", e.Name(), scope.label, err, path)
 				continue
@@ -177,8 +178,6 @@ func manageStatus(dir string, out io.Writer) error {
 	}
 	return nil
 }
-
-func entryName() string { return engine.TaskloomEntry().Name }
 
 // readIfExists returns the file's bytes, or nil (no error) when it is absent.
 func readIfExists(path string) ([]byte, error) {
@@ -198,7 +197,7 @@ func writeConfig(path string, data []byte) error {
 
 func init() {
 	for _, c := range []*cobra.Command{manageInstallCmd, manageUninstallCmd} {
-		c.Flags().StringVar(&manageEngine, "engine", "", "Backend to target: claude-code, gemini, or codex (default: all present)")
+		c.Flags().StringVar(&manageEngine, "engine", "", "Backend to target: claude-code, antigravity, or codex (default: all present)")
 		c.Flags().BoolVar(&manageProject, "project", false, "Write the project-scoped config under --dir instead of the user-level one")
 	}
 	manageInstallCmd.Flags().BoolVar(&managePrintOnly, "print-only", false, "Print the merged configs to stderr instead of writing them")

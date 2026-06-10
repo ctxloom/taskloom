@@ -31,18 +31,17 @@ func readServers(t *testing.T, path string) map[string]any {
 
 func TestManageInstall_AutoRegistersOnlyPresentBackends(t *testing.T) {
 	home := fakeHome(t)
-	// Only gemini is "present" on this machine.
-	require.NoError(t, os.MkdirAll(filepath.Join(home, ".gemini"), 0o755))
+	// Only claude is "present" on this machine.
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o755))
 
 	require.NoError(t, manageInstall("", ".", true, false, os.Stderr))
 
-	servers := readServers(t, filepath.Join(home, ".gemini", "settings.json"))
+	servers := readServers(t, filepath.Join(home, ".claude.json"))
 	require.Contains(t, servers, "taskloom")
 	entry := servers["taskloom"].(map[string]any)
 	assert.Equal(t, "taskloom", entry["command"])
 
 	// Absent backends must not have configs conjured for them.
-	assert.NoFileExists(t, filepath.Join(home, ".claude.json"))
 	assert.NoDirExists(t, filepath.Join(home, ".codex"))
 }
 
@@ -66,26 +65,28 @@ func TestManageInstall_ProjectScope(t *testing.T) {
 }
 
 func TestManageInstall_PreservesExistingServers(t *testing.T) {
-	home := fakeHome(t)
-	require.NoError(t, os.MkdirAll(filepath.Join(home, ".gemini"), 0o755))
+	fakeHome(t)
+	proj := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(proj, ".agents"), 0o755))
 	existing := `{"mcpServers": {"ctxloom": {"command": "ctxloom", "args": ["mcp"]}}}`
-	require.NoError(t, os.WriteFile(filepath.Join(home, ".gemini", "settings.json"), []byte(existing), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(proj, ".agents", "mcp_config.json"), []byte(existing), 0o644))
 
-	require.NoError(t, manageInstall("gemini", ".", true, false, os.Stderr))
+	require.NoError(t, manageInstall("antigravity", proj, false, false, os.Stderr))
 
-	servers := readServers(t, filepath.Join(home, ".gemini", "settings.json"))
+	servers := readServers(t, filepath.Join(proj, ".agents", "mcp_config.json"))
 	assert.Contains(t, servers, "ctxloom", "foreign servers must survive")
 	assert.Contains(t, servers, "taskloom")
 }
 
 func TestManageUninstall_RemovesEntry(t *testing.T) {
-	home := fakeHome(t)
-	require.NoError(t, os.MkdirAll(filepath.Join(home, ".gemini"), 0o755))
-	require.NoError(t, manageInstall("gemini", ".", true, false, os.Stderr))
+	fakeHome(t)
+	proj := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(proj, ".agents"), 0o755))
+	require.NoError(t, manageInstall("antigravity", proj, false, false, os.Stderr))
 
-	require.NoError(t, manageUninstall("gemini", ".", true, os.Stderr))
+	require.NoError(t, manageUninstall("antigravity", proj, false, os.Stderr))
 
-	servers := readServers(t, filepath.Join(home, ".gemini", "settings.json"))
+	servers := readServers(t, filepath.Join(proj, ".agents", "mcp_config.json"))
 	assert.NotContains(t, servers, "taskloom")
 }
 

@@ -6,6 +6,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/antigravity"
+	"github.com/ctxloom/claude"
 )
 
 // Fixtures modeled on real backend configs: each holds a foreign server and
@@ -21,10 +24,7 @@ const claudeFixture = `{
   }
 }`
 
-const geminiFixture = `{
-  "hooks": {
-    "SessionStart": [{"hooks": [{"command": "ctxloom hook session-bind", "type": "command"}]}]
-  },
+const antigravityFixture = `{
   "mcpServers": {
     "ctxloom": {"args": ["mcp"], "command": "ctxloom"}
   }
@@ -53,9 +53,9 @@ func jsonServers(t *testing.T, config []byte) map[string]any {
 func TestEngines_InstallIntoEmpty_CreatesEntry(t *testing.T) {
 	for _, e := range All() {
 		t.Run(e.Name(), func(t *testing.T) {
-			out, err := e.Install(nil, TaskloomEntry())
+			out, err := e.Install(nil, TaskloomName, TaskloomServer())
 			require.NoError(t, err)
-			ok, err := e.Installed(out, "taskloom")
+			ok, err := e.Installed(out, TaskloomName)
 			require.NoError(t, err)
 			assert.True(t, ok, "fresh install must register the server")
 		})
@@ -65,14 +65,14 @@ func TestEngines_InstallIntoEmpty_CreatesEntry(t *testing.T) {
 func TestEngines_Install_PreservesForeignContent(t *testing.T) {
 	fixtures := map[string]string{
 		"claude-code": claudeFixture,
-		"gemini":      geminiFixture,
+		"antigravity": antigravityFixture,
 		"codex":       codexFixture,
 	}
 	for _, e := range All() {
 		t.Run(e.Name(), func(t *testing.T) {
-			out, err := e.Install([]byte(fixtures[e.Name()]), TaskloomEntry())
+			out, err := e.Install([]byte(fixtures[e.Name()]), TaskloomName, TaskloomServer())
 			require.NoError(t, err)
-			ok, err := e.Installed(out, "taskloom")
+			ok, err := e.Installed(out, TaskloomName)
 			require.NoError(t, err)
 			assert.True(t, ok)
 			// The foreign ctxloom server must survive the merge.
@@ -84,7 +84,7 @@ func TestEngines_Install_PreservesForeignContent(t *testing.T) {
 }
 
 func TestClaudeCode_Install_PreservesProvenanceKeys(t *testing.T) {
-	out, err := (ClaudeCode{}).Install([]byte(claudeFixture), TaskloomEntry())
+	out, err := (claude.MCPRegistrar{}).Install([]byte(claudeFixture), TaskloomName, TaskloomServer())
 	require.NoError(t, err)
 	servers := jsonServers(t, out)
 	ctx, ok := servers["ctxloom"].(map[string]any)
@@ -96,9 +96,9 @@ func TestClaudeCode_Install_PreservesProvenanceKeys(t *testing.T) {
 func TestEngines_Install_Idempotent(t *testing.T) {
 	for _, e := range All() {
 		t.Run(e.Name(), func(t *testing.T) {
-			once, err := e.Install(nil, TaskloomEntry())
+			once, err := e.Install(nil, TaskloomName, TaskloomServer())
 			require.NoError(t, err)
-			twice, err := e.Install(once, TaskloomEntry())
+			twice, err := e.Install(once, TaskloomName, TaskloomServer())
 			require.NoError(t, err)
 			assert.Equal(t, string(once), string(twice), "re-install must be a no-op")
 		})
@@ -108,16 +108,16 @@ func TestEngines_Install_Idempotent(t *testing.T) {
 func TestEngines_Uninstall_RemovesOnlyOurs(t *testing.T) {
 	fixtures := map[string]string{
 		"claude-code": claudeFixture,
-		"gemini":      geminiFixture,
+		"antigravity": antigravityFixture,
 		"codex":       codexFixture,
 	}
 	for _, e := range All() {
 		t.Run(e.Name(), func(t *testing.T) {
-			installed, err := e.Install([]byte(fixtures[e.Name()]), TaskloomEntry())
+			installed, err := e.Install([]byte(fixtures[e.Name()]), TaskloomName, TaskloomServer())
 			require.NoError(t, err)
-			out, err := e.Uninstall(installed, "taskloom")
+			out, err := e.Uninstall(installed, TaskloomName)
 			require.NoError(t, err)
-			gone, err := e.Installed(out, "taskloom")
+			gone, err := e.Installed(out, TaskloomName)
 			require.NoError(t, err)
 			assert.False(t, gone, "uninstall must remove the taskloom entry")
 			foreign, err := e.Installed(out, "ctxloom")
@@ -130,9 +130,9 @@ func TestEngines_Uninstall_RemovesOnlyOurs(t *testing.T) {
 func TestEngines_Uninstall_AbsentIsNoop(t *testing.T) {
 	for _, e := range All() {
 		t.Run(e.Name(), func(t *testing.T) {
-			out, err := e.Uninstall(nil, "taskloom")
+			out, err := e.Uninstall(nil, TaskloomName)
 			require.NoError(t, err)
-			ok, err := e.Installed(out, "taskloom")
+			ok, err := e.Installed(out, TaskloomName)
 			require.NoError(t, err)
 			assert.False(t, ok)
 		})
@@ -145,20 +145,33 @@ func TestGet_AliasesAndUnknown(t *testing.T) {
 		require.NoError(t, err, alias)
 		assert.Equal(t, "claude-code", e.Name())
 	}
+	for _, alias := range []string{"agy", "antigravity", "ANTIGRAVITY"} {
+		e, err := Get(alias)
+		require.NoError(t, err, alias)
+		assert.Equal(t, "antigravity", e.Name())
+	}
 	_, err := Get("cluade")
 	assert.Error(t, err, "typos must error, not guess")
 }
 
+// TestAntigravity_GlobalScopeUnsupported pins the verified agy v1.0.7
+// behavior: no global MCP config is read, so global scope must error rather
+// than write a dead file.
+func TestAntigravity_GlobalScopeUnsupported(t *testing.T) {
+	_, err := (antigravity.MCPRegistrar{}).ConfigPath("/proj", true)
+	assert.ErrorIs(t, err, antigravity.ErrNoGlobalMCPConfig)
+	assert.False(t, (antigravity.MCPRegistrar{}).Present("/proj", true))
+}
+
 func TestConfigPath_Scopes(t *testing.T) {
 	tests := []struct {
-		engine  string
-		global  bool
-		suffix  string
+		engine string
+		global bool
+		suffix string
 	}{
 		{"claude-code", false, ".mcp.json"},
 		{"claude-code", true, ".claude.json"},
-		{"gemini", false, ".gemini/settings.json"},
-		{"gemini", true, ".gemini/settings.json"},
+		{"antigravity", false, ".agents/mcp_config.json"},
 		{"codex", false, ".codex/config.toml"},
 		{"codex", true, ".codex/config.toml"},
 	}
