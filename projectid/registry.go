@@ -19,7 +19,7 @@ import (
 	"github.com/ctxloom/shared/filelock"
 	"github.com/ctxloom/shared/harp"
 	"github.com/ctxloom/shared/iox"
-	"github.com/ctxloom/tasks/internal/paths"
+	"github.com/ctxloom/taskloom/internal/paths"
 )
 
 // Entry is one row in the project registry: a stable project-id and the path

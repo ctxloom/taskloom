@@ -2,7 +2,7 @@
 // (see github.com/ctxloom/shared/harp). The source of truth is an append-only
 // JSONL event log at ~/.ctxloom/tasks/<project-id>.jsonl (ADR 0025); current
 // state is the fold of its events.
-package tasks
+package taskloom
 
 import (
 	"crypto/sha256"

@@ -35,7 +35,7 @@ func tasksBinary(t *testing.T) string {
 			return
 		}
 		binPath = filepath.Join(dir, "tasks")
-		cmd := exec.Command("go", "build", "-o", binPath, "github.com/ctxloom/tasks/cmd/tasks")
+		cmd := exec.Command("go", "build", "-o", binPath, "github.com/ctxloom/taskloom/cmd/taskloom")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			buildErr = fmt.Errorf("build tasks binary: %v\n%s", err, out)
@@ -85,7 +85,7 @@ func (e *env) run(extraEnv []string, args ...string) (stdout, stderr string, err
 }
 
 // jsonTask mirrors the field names emitted by `tasks list --json`
-// (tasks.Task has no json tags, so the keys are the Go field names).
+// (taskloom.Task has no json tags, so the keys are the Go field names).
 type jsonTask struct {
 	HarpID   string
 	Text     string

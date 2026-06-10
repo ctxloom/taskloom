@@ -7,9 +7,9 @@ package operations
 import (
 	"fmt"
 
-	"github.com/ctxloom/tasks"
-	"github.com/ctxloom/tasks/internal/paths"
-	"github.com/ctxloom/tasks/projectid"
+	"github.com/ctxloom/taskloom"
+	"github.com/ctxloom/taskloom/internal/paths"
+	"github.com/ctxloom/taskloom/projectid"
 )
 
 // TaskContext carries the inputs a frontend gathers for a task operation: the
@@ -24,8 +24,8 @@ type TaskContext struct {
 // TaskListResult is the render-agnostic result of ListTasks.
 type TaskListResult struct {
 	Path    string
-	Tasks   []tasks.Task
-	Summary *tasks.Summary
+	Tasks   []taskloom.Task
+	Summary *taskloom.Summary
 	Warning string // project-resolution notice (move/fork); the frontend surfaces it
 
 	// ProjectID/ProjectDir identify the store the listing came from. In
@@ -39,7 +39,7 @@ type TaskListResult struct {
 // TaskResult is the result of a single-task mutation.
 type TaskResult struct {
 	Path    string
-	Task    tasks.Task
+	Task    taskloom.Task
 	Warning string
 
 	// ProjectID/ProjectDir identify the store the mutation landed in — a
@@ -86,9 +86,9 @@ func ListTasks(tc TaskContext, statuses []string, term string, includeDone, incl
 	// from the active view — surface them with `--status Deferred` (or the
 	// check-triggers skill), or with includeDone.
 	if !includeDone && len(statuses) == 0 {
-		active := make([]tasks.Task, 0, len(list))
+		active := make([]taskloom.Task, 0, len(list))
 		for _, t := range list {
-			if !t.Checked && t.Status != tasks.StatusDeferred {
+			if !t.Checked && t.Status != taskloom.StatusDeferred {
 				active = append(active, t)
 			}
 		}
@@ -163,7 +163,7 @@ type projectIdentity struct {
 // tc (set by `ctxloom run`) or a live registry resolution, then OpenLog. The
 // project-resolution warning is returned for the frontend to surface; it is
 // never printed here.
-func resolveTaskStore(tc TaskContext) (store *tasks.Store, proj projectIdentity, warning string, err error) {
+func resolveTaskStore(tc TaskContext) (store *taskloom.Store, proj projectIdentity, warning string, err error) {
 	proj.ID = tc.ProjectID
 	pm, pmErr := projectid.Open("")
 	if proj.ID == "" {
@@ -209,7 +209,7 @@ func resolveTaskStore(tc TaskContext) (store *tasks.Store, proj projectIdentity,
 	if err != nil {
 		return nil, proj, warning, fmt.Errorf("task log path: %w", err)
 	}
-	store, err = tasks.OpenLog(logPath, tc.SessionHarp)
+	store, err = taskloom.OpenLog(logPath, tc.SessionHarp)
 	if err != nil {
 		return nil, proj, warning, err
 	}

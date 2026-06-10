@@ -1,4 +1,4 @@
-# tasks — per-project task store and MCP server, extracted from ctxloom.
+# taskloom — per-project task store and MCP server, extracted from ctxloom.
 # Standalone module; tests run on the host (no devcontainer, no build tags).
 TOP := `git rev-parse --show-toplevel`
 
@@ -11,13 +11,13 @@ version := `versionator output version -t "{{Prefix}}{{MajorMinorPatch}}{{PreRel
 show-version:
     @versionator output version
 
-# Build the tasks binary.
+# Build the taskloom binary.
 build:
-    go build -ldflags "-X main.version={{version}}" -o {{TOP}}/bin/tasks {{TOP}}/cmd/tasks
+    go build -ldflags "-X main.version={{version}}" -o {{TOP}}/bin/taskloom {{TOP}}/cmd/taskloom
 
-# Install the tasks binary to GOBIN (default ~/go/bin).
+# Install the taskloom binary to GOBIN (default ~/go/bin).
 install:
-    go install -ldflags "-X main.version={{version}}" {{TOP}}/cmd/tasks
+    go install -ldflags "-X main.version={{version}}" {{TOP}}/cmd/taskloom
 
 # Run the package tests under -race.
 test *ARGS:
@@ -30,3 +30,6 @@ vet:
 # Tidy module dependencies.
 tidy:
     go mod tidy
+
+# CI entrypoint: vet + race tests.
+check: vet test

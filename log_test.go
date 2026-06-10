@@ -1,4 +1,4 @@
-package tasks
+package taskloom
 
 import (
 	"os"
@@ -10,7 +10,7 @@ import (
 
 func newLog(t *testing.T, session string) *Store {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "tasks.jsonl")
+	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
 	s, err := OpenLog(path, session)
 	if err != nil {
 		t.Fatalf("open log: %v", err)
@@ -104,7 +104,7 @@ func TestLogSummarize(t *testing.T) {
 }
 
 func TestLogSkipsMalformedLines(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "tasks.jsonl")
+	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
 	raw := `{"op":"add","task":"alpha","text":"good one","status":"To Do","ts":"2026-01-01T00:00:00Z"}
 this is not json
 {"op":"add","task":"beta","text":"another","status":"To Do","ts":"2026-01-01T00:00:01Z"}
@@ -151,7 +151,7 @@ func TestLogMintUniqueUnderConcurrency(t *testing.T) {
 }
 
 func TestLogRepairReintroducesDisplacedAdd(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "tasks.jsonl")
+	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
 	// Two adds claim the same harp (a concurrent-mint collision the filelock
 	// would normally prevent). The first holds it; the second is displaced.
 	raw := `{"op":"add","task":"alpha","text":"first writer","status":"To Do","ts":"2026-01-01T00:00:00Z"}

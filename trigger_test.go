@@ -1,4 +1,4 @@
-package tasks
+package taskloom
 
 import (
 	"path/filepath"
@@ -17,7 +17,7 @@ func TestValidateStatusTrigger(t *testing.T) {
 
 func logStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := OpenLog(filepath.Join(t.TempDir(), "tasks.jsonl"), "sess")
+	s, err := OpenLog(filepath.Join(t.TempDir(), "taskloom.jsonl"), "sess")
 	require.NoError(t, err)
 	return s
 }

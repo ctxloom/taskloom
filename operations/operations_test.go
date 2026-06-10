@@ -4,9 +4,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ctxloom/tasks/internal/paths"
-	"github.com/ctxloom/tasks/internal/testsupport"
-	"github.com/ctxloom/tasks/projectid"
+	"github.com/ctxloom/taskloom/internal/paths"
+	"github.com/ctxloom/taskloom/internal/testsupport"
+	"github.com/ctxloom/taskloom/projectid"
 )
 
 // TestAddAndListTasks_LogPathAndOrigin covers the in-session path: a supplied

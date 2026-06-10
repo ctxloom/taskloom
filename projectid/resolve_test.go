@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ctxloom/tasks/internal/paths"
+	"github.com/ctxloom/taskloom/internal/paths"
 )
 
 // newManager returns a Manager backed by a fresh temp registry file.

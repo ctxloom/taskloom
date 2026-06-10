@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ctxloom/tasks/internal/paths"
+	"github.com/ctxloom/taskloom/internal/paths"
 )
 
 // ReadMarker reads the in-tree project-id marker at

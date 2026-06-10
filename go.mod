@@ -1,4 +1,4 @@
-module github.com/ctxloom/tasks
+module github.com/ctxloom/taskloom
 
 go 1.25.0
 
@@ -10,3 +10,5 @@ require (
 	golang.org/x/term v0.38.0
 	gopkg.in/yaml.v3 v3.0.1
 )
+
+require github.com/pelletier/go-toml/v2 v2.3.1 // indirect
