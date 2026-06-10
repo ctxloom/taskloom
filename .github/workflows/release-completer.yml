@@ -1,0 +1,38 @@
+name: Release
+
+# Fires when a v* tag is pushed (e.g. by `just release`, which Versionator
+# creates and pushes). Builds cross-platform binaries and publishes a GitHub
+# Release via GoReleaser.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # create the release and upload assets
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags, so the changelog has commits
+          # On manual re-cut, check out the requested tag; on tag push, the
+          # default ref is already the pushed tag.
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT with contents:write on ctxloom/homebrew-tap, for the Homebrew
+          # cask push (cross-repo; the default token can't reach it).
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}

@@ -1,0 +1,102 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: taskloom
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: taskloom
+    main: ./cmd/taskloom
+    binary: taskloom
+    env:
+      - CGO_ENABLED=0 # no libc linkage at all → static on every target
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64 # not a release target
+    # Pure-Go resolvers (no libc) so linux/windows binaries are unambiguously
+    # static even if CGO ever gets re-enabled.
+    tags:
+      - netgo
+      - osusergo
+    flags:
+      - -trimpath
+    # Stamp main.version with the tag (e.g. v1.2.3), matching `taskloom version`.
+    ldflags:
+      - -s -w -extldflags=-static -X main.version={{ .Tag }}
+    mod_timestamp: "{{ .CommitTimestamp }}" # reproducible builds
+
+archives:
+  - id: taskloom
+    formats: [tar.gz]
+    # Windows users get a zip instead.
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
+
+# Homebrew cask published to the shared ctxloom tap (matches ctxloom's and
+# ltk's packaging). macOS users:  brew install ctxloom/tap/taskloom
+#
+# Cross-repo push needs a PAT with contents:write on the tap, provided as the
+# HOMEBREW_TAP_GITHUB_TOKEN secret (wired in release-completer.yml) — the
+# per-repo GITHUB_TOKEN cannot push to another repository. The post-install
+# hook strips the macOS quarantine attribute so the unsigned binary launches
+# without a Gatekeeper prompt. Casks are macOS-only; Linux/Windows users use
+# the release archives.
+homebrew_casks:
+  - name: taskloom
+    binary: taskloom
+    repository:
+      owner: ctxloom
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    homepage: "https://github.com/ctxloom/taskloom"
+    description: "Per-project task store for AI coding agents: append-only log, CLI, and MCP server"
+    license: "BSD-3-Clause"
+    # Don't push a cask for prereleases (e.g. v0.0.1-rc.1) or snapshots — only
+    # real tags update the tap.
+    skip_upload: auto
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/taskloom"]
+          end
+
+release:
+  draft: false
+  prerelease: auto # tags like v1.2.3-rc1 are marked pre-release
+  footer: |
+    ---
+    Install: `brew install ctxloom/tap/taskloom` (macOS),
+    `go install github.com/ctxloom/taskloom/cmd/taskloom@{{ .Tag }}`,
+    or download a binary above. Standalone MCP registration: `taskloom manage install`.

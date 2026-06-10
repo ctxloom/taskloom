@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # Release gate: every change to main must carry a fresh, untagged VERSION.
+  # Fails the PR/push if the version already has a git tag, forcing a deliberate
+  # `versionator set` bump (no auto-increment). On merge, auto-release.yml tags
+  # this VERSION and triggers the release. The VERSION file holds the bare
+  # version (0.7.0); the tag is v-prefixed (v0.7.0).
+  version-guard:
+    name: Version Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fail if VERSION is already tagged
+        run: |
+          V="$(tr -d '[:space:]' < VERSION)"
+          if [ -z "$V" ]; then
+            echo "::error::VERSION file is empty"; exit 1
+          fi
+          TAG="v${V#v}"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error file=VERSION::VERSION $V is already tagged ($TAG). Bump it (versionator set <next>) before merging."
+            exit 1
+          fi
+          echo "VERSION $V ($TAG) is not yet tagged — OK to merge and release."
+
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: extractions/setup-just@v2
+
+      # vet + race tests. versionator isn't on PATH here; the justfile falls
+      # back to version "dev".
+      - name: just check
+        run: just check
+
+      - name: goreleaser config sanity
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: check
