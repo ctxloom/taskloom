@@ -2,9 +2,14 @@
 # Standalone module; tests run on the host (no devcontainer, no build tags).
 TOP := `git rev-parse --show-toplevel`
 
-# Version stamp: latest tag (or short hash before any tag exists), -dirty when
-# the tree has uncommitted changes.
-version := `git describe --tags --always --dirty 2>/dev/null || echo dev`
+# Get version from versionator (with fallback for CI without versionator)
+# Format: v0.0.1-abc1234.20240115103045 (uncommitted) or v0.0.1-abc1234 (clean)
+# Requires versionator >= v0.2.0 (DateTimeDirty + `output version` subcommand).
+version := `versionator output version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prefix --prerelease="{{ShortHash}}{{DateTimeDirty}}" 2>/dev/null || echo "dev"`
+
+# Show current version
+show-version:
+    @versionator output version
 
 # Build the tasks binary.
 build:
