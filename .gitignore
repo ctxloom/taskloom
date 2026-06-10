@@ -1,0 +1,9 @@
+# Binaries
+bin/
+tasks
+
+# Go
+*.exe
+*.test
+*.out
+coverage*.out
