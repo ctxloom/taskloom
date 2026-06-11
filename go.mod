@@ -6,7 +6,7 @@ require (
 	github.com/ctxloom/antigravity v0.0.0-20260611004133-cf42cc1acc64
 	github.com/ctxloom/claude v0.0.0-20260611004131-c4eeed2d88f9
 	github.com/ctxloom/codex v0.0.0-20260611004132-5628ee68f867
-	github.com/ctxloom/shared v0.0.0-20260611011520-176f588f453e
+	github.com/ctxloom/shared v0.0.0-20260611185515-d1f81e460735
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1

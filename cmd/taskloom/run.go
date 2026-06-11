@@ -15,8 +15,11 @@ import (
 	"github.com/ctxloom/shared/tasks/operations"
 )
 
-// execCommand is the exec seam for tests.
-var execCommand = exec.Command
+// execCommand and lookPath are the exec seams for tests.
+var (
+	execCommand = exec.Command
+	lookPath    = exec.LookPath
+)
 
 var tasksRunNoStart bool
 
@@ -102,7 +105,7 @@ func launchTaskAgent(chosen tasks.Task, noStart bool) error {
 
 	// run is taskloom's only ctxloom-coupled subcommand; everything else works
 	// standalone. Surface that boundary instead of a bare exec error.
-	if _, err := exec.LookPath("ctxloom"); err != nil {
+	if _, err := lookPath("ctxloom"); err != nil {
 		return fmt.Errorf("taskloom run requires ctxloom on PATH to launch the agent session (https://github.com/ctxloom/ctxloom); all other taskloom commands work without it")
 	}
 

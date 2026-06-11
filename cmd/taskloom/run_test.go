@@ -13,16 +13,22 @@ import (
 )
 
 // captureRunArgs swaps the execCommand seam for a recorder that returns a
-// harmless /bin/true, runs fn, and returns the captured argv.
+// harmless /bin/true, runs fn, and returns the captured argv. The lookPath
+// seam is stubbed to succeed so the tests stay hermetic — they must not
+// depend on a real ctxloom being installed on PATH.
 func captureRunArgs(t *testing.T, fn func() error) []string {
 	t.Helper()
 	var captured []string
-	orig := execCommand
+	origExec, origLook := execCommand, lookPath
 	execCommand = func(name string, args ...string) *exec.Cmd {
 		captured = append([]string{name}, args...)
 		return exec.Command("/bin/true")
 	}
-	t.Cleanup(func() { execCommand = orig })
+	lookPath = func(file string) (string, error) { return "/stub/" + file, nil }
+	t.Cleanup(func() {
+		execCommand = origExec
+		lookPath = origLook
+	})
 	require.NoError(t, fn())
 	return captured
 }

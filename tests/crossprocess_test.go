@@ -84,14 +84,14 @@ func (e *env) run(extraEnv []string, args ...string) (stdout, stderr string, err
 	return so.String(), se.String(), err
 }
 
-// jsonTask mirrors the field names emitted by `tasks list --json`
-// (tasks.Task has no json tags, so the keys are the Go field names).
+// jsonTask mirrors the wire shape emitted by `tasks list --json`
+// (tasks.Task carries snake_case json tags).
 type jsonTask struct {
-	HarpID   string
-	Text     string
-	Status   string
-	Checked  bool
-	TextHash string
+	HarpID   string `json:"harp_id"`
+	Text     string `json:"text"`
+	Status   string `json:"status"`
+	Checked  bool   `json:"checked"`
+	TextHash string `json:"text_hash"`
 }
 
 // TestCrossProcessConcurrentAdd launches N independent `tasks add` processes
@@ -108,7 +108,7 @@ func TestCrossProcessConcurrentAdd(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make([]error, n)
 	outs := make([]string, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -120,7 +120,7 @@ func TestCrossProcessConcurrentAdd(t *testing.T) {
 	}
 	wg.Wait()
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		require.NoErrorf(t, errs[i], "process %d failed: %s", i, outs[i])
 	}
 
@@ -143,7 +143,7 @@ func TestCrossProcessConcurrentAdd(t *testing.T) {
 		seenHarp[task.HarpID] = true
 		seenText[task.Text]++
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		text := fmt.Sprintf("concurrent-task-%03d", i)
 		assert.Equalf(t, 1, seenText[text], "task %q should appear exactly once, saw %d", text, seenText[text])
 	}
@@ -160,7 +160,7 @@ func TestCrossProcessConcurrentAdd(t *testing.T) {
 	// of them are `add`s. A torn append (interleaved or partial write) would
 	// leave a line that fails to parse or throw off the add count.
 	adds := 0
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -191,7 +191,7 @@ func TestCrossProcessReadDuringWrites(t *testing.T) {
 
 	// Writers.
 	writerErr := make([]error, writers)
-	for i := 0; i < writers; i++ {
+	for i := range writers {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -203,7 +203,7 @@ func TestCrossProcessReadDuringWrites(t *testing.T) {
 	// Readers interleaved with the writers. Each must either succeed with
 	// valid JSON or, at worst, an empty list — never a parse error.
 	readerBad := make([]string, readers)
-	for i := 0; i < readers; i++ {
+	for i := range readers {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -221,10 +221,10 @@ func TestCrossProcessReadDuringWrites(t *testing.T) {
 
 	wg.Wait()
 
-	for i := 0; i < writers; i++ {
+	for i := range writers {
 		require.NoErrorf(t, writerErr[i], "writer %d failed", i)
 	}
-	for i := 0; i < readers; i++ {
+	for i := range readers {
 		require.Emptyf(t, readerBad[i], "%s", readerBad[i])
 	}
 
