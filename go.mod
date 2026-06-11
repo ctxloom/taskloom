@@ -6,12 +6,11 @@ require (
 	github.com/ctxloom/antigravity v0.0.0-20260611004133-cf42cc1acc64
 	github.com/ctxloom/claude v0.0.0-20260611004131-c4eeed2d88f9
 	github.com/ctxloom/codex v0.0.0-20260611004132-5628ee68f867
-	github.com/ctxloom/shared v0.0.0-20260611004045-74721c6839c1
+	github.com/ctxloom/shared v0.0.0-20260611011520-176f588f453e
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/term v0.38.0
-	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -29,4 +28,5 @@ require (
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

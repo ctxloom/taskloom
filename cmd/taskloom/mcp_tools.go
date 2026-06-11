@@ -5,8 +5,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/ctxloom/taskloom"
-	"github.com/ctxloom/taskloom/operations"
+	"github.com/ctxloom/shared/tasks"
+	"github.com/ctxloom/shared/tasks/operations"
 )
 
 // A tight 4-tool surface: list, add, set_status, edit. Search rides on
@@ -148,11 +148,11 @@ func handleTaskEdit(_ context.Context, _ *mcp.CallToolRequest, in taskEditInput)
 	return nil, &taskEditResult{Path: res.Path, Task: toTaskOut(res.Task)}, nil
 }
 
-func toTaskOut(t taskloom.Task) taskOut {
+func toTaskOut(t tasks.Task) taskOut {
 	return taskOut{HarpID: t.HarpID, Text: t.Text, Status: t.Status, Checked: t.Checked, Trigger: t.Trigger}
 }
 
-func toTaskOuts(list []taskloom.Task) []taskOut {
+func toTaskOuts(list []tasks.Task) []taskOut {
 	out := make([]taskOut, len(list))
 	for i, t := range list {
 		out[i] = toTaskOut(t)

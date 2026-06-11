@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/taskloom"
-	"github.com/ctxloom/taskloom/operations"
+	"github.com/ctxloom/shared/tasks"
+	"github.com/ctxloom/shared/tasks/operations"
 )
 
 // execCommand is the exec seam for tests.
@@ -45,7 +45,7 @@ directly. In a non-interactive shell a task harp id is required.`,
 		}
 		warnTask(res.Warning)
 
-		var chosen taskloom.Task
+		var chosen tasks.Task
 		if len(args) == 1 {
 			match, ok := findTask(res.Tasks, args[0])
 			if !ok {
@@ -74,13 +74,13 @@ func init() {
 }
 
 // findTask returns the task with the given harp id, searching all statuses.
-func findTask(all []taskloom.Task, harpID string) (taskloom.Task, bool) {
+func findTask(all []tasks.Task, harpID string) (tasks.Task, bool) {
 	for _, t := range all {
 		if t.HarpID == harpID {
 			return t, true
 		}
 	}
-	return taskloom.Task{}, false
+	return tasks.Task{}, false
 }
 
 // launchTaskAgent shells out to `ctxloom run` to spin the chosen task into its
@@ -88,7 +88,7 @@ func findTask(all []taskloom.Task, harpID string) (taskloom.Task, bool) {
 // seeding; --seed-task there marks the task In Progress in the project log.
 // Continuation of the originating session is requested via --session <origin>
 // (omitted for tasks with no recorded origin).
-func launchTaskAgent(chosen taskloom.Task, noStart bool) error {
+func launchTaskAgent(chosen tasks.Task, noStart bool) error {
 	prompt := fmt.Sprintf("Work on this task (`%s`): %s", chosen.HarpID, chosen.Text)
 	runArgs := []string{"run"}
 	if chosen.OriginSession != "" {
@@ -96,7 +96,7 @@ func launchTaskAgent(chosen taskloom.Task, noStart bool) error {
 	}
 	runArgs = append(runArgs, "--seed-task", chosen.HarpID)
 	if noStart {
-		runArgs = append(runArgs, "--seed-status", taskloom.StatusToDo)
+		runArgs = append(runArgs, "--seed-status", tasks.StatusToDo)
 	}
 	runArgs = append(runArgs, "--prompt", prompt)
 
@@ -117,10 +117,10 @@ func launchTaskAgent(chosen taskloom.Task, noStart bool) error {
 // dependency) and returns the chosen task. The default view shows only open
 // work (To Do / In Progress); `a` toggles showing every status. Returns
 // ok=false when the user quits, EOF is hit, or there is nothing to show.
-func pickTask(out io.Writer, in io.Reader, all []taskloom.Task) (taskloom.Task, bool) {
+func pickTask(out io.Writer, in io.Reader, all []tasks.Task) (tasks.Task, bool) {
 	if len(all) == 0 {
 		fmt.Fprintln(out, "(no tasks)")
-		return taskloom.Task{}, false
+		return tasks.Task{}, false
 	}
 	showAll := false
 	scanner := bufio.NewScanner(in)
@@ -128,11 +128,11 @@ func pickTask(out io.Writer, in io.Reader, all []taskloom.Task) (taskloom.Task, 
 		view := filterOpen(all, showAll)
 		renderTaskPicker(out, view, showAll)
 		if !scanner.Scan() {
-			return taskloom.Task{}, false
+			return tasks.Task{}, false
 		}
 		switch line := strings.TrimSpace(scanner.Text()); line {
 		case "", "q", "quit", "exit":
-			return taskloom.Task{}, false
+			return tasks.Task{}, false
 		case "a", "all":
 			showAll = !showAll
 		default:
@@ -147,20 +147,20 @@ func pickTask(out io.Writer, in io.Reader, all []taskloom.Task) (taskloom.Task, 
 }
 
 // filterOpen keeps only open tasks (To Do / In Progress) unless showAll.
-func filterOpen(all []taskloom.Task, showAll bool) []taskloom.Task {
+func filterOpen(all []tasks.Task, showAll bool) []tasks.Task {
 	if showAll {
 		return all
 	}
-	out := make([]taskloom.Task, 0, len(all))
+	out := make([]tasks.Task, 0, len(all))
 	for _, t := range all {
-		if t.Status == taskloom.StatusToDo || t.Status == taskloom.StatusInProgress {
+		if t.Status == tasks.StatusToDo || t.Status == tasks.StatusInProgress {
 			out = append(out, t)
 		}
 	}
 	return out
 }
 
-func renderTaskPicker(out io.Writer, view []taskloom.Task, showAll bool) {
+func renderTaskPicker(out io.Writer, view []tasks.Task, showAll bool) {
 	if len(view) == 0 {
 		fmt.Fprintln(out, "(no open tasks; press a to show all statuses, q to quit)")
 	}

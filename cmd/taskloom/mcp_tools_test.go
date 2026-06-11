@@ -7,20 +7,20 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/taskloom/internal/testsupport"
+	"github.com/ctxloom/shared/tasks/taskstest"
 )
 
 // withProjectDir isolates the per-project task log for the duration of the test.
 // The log is home-rooted (~/.ctxloom/tasks/<project-id>.jsonl) and the project-id
 // comes from the CTXLOOM_PROJECT_ID env the host ctxloom process exports, so a
 // run inside a real session would otherwise resolve to that project's live log
-// and leak ~hundreds of tasks into these assertions. testsupport.ProjectDir roots
+// and leak ~hundreds of tasks into these assertions. taskstest.ProjectDir roots
 // HOME at a fresh tempdir, clears the session/project env so resolution mints a
 // tempdir-scoped project-id, and switches the working directory. Nothing touches
 // the real ~/.ctxloom.
 func withProjectDir(t *testing.T) string {
 	t.Helper()
-	return testsupport.ProjectDir(t)
+	return taskstest.ProjectDir(t)
 }
 
 func TestHandleTaskAdd_AssignsHarpIDAndPersists(t *testing.T) {

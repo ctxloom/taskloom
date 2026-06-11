@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/shared/iox"
-	"github.com/ctxloom/taskloom/operations"
+	"github.com/ctxloom/shared/tasks/operations"
 )
 
 var (

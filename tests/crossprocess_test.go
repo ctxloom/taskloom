@@ -85,7 +85,7 @@ func (e *env) run(extraEnv []string, args ...string) (stdout, stderr string, err
 }
 
 // jsonTask mirrors the field names emitted by `tasks list --json`
-// (taskloom.Task has no json tags, so the keys are the Go field names).
+// (tasks.Task has no json tags, so the keys are the Go field names).
 type jsonTask struct {
 	HarpID   string
 	Text     string

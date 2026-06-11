@@ -10,9 +10,9 @@ import (
 	"golang.org/x/term"
 
 	"github.com/ctxloom/shared/iox"
-	"github.com/ctxloom/taskloom"
+	"github.com/ctxloom/shared/tasks"
+	"github.com/ctxloom/shared/tasks/operations"
 	"github.com/ctxloom/taskloom/internal/workdir"
-	"github.com/ctxloom/taskloom/operations"
 )
 
 var rootCmd = &cobra.Command{
@@ -84,7 +84,7 @@ func writeJSON(w io.Writer, v any) error {
 	return enc.Encode(v)
 }
 
-func renderTaskTable(out io.Writer, list []taskloom.Task) error {
+func renderTaskTable(out io.Writer, list []tasks.Task) error {
 	w := iox.NewErrWriter(out)
 	if len(list) == 0 {
 		w.Println("(no tasks)")

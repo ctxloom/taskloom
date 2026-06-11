@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/taskloom"
+	"github.com/ctxloom/shared/tasks"
 )
 
 // captureRunArgs swaps the execCommand seam for a recorder that returns a
@@ -27,12 +27,12 @@ func captureRunArgs(t *testing.T, fn func() error) []string {
 	return captured
 }
 
-func task(harpID, text, status, origin string) taskloom.Task {
-	return taskloom.Task{HarpID: harpID, Text: text, Status: status, OriginSession: origin}
+func task(harpID, text, status, origin string) tasks.Task {
+	return tasks.Task{HarpID: harpID, Text: text, Status: status, OriginSession: origin}
 }
 
 func TestLaunchTaskAgent_SessionOriginContinues(t *testing.T) {
-	chosen := task("swift-amber-falcon", "wire up X", taskloom.StatusToDo, "origin-harp")
+	chosen := task("swift-amber-falcon", "wire up X", tasks.StatusToDo, "origin-harp")
 	args := captureRunArgs(t, func() error { return launchTaskAgent(chosen, false) })
 
 	require.NotEmpty(t, args)
@@ -49,7 +49,7 @@ func TestLaunchTaskAgent_SessionOriginContinues(t *testing.T) {
 }
 
 func TestLaunchTaskAgent_NoOriginNoSession(t *testing.T) {
-	chosen := task("quiet-silver-meadow", "fix Y", taskloom.StatusToDo, "")
+	chosen := task("quiet-silver-meadow", "fix Y", tasks.StatusToDo, "")
 	args := captureRunArgs(t, func() error { return launchTaskAgent(chosen, false) })
 
 	joined := strings.Join(args, " ")
@@ -59,13 +59,13 @@ func TestLaunchTaskAgent_NoOriginNoSession(t *testing.T) {
 }
 
 func TestLaunchTaskAgent_NoStartPassesToDoStatus(t *testing.T) {
-	chosen := task("misty-golden-river", "later task", taskloom.StatusToDo, "origin-harp")
+	chosen := task("misty-golden-river", "later task", tasks.StatusToDo, "origin-harp")
 	args := captureRunArgs(t, func() error { return launchTaskAgent(chosen, true) })
 
 	// argv carries the pair "--seed-status" "To Do".
 	var sawPair bool
 	for i := 0; i < len(args)-1; i++ {
-		if args[i] == "--seed-status" && args[i+1] == taskloom.StatusToDo {
+		if args[i] == "--seed-status" && args[i+1] == tasks.StatusToDo {
 			sawPair = true
 		}
 	}
@@ -77,7 +77,7 @@ func TestLaunchTaskAgent_CtxloomMissing_ClearError(t *testing.T) {
 	// With ctxloom absent from PATH the failure must name the dependency and
 	// what still works, not leak a bare exec error.
 	t.Setenv("PATH", t.TempDir())
-	chosen := task("swift-amber-falcon", "wire up X", taskloom.StatusToDo, "")
+	chosen := task("swift-amber-falcon", "wire up X", tasks.StatusToDo, "")
 	err := launchTaskAgent(chosen, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "requires ctxloom on PATH")
@@ -85,10 +85,10 @@ func TestLaunchTaskAgent_CtxloomMissing_ClearError(t *testing.T) {
 }
 
 func TestPickTask_SelectsFromDefaultOpenView(t *testing.T) {
-	all := []taskloom.Task{
-		task("a", "open todo", taskloom.StatusToDo, "h1"),
-		task("b", "done thing", taskloom.StatusDone, "h1"), // hidden by default
-		task("c", "in progress", taskloom.StatusInProgress, "h2"),
+	all := []tasks.Task{
+		task("a", "open todo", tasks.StatusToDo, "h1"),
+		task("b", "done thing", tasks.StatusDone, "h1"), // hidden by default
+		task("c", "in progress", tasks.StatusInProgress, "h2"),
 	}
 	// Row 2 of the default (open-only) view is the In Progress task, not the Done one.
 	got, ok := pickTask(&bytes.Buffer{}, strings.NewReader("2\n"), all)
@@ -97,9 +97,9 @@ func TestPickTask_SelectsFromDefaultOpenView(t *testing.T) {
 }
 
 func TestPickTask_ToggleAllRevealsClosed(t *testing.T) {
-	all := []taskloom.Task{
-		task("a", "open todo", taskloom.StatusToDo, "h1"),
-		task("b", "done thing", taskloom.StatusDone, "h1"),
+	all := []tasks.Task{
+		task("a", "open todo", tasks.StatusToDo, "h1"),
+		task("b", "done thing", tasks.StatusDone, "h1"),
 	}
 	// "a" reveals all statuses, then row 2 is the Done task.
 	got, ok := pickTask(&bytes.Buffer{}, strings.NewReader("a\n2\n"), all)
@@ -108,7 +108,7 @@ func TestPickTask_ToggleAllRevealsClosed(t *testing.T) {
 }
 
 func TestPickTask_QuitAndEmpty(t *testing.T) {
-	all := []taskloom.Task{task("a", "open todo", taskloom.StatusToDo, "h1")}
+	all := []tasks.Task{task("a", "open todo", tasks.StatusToDo, "h1")}
 	if _, ok := pickTask(&bytes.Buffer{}, strings.NewReader("q\n"), all); ok {
 		t.Error("q must cancel")
 	}
@@ -121,9 +121,9 @@ func TestPickTask_QuitAndEmpty(t *testing.T) {
 }
 
 func TestFindTask(t *testing.T) {
-	all := []taskloom.Task{
-		task("a", "one", taskloom.StatusToDo, "h1"),
-		task("b", "two", taskloom.StatusDone, "h2"),
+	all := []tasks.Task{
+		task("a", "one", tasks.StatusToDo, "h1"),
+		task("b", "two", tasks.StatusDone, "h2"),
 	}
 	got, ok := findTask(all, "b")
 	require.True(t, ok)
