@@ -3,10 +3,10 @@ module github.com/ctxloom/taskloom
 go 1.25.0
 
 require (
-	github.com/ctxloom/antigravity v0.0.0-20260611004133-cf42cc1acc64
-	github.com/ctxloom/claude v0.0.0-20260611004131-c4eeed2d88f9
-	github.com/ctxloom/codex v0.0.0-20260611004132-5628ee68f867
-	github.com/ctxloom/shared v0.0.0-20260627144918-06ebaf57e747
+	github.com/ctxloom/antigravity v0.0.0-20260627223818-14cb30d8c230
+	github.com/ctxloom/claude v0.0.0-20260627223900-04a64a470bec
+	github.com/ctxloom/codex v0.0.0-20260627223924-60ec85c9e419
+	github.com/ctxloom/shared v0.0.0-20260627164621-cc20d319d5a7
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
@@ -21,7 +21,6 @@ require (
 	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
-	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-git/go-billy/v5 v5.9.0 // indirect
 	github.com/go-git/go-git/v5 v5.19.1 // indirect
