@@ -7,3 +7,6 @@ bin/
 *.test
 *.out
 coverage*.out
+
+# Devcontainer module/build cache (GOMODCACHE/GOCACHE under /workspace/.cache)
+.cache/

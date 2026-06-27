@@ -5,10 +5,12 @@ github.com/ctxloom/claude v0.0.0-20260611004131-c4eeed2d88f9 h1:Qee+XxRFM/koPqZy
 github.com/ctxloom/claude v0.0.0-20260611004131-c4eeed2d88f9/go.mod h1:JpPJ+oV9d0s7sklVE5G77ZDw/0LGMv063jeG2F0GH3U=
 github.com/ctxloom/codex v0.0.0-20260611004132-5628ee68f867 h1:MHZxU02DhyRI+HGYzvsWkAG2hfRCEvLeSaLN8DDf6h8=
 github.com/ctxloom/codex v0.0.0-20260611004132-5628ee68f867/go.mod h1:V9CR/8WmzH0tWn1P+BeQtVhX8tOnU5LlBP9aXnvEBm4=
-github.com/ctxloom/shared v0.0.0-20260611185515-d1f81e460735 h1:1sywPB95+nrF7Mg2+yzlYbeIRA0A/9C6ZGoytdWfoXE=
-github.com/ctxloom/shared v0.0.0-20260611185515-d1f81e460735/go.mod h1:vo1yigHJXdGn8C9DQv1/lOQ8GJS4YJw5yruTNekx0Qw=
+github.com/ctxloom/shared v0.0.0-20260627125252-4197aa292130 h1:sWGCfNovJ6XQaacWXSdeURojMXtrJvqgxWmsxOuJYvs=
+github.com/ctxloom/shared v0.0.0-20260627125252-4197aa292130/go.mod h1:aiTVk+oCJorOg2wxJCqKNEKuMgSkZ2aOlarJM4fpFA0=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/fsnotify/fsnotify v1.10.1 h1:b0/UzAf9yR5rhf3RPm9gf3ehBPpf0oZKIjtpKrx59Ho=
+github.com/fsnotify/fsnotify v1.10.1/go.mod h1:TLheqan6HD6GBK6PrDWyDPBaEV8LspOxvPSjC+bVfgo=
 github.com/gofrs/flock v0.13.0 h1:95JolYOvGMqeH31+FC7D2+uULf6mG61mEZ/A8dRYMzw=
 github.com/gofrs/flock v0.13.0/go.mod h1:jxeyy9R1auM5S6JYDBhDt+E2TCo7DkratH4Pgi8P+Z0=
 github.com/golang-jwt/jwt/v5 v5.3.1 h1:kYf81DTWFe7t+1VvL7eS+jKFVWaUnK9cB1qbwn63YCY=

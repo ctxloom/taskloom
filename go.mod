@@ -6,7 +6,7 @@ require (
 	github.com/ctxloom/antigravity v0.0.0-20260611004133-cf42cc1acc64
 	github.com/ctxloom/claude v0.0.0-20260611004131-c4eeed2d88f9
 	github.com/ctxloom/codex v0.0.0-20260611004132-5628ee68f867
-	github.com/ctxloom/shared v0.0.0-20260611185515-d1f81e460735
+	github.com/ctxloom/shared v0.0.0-20260627125252-4197aa292130
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
@@ -15,6 +15,7 @@ require (
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/gofrs/flock v0.13.0 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
