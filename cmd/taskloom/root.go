@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/iox"
 	"github.com/ctxloom/shared/tasks"
 	"github.com/ctxloom/shared/tasks/operations"
@@ -74,7 +75,7 @@ func noteTaskProject(projectID, projectDir string) {
 // operations task call.
 func warnTask(warning string) {
 	if warning != "" {
-		fmt.Fprintf(os.Stderr, "taskloom: warning: %s\n", warning)
+		clidiag.Warn("taskloom", "%s", warning)
 	}
 }
 

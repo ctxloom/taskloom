@@ -7,25 +7,41 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/shared/cliversion"
 )
 
-func TestPrintVersion_TextEmitsBareVersion(t *testing.T) {
+// runVersionCmd drives the real versionCmd with the given --format and returns
+// its stdout. It exercises taskloom's wiring (name="taskloom") on top of the
+// shared cliversion.Render contract.
+func runVersionCmd(t *testing.T, format string) (string, error) {
+	t.Helper()
 	var buf bytes.Buffer
-	require.NoError(t, printVersion(&buf, "text"))
-	assert.Equal(t, version+"\n", buf.String())
+	versionCmd.SetOut(&buf)
+	t.Cleanup(func() { versionCmd.SetOut(nil) })
+	prev := versionFormat
+	versionFormat = format
+	t.Cleanup(func() { versionFormat = prev })
+	err := versionCmd.RunE(versionCmd, nil)
+	return buf.String(), err
 }
 
-func TestPrintVersion_JSONEmitsNameAndVersion(t *testing.T) {
-	var buf bytes.Buffer
-	require.NoError(t, printVersion(&buf, "json"))
-	var got versionInfo
-	require.NoError(t, json.Unmarshal(buf.Bytes(), &got))
-	assert.Equal(t, versionInfo{Name: "taskloom", Version: version}, got)
+func TestVersionCmd_TextEmitsBareVersion(t *testing.T) {
+	out, err := runVersionCmd(t, "text")
+	require.NoError(t, err)
+	assert.Equal(t, version+"\n", out)
 }
 
-func TestPrintVersion_UnknownFormatErrors(t *testing.T) {
-	var buf bytes.Buffer
-	err := printVersion(&buf, "yaml")
+func TestVersionCmd_JSONEmitsNameAndVersion(t *testing.T) {
+	out, err := runVersionCmd(t, "json")
+	require.NoError(t, err)
+	var got cliversion.Info
+	require.NoError(t, json.Unmarshal([]byte(out), &got))
+	assert.Equal(t, cliversion.Info{Name: "taskloom", Version: version}, got)
+}
+
+func TestVersionCmd_UnknownFormatErrors(t *testing.T) {
+	out, err := runVersionCmd(t, "yaml")
 	require.Error(t, err)
-	assert.Empty(t, buf.String())
+	assert.Empty(t, out)
 }

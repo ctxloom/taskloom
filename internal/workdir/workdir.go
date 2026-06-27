@@ -11,10 +11,12 @@
 package workdir
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/ctxloom/shared/clidiag"
+	"github.com/ctxloom/shared/gitutil"
 )
 
 // EnvVar is the project-root override variable, shared with ctxloom.
@@ -53,26 +55,21 @@ func fromEnv() (string, bool) {
 		}
 	}
 	warnOnce.Do(func() {
-		fmt.Fprintf(os.Stderr, "tasks: warning: %s=%q is not a valid directory; ignoring it and falling back to git root / current directory\n", EnvVar, raw)
+		clidiag.Warn("taskloom", "%s=%q is not a valid directory; ignoring it and falling back to git root / current directory", EnvVar, raw)
 	})
 	return "", false
 }
 
-// gitRoot walks up from the working directory looking for a .git entry (a
-// directory for a normal checkout, a file for a worktree or submodule).
+// gitRoot resolves the enclosing git repository root (worktrees and submodules
+// included) via go-git, returning ("", false) when cwd isn't inside a repo.
 func gitRoot() (string, bool) {
 	dir, err := os.Getwd()
 	if err != nil {
 		return "", false
 	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-			return dir, true
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", false
-		}
-		dir = parent
+	root, err := gitutil.FindRoot(dir)
+	if err != nil {
+		return "", false
 	}
+	return root, true
 }
