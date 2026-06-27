@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/shared/iox"
+	"github.com/ctxloom/shared/tasks"
 	"github.com/ctxloom/shared/tasks/operations"
 )
 
@@ -144,6 +145,37 @@ var summaryCmd = &cobra.Command{
 	},
 }
 
+var tasksStatusesJSON bool
+
+var statusesCmd = &cobra.Command{
+	Use:   "statuses",
+	Short: "List the task status taxonomy (name, order, terminal, requires_trigger)",
+	Long: `List the canonical task statuses in display order, with metadata.
+
+Lets a GUI render status groups and pickers from the source of truth instead of
+hardcoding the status set. "terminal" marks completed statuses (Done/Archived);
+"requires_trigger" marks statuses that need a revive condition (Deferred).`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		statuses := tasks.Statuses()
+		if tasksStatusesJSON {
+			return writeJSON(cmd.OutOrStdout(), statuses)
+		}
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		for _, s := range statuses {
+			flags := ""
+			if s.Terminal {
+				flags += "\tterminal"
+			}
+			if s.RequiresTrigger {
+				flags += "\trequires-trigger"
+			}
+			w.Printf("%d\t%s%s\n", s.Order, s.Name, flags)
+		}
+		return w.Err()
+	},
+}
+
 func init() {
 	listCmd.Flags().StringSliceVar(&tasksListStatuses, "status", nil, "filter by status (repeatable)")
 	listCmd.Flags().StringVar(&tasksListTerm, "term", "", "filter by case-insensitive substring of task text")
@@ -155,5 +187,7 @@ func init() {
 
 	statusCmd.Flags().StringVar(&tasksStatusTrigger, "trigger", "", "revive condition when setting status to Deferred")
 
-	rootCmd.AddCommand(listCmd, addCmd, statusCmd, editCmd, summaryCmd)
+	statusesCmd.Flags().BoolVar(&tasksStatusesJSON, "json", false, "emit JSON instead of a table (for jq)")
+
+	rootCmd.AddCommand(listCmd, addCmd, statusCmd, editCmd, summaryCmd, statusesCmd)
 }
