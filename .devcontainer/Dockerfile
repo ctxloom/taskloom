@@ -77,12 +77,12 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash 
 # is required; the console script lands in /usr/local/bin (already on PATH).
 RUN pip3 install --break-system-packages --no-cache-dir lizard==1.22.2
 
-# Install golangci-lint via `go install` so the build does not depend on
-# golangci/golangci-lint's install.sh, whose embedded sha256 has been seen to
-# disagree with the tarball bytes served from GitHub releases (v2.12.2 at the
-# time of writing). `go install` uses the Go module checksum database, which
-# is the more reliable verification path. Binary lands in $GOPATH/bin (/go/bin),
-# already on PATH from the Go install step above.
+# Pinning golangci-lint v2.12.1 (the last-good release for us): v2.12.2's
+# install.sh embedded sha256 was seen to disagree with the tarball bytes served
+# from GitHub releases. We use `go install` rather than that install.sh so the
+# build relies on the Go module checksum database, the more reliable
+# verification path. Binary lands in $GOPATH/bin (/go/bin), already on PATH from
+# the Go install step above.
 RUN go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.1
 
 # Install buf for protobuf

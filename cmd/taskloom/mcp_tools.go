@@ -21,24 +21,11 @@ type taskListInput struct {
 }
 
 type taskListResult struct {
-	Path       string      `json:"path"`
-	ProjectID  string      `json:"project_id"`
-	ProjectDir string      `json:"project_dir,omitempty"`
-	Tasks      []taskOut   `json:"tasks"`
-	Summary    *summaryOut `json:"summary,omitempty"`
-}
-
-type taskOut struct {
-	HarpID  string `json:"harp_id"`
-	Text    string `json:"text"`
-	Status  string `json:"status"`
-	Checked bool   `json:"checked"`
-	Trigger string `json:"trigger,omitempty"`
-}
-
-type summaryOut struct {
-	Counts     map[string]int `json:"counts"`
-	InProgress []string       `json:"in_progress"`
+	Path       string         `json:"path"`
+	ProjectID  string         `json:"project_id"`
+	ProjectDir string         `json:"project_dir,omitempty"`
+	Tasks      []tasks.Task   `json:"tasks"`
+	Summary    *tasks.Summary `json:"summary,omitempty"`
 }
 
 type taskAddInput struct {
@@ -48,8 +35,8 @@ type taskAddInput struct {
 }
 
 type taskAddResult struct {
-	Path string  `json:"path"`
-	Task taskOut `json:"task"`
+	Path string     `json:"path"`
+	Task tasks.Task `json:"task"`
 }
 
 type taskSetStatusInput struct {
@@ -59,8 +46,8 @@ type taskSetStatusInput struct {
 }
 
 type taskSetStatusResult struct {
-	Path string  `json:"path"`
-	Task taskOut `json:"task"`
+	Path string     `json:"path"`
+	Task tasks.Task `json:"task"`
 }
 
 type taskEditInput struct {
@@ -69,8 +56,8 @@ type taskEditInput struct {
 }
 
 type taskEditResult struct {
-	Path string  `json:"path"`
-	Task taskOut `json:"task"`
+	Path string     `json:"path"`
+	Task tasks.Task `json:"task"`
 }
 
 func registerTaskTools(server *mcp.Server) {
@@ -113,10 +100,8 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 		Path:       res.Path,
 		ProjectID:  res.ProjectID,
 		ProjectDir: res.ProjectDir,
-		Tasks:      toTaskOuts(res.Tasks),
-	}
-	if res.Summary != nil {
-		out.Summary = &summaryOut{Counts: res.Summary.Counts, InProgress: res.Summary.InProgress}
+		Tasks:      res.Tasks,
+		Summary:    res.Summary,
 	}
 	return nil, out, nil
 }
@@ -127,7 +112,7 @@ func handleTaskAdd(_ context.Context, _ *mcp.CallToolRequest, in taskAddInput) (
 		return nil, nil, err
 	}
 	warnTask(res.Warning)
-	return nil, &taskAddResult{Path: res.Path, Task: toTaskOut(res.Task)}, nil
+	return nil, &taskAddResult{Path: res.Path, Task: res.Task}, nil
 }
 
 func handleTaskSetStatus(_ context.Context, _ *mcp.CallToolRequest, in taskSetStatusInput) (*mcp.CallToolResult, *taskSetStatusResult, error) {
@@ -136,7 +121,7 @@ func handleTaskSetStatus(_ context.Context, _ *mcp.CallToolRequest, in taskSetSt
 		return nil, nil, err
 	}
 	warnTask(res.Warning)
-	return nil, &taskSetStatusResult{Path: res.Path, Task: toTaskOut(res.Task)}, nil
+	return nil, &taskSetStatusResult{Path: res.Path, Task: res.Task}, nil
 }
 
 func handleTaskEdit(_ context.Context, _ *mcp.CallToolRequest, in taskEditInput) (*mcp.CallToolResult, *taskEditResult, error) {
@@ -145,17 +130,5 @@ func handleTaskEdit(_ context.Context, _ *mcp.CallToolRequest, in taskEditInput)
 		return nil, nil, err
 	}
 	warnTask(res.Warning)
-	return nil, &taskEditResult{Path: res.Path, Task: toTaskOut(res.Task)}, nil
-}
-
-func toTaskOut(t tasks.Task) taskOut {
-	return taskOut{HarpID: t.HarpID, Text: t.Text, Status: t.Status, Checked: t.Checked, Trigger: t.Trigger}
-}
-
-func toTaskOuts(list []tasks.Task) []taskOut {
-	out := make([]taskOut, len(list))
-	for i, t := range list {
-		out[i] = toTaskOut(t)
-	}
-	return out
+	return nil, &taskEditResult{Path: res.Path, Task: res.Task}, nil
 }

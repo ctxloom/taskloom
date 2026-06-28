@@ -32,6 +32,10 @@ jobs:
           version: "~> v2"
           args: release --clean
         env:
+          # Force module-pin resolution (go.mod) for goreleaser and its
+          # `before: go mod tidy` hook, matching the rest of the family's
+          # module-mode enforcement; a stray go.work must not change the release.
+          GOWORK: off
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # PAT with contents:write on ctxloom/homebrew-tap, for the Homebrew
           # cask push (cross-repo; the default token can't reach it).

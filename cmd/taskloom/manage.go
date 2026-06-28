@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/shared/iox"
 	"github.com/ctxloom/taskloom/internal/engine"
 )
 
@@ -192,7 +193,11 @@ func writeConfig(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	// Atomic temp-then-rename (shared family convention): manage rewrites the
+	// user's real backend config files, so a crash/power loss mid-write must not
+	// leave a truncated config. MkdirAll above satisfies the parent-exists
+	// precondition of iox.WriteFileAtomic.
+	return iox.WriteFileAtomic(path, data, 0o644)
 }
 
 func init() {

@@ -72,7 +72,7 @@ directly. In a non-interactive shell a task harp id is required.`,
 }
 
 func init() {
-	runCmd.Flags().BoolVar(&tasksRunNoStart, "no-start", false, "Leave the task's status unchanged instead of marking it In Progress")
+	runCmd.Flags().BoolVar(&tasksRunNoStart, "no-start", false, "Reset the task to To Do instead of marking it In Progress")
 	rootCmd.AddCommand(runCmd)
 }
 

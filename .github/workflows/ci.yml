@@ -116,6 +116,10 @@ jobs:
         with:
           version: "~> v2"
           args: check
+        env:
+          # Match the rest of the family's module-mode enforcement: a stray
+          # go.work must not change what goreleaser resolves.
+          GOWORK: off
 
   # Advisory (non-gating) for now: mutation runs and reports on every PR but does
   # not block merge (continue-on-error). Ratchet to gating — drop continue-on-error
