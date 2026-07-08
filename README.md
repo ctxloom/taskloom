@@ -11,11 +11,8 @@ to agents. Works on its own with any MCP-capable agent; pairs naturally with
 # macOS
 brew install ctxloom/tap/taskloom
 
-# Go
+# Go (any platform)
 go install github.com/ctxloom/taskloom/cmd/taskloom@latest
-
-# Or download a release archive (linux/darwin/windows, amd64/arm64):
-# https://github.com/ctxloom/taskloom/releases
 ```
 
 The [ctxloom install script](https://github.com/ctxloom/ctxloom) installs
