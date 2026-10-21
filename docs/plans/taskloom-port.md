@@ -555,8 +555,15 @@ order.
      `~/.taskloom/config.yaml` on a run that finds it absent; the binary
      prepends nothing (`DEFAULT_TAG_SCHEMA` goes), so what is configured
      is the whole of it.
-   - The exploited-in-wild override becomes data (a facet today; see
-     decision 1 below for where per-target facts end up).
+   - Per-target tag facts move to structured config too, one entry per
+     target, and the `tagma.<facet>:"<target>"=<value>` declarations go;
+     the config reader's `schema_version` upgrades an older file.
+   - Percentile ranking stays the engine's. The formulas, the scale, the
+     coverage threshold, the top-priority tags and how a tag's values
+     rank are configuration ("Priority as configuration", below).
+   - The served text is vocabulary-neutral; a project's vocabulary is
+     served from its configuration, as `taskloom://tag-vocabulary`
+     already serves its tags.
    - Every key is documented, and the documentation ships in the
      companion: a skill in the loadout's `run.skills` (the run bundle
      carries skills as it carries fragments), and `init.setup_guidance`
@@ -572,29 +579,59 @@ order.
 
 ### Decisions for sign-off (step 8)
 
-1. **Per-target facts: tag declarations or config.** Today they are
-   `tagma.<facet>:"<target>"=<value>` strings inside `tag_schema`. (a)
-   Move them to structured config too, one entry per target
-   (`tags: {"triage:level": {arity: scalar, range: [1, 5]}}`), and drop
-   the declaration form; (b) keep the declarations, config holding only
-   project-wide settings. (The human's lean: (a), "may want".)
-2. **The status taxonomy in the domain.** Deferred's trigger and
-   `deferred_since` are decided by the aggregate, which reads no
-   configuration. (a) The command carries the status's attributes
-   (`requires_trigger`), resolved by the application from the taxonomy;
-   (b) the taxonomy is configuration the domain receives through a port;
-   (c) the domain keeps only "a status may require a trigger" and the
-   application refuses the rest before the command is sent.
-3. **How much of priority's engine is data.** The formula language
-   (expr-lang, placeholders) is the engine. (a) Also data: the scale, the
-   coverage threshold, which statuses skip decay (a status attribute),
-   the ceiling; the built-ins and percentile ranking stay the engine; (b)
-   the ranking method is data too (`percentile` or the raw score).
-4. **Served text.** Go's reviewed prose teaches the triage vocabulary and
-   the five statuses. (a) Vocabulary-neutral text, the project's own
-   vocabulary served from its configuration (`taskloom://tag-vocabulary`
-   already does); (b) keep Go's text as the default configuration's
-   documentation.
+1. **The status taxonomy in the domain.** In config, each status is an
+   entry with attributes (`requires_trigger`, `terminal`,
+   `hidden_by_default`, `decays`, its order), and the project names its
+   `initial` status. The application's rules (terminal, the default view,
+   `@open`/`@terminal`, order) read it directly. The aggregate decides
+   three rules today: entering `Deferred` needs a trigger
+   (`TriggerRequired`), it stamps `deferred_since`, and an empty status is
+   `To Do`; its decide is a pure function of state and command, so it
+   cannot read config. (a) The command carries the status's attributes
+   (`requires_trigger`, the initial status on an add), resolved by the
+   application; the aggregate enforces them and its events record what
+   held when written, so a later config change rewrites no history, and
+   the domain no longer names `Deferred`. Recommended. (b) The domain
+   reads the taxonomy through a port: decide stops being pure (one
+   command decided two ways across a config edit), and annals has no way
+   to inject it. (c) The domain drops the rule: it records whatever
+   trigger and time it is given, and the application enforces all of it;
+   the aggregate guards no invariant about parked tasks. And: is a status
+   absent from the config refused (recommended, naming the configured
+   ones) or allowed with default attributes, as Go allows any?
+
+### Priority as configuration (to plan)
+
+A project-wide `priority` section, the formulas no longer attached to a
+tag target (which retires the one-formula ambiguity and the reused
+`triage:kind` target). A sketch to plan from, not a settled shape:
+
+```yaml
+priority:
+  scale: 5               # the display scale, [0, scale]
+  thin_coverage: 0.5     # warn below this share of live tasks
+  formula: "..."         # was priority_fn
+  decay: "..."           # was decay_fn; statuses with decays: false skip it
+  top:                   # forced to the top of the scale, live tasks only
+    - triage:exploited-in-wild           # carrying the tag at all
+    - {tag: triage:level, values: ["1"]} # carrying one of these values
+  values:                # how a tag's values rank, read by the formulas
+    triage:severity: {critical: 4, high: 3, medium: 2, low: 1}
+```
+
+To settle while planning:
+- `top`: a list (presence, or presence with listed values) or a dict of
+  tag to forced priority (letting a tag force a priority below the top,
+  or a floor).
+- `values`: what "a tag's values rank" means: a value-to-number map a
+  formula reads as `{{tag}}` (an enum becomes ordinal), an ordering
+  (first is highest) the engine turns into numbers, or a per-value
+  override in `top`. Today a non-numeric value reads 0 and only its
+  presence key (`{{tag=value}}`) is visible to a formula.
+- Whether a `values` map makes the tag's own numeric parse go (one way to
+  read a tag) or both stay.
+- What the warnings count: coverage of `top` and `values` tags as well
+  as the formulas'.
 
 Parity and the cutover:
 
