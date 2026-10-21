@@ -5,9 +5,11 @@ Written 2026-10-20. The Go taskloom is `cmd/taskloom` and
 the Go ctxloom repository; about 12.9k lines. This plan ports it onto annals
 and angzarr here.
 
-Steps 1 to 7 are done: the importer, healing and repointing, tags on
-tagma, MCP and the companion contract, the remaining commands and tools,
-priority, and `manage`, `watch` and `run`. What remains is parity and the
+The port lives in `github.com/ctxloom/taskloom` (Decided 16). Steps 1 to 7
+are done: the importer, healing and repointing, tags on tagma, MCP and the
+companion contract, the remaining commands and tools, priority, and
+`manage`, `watch` and `run`. What remains, in order: project and team data
+out of the code, a local build, git dependencies, then parity and the
 cutover ("What remains").
 
 ## Where it stands
@@ -525,6 +527,72 @@ the next. A slice cuts through every layer it needs; the sections after
 this one are the reference for what each layer finally holds, not an
 order.
 
+8. **Project and team data out of the code.** Whatever a project or team
+   would set differently is data, never a Rust constant; calculations
+   most of all. The audit found, by symbol:
+   - Tag vocabulary: `DEFAULT_TAG_SCHEMA` (the whole triage vocabulary
+     and both formulas, prepended to every project's schema and not
+     removable); `task_priority::EXPLOITED_IN_WILD`; the formula target
+     `triage:kind` a project must reuse to replace a formula (the
+     one-formula rule makes any other target ambiguous).
+   - Calculation: `task_priority::MAX` (the 0-5 scale), `rank_normalize`
+     (percentile), `raw_score`'s Deferred-skips-decay rule, the built-ins
+     `age_days` (measured from `created_at`) and `age_factor`,
+     `tag_values`' reading of tags as numbers, `THIN_COVERAGE`, and
+     `prune::DEFAULT_OLDER_THAN` with `DEFAULT_PRUNE_STATUSES`.
+   - Status taxonomy: `TO_DO`, `DEFERRED` (the domain's trigger and
+     `deferred_since` rule), `IN_PROGRESS`, `DONE`, `ARCHIVED`,
+     `DEFAULT_STATUSES`, `is_terminal`, `is_active` (the default view),
+     the classes `@open`/`@terminal`, and tasks-run's own copies of
+     `TO_DO`/`IN_PROGRESS` (its picker's idea of open).
+   - Served text teaching the triage vocabulary and the statuses
+     (`loadout.yaml`, `tools.json`, `instructions.txt`).
+   Only `tag_schema` is configurable today (`tasks-config`'s `KEYS`); the
+   decisions below settle where the rest goes. Decided: the
+   exploited-in-wild override becomes a tag schema facet.
+9. **A local build**: `just install` (`cargo install --path
+   crates/root/bin/taskloom --locked`), then the companion registration
+   pointed at that binary.
+10. **Git dependencies**: push annals (`feat/audit`), tagma (`kvtag`) and
+    angzarr-cli (angzarr-build), and depend on each by git, pinned by
+    commit, in place of the local paths; then ctxloom depends on this
+    repository's crates the same way. A build needs `protoc` on PATH
+    (generated code is never committed).
+
+### Decisions for sign-off (step 8)
+
+1. **Where project-wide settings live.** The tag schema declares facts
+   about one target (`tagma.<facet>:"<target>"=<value>`); the scale, the
+   coverage threshold, the status taxonomy and prune's defaults belong to
+   no target. (a) New typed keys in `config.yaml`, layered as
+   `tag_schema` is (`priority:`, `statuses:`, `prune:`); (b) more
+   `tagma.*` declarations against a reserved target; (c) a separate
+   project-settings file.
+2. **The baseline.** (a) The defaults become a data file embedded in the
+   binary as the lowest configuration layer, so a project that sets a key
+   replaces it (a project's `tag_schema` no longer extends the triage
+   vocabulary unless it copies it); (b) the same file, but `tag_schema`
+   still extends it, with a key to drop it; (c) no baseline in the binary:
+   `taskloom manage install` writes a starter config, and an unconfigured
+   project has no vocabulary and no priority.
+3. **The status taxonomy in the domain.** Deferred's trigger and
+   `deferred_since` are decided by the aggregate, which reads no
+   configuration. (a) The command carries the status's attributes
+   (`requires_trigger`), resolved by the application from the taxonomy;
+   (b) the taxonomy is configuration the domain receives through a port;
+   (c) the domain keeps only "a status may require a trigger" and the
+   application refuses the rest before the command is sent.
+4. **How much of priority's engine is data.** The formula language
+   (expr-lang, placeholders) is the engine. (a) Also data: the scale, the
+   coverage threshold, which statuses skip decay (a status attribute),
+   the ceiling facet; the built-ins and percentile ranking stay the
+   engine; (b) the ranking method is data too (`percentile` or the raw
+   score).
+5. **Served text.** Go's reviewed prose teaches the triage vocabulary and
+   the five statuses. (a) Vocabulary-neutral text, the project's own
+   vocabulary served from its schema (`taskloom://tag-vocabulary` already
+   does); (b) keep Go's text as the default project's documentation.
+
 Parity and the cutover:
 
 - Port the behavior Go's tests pin: concurrent processes (no lost write, no
@@ -544,8 +612,6 @@ Loose ends outside the steps:
   both sides is re-minted, and the result says so. Not started: it needs a
   tasks use case reading one project's store into another's, beyond the
   identity ports.
-- Outside this repository: pinning annals and tagma by commit as git
-  dependencies once pushed, in place of the local path dependencies.
 
 ## Purging a stream in annals
 
@@ -710,9 +776,8 @@ restarted on a freed harp is under "Where it stands".
     descriptions and the loadout are Go's, with the changes the human
     reviewed and approved where Go's text is false of Rust: the SQLite
     store path in place of the jsonl log, repo homing gone, `--format`
-    taking text alone, and where the binary is built from and installed. The repository stays
-    `github.com/ctxloom/ctxloom`, because the Rust code replaces the Go
-    code there, with the crate path `crates/root/bin/taskloom`. The
+    taking text alone, and where the binary is built from and installed
+    (`github.com/ctxloom/taskloom`, `crates/root/bin/taskloom`). The
     install text is pending: two placeholders stand in the loadout until
     the human writes it. The parity tests keep Go's fixtures
     (`scripts/go-companion-fixtures.sh`) and hold each change as an exact
@@ -738,13 +803,20 @@ restarted on a freed harp is under "Where it stands".
     read (SQLite code 1544), so an isolation mount must give taskloom a
     writable projects directory; that is the tooling's job.
 
-12. **Priority's formulas run on expr-lang** (decided 2026-10-21), the
+15. **Priority's formulas run on expr-lang** (decided 2026-10-21), the
     Rust port of the `expr` Go evaluates them with
     (`github.com/jdx/expr.rs`, pinned `=2.1.0`, default features off).
     Its values matched Go's on the shipped formulas and the operators
     they use; it checks names only as a formula runs, and that is
     accepted (above, "Where it stands"). `task-priority` is the one read
     model linking beyond the core's crates (CLAUDE.md).
+
+16. **taskloom is its own repository, `github.com/ctxloom/taskloom`**
+    (decided 2026-10-21), imported from the ctxloom-rs workspace with
+    fresh history (ctxloom-rs keeps the old). The archived Go taskloom
+    that held the name was replaced; a mirror of it is at
+    `~/workspace/ctxloom/backups/taskloom-go.git`. ctxloom depends on
+    this repository's crates by git, pinned by commit (step 10).
 
 ## Decisions still open
 
