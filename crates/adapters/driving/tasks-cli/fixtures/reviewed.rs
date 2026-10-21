@@ -16,11 +16,11 @@ pub fn loadout() -> String {
 }
 
 pub const LOADOUT: &[(&str, &str)] = &[
-    // 5. run.description: built from the Rust crate; the SQLite store.
+    // 5. run.description: built from the Rust repository; the SQLite store.
     (
         "(built from github.com/ctxloom/ctxloom, cmd/taskloom). Tasks live in a per-project append-only log\n    \
          at ~/.ctxloom/tasks/<project-id>.jsonl keyed by harp IDs",
-        "(built from github.com/ctxloom/ctxloom, crates/root/bin/taskloom). Tasks live in a per-project append-only log\n    \
+        "(built from github.com/ctxloom/taskloom, crates/root/bin/taskloom). Tasks live in a per-project append-only log\n    \
          at ~/.ctxloom/projects/<project-id>/state.db keyed by harp IDs",
     ),
     // 6. run.installation: Rust has no install channel yet.
@@ -29,10 +29,10 @@ pub const LOADOUT: &[(&str, &str)] = &[
          taskloom binary (fallback: go install github.com/ctxloom/ctxloom/cmd/taskloom@latest).\n",
         "    \u{ab}HUMAN: how the Rust taskloom binary is installed; it has no install channel yet.\u{bb}\n",
     ),
-    // 7. mcp.taskloom.notes: built from the Rust crate.
+    // 7. mcp.taskloom.notes: built from the Rust repository.
     (
         "(built from github.com/ctxloom/ctxloom,\n        cmd/taskloom). The",
-        "(built from github.com/ctxloom/ctxloom,\n        crates/root/bin/taskloom). The",
+        "(built from github.com/ctxloom/taskloom,\n        crates/root/bin/taskloom). The",
     ),
     // 8. mcp.taskloom.installation: no install command yet.
     (

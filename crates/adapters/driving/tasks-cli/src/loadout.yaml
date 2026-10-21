@@ -19,7 +19,7 @@ run:
 
   description: |
     Persistent task tracking via the standalone `taskloom` binary
-    (built from github.com/ctxloom/ctxloom, crates/root/bin/taskloom). Tasks live in a per-project append-only log
+    (built from github.com/ctxloom/taskloom, crates/root/bin/taskloom). Tasks live in a per-project append-only log
     at ~/.ctxloom/projects/<project-id>/state.db keyed by harp IDs and are managed
     through the task MCP tools served by `taskloom mcp` (registered by this
     bundle) or the `taskloom` CLI. Also stamps the active session's harp name
@@ -85,7 +85,7 @@ run:
       args:
         - mcp
       notes: |
-        The standalone task-store MCP server (built from github.com/ctxloom/ctxloom,
+        The standalone task-store MCP server (built from github.com/ctxloom/taskloom,
         crates/root/bin/taskloom). The
         project and session resolve per call from CTXLOOM_PROJECT_ID /
         CTXLOOM_SESSION_HARP (exported by ctxloom run) or the working
