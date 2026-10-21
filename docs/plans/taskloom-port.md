@@ -547,9 +547,20 @@ order.
      `TO_DO`/`IN_PROGRESS` (its picker's idea of open).
    - Served text teaching the triage vocabulary and the statuses
      (`loadout.yaml`, `tools.json`, `instructions.txt`).
-   Only `tag_schema` is configurable today (`tasks-config`'s `KEYS`); the
-   decisions below settle where the rest goes. Decided: the
-   exploited-in-wild override becomes a tag schema facet.
+   Only `tag_schema` is configurable today (`tasks-config`'s `KEYS`).
+   Decided (2026-10-21):
+   - Project-wide settings live in `config.yaml`, as typed keys layered
+     as `tag_schema` is (home, project, environment, `--config-set`).
+   - The defaults are a data file embedded in the binary, written to
+     `~/.taskloom/config.yaml` on a run that finds it absent; the binary
+     prepends nothing (`DEFAULT_TAG_SCHEMA` goes), so what is configured
+     is the whole of it.
+   - The exploited-in-wild override becomes data (a facet today; see
+     decision 1 below for where per-target facts end up).
+   - Every key is documented, and the documentation ships in the
+     companion: a skill in the loadout's `run.skills` (the run bundle
+     carries skills as it carries fragments), and `init.setup_guidance`
+     and `init.questions` for configuring a project at setup.
 9. **A local build**: `just install` (`cargo install --path
    crates/root/bin/taskloom --locked`), then the companion registration
    pointed at that binary.
@@ -561,37 +572,29 @@ order.
 
 ### Decisions for sign-off (step 8)
 
-1. **Where project-wide settings live.** The tag schema declares facts
-   about one target (`tagma.<facet>:"<target>"=<value>`); the scale, the
-   coverage threshold, the status taxonomy and prune's defaults belong to
-   no target. (a) New typed keys in `config.yaml`, layered as
-   `tag_schema` is (`priority:`, `statuses:`, `prune:`); (b) more
-   `tagma.*` declarations against a reserved target; (c) a separate
-   project-settings file.
-2. **The baseline.** (a) The defaults become a data file embedded in the
-   binary as the lowest configuration layer, so a project that sets a key
-   replaces it (a project's `tag_schema` no longer extends the triage
-   vocabulary unless it copies it); (b) the same file, but `tag_schema`
-   still extends it, with a key to drop it; (c) no baseline in the binary:
-   `taskloom manage install` writes a starter config, and an unconfigured
-   project has no vocabulary and no priority.
-3. **The status taxonomy in the domain.** Deferred's trigger and
+1. **Per-target facts: tag declarations or config.** Today they are
+   `tagma.<facet>:"<target>"=<value>` strings inside `tag_schema`. (a)
+   Move them to structured config too, one entry per target
+   (`tags: {"triage:level": {arity: scalar, range: [1, 5]}}`), and drop
+   the declaration form; (b) keep the declarations, config holding only
+   project-wide settings. (The human's lean: (a), "may want".)
+2. **The status taxonomy in the domain.** Deferred's trigger and
    `deferred_since` are decided by the aggregate, which reads no
    configuration. (a) The command carries the status's attributes
    (`requires_trigger`), resolved by the application from the taxonomy;
    (b) the taxonomy is configuration the domain receives through a port;
    (c) the domain keeps only "a status may require a trigger" and the
    application refuses the rest before the command is sent.
-4. **How much of priority's engine is data.** The formula language
+3. **How much of priority's engine is data.** The formula language
    (expr-lang, placeholders) is the engine. (a) Also data: the scale, the
    coverage threshold, which statuses skip decay (a status attribute),
-   the ceiling facet; the built-ins and percentile ranking stay the
-   engine; (b) the ranking method is data too (`percentile` or the raw
-   score).
-5. **Served text.** Go's reviewed prose teaches the triage vocabulary and
+   the ceiling; the built-ins and percentile ranking stay the engine; (b)
+   the ranking method is data too (`percentile` or the raw score).
+4. **Served text.** Go's reviewed prose teaches the triage vocabulary and
    the five statuses. (a) Vocabulary-neutral text, the project's own
-   vocabulary served from its schema (`taskloom://tag-vocabulary` already
-   does); (b) keep Go's text as the default project's documentation.
+   vocabulary served from its configuration (`taskloom://tag-vocabulary`
+   already does); (b) keep Go's text as the default configuration's
+   documentation.
 
 Parity and the cutover:
 
