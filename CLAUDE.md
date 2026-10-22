@@ -130,6 +130,13 @@ errors, the mutation verdict and survivors). Read the log for the rest;
 fmt-check` cover this workspace's crates only, never the path dependencies
 (annals, angzarr-build).
 
+## This repository's tasks are in the Rust taskloom
+
+`just install` puts it in `~/.local/share/taskloom-rs/bin`, on no PATH;
+`.envrc` (direnv, `direnv allow` once per checkout) puts that first, so a
+session started here runs it as its MCP server and CLI. Run `taskloom` and
+not `~/go/bin/taskloom`, which writes a log the Rust store never reads.
+
 ## The pre-commit gates are shared; taskloom gives their parameters
 
 The gates and their recipes live in the shared gates repository
