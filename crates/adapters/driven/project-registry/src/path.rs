@@ -1,5 +1,5 @@
-//! Paths compared as identities, as Go's `cleanPath` compares them
-//! (`projectid/registry.go`): symlinks resolved, else cleaned lexically.
+//! Paths compared as identities: symlinks resolved, else cleaned
+//! lexically.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -8,10 +8,9 @@ pub fn canonical(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| clean(path))
 }
 
-/// `path` cleaned lexically, as Go's `filepath.Clean`: no `.`, no empty
-/// or trailing separator, and each `..` taking the name before it; a `..`
-/// above the root is dropped, and one above a relative start is kept. An
-/// empty result is ".".
+/// `path` cleaned lexically: no `.`, no empty or trailing separator, and
+/// each `..` taking the name before it; a `..` above the root is dropped,
+/// and one above a relative start is kept. An empty result is ".".
 pub fn clean(path: &Path) -> PathBuf {
     let mut parts: Vec<Component<'_>> = Vec::new();
     for part in path.components() {

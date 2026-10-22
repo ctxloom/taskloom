@@ -1,5 +1,5 @@
-//! The tag schema: Go's `tagschema` cases, and what this one refuses that
-//! Go only refused on first use.
+//! The tag schema: what it reads and refuses, an unreadable enum or range
+//! included, refused when the schema is read.
 
 use annals_diagnostic::Diagnostic;
 
@@ -31,8 +31,8 @@ fn test_an_arity_declares_its_target_scalar() {
     assert!(!schema.is_scalar("triage:other"));
 }
 
-// Every arity declared is listed, scalar or not, as Go's
-// `Targets(ArityFacet)` lists them: the tag-schema resource reports each.
+// Every arity declared is listed, scalar or not: the tag-schema resource
+// reports each.
 #[test]
 fn test_every_declared_arity_is_listed_by_target_scalar_or_not() {
     let schema = parse(&[r#"tagma.arity:"b:y"=scalar"#, r#"tagma.arity:"a:x"=multi"#]);
@@ -70,8 +70,8 @@ fn test_each_facet_is_kept_by_its_target() {
     );
 }
 
-// Go's TestParse_LastDeclarationWins: any arity but scalar is not scalar,
-// as tagma's SPEC §8 has it.
+// The last declaration wins, and any arity but scalar is not scalar, as
+// tagma's SPEC §8 has it.
 #[test]
 fn test_the_last_declaration_of_a_facet_and_target_wins() {
     let schema = parse(&[
@@ -108,8 +108,8 @@ fn test_hide_facts_are_true_or_false_and_anything_else_is_skipped() {
     );
 }
 
-// Go's TestMalformedDeclarationPolicy, TestParse_RejectsMalformed and the
-// arity-target and facet-membership cases.
+// Malformed declarations are refused, as are arity targets that are not
+// `namespace:key` and facets tagma does not have.
 #[test]
 fn test_a_malformed_declaration_is_refused_and_named() {
     assert!(matches!(why("not a tag at all"), Why::Unparseable { .. }));
@@ -151,8 +151,8 @@ fn test_a_malformed_declaration_is_refused_and_named() {
     assert!(error.to_string().contains(&FACETS.join(", ")), "{error}");
 }
 
-// Go refused these only when a tag first met them; here the schema is
-// refused when it is read, so no write or lint runs against it.
+// These are refused when the schema is read, before any write or lint
+// runs against it.
 #[test]
 fn test_an_unreadable_enum_or_range_is_refused_when_parsed() {
     for empty in [

@@ -1,8 +1,8 @@
-//! The registration use cases, Go taskloom's `manage`: write one MCP
-//! server (taskloom's, `taskloom mcp`) into agents' configurations,
-//! take it back out, and report where it is registered. The agents and
-//! their files are behind [`AgentConfigs`]; this crate decides which
-//! agents a call touches and what it answers.
+//! The registration use cases, `manage`: write one MCP server
+//! (taskloom's, `taskloom mcp`) into agents' configurations, take it back
+//! out, and report where it is registered. The agents and their files are
+//! behind [`AgentConfigs`]; this crate decides which agents a call touches
+//! and what it answers.
 //!
 //! An install with no agent named touches every agent in use at the
 //! scope, and refuses when there is none; one named is written, its
@@ -20,12 +20,12 @@ pub use ports::{AgentConfigs, McpServer, Rewritten, Scope};
 
 pub use error::{diagnostic_samples, RegistrationError, EN_US};
 
-/// The name taskloom's server is registered under, Go's `TaskloomName`.
+/// The name taskloom's server is registered under.
 pub const TASKLOOM: &str = "taskloom";
 
 /// taskloom's server: the bare command, resolved on the agent's own PATH
 /// when it starts the server, so a registration survives the binary
-/// moving (Go's `TaskloomServer`).
+/// moving.
 pub fn taskloom_server() -> McpServer {
     McpServer {
         command: TASKLOOM.to_string(),

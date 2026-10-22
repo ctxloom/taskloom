@@ -1,5 +1,5 @@
-//! `prune`'s answer: Go taskloom's prune report, as a person reads it and
-//! as a program does (one JSON document), and the command that applies a
+//! `prune`'s answer: the prune report, as a person reads it and as a
+//! program does (one JSON document), and the command that applies a
 //! report.
 
 use std::io::{self, Write};
@@ -12,9 +12,9 @@ use tasks_presentation::{rfc3339, spelled};
 use crate::render::{headline, project_label};
 use crate::PROG;
 
-/// A prune's report: JSON Go's `pruneReport`, its fields in its order;
-/// text what was selected by, each task taken (or that would be), the
-/// tasks left, and every reference a survivor still holds to one taken.
+/// A prune's report: JSON its fields in this order; text what was selected
+/// by, each task taken (or that would be), the tasks left, and every
+/// reference a survivor still holds to one taken.
 pub struct PruneReport<'a>(pub &'a Pruning);
 
 #[derive(Serialize)]
@@ -32,7 +32,7 @@ struct ReportJson<'a> {
     dangling_references: Vec<DanglingJson<'a>>,
 }
 
-/// A task taken: Go's `PrunedTask`, every tag (hidden ones too).
+/// A task taken, every tag (hidden ones too).
 #[derive(Serialize)]
 struct PrunedJson<'a> {
     harp_id: &'a str,
@@ -42,7 +42,7 @@ struct PrunedJson<'a> {
     last_status_change: String,
 }
 
-/// A reference a survivor still holds: Go's `DanglingReference`.
+/// A reference a survivor still holds to a task taken.
 #[derive(Serialize)]
 struct DanglingJson<'a> {
     harp_id: &'a str,
@@ -154,7 +154,7 @@ fn day(at: Timestamp) -> String {
     rfc3339(at).chars().take(10).collect()
 }
 
-/// `at` to the minute, UTC, as Go prints a prune's cut:
+/// `at` to the minute, UTC, as a prune's cut is printed:
 /// `2026-01-01 00:00 UTC`.
 fn minute(at: Timestamp) -> String {
     let spelled = rfc3339(at);
@@ -185,8 +185,8 @@ pub fn apply_command(older_than: &str, statuses: &[String], tag_query: &str) -> 
 }
 
 /// `word` as a POSIX shell reads it back: bare when every character is one
-/// a shell passes through literally, single-quoted otherwise (Go's
-/// `shellWord`), so `To Do` or `triage:level<=2` survives being pasted.
+/// a shell passes through literally, single-quoted otherwise, so `To Do`
+/// or `triage:level<=2` survives being pasted.
 fn shell_word(word: &str) -> String {
     let plain = !word.is_empty()
         && word

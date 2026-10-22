@@ -5,7 +5,7 @@
 //! terminal) tasks, and `triage:exploited-in-wild` forces a live task to
 //! `MAX`. [`Diagnostics`] says when the ranking means little.
 //!
-//! The formulas are expr-lang's, as Go's are, with `{{...}}` placeholders:
+//! The formulas are expr-lang's, with `{{...}}` placeholders:
 //! a name holding `:` reads a tag (`{{triage:level}}`, `{{triage:kind=chore}}`,
 //! `{{triage:exposed=*}}`), any other a built-in (`{{age_days}}`). Each
 //! placeholder is compiled to a variable bound per task, so a tag's value

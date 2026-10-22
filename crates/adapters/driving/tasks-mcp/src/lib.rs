@@ -2,12 +2,12 @@
 //! `task_add`, `task_set_status`, `task_edit` and `task_tag` and the
 //! resources `taskloom://tag-schema` and `taskloom://tag-vocabulary` over
 //! stdio, each call translated into the application's use cases and its
-//! answer given in Go taskloom's shapes. The server's instructions and
+//! answer given in taskloom's shapes. The server's instructions and
 //! capabilities, each tool's description and input and output schema,
-//! and each resource's description, are Go's, copied verbatim but for the
-//! human's reviewed factual changes to the instructions and the tool
-//! descriptions (`fixtures/reviewed.rs`); parity tests hold them to the Go
-//! source with those applied.
+//! and each resource's description, are the reference fixtures', copied
+//! verbatim but for the human's reviewed factual changes to the
+//! instructions and the tool descriptions (`fixtures/reviewed.rs`); parity
+//! tests hold them to the fixtures with those applied.
 //!
 //! A call is served by a [`TaskService`] of its own, made for it by the
 //! composition root, on a blocking thread: two calls share nothing in the
@@ -40,14 +40,13 @@ use tasks_application::TaskService;
 pub use error::{diagnostic_samples, McpError, McpNotice, EN_US};
 pub use resources::RESOURCES;
 
-/// The server's instructions to its client, Go taskloom's
-/// (`mcpServerInstructions`) with the reviewed factual changes
-/// (`fixtures/reviewed.rs`).
+/// The server's instructions to its client, with the reviewed factual
+/// changes (`fixtures/reviewed.rs`).
 pub const INSTRUCTIONS: &str = include_str!("instructions.txt");
 
-/// The tools this server offers, as `tools/list` answers: Go taskloom's
-/// five (name, description, input and output schema) in Go's order,
-/// verbatim but for the reviewed factual changes to the descriptions
+/// The tools this server offers, as `tools/list` answers: five (name,
+/// description, input and output schema) in this order, verbatim but for
+/// the reviewed factual changes to the descriptions
 /// (`fixtures/reviewed.rs`).
 pub const TOOLS: &str = include_str!("tools.json");
 
@@ -255,10 +254,10 @@ where
     F: Fn() -> S + Send + Sync + 'static,
     S: TaskService + Send + 'static,
 {
-    /// Go's capabilities: logging, and the tools and resources, each
-    /// list said to change (though neither does).
+    /// The capabilities: logging, and the tools and resources, each list
+    /// said to change (though neither does).
     fn get_info(&self) -> ServerConfig {
-        // Go advertises logging; rmcp deprecates it (SEP-2577) but still
+        // Logging is advertised; rmcp deprecates it (SEP-2577) but still
         // serves it.
         #[allow(deprecated)]
         let capabilities = ServerCapabilities::builder()
@@ -334,9 +333,9 @@ where
         }
     }
 
-    /// Any level is accepted, as Go's server accepts it: nothing is
-    /// logged to the client at any level.
-    // Logging is deprecated in rmcp (SEP-2577) but Go advertises it.
+    /// Any level is accepted: nothing is logged to the client at any
+    /// level.
+    // Logging is deprecated in rmcp (SEP-2577) but still advertised.
     #[allow(deprecated)]
     async fn set_level(
         &self,

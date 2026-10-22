@@ -14,8 +14,8 @@ pub const DONE: &str = "Done";
 /// The status of a task put away.
 pub const ARCHIVED: &str = "Archived";
 
-/// The default statuses, in their display order (Go's `statusTaxonomy`).
-/// The set is open: a task may hold any status not starting with `@`.
+/// The default statuses, in their display order. The set is open: a task
+/// may hold any status not starting with `@`.
 pub const DEFAULT_STATUSES: [&str; 5] = [IN_PROGRESS, TO_DO, DEFERRED, DONE, ARCHIVED];
 
 /// The status class of every status that is not terminal.
@@ -103,7 +103,7 @@ impl Task {
 }
 
 /// The first 12 hex digits of the SHA-256 of `text`, trimmed: a task's text
-/// identity, as Go's `hashText`.
+/// identity.
 pub fn text_hash(text: &str) -> String {
     Sha256::digest(text.trim().as_bytes())
         .iter()

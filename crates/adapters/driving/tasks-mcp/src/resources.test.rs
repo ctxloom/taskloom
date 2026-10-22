@@ -1,5 +1,5 @@
-//! Each resource's document, byte for byte as Go's reads, and Go's JSON
-//! encoding of what they hold.
+//! Each resource's document, byte for byte as the reference reads, and
+//! the JSON encoding of what they hold.
 
 use std::path::PathBuf;
 
@@ -8,10 +8,10 @@ use tasks_application::{Project, Reach, TagCount, TagSchema, Vocabulary};
 
 use super::{go_float, go_indented, offered, schema_text, vocabulary_text, TAG_SCHEMA};
 
-/// What Go's resources read, as `scripts/go-companion-fixtures.sh`
-/// extracted them: the tag schema with nothing configured, and the
-/// vocabulary of a project seeded with four tasks (its id and directory
-/// left as PROJECT_ID and PROJECT_DIR).
+/// What the reference resources read, as
+/// `scripts/go-companion-fixtures.sh` extracted them: the tag schema with
+/// nothing configured, and the vocabulary of a project seeded with four
+/// tasks (its id and directory left as PROJECT_ID and PROJECT_DIR).
 const GO_TAG_SCHEMA: &str = include_str!("../fixtures/go/tag-schema.json");
 const GO_TAG_VOCABULARY: &str = include_str!("../fixtures/go/tag-vocabulary.json");
 
@@ -50,9 +50,9 @@ fn test_the_default_tag_schema_reads_as_gos_byte_for_byte() {
     );
 }
 
-// Go's tagSchemaDoc: a target is one entry whatever facets name it; an
-// arity declared other than scalar is an entry with no `scalar`; hiding
-// and types are not reported.
+// A target is one entry whatever facets name it; an arity declared other
+// than scalar is an entry with no `scalar`; hiding and types are not
+// reported.
 #[test]
 fn test_each_target_is_one_entry_carrying_every_facet_reported() {
     let schema = TagSchema::parse([
@@ -140,8 +140,8 @@ fn test_a_vocabulary_read_nowhere_says_why_and_lists_no_tags() {
     assert_eq!(doc, json!({"tags": []}));
 }
 
-// Go's floatEncoder: shortest form, plain from 1e-6 to 1e21, else an
-// exponent with its sign and no leading zero.
+// Shortest form, plain from 1e-6 to 1e21, else an exponent with its sign
+// and no leading zero.
 #[test]
 fn test_a_float_is_written_as_gos_encoder_writes_it() {
     for (value, go) in [

@@ -54,7 +54,7 @@ fn test_each_error_renders_its_english_fallback() {
         "there is no project here yet, so no task to change"
     );
     assert_eq!(
-        AppError::NoGoLog {
+        AppError::NoJsonlLog {
             project: "jolly-mute-magma".to_string()
         }
         .to_string(),
@@ -79,7 +79,7 @@ fn test_each_error_gives_its_args_values() {
     .args();
     assert!(matches!(&vanished[0], ("harp_id", Arg::Str(s)) if s == "calm-otter"));
     assert!(AppError::NoProject.args().is_empty());
-    let no_log = AppError::NoGoLog {
+    let no_log = AppError::NoJsonlLog {
         project: "jolly-mute-magma".to_string(),
     }
     .args();

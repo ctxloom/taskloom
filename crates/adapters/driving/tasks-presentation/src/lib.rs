@@ -10,10 +10,10 @@ use tasks_application::{Project, Summary, Tag, TagCount, Task, Timestamp};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-/// A task as JSON: Go's `tasks.Task`, its fields in its order, each tag in
-/// its canonical spelling. Every tag, hidden ones too: hiding is for what a
-/// person reads, and a program reads this. `derived_priority` is null but
-/// in a listing sorted by priority.
+/// A task as JSON: its fields in this order, each tag in its canonical
+/// spelling. Every tag, hidden ones too: hiding is for what a person
+/// reads, and a program reads this. `derived_priority` is null but in a
+/// listing sorted by priority.
 #[derive(Serialize)]
 pub struct TaskJson<'a> {
     harp_id: &'a str,
@@ -54,8 +54,8 @@ impl<'a> TaskJson<'a> {
     }
 }
 
-/// A derived priority, in `[0, 5]`, as Go's encoding/json writes a float64
-/// there: a whole number without a fraction (`5`, where serde_json writes
+/// A derived priority, in `[0, 5]`, written in a float64's shortest form:
+/// a whole number without a fraction (`5`, where serde_json writes
 /// `5.0`).
 fn go_number<S: serde::Serializer>(value: &Option<f64>, serializer: S) -> Result<S::Ok, S::Error> {
     match *value {
@@ -75,7 +75,7 @@ pub fn headline(text: &str) -> String {
 }
 
 /// `dir (id)`: the project a command ran in; its id alone where its
-/// directory is not known (Go's `formatProjectLabel`).
+/// directory is not known.
 pub fn project_label(project: &Project) -> String {
     if project.root.is_empty() {
         return project.id.clone();
@@ -83,8 +83,8 @@ pub fn project_label(project: &Project) -> String {
     format!("{} ({})", project.root, project.id)
 }
 
-/// A task as one row of a compact listing: Go's `CompactTask`, its
-/// fields in its order, the text cut to its headline.
+/// A task as one row of a compact listing: its fields in this order, the
+/// text cut to its headline.
 #[derive(Serialize)]
 pub struct CompactJson<'a> {
     harp_id: &'a str,
@@ -106,8 +106,7 @@ impl<'a> CompactJson<'a> {
     }
 }
 
-/// A task with the project it is in (Go's `taskRow`): the task, then the
-/// project.
+/// A task with the project it is in: the task, then the project.
 #[derive(Serialize)]
 pub struct RowJson<'a, T: Serialize> {
     #[serde(flatten)]
@@ -126,15 +125,15 @@ impl<'a, T: Serialize> RowJson<'a, T> {
     }
 }
 
-/// A summary: Go's `Summary`, the counts by status and each task In
-/// Progress by id, with its project's label.
+/// A summary: the counts by status and each task In Progress by id, with
+/// its project's label.
 #[derive(Serialize)]
 pub struct SummaryJson<'a> {
     counts: &'a BTreeMap<String, usize>,
     in_progress: Vec<InProgressJson<'a>>,
 }
 
-/// A task In Progress: Go's `InProgressTask`.
+/// A task In Progress.
 #[derive(Serialize)]
 struct InProgressJson<'a> {
     harp_id: &'a str,
@@ -157,7 +156,7 @@ impl<'a> SummaryJson<'a> {
     }
 }
 
-/// A tag in use: Go's `TagCount`, the tag in its canonical spelling.
+/// A tag in use, in its canonical spelling.
 #[derive(Serialize)]
 pub struct TagCountJson {
     tag: String,
@@ -180,8 +179,7 @@ pub fn spelled(tags: &[Tag]) -> Vec<String> {
     tags.iter().map(ToString::to_string).collect()
 }
 
-/// `at` in RFC 3339, UTC, with as many fractional digits as it needs (Go's
-/// `RFC3339Nano`).
+/// `at` in RFC 3339, UTC, with as many fractional digits as it needs.
 pub fn rfc3339(at: Timestamp) -> String {
     let nanos = i128::from(at.seconds) * 1_000_000_000 + i128::from(at.nanos);
     OffsetDateTime::from_unix_timestamp_nanos(nanos)

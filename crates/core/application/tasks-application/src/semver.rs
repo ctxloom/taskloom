@@ -1,8 +1,7 @@
 //! SemVer 2.0.0 (semver.org), strictly: what a tag schema's `type=semver`
-//! admits at write time and orders by at query time. Strict as Go's
-//! `Masterminds/semver` `StrictNewVersion`: exactly `MAJOR.MINOR.PATCH`, no
-//! `v` prefix, no leading zero in a number, then an optional pre-release
-//! (`-`) and build metadata (`+`).
+//! admits at write time and orders by at query time. Exactly
+//! `MAJOR.MINOR.PATCH`, no `v` prefix, no leading zero in a number, then
+//! an optional pre-release (`-`) and build metadata (`+`).
 
 use std::cmp::Ordering;
 

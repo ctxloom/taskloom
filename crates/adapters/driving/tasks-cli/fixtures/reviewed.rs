@@ -1,16 +1,17 @@
-//! What Rust taskloom's loadout is: Go's (`go/loadout.yaml`, which
-//! `scripts/go-companion-fixtures.sh` regenerates from the Go source), with
-//! the factual changes the human reviewed and approved applied.
+//! What taskloom's loadout is: the reference document (`go/loadout.yaml`,
+//! which `scripts/go-companion-fixtures.sh` regenerates from its source),
+//! with the factual changes the human reviewed and approved applied.
 //!
 //! Each change is an exact `(old, new)` pair on the fixture's raw bytes, and
-//! each `old` must occur exactly once: if Go rewords a sentence a pair
-//! changes, the pair no longer matches and the parity tests fail until the
-//! pair is reviewed again; if Go changes any other text, the expected text
-//! changes and the byte comparison fails, as it did when the text was Go's
-//! alone. The numbers are the review's (the port plan's Decided: "The prose
-//! Rust taskloom serves"). The install placeholders await the human.
+//! each `old` must occur exactly once: if the source rewords a sentence a
+//! pair changes, the pair no longer matches and the parity tests fail until
+//! the pair is reviewed again; if the source changes any other text, the
+//! expected text changes and the byte comparison fails, as it would with
+//! no pairs at all. The numbers are the review's (the port plan's Decided:
+//! "The prose Rust taskloom serves"). The install placeholders await the
+//! human.
 
-/// Go's loadout document, reviewed.
+/// The reference loadout document, reviewed.
 pub fn loadout() -> String {
     applied(include_str!("go/loadout.yaml"), LOADOUT)
 }

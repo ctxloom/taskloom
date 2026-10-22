@@ -1,8 +1,8 @@
-//! The adapter against Go: every case in fixtures/go-manage is what Go
-//! taskloom's own `manage` did to that file (scripts/go-manage-fixtures.sh
-//! ran it), and the adapter must leave the same bytes, refuse where Go
-//! refused, and copy a file aside where Go did. Every case runs in
-//! temporary homes; nothing outside them is read or written.
+//! The adapter against recorded runs: every case in fixtures/go-manage is
+//! what taskloom's `manage` did to that file (scripts/go-manage-fixtures.sh
+//! recorded it), and the adapter must leave the same bytes, refuse where
+//! the recorded run refused, and copy a file aside where it did. Every
+//! case runs in temporary homes; nothing outside them is read or written.
 
 use std::path::{Path, PathBuf};
 
@@ -19,7 +19,7 @@ fn server() -> McpServer {
     }
 }
 
-/// One Go case.
+/// One recorded case.
 struct Case {
     name: String,
     dir: PathBuf,
@@ -128,9 +128,9 @@ impl Home {
     }
 }
 
-/// `outcome` (Go's exit code and stderr) held against what the adapter
-/// answered and left: the file `want` after a success, the file untouched
-/// and copied aside (or not) after a refusal.
+/// `outcome` (the recorded exit code and stderr) held against what the
+/// adapter answered and left: the file `want` after a success, the file
+/// untouched and copied aside (or not) after a refusal.
 fn hold(
     case: &Case,
     step: &str,
@@ -624,9 +624,8 @@ fn held(path: &Path) -> bool {
 }
 
 /// A home, a project directory, and the adapter over them waiting `wait`
-/// for a held lock; the project's `.mcp.json`, and the sidecar Go's
-/// `sessions.WithFileLock` takes for it, held here as another process
-/// holding it would.
+/// for a held lock; the project's `.mcp.json`, and the sidecar lock taken
+/// for it, held here as another process holding it would.
 struct Locking {
     home: TempDir,
     _dir: TempDir,

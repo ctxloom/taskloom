@@ -1,11 +1,10 @@
-//! Tag queries: tagma-core held to Go taskloom's answers, and Go's own
-//! filterTasks cases.
+//! Tag queries: tagma-core held to the reference answers.
 //!
-//! `fixtures/tag-queries/cases.tsv` holds the cases; `go.tsv` is Go's
-//! filterTasks (tagma's Go port) over them, written by
-//! `scripts/compare-go-tag-queries.sh`. Every query answers as Go answers,
-//! but the infix ones, which Go refuses (it reads postfix only): each
-//! answers as the postfix it means does in Go.
+//! `fixtures/tag-queries/cases.tsv` holds the cases; `go.tsv` is the
+//! reference answer to each, written by
+//! `scripts/compare-go-tag-queries.sh`. Every query answers as the
+//! reference does, but the infix ones, which the reference refuses (it
+//! reads postfix only): each answers as the postfix it means does there.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -78,8 +77,8 @@ fn scenarios() -> BTreeMap<String, Scenario> {
     all
 }
 
-/// Go's answer to each `(scenario, query)`: the ids, or `None` for an
-/// error.
+/// The reference answer to each `(scenario, query)`: the ids, or `None`
+/// for an error.
 fn go() -> BTreeMap<(String, String), Option<BTreeSet<String>>> {
     GO.lines()
         .map(|line| {
@@ -137,8 +136,7 @@ fn test_every_query_answers_as_go_taskloom_answers() {
     assert_eq!(compared, go.len(), "every case Go answered");
 }
 
-// Go's TestFilterTasksMalformedTagQueryErrors and its remedy: a malformed
-// query fails loud, saying how to write one.
+// A malformed query fails loud, saying how to write one.
 #[test]
 fn test_a_malformed_query_is_refused_with_the_grammar() {
     let error = check("and").unwrap_err();

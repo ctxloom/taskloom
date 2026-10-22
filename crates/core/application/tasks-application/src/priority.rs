@@ -213,8 +213,8 @@ impl Diagnostic for PriorityWarning {
     }
 }
 
-/// Go's `attributeToProject`: a warning about one of several projects
-/// names it, so each line of a listing over every project says whose it is.
+/// A warning about one of several projects names it, so each line of a
+/// listing over every project says whose it is.
 impl fmt::Display for PriorityNote {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.project {

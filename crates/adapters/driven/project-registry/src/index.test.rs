@@ -1,4 +1,4 @@
-//! The registry file: Go's schema read and written, unknown fields kept.
+//! The registry file: its schema read and written, unknown fields kept.
 
 use std::fs;
 use std::path::Path;
@@ -162,7 +162,7 @@ fn test_an_entry_matches_its_path_cleaned() {
 #[test]
 fn test_the_text_written_is_what_gos_yaml_v3_reads() {
     // yaml.v3 decodes `created_at` into a time.Time from an unquoted
-    // RFC 3339 scalar; quoted, it is a string and Go's decode fails.
+    // RFC 3339 scalar; quoted, it is a string and the decode fails.
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("index.yaml");
     let mut index = Index::default();

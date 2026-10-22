@@ -138,7 +138,7 @@ fn test_a_listing_asks_for_everything_its_arguments_name() {
     );
 }
 
-// Go's limit: 0 or less is no cap.
+// A limit of 0 or less is no cap.
 #[test]
 fn test_a_limit_of_zero_or_less_is_none() {
     for limit in [0, -3] {
@@ -275,8 +275,8 @@ fn test_a_listed_task_carries_its_project_and_no_priority_unsorted() {
     assert_eq!(row["created_at"], "2026-06-10T02:35:20Z");
 }
 
-// Go's taskListResult sorted by priority: each task's derived priority,
-// and the warnings, one line each, in `priority_warning`.
+// A listing sorted by priority: each task's derived priority, and the
+// warnings, one line each, in `priority_warning`.
 #[test]
 fn test_a_listing_sorted_by_priority_carries_each_priority_and_its_warnings() {
     let mut listing = listing_of(Reach::Project(project()), vec![task(), task()]);
@@ -314,7 +314,7 @@ fn test_a_listing_sorted_by_priority_carries_each_priority_and_its_warnings() {
     assert_eq!(unsorted.get("priority_warning"), None);
 }
 
-// Go's taskListResult with compact: the compact rows, and `tasks` null.
+// A compact listing: the compact rows, and `tasks` null.
 #[test]
 fn test_a_compact_listing_is_each_tasks_headline_and_tasks_null() {
     let mut long = task();
@@ -421,7 +421,7 @@ fn test_a_listing_of_no_project_says_so_and_lists_nothing() {
     );
 }
 
-// Go's no-project fallback: outside every work root a listing reads every
+// The no-project fallback: outside every work root a listing reads every
 // project, says so in `global` and `project_count`, and says why in
 // `notice`; each row carries its own project.
 #[test]

@@ -1,8 +1,8 @@
 //! Acceptance: `taskloom manage`, the real binary, only ever in a
-//! temporary home with an empty PATH: it writes Go's bytes into
-//! `~/.claude.json` and a project's `.mcp.json`, says what Go says, and
-//! reads back what it wrote. Nothing outside the temporary home and
-//! project directory is read or written.
+//! temporary home with an empty PATH: it writes the recorded bytes into
+//! `~/.claude.json` and a project's `.mcp.json`, says what the recorded run
+//! says, and reads back what it wrote. Nothing outside the temporary home
+//! and project directory is read or written.
 
 use std::path::Path;
 
@@ -10,7 +10,7 @@ use tempfile::TempDir;
 
 use super::{one_document, Env, Ran};
 
-/// The Go case `name`'s file `file`.
+/// The recorded case `name`'s file `file`.
 fn go(name: &str, file: &str) -> Vec<u8> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../adapters/driven/agent-configs/fixtures/go-manage")
@@ -26,8 +26,8 @@ fn manage(env: &Env, path: &TempDir, args: &[&str]) -> Ran {
     env.run_with(&all, &[("PATH", path.path().to_str().unwrap())])
 }
 
-/// Go's stderr for the case, its exit code dropped, `$HOME` and `$DIR`
-/// put back.
+/// The recorded stderr for the case, its exit code dropped, `$HOME` and
+/// `$DIR` put back.
 fn go_said(name: &str, file: &str, env: &Env) -> String {
     let text = String::from_utf8(go(name, file)).unwrap();
     let (_, said) = text.split_once('\n').unwrap();
@@ -164,8 +164,8 @@ fn test_manage_takes_gos_lock_on_the_file_and_waits_its_turn() {
     let env = Env::new("manage-lock-harp");
     let empty = tempfile::tempdir().unwrap();
     let config = env.home.path().join(".claude.json");
-    // The sidecar Go's `sessions.WithFileLock` takes for the file, named
-    // here as Go names it: ~/.ctxloom/locks/<FlatName(path)>.lock.
+    // The sidecar lock taken for the file:
+    // ~/.ctxloom/locks/<FlatName(path)>.lock.
     let locks = env.home.path().join(".ctxloom/locks");
     let sidecar = locks.join(format!(
         "{}.lock",
@@ -184,7 +184,7 @@ fn test_manage_takes_gos_lock_on_the_file_and_waits_its_turn() {
     );
     std::fs::remove_file(&config).unwrap();
 
-    // Held here, as a Go ctxloom mid-write holds it.
+    // Held here, as another ctxloom-family binary mid-write holds it.
     let holder = std::fs::File::open(&sidecar).unwrap();
     fs4::FileExt::lock(&holder).unwrap();
     let mut child = std::process::Command::new(super::binary())

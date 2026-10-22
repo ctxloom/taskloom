@@ -1,5 +1,4 @@
-//! Lint over rows and schemas: Go's lint_test.go cases, as far as they
-//! can arise here.
+//! Lint over rows and schemas.
 
 use std::path::PathBuf;
 
@@ -134,8 +133,8 @@ fn test_a_scalar_target_holding_two_values_is_a_violation() {
     ));
 }
 
-// Go's TestLint_FormulaEnumReference: a formula naming a value its
-// target's enum lacks is the schema's defect, reported once.
+// A formula naming a value its target's enum lacks is the schema's
+// defect, reported once.
 #[test]
 fn test_a_formula_naming_a_value_no_enum_declares_is_the_schemas_violation() {
     let schema = schema(&[

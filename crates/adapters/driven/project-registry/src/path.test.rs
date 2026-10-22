@@ -1,4 +1,4 @@
-//! Canonical paths, as Go's `cleanPath` gives them.
+//! Canonical paths.
 
 use std::path::{Path, PathBuf};
 

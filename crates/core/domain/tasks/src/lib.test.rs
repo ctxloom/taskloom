@@ -207,8 +207,8 @@ fn test_add_trims_text_and_normalizes_tags() {
     assert_eq!(task.state().tags, tags(&["release", "urgent"]));
 }
 
-// Sorted as Go's taskloom sorted its tag strings: by the spelling, so a
-// namespace or a value sorts by its characters, not as a component.
+// Sorted by the spelling, so a namespace or a value sorts by its
+// characters, not as a component.
 #[test]
 fn test_tags_are_sorted_by_their_canonical_spelling() {
     let mut task = Task::new();

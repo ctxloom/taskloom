@@ -1,12 +1,13 @@
-//! Acceptance: `taskloom import` agrees with Go's fold, task by task.
+//! Acceptance: `taskloom import` agrees with the reference fold, task by
+//! task.
 //!
-//! Go's fold is the oracle, dumped as JSON by `scripts/go-fold`'s harness
-//! (`scripts/compare-go-import.sh`) from Go's own `eventLog.fold`. The
-//! fixtures (`fixtures/go-logs`) are synthetic logs, one per kind of record
-//! the importer meets, and `fixtures/go-fold.json` is Go's fold of them.
-//! The same comparison runs over real logs, given by path, in an ignored
-//! test: the logs are copied into a temporary home first, so it never
-//! touches a real one.
+//! The reference fold is the oracle, dumped as JSON by `scripts/go-fold`'s
+//! harness (`scripts/compare-go-import.sh`). The fixtures
+//! (`fixtures/jsonl-logs`) are synthetic logs, one per kind of record the
+//! importer meets, and `fixtures/go-fold.json` is the reference fold of
+//! them. The same comparison runs over real logs, given by path, in an
+//! ignored test: the logs are copied into a temporary home first, so it
+//! never touches a real one.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -96,14 +97,15 @@ fn instant(value: &Value) -> Option<Timestamp> {
     })
 }
 
-/// How one project's import compares with Go's fold of it.
+/// How one project's import compares with the reference fold of it.
 #[derive(Debug, Default)]
 struct Compared {
-    /// Tasks Go's fold holds, removed ones included.
+    /// Tasks the reference fold holds, removed ones included.
     go_tasks: usize,
     /// Tasks that agree on every field.
     agreeing: usize,
-    /// The tags of the live tasks in Go's fold, each task's counted.
+    /// The tags of the live tasks in the reference fold, each task's
+    /// counted.
     go_tags: usize,
     /// Those of them that are not tags in tagma's grammar: the import
     /// reports each and leaves it out.
@@ -113,7 +115,8 @@ struct Compared {
     mismatches: Vec<String>,
 }
 
-/// Compare Go's fold of one project with the store the import left.
+/// Compare the reference fold of one project with the store the import
+/// left.
 fn compare(go: &Value, rust: &BTreeMap<String, TaskState>) -> Compared {
     let mut compared = Compared::default();
     let mut seen = BTreeSet::new();
@@ -131,7 +134,7 @@ fn compare(go: &Value, rust: &BTreeMap<String, TaskState>) -> Compared {
                 fields.push("removed");
             }
         } else {
-            // Go's tags as tagma parses them, each in its canonical
+            // The folded tags as tagma parses them, each in its canonical
             // spelling; one that does not parse is left out, as the import
             // leaves it out.
             let go_tags = task["tags"].as_array().unwrap();
@@ -213,9 +216,10 @@ fn lost(project: &Value) -> Vec<(u64, String, String)> {
         .collect()
 }
 
-/// Compare every project of Go's fold `go` with what importing its logs
-/// into `home` left, checking on the way that the import reported what
-/// Go's fold could not give it. Mismatches by project, and the comparisons.
+/// Compare every project of the reference fold `go` with what importing
+/// its logs into `home` left, checking on the way that the import reported
+/// what the fold could not give it. Mismatches by project, and the
+/// comparisons.
 fn check(go: &Value, home: &Path, report: &Value) -> BTreeMap<String, Compared> {
     let mut all = BTreeMap::new();
     for (project, fold) in go.as_object().unwrap() {
@@ -230,7 +234,7 @@ fn check(go: &Value, home: &Path, report: &Value) -> BTreeMap<String, Compared> 
             continue;
         }
         assert!(ours["failed"].is_null(), "{project}: {}", ours["failed"]);
-        // Every anomaly Go's fold met is accounted for: repaired, or
+        // Every anomaly the fold met is accounted for: repaired, or
         // reported displaced.
         let anomalies = fold["anomalies"].as_array().unwrap();
         let repaired = anomalies.iter().filter(|a| a["repaired"] == true).count();
@@ -276,14 +280,15 @@ fn test_the_import_agrees_with_gos_fold_of_every_fixture() {
     let go: Value =
         serde_json::from_str(&fs::read_to_string(fixtures().join("go-fold.json")).unwrap())
             .unwrap();
-    let home = home_with(&fixtures().join("go-logs"));
+    let home = home_with(&fixtures().join("jsonl-logs"));
     let (ran, report) = import(home.path());
     assert!(!ran.ok, "the fixtures leave records behind, so it fails");
     assert_eq!(report["complete"], false);
     let compared = check(&go, home.path(), &report);
 
-    // Where Rust and Go disagree, the import said why: each record the
-    // tasks domain refuses, and every later record to its task.
+    // Where the import and the reference fold disagree, the import said
+    // why: each record the tasks domain refuses, and every later record to
+    // its task.
     let refusals = reported(&report, "domain-refusals");
     let code = |c: &str| c.to_string();
     let harp = |h: &str| h.to_string();
@@ -309,7 +314,8 @@ fn test_the_import_agrees_with_gos_fold_of_every_fixture() {
             ": absent",
             "brisk-heron: absent",
             "quiet-maple: absent",
-            // A status Go kept untrimmed; Rust trims it. Not reported.
+            // A status the fold keeps untrimmed; the import trims it. Not
+            // reported.
             "swift-lark: status",
             "tidy-otter: text",
             "tidy-otter: status",
@@ -333,8 +339,8 @@ fn test_the_import_agrees_with_gos_fold_of_every_fixture() {
             ),
         ]
     );
-    // A Go tag outside tagma's grammar is reported, record by record, and
-    // left out; the rest of the record imports, and `k="v"` is `k=v`.
+    // A logged tag outside tagma's grammar is reported, record by record,
+    // and left out; the rest of the record imports, and `k="v"` is `k=v`.
     let unparseable = reported(&report, "unparseable-tags");
     let tag = code("tasks-application-tag-unparseable");
     let heron = || harp("brisk-heron");
@@ -373,8 +379,8 @@ fn test_the_import_agrees_with_gos_fold_of_every_fixture() {
         "no store for it"
     );
     let failed = |p: &str| reported(&report, p)["failed"]["code"].clone();
-    assert_eq!(failed("malformed"), "go-task-log-malformed");
-    assert_eq!(failed("unknown-op"), "go-task-log-unknown-op");
+    assert_eq!(failed("malformed"), "jsonl-task-log-malformed");
+    assert_eq!(failed("unknown-op"), "jsonl-task-log-unknown-op");
     assert!(
         !home.path().join(".ctxloom/projects/index.yaml").exists(),
         "an import binds no directory to a project"
@@ -383,9 +389,9 @@ fn test_the_import_agrees_with_gos_fold_of_every_fixture() {
     assert_idempotent(home.path(), &report);
 }
 
-/// Over real logs: TASKLOOM_IMPORT_LOGS names a directory of Go logs
-/// (copied again here, so it is only read), TASKLOOM_GO_FOLD Go's fold of
-/// them. `scripts/compare-go-import.sh` sets both up from copies.
+/// Over real logs: TASKLOOM_IMPORT_LOGS names a directory of JSONL logs
+/// (copied again here, so it is only read), TASKLOOM_GO_FOLD the reference
+/// fold of them. `scripts/compare-go-import.sh` sets both up from copies.
 #[test]
 #[ignore = "reads real logs, given by TASKLOOM_IMPORT_LOGS and TASKLOOM_GO_FOLD"]
 fn test_the_import_agrees_with_gos_fold_of_real_logs() {

@@ -1,22 +1,22 @@
-//! What Rust taskloom's MCP text is: Go's (`go/`, which
-//! `scripts/go-companion-fixtures.sh` regenerates from the Go source),
-//! with the factual changes the human reviewed and approved applied.
+//! What taskloom's MCP text is: the reference text (`go/`, which
+//! `scripts/go-companion-fixtures.sh` regenerates from its source), with
+//! the factual changes the human reviewed and approved applied.
 //!
 //! Each change is an exact `(old, new)` pair on the fixture's raw bytes,
 //! before any JSON parse, so a pair in `tools.json` matches its escapes
-//! (`\u003c` for `<`). Each `old` must occur exactly once: if Go rewords a
-//! sentence a pair changes, the pair no longer matches and the parity tests
-//! fail until the pair is reviewed again; if Go changes any other text, the
-//! expected text changes and the byte comparison fails, as it did when the
-//! text was Go's alone. The numbers are the review's (the port plan's
-//! Decided: "The prose Rust taskloom serves").
+//! (`<` for `<`). Each `old` must occur exactly once: if the source
+//! rewords a sentence a pair changes, the pair no longer matches and the
+//! parity tests fail until the pair is reviewed again; if the source
+//! changes any other text, the expected text changes and the byte
+//! comparison fails, as it would with no pairs at all. The numbers are the
+//! review's (the port plan's Decided: "The prose Rust taskloom serves").
 
-/// Go's MCP server instructions, reviewed.
+/// The reference MCP server instructions, reviewed.
 pub fn instructions() -> String {
     applied(include_str!("go/instructions.txt"), INSTRUCTIONS)
 }
 
-/// Go's tools, as tools/list answers them, reviewed.
+/// The reference tools, as tools/list answers them, reviewed.
 pub fn tools() -> String {
     applied(include_str!("go/tools.json"), TOOLS)
 }

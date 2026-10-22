@@ -39,7 +39,7 @@ go_fold() {
 }
 
 if [ "${1:-}" = "--fixtures" ]; then
-    go_fold "$fixtures/go-logs" "$fixtures/go-fold.json"
+    go_fold "$fixtures/jsonl-logs" "$fixtures/go-fold.json"
     echo "wrote $fixtures/go-fold.json"
     exit 0
 fi

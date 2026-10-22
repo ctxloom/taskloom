@@ -1,6 +1,5 @@
 //! Acceptance: the real `taskloom` binary, run as separate processes on one
 //! project's SQLite database, loses no write and duplicates no task id.
-//! A port of Go's `tests/taskloom/crossprocess_test.go`.
 //!
 //! The tests live beside the code (no `tests/` directory), where cargo
 //! does not build the binary for them; so the first test to need it builds
@@ -80,7 +79,7 @@ impl Ran {
 impl Env {
     /// A fresh home and project directory: no registry, no marker, no
     /// store. A test that is not about first sight seeds the project with a
-    /// real `add` before any concurrency, as Go's tests do.
+    /// real `add` before any concurrency.
     fn new(session: &'static str) -> Env {
         Env {
             home: tempfile::tempdir().unwrap(),
@@ -462,7 +461,7 @@ fn test_every_diagnostic_of_every_crate_renders_from_the_binarys_catalog() {
         tasks_cli::diagnostic_samples(),
         project_application::diagnostic_samples(),
         project_cli::diagnostic_samples(),
-        go_task_log::diagnostic_samples(),
+        jsonl_task_log::diagnostic_samples(),
         tasks_config::diagnostic_samples(),
         presentation::diagnostic_samples(),
         tasks_mcp::diagnostic_samples(),
@@ -560,7 +559,7 @@ fn test_in_json_each_command_writes_one_document_and_errors_an_envelope() {
     let report = one_document(&incomplete.stdout);
     assert_eq!(
         report["projects"][0]["failed"]["code"],
-        "tasks-application-no-go-log"
+        "tasks-application-no-jsonl-log"
     );
     assert_eq!(
         one_document(&incomplete.stderr)["code"],

@@ -1,13 +1,13 @@
-//! `manage install|uninstall|check`, Go taskloom's flags and words: the
+//! `manage install|uninstall|check`, taskloom's flags and words: the
 //! taskloom MCP server written into agents' configurations, taken out,
-//! and found. Notices go to stderr as Go's do (text and JSON alike); in
-//! JSON stdout carries one document, in text `check`'s table alone.
+//! and found. Notices go to stderr (text and JSON alike); in JSON stdout
+//! carries one document, in text `check`'s table alone.
 //!
-//! Go's `manage install --project` is a switch (the project-scoped file
-//! under `--dir`) where every other command's `--project` names a project
-//! id. So the binary mounts `manage` with its words unparsed ([`Group`])
-//! and this crate reads them with its own parser, which knows `--format`
-//! and `--json` too.
+//! `manage install --project` is a switch (the project-scoped file under
+//! `--dir`) where every other command's `--project` names a project id. So
+//! the binary mounts `manage` with its words unparsed ([`Group`]) and this
+//! crate reads them with its own parser, which knows `--format` and
+//! `--json` too.
 
 mod error;
 
@@ -284,7 +284,7 @@ fn removed_notices(removed: &[Outcome], speaker: &Speaker, err: &mut dyn Write) 
     Ok(())
 }
 
-/// In JSON, `view` on stdout; in text, stdout stays empty, as Go's.
+/// In JSON, `view` on stdout; in text, stdout stays empty.
 fn json_only(
     format: Format,
     out: &mut dyn Write,
@@ -419,7 +419,7 @@ impl Render for Found<'_> {
     }
 }
 
-/// `text` padded with spaces to `width` characters, as Go's `%-<width>s`.
+/// `text` padded with spaces to `width` characters, left-aligned.
 fn presentation_pad(text: &str, width: usize) -> String {
     let pad = width.saturating_sub(text.chars().count());
     format!("{text}{}", " ".repeat(pad))

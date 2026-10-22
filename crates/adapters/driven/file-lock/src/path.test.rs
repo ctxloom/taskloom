@@ -1,4 +1,4 @@
-//! Where a lock lives, as Go names it.
+//! Where a lock lives.
 
 use std::path::{Path, PathBuf};
 
@@ -31,7 +31,7 @@ fn test_a_flat_name_escapes_what_ntfs_refuses_and_cuts_on_a_character() {
     assert!(tail.chars().all(|c| c == '\u{e9}'), "{tail}");
 }
 
-/// Go's `FlatName` gave each of these (its body run on them verbatim).
+/// The flat name of each of these, as the reference derivation gave it.
 #[test]
 fn test_a_flat_name_cut_inside_a_character_steps_forward_as_gos() {
     assert_eq!(
@@ -67,8 +67,8 @@ fn test_a_relative_path_is_made_absolute_against_the_working_directory() {
     assert_eq!(absolute(Path::new("/x/../y")).unwrap(), Path::new("/y"));
 }
 
-/// Go's own `paths.HomePathFor` and `LockReapInterlockPath`, run with
-/// HOME at /home/u, gave each of these.
+/// The home path and the reap interlock's path of each of these, with HOME
+/// at /home/u, as the reference derivation gave them.
 #[test]
 fn test_a_file_outside_every_session_is_locked_in_the_home_lock_directory() {
     let home = Path::new("/home/u");

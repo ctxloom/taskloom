@@ -1,8 +1,8 @@
 //! The ports the tasks application needs from outside, beyond annals' own
 //! store port: which project a call is about, where its store is, how ids
 //! are minted, whether its store can purge a stream or say whether
-//! anything changed, what time it is, how to wait, what is configured, Go
-//! taskloom's logs to import, what a directory's identity rests on, to show
+//! anything changed, what time it is, how to wait, what is configured, the
+//! JSONL task logs to import, what a directory's identity rests on, to show
 //! and repair it, whether a project's database is sound, and agents' MCP
 //! configurations, to register a server in. Each is a trait a driven
 //! adapter (or the composition root) implements; nothing here does I/O.
@@ -63,8 +63,8 @@ pub trait ProjectIdentity {
 
     /// The working directory, canonical, when it lies in no work root of
     /// its own: no CTXLOOM_ROOT, and no git repository above it. A read
-    /// that finds no project there reads every project instead, as Go's
-    /// does; inside a work root (`None`) it reads none.
+    /// that finds no project there reads every project instead; inside a
+    /// work root (`None`) it reads none.
     fn rootless_directory(&mut self) -> Result<Option<String>, Report>;
 }
 
@@ -198,17 +198,17 @@ pub trait Configuration {
     fn tag_schema(&mut self, overrides: &[String]) -> Result<Vec<String>, Report>;
 }
 
-/// One record of Go taskloom's task log, `~/.ctxloom/tasks/<project-id>.jsonl`:
-/// one JSON line, decoded as Go decodes it, with absent fields empty.
+/// One record of a JSONL task log, `~/.ctxloom/tasks/<project-id>.jsonl`:
+/// one JSON line, with absent and null fields empty.
 #[derive(Clone, PartialEq, Debug)]
-pub struct GoRecord {
+pub struct JsonlRecord {
     /// Its line in the log, from 1.
     pub line: u32,
-    /// The line, trimmed: Go's fold skips a line repeating an earlier one
+    /// The line, trimmed: the fold skips a line repeating an earlier one
     /// byte for byte, and the importer derives the record's command id
     /// from it.
     pub raw: String,
-    pub op: GoOp,
+    pub op: JsonlOp,
     /// The task's harp id.
     pub task: String,
     pub text: String,
@@ -216,18 +216,16 @@ pub struct GoRecord {
     pub trigger: String,
     /// The session that added the task (an add), or acted on it.
     pub session: String,
-    /// On an add written by Go's `repair`: the key of the displaced add it
-    /// re-adds.
+    /// On a repair add: the key of the displaced add it re-adds.
     pub repair_of: String,
     pub tags: Vec<String>,
-    /// When it was recorded; Go's zero time (0001-01-01T00:00:00Z) when the
-    /// line has none.
+    /// When it was recorded; 0001-01-01T00:00:00Z when the line has none.
     pub ts: Timestamp,
 }
 
-/// What a Go record does.
+/// What a record does.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum GoOp {
+pub enum JsonlOp {
     Add,
     Status,
     Text,
@@ -236,33 +234,32 @@ pub enum GoOp {
     Untag,
 }
 
-impl GoOp {
+impl JsonlOp {
     /// The op as the log spells it.
     pub fn as_str(self) -> &'static str {
         match self {
-            GoOp::Add => "add",
-            GoOp::Status => "status",
-            GoOp::Text => "text",
-            GoOp::Remove => "remove",
-            GoOp::Tag => "tag",
-            GoOp::Untag => "untag",
+            JsonlOp::Add => "add",
+            JsonlOp::Status => "status",
+            JsonlOp::Text => "text",
+            JsonlOp::Remove => "remove",
+            JsonlOp::Tag => "tag",
+            JsonlOp::Untag => "untag",
         }
     }
 }
 
-/// Go taskloom's per-project task logs, read and never written.
+/// The per-project JSONL task logs, read and never written.
 ///
 /// Synchronous, and it blocks on the filesystem, as [`ProjectIdentity`]
 /// does.
-pub trait GoTaskLogs {
+pub trait JsonlTaskLogs {
     /// The ids of the projects that have a log, sorted.
     fn projects(&mut self) -> Result<Vec<String>, Report>;
 
     /// The project's records in the log's order, blank lines left out;
-    /// `None` when it has no log. A line Go's fold would refuse (malformed
-    /// JSON, no op or one Go does not know) refuses the whole log, as Go's
-    /// fold does.
-    fn records(&mut self, project_id: &str) -> Result<Option<Vec<GoRecord>>, Report>;
+    /// `None` when it has no log. A line that is malformed JSON, has no op
+    /// or has one the format does not know refuses the whole log.
+    fn records(&mut self, project_id: &str) -> Result<Option<Vec<JsonlRecord>>, Report>;
 }
 
 #[cfg(test)]

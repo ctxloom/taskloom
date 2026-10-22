@@ -63,7 +63,6 @@ fn test_a_refusal_renders_its_english() {
 }
 
 // ------------------------------------------------------------ admission
-// Go's validateTag cases (operations_test.go).
 
 use super::{admit, admit_all, collapse};
 use crate::schema::TagSchema;
@@ -259,7 +258,6 @@ fn test_admitting_every_tag_stops_at_the_first_refused() {
 }
 
 // ------------------------------------------------------------ collapse
-// Go's scalarCollapse cases.
 
 fn tags(spelled: &[&str]) -> Vec<Tag> {
     spelled.iter().map(|s| parse(s).unwrap().unwrap()).collect()

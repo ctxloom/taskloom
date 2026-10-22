@@ -105,7 +105,7 @@ impl Drop for Watching {
     }
 }
 
-/// Go's line, for `project`.
+/// The stream's line, for `project`.
 fn event(project: &str) -> Value {
     serde_json::json!({"event": "changed", "kind": "tasks", "project": project})
 }

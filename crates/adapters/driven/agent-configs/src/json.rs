@@ -2,7 +2,7 @@
 //! so a file someone else owns keeps every byte the edit does not touch.
 //!
 //! The splices are a port of hew's JSON binding (`ext/json/edits.go`,
-//! `internal/hewsplice`), the byte-preserving patcher Go taskloom writes
+//! `internal/hewsplice`), the byte-preserving patcher every taskloom writes
 //! through: a member appended to an object takes its siblings' layout (a
 //! line of its own at their indent in a block, `, ` after them on one
 //! line), an empty object is seeded as hew seeds it, and a removal takes
@@ -97,9 +97,8 @@ pub fn parse(src: &[u8]) -> Result<Node, SyntaxError> {
     Ok(node)
 }
 
-/// The first JSON value in `src`, whatever follows it, as Go's decoder
-/// reads a config (`json.Decoder.Decode`); `None` for bytes that are only
-/// whitespace, which Go reads as an empty object.
+/// The first JSON value in `src`, whatever follows it; `None` for bytes
+/// that are only whitespace, which read as an empty object.
 pub fn parse_first(src: &[u8]) -> Result<Option<Node>, SyntaxError> {
     let mut parser = Parser { src, at: 0 };
     parser.space();
@@ -255,8 +254,7 @@ impl Parser<'_> {
         }
     }
 
-    /// A string, decoded; invalid UTF-8 in it is replaced, as Go's
-    /// decoder replaces it.
+    /// A string, decoded; invalid UTF-8 in it is replaced by U+FFFD.
     fn string(&mut self) -> Result<String, SyntaxError> {
         self.at += 1;
         let mut bytes = Vec::new();
@@ -383,7 +381,7 @@ const MAX_DEPTH: usize = 512;
 pub enum Value {
     String(String),
     Array(Vec<Value>),
-    /// Rendered with its keys sorted, as Go's maps marshal.
+    /// Rendered with its keys sorted.
     Object(BTreeMap<String, Value>),
 }
 
@@ -409,9 +407,9 @@ pub fn encode(value: &Value) -> String {
     }
 }
 
-/// `s` as a JSON string. hew quotes with Go's `strconv.Quote`, which
-/// agrees for every string without control characters; this writes the
-/// JSON escapes for those, where Go's would not be JSON.
+/// `s` as a JSON string: hew's quoting for every string without control
+/// characters, and the JSON escapes for those, where hew's quoting would
+/// not be JSON.
 pub fn quote(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');

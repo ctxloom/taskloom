@@ -113,7 +113,7 @@ impl Formula {
         }
         match expr::run(&self.program, &context) {
             Ok(Value::Float(score)) => Ok(score),
-            // A whole number is a score: Go's expr.AsFloat64 widens it too.
+            // A whole number is a score too, widened to a float.
             Ok(Value::Integer(score)) => Ok(score as f64),
             Ok(other) => Err(Failure::NotANumber(other.to_string())),
             Err(e) => Err(Failure::Unevaluable(e.to_string())),
@@ -132,7 +132,7 @@ fn variable(n: usize) -> String {
 }
 
 /// The names of `formula`'s placeholders, `{{ name }}`, trimmed, in order,
-/// repeats kept: what Go's `\{\{\s*([^{}]+?)\s*}}` finds.
+/// repeats kept: what `\{\{\s*([^{}]+?)\s*}}` finds.
 pub fn placeholders(formula: &str) -> Vec<&str> {
     scan(formula).into_iter().map(|p| p.name).collect()
 }

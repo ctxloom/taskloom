@@ -1,6 +1,6 @@
 //! The tasks use cases: add a task, move, edit or retag one, read a
 //! project's tasks (or every project's), watch them change, prune old
-//! finished ones, and import Go taskloom's logs.
+//! finished ones, and import the JSONL task logs.
 //!
 //! Each resolves its project through [`ProjectIdentity`], opens the
 //! project's store through [`TaskStores`], and runs its command through
@@ -36,10 +36,10 @@ pub use annals::next::Timestamp;
 pub use error::{diagnostic_samples, AppError, CATALOGS, EN_US};
 pub use import::{
     anomaly_key, record_command_id, rfc3339_nano, ImportReport, ImportRequest, ImportService, Lost,
-    NoGoLogs, ProjectImport, Why,
+    NoJsonlLogs, ProjectImport, Why,
 };
 pub use lint::{Finding, LintReport, Violation, SCHEMA_SUBJECT};
-pub use ports::{GoOp, Project};
+pub use ports::{JsonlOp, Project};
 pub use priority::{PriorityNote, PriorityWarning};
 pub use prune::{
     cut, Dangling, PruneRefusal, PruneRequest, PruneService, Pruned, Pruning, Via,
@@ -60,7 +60,7 @@ pub use view::{
 pub use watch::{Changed, Watch, WatchRequest, WatchService};
 
 /// How many task ids an add mints before giving up, each refused because a
-/// task already holds it: Go's `harp.UniqueFrom`.
+/// task already holds it.
 pub const HARP_ATTEMPTS: u32 = 100;
 
 /// A task to add.
@@ -160,12 +160,12 @@ pub struct ListQuery {
     /// At most this many tasks, the rest counted as omitted; 0 for no
     /// limit.
     pub limit: usize,
-    /// The order: empty for the listing's own, or [`PRIORITY`], Go's one
+    /// The order: empty for the listing's own, or [`PRIORITY`], the one
     /// sort.
     pub sort: String,
 }
 
-/// The sort by derived priority, Go's `--sort priority`.
+/// The sort by derived priority, `--sort priority`.
 pub const PRIORITY: &str = "priority";
 
 /// A task written, the project it was written in, and which of its tags a
@@ -215,17 +215,17 @@ pub fn registry() -> Registry {
 }
 
 /// The use cases over their ports: `clock` stamps commands and mints their
-/// ids; `delay` waits, with jitter, between retries; `go_logs` are the Go
-/// logs an import reads, none until [`Service::with_go_logs`] gives some;
-/// `configuration` is what is configured, nothing until
+/// ids; `delay` waits, with jitter, between retries; `jsonl_logs` are the
+/// JSONL logs an import reads, none until [`Service::with_jsonl_logs`]
+/// gives some; `configuration` is what is configured, nothing until
 /// [`Service::with_configuration`] gives it.
-pub struct Service<I, S, N, C, D, L = NoGoLogs, G = NotConfigured> {
+pub struct Service<I, S, N, C, D, L = NoJsonlLogs, G = NotConfigured> {
     pub identity: I,
     pub stores: S,
     pub names: N,
     pub clock: C,
     pub delay: D,
-    pub go_logs: L,
+    pub jsonl_logs: L,
     pub configuration: G,
     pub backoff: Backoff,
     registry: Registry,
@@ -252,7 +252,7 @@ impl<I, S, N, C, D> Service<I, S, N, C, D> {
             names,
             clock,
             delay,
-            go_logs: NoGoLogs,
+            jsonl_logs: NoJsonlLogs,
             configuration: NotConfigured,
             backoff: Backoff::DEFAULT,
             registry: registry(),
@@ -261,15 +261,15 @@ impl<I, S, N, C, D> Service<I, S, N, C, D> {
 }
 
 impl<I, S, N, C, D, L, G> Service<I, S, N, C, D, L, G> {
-    /// The same service, importing from `go_logs`.
-    pub fn with_go_logs<M>(self, go_logs: M) -> Service<I, S, N, C, D, M, G> {
+    /// The same service, importing from `jsonl_logs`.
+    pub fn with_jsonl_logs<M>(self, jsonl_logs: M) -> Service<I, S, N, C, D, M, G> {
         Service {
             identity: self.identity,
             stores: self.stores,
             names: self.names,
             clock: self.clock,
             delay: self.delay,
-            go_logs,
+            jsonl_logs,
             configuration: self.configuration,
             backoff: self.backoff,
             registry: self.registry,
@@ -284,7 +284,7 @@ impl<I, S, N, C, D, L, G> Service<I, S, N, C, D, L, G> {
             names: self.names,
             clock: self.clock,
             delay: self.delay,
-            go_logs: self.go_logs,
+            jsonl_logs: self.jsonl_logs,
             configuration,
             backoff: self.backoff,
             registry: self.registry,
@@ -414,8 +414,7 @@ where
     }
 
     async fn tag(&mut self, change: TagChange) -> Result<Written, AppError> {
-        // Nothing to add or remove is refused before anything is read, as
-        // Go's `tag` refuses it.
+        // Nothing to add or remove is refused before anything is read.
         if change
             .add
             .iter()

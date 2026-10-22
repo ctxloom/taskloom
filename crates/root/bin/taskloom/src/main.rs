@@ -1,8 +1,8 @@
 //! taskloom: per-project task tracking. The composition root: it reads the
 //! process's environment, wires the tasks use cases to their adapters (the
 //! project registry, harp names, the SQLite task store, the system's
-//! clock, ids, timer and randomness, taskloom's configuration, and Go
-//! taskloom's logs to import), mounts the `project` group and `mcp` beside
+//! clock, ids, timer and randomness, taskloom's configuration, and the
+//! JSONL task logs to import), mounts the `project` group and `mcp` beside
 //! the task commands, and hands the command line to the CLI. The `project`
 //! group runs over the registry and the SQLite store's integrity check;
 //! `mcp` serves the task tools over stdio, each call on a service of its
@@ -16,13 +16,13 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use go_task_log::GoTaskLogDir;
 use harp_names::HarpNames;
+use jsonl_task_log::JsonlTaskLogDir;
 use project_application::Projects;
 use project_registry::{Environment, ProjectRegistry};
 use system::System;
 use task_store_sqlite::SqliteStores;
-use tasks_application::{NoGoLogs, Service};
+use tasks_application::{NoJsonlLogs, Service};
 use tasks_cli::Context;
 use tasks_config::TaskloomConfig;
 
@@ -41,7 +41,7 @@ fn catalog() -> Result<presentation::Catalog, presentation::CatalogError> {
         file_lock::EN_US,
         project_registry::EN_US,
         task_store_sqlite::EN_US,
-        go_task_log::EN_US,
+        jsonl_task_log::EN_US,
         tasks_config::EN_US,
         tasks_mcp::EN_US,
         tasks_run::EN_US,
@@ -83,7 +83,7 @@ fn service(
     HarpNames,
     System,
     System,
-    NoGoLogs,
+    NoJsonlLogs,
     TaskloomConfig,
 > {
     let identity = ProjectRegistry::new(env.clone(), HarpNames);
@@ -166,7 +166,7 @@ fn watch<W: tasks_application::WatchService>(
             }
         };
         // Stdin is not watched: the VS Code extension starts the watch
-        // with stdin from /dev/null, and Go's watch ignores it too.
+        // with stdin from /dev/null.
         let mut ticks = tasks_watch::Interval::every(tasks_watch::DEBOUNCE);
         tasks_watch::run(
             service,
@@ -252,12 +252,12 @@ fn main() -> ExitCode {
         root: std::env::var_os("CTXLOOM_ROOT").map(PathBuf::from),
         project_id: std::env::var("CTXLOOM_PROJECT_ID").ok(),
     };
-    let go_logs = GoTaskLogDir::in_home(env.home.as_deref());
+    let jsonl_logs = JsonlTaskLogDir::in_home(env.home.as_deref());
     let mut projects = Projects::new(
         ProjectRegistry::new(env.clone(), HarpNames),
         SqliteStores::default(),
     );
-    let mut service = service(&env, utf8_vars()).with_go_logs(go_logs);
+    let mut service = service(&env, utf8_vars()).with_jsonl_logs(jsonl_logs);
     let context = Context {
         session: std::env::var("CTXLOOM_SESSION_HARP").unwrap_or_default(),
         stdout_is_terminal: io::stdout().is_terminal(),
@@ -265,7 +265,7 @@ fn main() -> ExitCode {
         // True of every lock file taskloom takes, each through file-lock:
         // the project registry's `index.yaml.lock`, and `manage`'s home
         // sidecar for the agent configuration it rewrites, with the reap
-        // interlock held shared. It takes none on a Go task log (the
+        // interlock held shared. It takes none on a JSONL task log (the
         // importer reads without one); its store is SQLite's to lock.
         lock_protocol: file_lock::LOCK_PROTOCOL,
     };

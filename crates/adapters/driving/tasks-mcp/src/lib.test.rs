@@ -16,13 +16,12 @@ use crate::fakes::World;
 #[path = "../fixtures/reviewed.rs"]
 mod reviewed;
 
-/// Go taskloom's capabilities as initialize answers them, its tools and
+/// taskloom's capabilities as initialize answers them, its tools and
 /// resources as tools/list and resources/list answer them, and what its
 /// tag-schema resource reads with nothing configured, as
-/// `scripts/go-companion-fixtures.sh` extracted them from the Go source
-/// (`cmd/taskloom/mcp.go`, `mcp_tools.go`, `mcp_resources.go`); run it
-/// again to regenerate them. Rust serves Go's instructions and tools with
-/// the reviewed factual changes applied (`reviewed`).
+/// `scripts/go-companion-fixtures.sh` extracted them from the reference
+/// source; run it again to regenerate them. The instructions and tools are
+/// served with the reviewed factual changes applied (`reviewed`).
 const GO_CAPABILITIES: &str = include_str!("../fixtures/go/capabilities.json");
 const GO_TOOLS: &str = include_str!("../fixtures/go/tools.json");
 const GO_RESOURCES: &str = include_str!("../fixtures/go/resources.json");
@@ -145,7 +144,7 @@ fn envelope(result: &Value) -> Value {
     serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap()
 }
 
-// ------------------------------------------------------------ parity with Go
+// ------------------------------------------------------------ parity
 
 #[test]
 fn test_the_instructions_are_gos_reviewed_byte_for_byte() {
@@ -167,8 +166,9 @@ fn test_the_instructions_are_gos_reviewed_byte_for_byte() {
     });
 }
 
-// A reviewed change applies to exactly one place in Go's text: once Go
-// rewords it, or says it twice, the change is reviewed again.
+// A reviewed change applies to exactly one place in the reference text:
+// once the source rewords it, or says it twice, the change is reviewed
+// again.
 #[test]
 fn test_a_reviewed_change_must_match_gos_text_exactly_once() {
     assert_eq!(reviewed::applied("a b c", &[("b", "x")]), "a x c");
@@ -187,7 +187,7 @@ fn test_the_capabilities_are_gos() {
     });
 }
 
-// Go advertises logging, so a client may set its level; nothing is
+// Logging is advertised, so a client may set its level; nothing is
 // logged at any.
 #[test]
 fn test_a_logging_level_is_accepted() {
@@ -410,7 +410,7 @@ fn bound() -> Arc<World> {
     })
 }
 
-/// Whether `value` fits `schema`, as far as Go's output schemas say: a
+/// Whether `value` fits `schema`, as far as the output schemas say: a
 /// type (or several), an object's properties (no others where
 /// `additionalProperties` is false) and those it requires, an array's
 /// items, a map's values.
@@ -466,7 +466,7 @@ fn conforms(value: &Value, schema: &Value, at: &str) {
     }
 }
 
-/// `tool`'s output schema, Go's.
+/// `tool`'s output schema.
 fn output_schema(tool: &str) -> Value {
     let go: Vec<Value> = serde_json::from_str(GO_TOOLS).unwrap();
     go.into_iter()
@@ -475,7 +475,7 @@ fn output_schema(tool: &str) -> Value {
         .expect("Go has the tool")
 }
 
-/// A call's structured result, held to Go's output schema for the tool.
+/// A call's structured result, held to the tool's output schema.
 async fn answered(client: &mut Client, tool: &str, arguments: Value) -> Value {
     let result = client.call(tool, arguments).await;
     let value = structured(&result).clone();
@@ -741,8 +741,8 @@ fn test_a_global_listing_reads_every_project_and_needs_no_notice() {
     });
 }
 
-// Go's fallback: outside every work root, with no project of its own,
-// a listing reads every project, and says why.
+// Outside every work root, with no project of its own, a listing reads
+// every project, and says why.
 #[test]
 fn test_a_listing_outside_every_work_root_reads_every_project_and_says_why() {
     run(async {

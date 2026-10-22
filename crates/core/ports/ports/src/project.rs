@@ -16,7 +16,7 @@ pub enum IdSource {
     Environment,
     /// `<root>/.project-id`.
     Marker,
-    /// Go's older `<root>/.ctxloom/project-id`.
+    /// The older `<root>/.ctxloom/project-id`.
     LegacyMarker,
     /// The registry's entry for the root's path.
     Registry,
@@ -62,7 +62,7 @@ pub struct Survey {
     pub resolved: Option<(String, IdSource)>,
     /// The id in `<root>/.project-id`, if it holds one.
     pub marker: Option<String>,
-    /// The id in Go's older `<root>/.ctxloom/project-id`, if it holds one.
+    /// The id in the older `<root>/.ctxloom/project-id`, if it holds one.
     pub legacy_marker: Option<String>,
     /// Every registry entry, in the registry's order.
     pub registry: Vec<Registered>,

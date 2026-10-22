@@ -1,5 +1,5 @@
 //! `taskloom watch`: a project's task changes as a JSON Lines stream, one
-//! line per change, in Go taskloom's shape:
+//! line per change:
 //! `{"event":"changed","kind":"tasks","project":"<project-id>"}`. A
 //! subscriber (a GUI) re-queries the task list on each line. One line is
 //! written at once, before any change, so a subscriber renders the
@@ -8,14 +8,14 @@
 //! Changes come from the store, not the filesystem: the watch use case
 //! polled on every tick of a [`Ticks`] (every [`DEBOUNCE`] in the binary).
 //! A burst of commits is one line, written once a tick finds nothing new,
-//! or after [`CEILING_TICKS`] ticks of a burst that does not stop, as Go's
-//! debounce and its ceiling do. The stream runs until its stop future
-//! resolves (the binary's: SIGINT or SIGTERM, as Go's; never its stdin
-//! closing, since a subscriber such as the VS Code extension starts it
-//! with stdin from /dev/null), or a line cannot be written.
+//! or after [`CEILING_TICKS`] ticks of a burst that does not stop. The
+//! stream runs until its stop future resolves (the binary's: SIGINT or
+//! SIGTERM; never its stdin closing, since a subscriber such as the VS
+//! Code extension starts it with stdin from /dev/null), or a line cannot
+//! be written.
 //!
-//! Both formats are the stream: text and JSON alike write JSON Lines, as
-//! Go's watch does. An error is reported as every command's is.
+//! Both formats are the stream: text and JSON alike write JSON Lines. An
+//! error is reported as every command's is.
 
 mod error;
 
@@ -32,12 +32,12 @@ use tasks_application::{WatchRequest, WatchService};
 
 pub use error::{diagnostic_samples, WatchError, EN_US};
 
-/// The quiet a burst of commits waits for before its line: Go's
-/// `watchDebounce`, and the binary's tick.
+/// The quiet a burst of commits waits for before its line, and the
+/// binary's tick.
 pub const DEBOUNCE: Duration = Duration::from_millis(100);
 
-/// The ticks a burst that does not stop may withhold its line for: Go's
-/// `debounceCeiling`, ten debounces.
+/// The ticks a burst that does not stop may withhold its line for: ten
+/// debounces.
 pub const CEILING_TICKS: u32 = 10;
 
 /// The command, for the binary to mount.
@@ -129,7 +129,7 @@ impl Debounce {
     }
 }
 
-/// One line of the stream: Go's `watchEvent`.
+/// One line of the stream.
 #[derive(Serialize, Clone, PartialEq, Eq, Debug)]
 pub struct ChangeLine<'a> {
     /// Always "changed".

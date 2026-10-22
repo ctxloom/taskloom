@@ -46,9 +46,9 @@ pub struct Context {
     /// The binary's version, as `version` reports it.
     pub version: String,
     /// The lock-taking protocol the binary's lock takers follow, as
-    /// `version` reports it (Go's `safefs.LockProtocol`): ctxloom asks
-    /// every running binary for it before it removes a lock file. 0 when
-    /// the binary takes no shared lock, and then left out.
+    /// `version` reports it: ctxloom asks every running binary for it
+    /// before it removes a lock file. 0 when the binary takes no shared
+    /// lock, and then left out.
     pub lock_protocol: u32,
 }
 

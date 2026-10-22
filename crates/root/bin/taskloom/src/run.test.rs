@@ -1,6 +1,6 @@
 //! Acceptance: `taskloom run`, the real binary in a temporary home, with a
 //! stub `ctxloom` alone on its PATH: never a real ctxloom. The stub
-//! records the argv it is handed, which is Go's.
+//! records the argv it is handed.
 
 use std::path::Path;
 

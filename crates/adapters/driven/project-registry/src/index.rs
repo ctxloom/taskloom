@@ -1,10 +1,10 @@
 //! The home registry, `~/.ctxloom/projects/index.yaml`: every project id
-//! and the path it was registered for, in Go's schema (version 1). Fields
-//! this version does not know are kept as read, so Go and Rust can share
-//! the file. Changes are made under an exclusive lock on
-//! `index.yaml.lock`, the lock file Go's registry takes (taken through
-//! file-lock, as every ctxloom lock is), and written by
-//! rename, so a reader never sees half a file.
+//! and the path it was registered for, in schema version 1. Fields this
+//! version does not know are kept as read, so every binary of the family
+//! can share the file. Changes are made under an exclusive lock on
+//! `index.yaml.lock`, the registry's lock file (taken through file-lock,
+//! as every ctxloom lock is), and written by rename, so a reader never
+//! sees half a file.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -48,8 +48,7 @@ pub struct Index {
 
 impl Index {
     /// The id registered for `root`, a canonical path, if any: the first,
-    /// if several are. Each entry's path is compared canonical too, as Go
-    /// compares them.
+    /// if several are. Each entry's path is compared canonical too.
     pub fn id_for(&self, root: &Path) -> Option<&str> {
         self.projects
             .iter()
@@ -135,7 +134,7 @@ pub fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), RegistryError> 
 }
 
 /// How long a change waits for whoever holds the registry's lock before
-/// giving up (file-lock's wait: Go waits without end).
+/// giving up (file-lock's wait).
 pub use file_lock::LOCK_WAIT;
 
 /// An exclusive lock on the registry, held until dropped.

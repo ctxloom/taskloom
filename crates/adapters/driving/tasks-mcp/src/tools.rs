@@ -1,5 +1,5 @@
 //! Each tool's arguments translated into a use case's request, and its
-//! answer into Go taskloom's result shape.
+//! answer into the tool's result shape.
 
 use presentation::Catalog;
 use rmcp::model::Tool;
@@ -25,7 +25,7 @@ pub fn offered() -> Vec<Tool> {
     serde_json::from_str(TOOLS).expect("TOOLS is a JSON array of tools")
 }
 
-/// `task_list`'s arguments: Go's `taskListInput`.
+/// `task_list`'s arguments.
 #[derive(Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 struct ListArgs {
@@ -40,7 +40,7 @@ struct ListArgs {
     limit: i64,
 }
 
-/// `task_add`'s arguments: Go's `taskAddInput`.
+/// `task_add`'s arguments.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AddArgs {
@@ -53,7 +53,7 @@ struct AddArgs {
     tags: Option<Vec<String>>,
 }
 
-/// `task_set_status`'s arguments: Go's `taskSetStatusInput`.
+/// `task_set_status`'s arguments.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SetStatusArgs {
@@ -63,7 +63,7 @@ struct SetStatusArgs {
     trigger: String,
 }
 
-/// `task_edit`'s arguments: Go's `taskEditInput`.
+/// `task_edit`'s arguments.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EditArgs {
@@ -71,7 +71,7 @@ struct EditArgs {
     text: String,
 }
 
-/// `task_tag`'s arguments: Go's `taskTagInput`.
+/// `task_tag`'s arguments.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TagArgs {
@@ -100,7 +100,7 @@ pub struct ListRequest {
 
 impl ListRequest {
     /// The scope the summary counts, once the listing has read `reach`:
-    /// the same projects its rows came from, as Go's `scopedSummary`.
+    /// the same projects its rows came from.
     pub fn summary_scope(&self, reach: &Reach) -> Scope {
         Scope {
             project: self.query.project.clone(),
@@ -111,7 +111,7 @@ impl ListRequest {
 }
 
 /// The listing `task_list`'s `arguments` ask for. A limit of 0 or less
-/// is none, as Go's.
+/// is none.
 pub fn list_request(arguments: Value, settings: &Settings) -> Result<ListRequest, McpError> {
     let args: ListArgs = self::arguments(TASK_LIST, arguments)?;
     Ok(ListRequest {
@@ -181,14 +181,13 @@ pub fn tag_change(arguments: Value, settings: &Settings) -> Result<TagChange, Mc
     })
 }
 
-/// A listed task: Go's `taskRow`, the task and the project it is in;
-/// or, compact, Go's `compactTaskRow`.
+/// A listed task: the task and the project it is in; or, compact, its
+/// compact row.
 type Row<'a> = RowJson<'a, TaskJson<'a>>;
 type CompactRow<'a> = RowJson<'a, CompactJson<'a>>;
 
-/// `task_list`'s result: Go's `taskListResult`. `path` is the project's
-/// store, and is empty where no one project was read. `tasks` is null
-/// when the rows are compact, as Go's is.
+/// `task_list`'s result. `path` is the project's store, and is empty where
+/// no one project was read. `tasks` is null when the rows are compact.
 #[derive(Serialize)]
 struct ListResult<'a> {
     path: String,
@@ -223,9 +222,8 @@ fn is_zero(n: &usize) -> bool {
     *n == 0
 }
 
-/// A write's result: Go's `taskAddResult`, `taskSetStatusResult`,
-/// `taskEditResult` and `taskTagResult` alike, its `path` the project's
-/// store.
+/// A write's result, for `task_add`, `task_set_status`, `task_edit` and
+/// `task_tag` alike, its `path` the project's store.
 #[derive(Serialize)]
 struct WriteResult<'a> {
     path: String,

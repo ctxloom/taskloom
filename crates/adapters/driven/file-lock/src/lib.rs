@@ -1,20 +1,20 @@
-//! ctxloom's advisory file locks, taken as Go ctxloom's `safefs` takes
-//! them, so the Rust and Go binaries take turns on one file:
+//! ctxloom's advisory file locks, taken the one way every ctxloom-family
+//! binary takes them, so binaries take turns on one file:
 //!
 //! - a lock is `flock(2)` on a lock file (shared or exclusive), created
 //!   with its directory if missing, refused when it is not a regular file;
 //! - once granted it is re-checked against the file now at its path, and
-//!   taken again while it is not (Go's `takeCurrent`, [`LOCK_ATTEMPTS`]
-//!   tries): `ctxloom clean` reaps lock files, and a lock on an unlinked
-//!   file excludes nobody. That re-check is [`LOCK_PROTOCOL`] 2;
-//! - it is waited for at most a bounded time, then refused naming the lock
-//!   (Go waits without end).
+//!   taken again while it is not ([`LOCK_ATTEMPTS`] tries): `ctxloom
+//!   clean` reaps lock files, and a lock on an unlinked file excludes
+//!   nobody. That re-check is [`LOCK_PROTOCOL`] 2;
+//! - it is waited for at most a bounded time, then refused naming the
+//!   lock.
 //!
-//! [`lock_file`] is Go's `sessions.WithFileLock`: the lock serializing a
-//! read-modify-write of a file ctxloom does not own (an agent's
-//! configuration), a sidecar under the home ([`path::sidecar_for`]) that
-//! records the path it guards, taken under the reap interlock held shared
-//! when it is one `ctxloom clean` may reap.
+//! [`lock_file`] is the lock serializing a read-modify-write of a file
+//! ctxloom does not own (an agent's configuration), a sidecar under the
+//! home ([`path::sidecar_for`]) that records the path it guards, taken
+//! under the reap interlock held shared when it is one `ctxloom clean` may
+//! reap.
 
 mod error;
 pub mod path;
@@ -28,33 +28,31 @@ pub use error::{diagnostic_samples, LockError, EN_US};
 
 /// The lock-taking protocol every taker here follows, as every
 /// ctxloom-family binary reports it (`version --format json`'s
-/// `lock_protocol`, Go's `safefs.LockProtocol`): 2 is the re-check, a lock
-/// granted on a file no longer at its path taken again. ctxloom removes a
-/// lock file only while every running binary reports at least this.
+/// `lock_protocol`): 2 is the re-check, a lock granted on a file no longer
+/// at its path taken again. ctxloom removes a lock file only while every
+/// running binary reports at least this.
 pub const LOCK_PROTOCOL: u32 = 2;
 
 /// How many times a lock granted on a file no longer at its path is taken
-/// again before giving up: Go's `lockAttempts`.
+/// again before giving up.
 pub const LOCK_ATTEMPTS: u32 = 16;
 
-/// How long a taker waits for whoever holds a lock before giving up: Go
-/// waits without end, so a process that hangs holding it would stall
-/// every other.
+/// How long a taker waits for whoever holds a lock before giving up, so a
+/// process that hangs holding it does not stall every other.
 pub const LOCK_WAIT: Duration = Duration::from_secs(10);
 
-/// How long a taker waits for a reap of the home lock directory to finish:
-/// Go's `ReapInterlockWait`.
+/// How long a taker waits for a reap of the home lock directory to finish.
 pub const REAP_INTERLOCK_WAIT: Duration = Duration::from_secs(30);
 
 /// How often a wait for a lock tries again.
 const LOCK_POLL: Duration = Duration::from_millis(20);
 
-/// A lock file's mode, before umask: Go's `lockFileMode`. Not group- or
-/// world-writable, since who can open it is who can take it.
+/// A lock file's mode, before umask. Not group- or world-writable, since
+/// who can open it is who can take it.
 #[cfg(unix)]
 const LOCK_FILE_MODE: u32 = 0o644;
 
-/// A lock directory's mode, before umask: Go's `lockDirMode`.
+/// A lock directory's mode, before umask.
 #[cfg(unix)]
 const LOCK_DIR_MODE: u32 = 0o755;
 
@@ -86,7 +84,7 @@ pub fn lock_within(lock_path: &Path, wait: Duration) -> Result<Locked, LockError
 
 /// Take the lock at `lock_path`, an absolute path, as `kind`, calling
 /// `pause` each time another holds it, until `pause` gives up. A lock file
-/// it creates records `guarded`, when given (Go's `LockGuarding`).
+/// it creates records `guarded`, when given.
 pub fn lock(
     lock_path: &Path,
     kind: Kind,
@@ -107,7 +105,7 @@ pub fn lock(
 /// The lock `take` grants, taken again while what it granted is no longer
 /// the file at `lock_path`: `ctxloom clean` reaps lock files, and a lock
 /// on a file since unlinked excludes nobody, because the next taker
-/// creates a new file at the path and locks that. Go's `takeCurrent`.
+/// creates a new file at the path and locks that.
 pub fn take_current(
     lock_path: &Path,
     mut take: impl FnMut() -> Result<File, LockError>,
@@ -189,20 +187,19 @@ impl Waits {
 }
 
 /// The locks [`lock_file`] holds, released when dropped: the sidecar
-/// first, then the reap interlock, as Go releases them.
+/// first, then the reap interlock.
 #[derive(Debug)]
 pub struct FileLock {
     _sidecar: Locked,
     _interlock: Option<Locked>,
 }
 
-/// Go's `sessions.WithFileLock` under `home`: the lock serializing one
-/// read-modify-write of `target`, a file ctxloom does not own. Its sidecar
-/// is [`path::sidecar_for`]'s, recording `target`'s absolute path when it
-/// creates it; one in the home lock directory is taken with the reap
-/// interlock held shared from before the take until after the release, and
-/// a reap that holds it past `waits.reap_interlock` refuses the lock
-/// ([`LockError::ReapInProgress`]).
+/// The lock under `home` serializing one read-modify-write of `target`, a
+/// file ctxloom does not own. Its sidecar is [`path::sidecar_for`]'s,
+/// recording `target`'s absolute path when it creates it; one in the home
+/// lock directory is taken with the reap interlock held shared from before
+/// the take until after the release, and a reap that holds it past
+/// `waits.reap_interlock` refuses the lock ([`LockError::ReapInProgress`]).
 pub fn lock_file(home: &Path, target: &Path, waits: Waits) -> Result<FileLock, LockError> {
     let target = path::absolute(target)?;
     let home = path::absolute(home)?;
@@ -235,8 +232,8 @@ pub fn lock_file(home: &Path, target: &Path, waits: Waits) -> Result<FileLock, L
 }
 
 /// Create the lock file at `lock_path` recording `guarded` (its path and a
-/// newline, Go's `guardRecord`) when none is there; one already there is
-/// left exactly as it is. Go's `createRecording`.
+/// newline) when none is there; one already there is left exactly as it
+/// is.
 fn record(lock_path: &Path, guarded: &Path) -> Result<(), LockError> {
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
@@ -286,8 +283,7 @@ fn open(lock_path: &Path) -> Result<File, LockError> {
 }
 
 /// `file`, the open handle on `lock_path`, refused unless it is a regular
-/// file: the path can be swapped between a check and the open. Go's
-/// `requireRegular`.
+/// file: the path can be swapped between a check and the open.
 fn require_regular(file: &File, lock_path: &Path) -> Result<(), LockError> {
     let meta = file.metadata().map_err(|e| LockError::io(lock_path, e))?;
     if meta.is_file() {

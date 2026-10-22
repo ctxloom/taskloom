@@ -1,5 +1,5 @@
-//! `manage` over fake configurations: Go's flags, Go's words on stderr,
-//! Go's check table, and the JSON documents.
+//! `manage` over fake configurations: its flags, its words on stderr, its
+//! check table, and the JSON documents.
 
 use std::path::{Path, PathBuf};
 

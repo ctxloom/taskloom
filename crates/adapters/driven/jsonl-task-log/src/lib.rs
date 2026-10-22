@@ -1,10 +1,10 @@
-//! Go taskloom's task logs, `~/.ctxloom/tasks/<project-id>.jsonl`, behind
-//! the [`GoTaskLogs`] port: one append-only JSON line per change, decoded
-//! as Go's `tasks.Event` decodes it. Only read: a log is opened read-only
-//! and nothing beside it is touched, not even its lock file.
+//! The JSONL task logs, `~/.ctxloom/tasks/<project-id>.jsonl`, behind the
+//! [`JsonlTaskLogs`] port: one append-only JSON line per change, an event
+//! with an op, its task and its fields. Only read: a log is opened
+//! read-only and nothing beside it is touched, not even its lock file.
 //!
-//! The fold (Go's replay order, its duplicate lines and its duplicate adds)
-//! is the importer's, in the application; this reads the records.
+//! The fold (replay order, duplicate lines and duplicate adds) is the
+//! importer's, in the application; this reads the records.
 
 mod error;
 
@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use annals::next::Timestamp;
 use annals_diagnostic::Report;
-use ports::{GoOp, GoRecord, GoTaskLogs};
+use ports::{JsonlOp, JsonlRecord, JsonlTaskLogs};
 use serde::Deserialize;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -24,29 +24,29 @@ pub use error::{diagnostic_samples, LogError, EN_US};
 /// The log file's extension.
 const EXTENSION: &str = "jsonl";
 
-/// Go's zero `time.Time`, 0001-01-01T00:00:00Z, in Unix seconds: the
-/// instant a record without one decodes to.
-pub const GO_ZERO_TIME: i64 = -62_135_596_800;
+/// 0001-01-01T00:00:00Z in Unix seconds: the instant a record without a
+/// `ts` decodes to.
+pub const MISSING_TS_INSTANT: i64 = -62_135_596_800;
 
-/// The logs in one directory: Go's `~/.ctxloom/tasks`.
+/// The logs in one directory, `~/.ctxloom/tasks`.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct GoTaskLogDir {
+pub struct JsonlTaskLogDir {
     /// `None` where there is no home to find it in.
     dir: Option<PathBuf>,
 }
 
-impl GoTaskLogDir {
+impl JsonlTaskLogDir {
     /// The logs in `dir`.
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        GoTaskLogDir {
+        JsonlTaskLogDir {
             dir: Some(dir.into()),
         }
     }
 
-    /// The logs Go keeps under `home`, `<home>/.ctxloom/tasks`; with no
-    /// home (HOME unset or empty), every read fails saying so.
+    /// The logs under `home`, `<home>/.ctxloom/tasks`; with no home (HOME
+    /// unset or empty), every read fails saying so.
     pub fn in_home(home: Option<&Path>) -> Self {
-        GoTaskLogDir {
+        JsonlTaskLogDir {
             dir: home
                 .filter(|h| !h.as_os_str().is_empty())
                 .map(|h| h.join(".ctxloom").join("tasks")),
@@ -60,7 +60,7 @@ impl GoTaskLogDir {
     }
 }
 
-impl GoTaskLogs for GoTaskLogDir {
+impl JsonlTaskLogs for JsonlTaskLogDir {
     fn projects(&mut self) -> Result<Vec<String>, Report> {
         let dir = self.dir()?;
         let unreadable = |e: io::Error| {
@@ -87,7 +87,7 @@ impl GoTaskLogs for GoTaskLogDir {
         Ok(projects)
     }
 
-    fn records(&mut self, project_id: &str) -> Result<Option<Vec<GoRecord>>, Report> {
+    fn records(&mut self, project_id: &str) -> Result<Option<Vec<JsonlRecord>>, Report> {
         let path = self.dir()?.join(format!("{project_id}.{EXTENSION}"));
         let bytes = match fs::read(&path) {
             Ok(bytes) => bytes,
@@ -109,8 +109,8 @@ impl GoTaskLogs for GoTaskLogDir {
 }
 
 /// The records of the log `text`, read from `path`: each line trimmed,
-/// blank ones skipped, as Go's fold reads them.
-pub fn parse(path: &str, text: &str) -> Result<Vec<GoRecord>, LogError> {
+/// blank ones skipped.
+pub fn parse(path: &str, text: &str) -> Result<Vec<JsonlRecord>, LogError> {
     let mut records = Vec::new();
     for (index, line) in text.split('\n').enumerate() {
         let raw = line.trim();
@@ -123,8 +123,8 @@ pub fn parse(path: &str, text: &str) -> Result<Vec<GoRecord>, LogError> {
     Ok(records)
 }
 
-/// A line as Go's `json.Unmarshal` into `tasks.Event` reads it: a missing
-/// or null field is empty, an unknown one is ignored.
+/// A line as its JSON decodes: a missing or null field is empty, an
+/// unknown one is ignored.
 #[derive(Deserialize)]
 struct Line {
     op: Option<String>,
@@ -138,7 +138,7 @@ struct Line {
     ts: Option<String>,
 }
 
-fn record(path: &str, line: u32, raw: &str) -> Result<GoRecord, LogError> {
+fn record(path: &str, line: u32, raw: &str) -> Result<JsonlRecord, LogError> {
     let malformed = |detail: String| LogError::Malformed {
         path: path.to_string(),
         line,
@@ -147,18 +147,18 @@ fn record(path: &str, line: u32, raw: &str) -> Result<GoRecord, LogError> {
     let decoded: Line = serde_json::from_str(raw).map_err(|e| malformed(e.to_string()))?;
     let ts = match decoded.ts.as_deref() {
         None => Timestamp {
-            seconds: GO_ZERO_TIME,
+            seconds: MISSING_TS_INSTANT,
             nanos: 0,
         },
         Some(ts) => instant(ts).map_err(malformed)?,
     };
     let op = match decoded.op.as_deref().unwrap_or_default() {
-        "add" => GoOp::Add,
-        "status" => GoOp::Status,
-        "text" => GoOp::Text,
-        "remove" => GoOp::Remove,
-        "tag" => GoOp::Tag,
-        "untag" => GoOp::Untag,
+        "add" => JsonlOp::Add,
+        "status" => JsonlOp::Status,
+        "text" => JsonlOp::Text,
+        "remove" => JsonlOp::Remove,
+        "tag" => JsonlOp::Tag,
+        "untag" => JsonlOp::Untag,
         "" => {
             return Err(LogError::NoOp {
                 path: path.to_string(),
@@ -173,7 +173,7 @@ fn record(path: &str, line: u32, raw: &str) -> Result<GoRecord, LogError> {
             })
         }
     };
-    Ok(GoRecord {
+    Ok(JsonlRecord {
         line,
         raw: raw.to_string(),
         op,
@@ -188,7 +188,7 @@ fn record(path: &str, line: u32, raw: &str) -> Result<GoRecord, LogError> {
     })
 }
 
-/// An RFC 3339 instant, as Go's `time.Time` decodes one from JSON.
+/// An RFC 3339 instant, as a `ts` is written.
 fn instant(text: &str) -> Result<Timestamp, String> {
     let at =
         OffsetDateTime::parse(text, &Rfc3339).map_err(|e| format!("parsing time {text:?}: {e}"))?;

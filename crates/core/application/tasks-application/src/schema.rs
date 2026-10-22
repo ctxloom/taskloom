@@ -1,5 +1,5 @@
 //! A project's tag schema: declarations, in tagma's own tag syntax, of
-//! facts about the tags its tasks carry (Go's `tagschema`).
+//! facts about the tags its tasks carry.
 //!
 //! A declaration is `tagma.<facet>:"<target>"=<value>`, e.g.
 //! `tagma.arity:"triage:kind"=scalar`: its namespace names the facet, its
@@ -23,9 +23,8 @@
 //! same facet and target replaces an earlier one, so a project's own
 //! declarations, which come after [`DEFAULT_TAG_SCHEMA`], extend it. A
 //! malformed declaration is refused, naming it: a schema never runs with a
-//! declaration silently dropped. Unlike Go, an enum or range that cannot be
-//! read is refused when the schema is parsed, not when a tag first meets
-//! it.
+//! declaration silently dropped. An enum or range that cannot be read is
+//! refused when the schema is parsed, not when a tag first meets it.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -52,11 +51,10 @@ pub const FACETS: [&str; 7] = [
     "type",
 ];
 
-/// The triage-classification baseline every project's schema starts from,
-/// Go's `DefaultTagSchema`: `triage:level` (1, the worst, to 5),
-/// `triage:kind`, `triage:effort` (0 to 5) and `triage:blocks-release` (a
-/// SemVer version) scalar, with the vocabularies `taskloom lint` checks and
-/// the priority formulas.
+/// The triage-classification baseline every project's schema starts from:
+/// `triage:level` (1, the worst, to 5), `triage:kind`, `triage:effort` (0
+/// to 5) and `triage:blocks-release` (a SemVer version) scalar, with the
+/// vocabularies `taskloom lint` checks and the priority formulas.
 pub const DEFAULT_TAG_SCHEMA: [&str; 15] = [
     r#"tagma.arity:"triage:level"=scalar"#,
     r#"tagma.arity:"triage:verdict"=scalar"#,

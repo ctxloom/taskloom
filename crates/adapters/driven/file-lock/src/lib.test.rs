@@ -211,10 +211,10 @@ fn test_a_lock_held_past_the_wait_fails_saying_which() {
 #[test]
 fn test_a_lock_is_held_while_any_descriptor_sharing_it_lives() {
     // A child forked by another thread holds a copy of every descriptor
-    // until it execs (Rust and Go set close-on-exec, which acts only at the
-    // exec), and flock is per open file description: so a guard dropped
-    // in that window leaves its lock held, and a zero wait taken then is
-    // refused. Forced here with the copy the fork would make.
+    // until it execs (close-on-exec acts only at the exec), and flock is
+    // per open file description: so a guard dropped in that window leaves
+    // its lock held, and a zero wait taken then is refused. Forced here
+    // with the copy the fork would make.
     let dir = tempfile::tempdir().unwrap();
     let lock_path = dir.path().join("x.lock");
     let locked = lock_within(&lock_path, Duration::ZERO).unwrap();
@@ -301,7 +301,7 @@ fn test_a_lock_file_it_creates_records_what_it_guards_and_one_there_is_kept() {
 
 // --------------------------------------------- a foreign file's sidecar
 
-/// A home and a file outside it to guard, and where Go puts their locks.
+/// A home and a file outside it to guard, and where their locks go.
 struct Home {
     dir: tempfile::TempDir,
 }
