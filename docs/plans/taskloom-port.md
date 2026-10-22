@@ -655,6 +655,11 @@ Parity and the cutover:
   as its companion.
 - Fill the install placeholders; un-ignore the placeholder test
   (`test_no_served_text_carries_a_placeholder`, Decided 11).
+- Reword or delete the served text that names Go (decided 2026-10-21):
+  the `import` and `run` help, the JSONL importer's and the application's
+  Fluent messages (no task log for a project, run Go's `taskloom repair`),
+  and `project-cli`'s Go marker lines. They stay as written until then,
+  since until the cutover Go writes those logs and owns `repair`.
 
 Loose ends outside the steps:
 
