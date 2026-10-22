@@ -18,7 +18,7 @@ use tasks_application::{
 
 use presentation::{Catalog, Format};
 
-use super::{run, run_mounted, Context, Mounted};
+use super::{run, run_import, run_mounted, Context, ImportGroup, Mounted};
 
 mod shapes {
     use tasks_application::{Task, Timestamp};
@@ -78,8 +78,6 @@ struct Fake {
     listed: Vec<ListQuery>,
     written: Option<Result<Written, AppError>>,
     listing: Option<Result<Listing, AppError>>,
-    imports: Vec<ImportRequest>,
-    report: Option<Result<ImportReport, AppError>>,
     prunes: Vec<PruneRequest>,
     pruning: Option<Result<Pruning, AppError>>,
 }
@@ -141,7 +139,15 @@ impl TaskService for Fake {
     }
 }
 
-impl ImportService for Fake {
+/// The importer: an import's answer scripted, its requests recorded. The
+/// task commands' service is [`Fake`], which imports nothing.
+#[derive(Default)]
+struct FakeImporter {
+    imports: Vec<ImportRequest>,
+    report: Option<Result<ImportReport, AppError>>,
+}
+
+impl ImportService for FakeImporter {
     async fn import(&mut self, request: ImportRequest) -> Result<ImportReport, AppError> {
         self.imports.push(request);
         self.report.clone().expect("an import answer scripted")
@@ -1480,13 +1486,49 @@ fn report(projects: Vec<ProjectImport>) -> Option<Result<ImportReport, AppError>
     Some(Ok(ImportReport { projects }))
 }
 
+/// `args` run as the binary runs them: `import` mounted beside the task
+/// commands, its importer reached only once `import` is parsed.
+fn import_on(importer: &mut FakeImporter, terminal: bool, args: &[&str]) -> Ran {
+    let context = Context {
+        stdout_is_terminal: terminal,
+        ..Context::default()
+    };
+    let args: Vec<OsString> = std::iter::once("taskloom")
+        .chain(args.iter().copied())
+        .map(OsString::from)
+        .collect();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let catalog = catalog();
+    let mounted = |ImportGroup::Import,
+                   flags: Mounted,
+                   catalog: &Catalog,
+                   out: &mut dyn std::io::Write,
+                   err: &mut dyn std::io::Write| {
+        ready(run_import(&flags, catalog, importer, out, err))
+    };
+    let code = ready(run_mounted(
+        args,
+        &context,
+        &catalog,
+        &mut Fake::default(),
+        mounted,
+        &mut out,
+        &mut err,
+    ));
+    Ran {
+        code,
+        out: String::from_utf8(out).unwrap(),
+        err: String::from_utf8(err).unwrap(),
+    }
+}
+
 #[test]
 fn test_import_imports_every_project_and_says_what_it_did() {
-    let mut fake = Fake {
+    let mut fake = FakeImporter {
         report: report(vec![imported(0)]),
-        ..Fake::default()
+        ..FakeImporter::default()
     };
-    let ran = run_on(&mut fake, true, &["import"]);
+    let ran = import_on(&mut fake, true, &["import"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(fake.imports, [ImportRequest { project: None }]);
     assert_eq!(
@@ -1498,11 +1540,11 @@ fn test_import_imports_every_project_and_says_what_it_did() {
 
 #[test]
 fn test_import_of_one_project_names_it() {
-    let mut fake = Fake {
+    let mut fake = FakeImporter {
         report: report(vec![imported(0)]),
-        ..Fake::default()
+        ..FakeImporter::default()
     };
-    run_on(
+    import_on(
         &mut fake,
         true,
         &["import", "--project", "jolly-mute-magma"],
@@ -1517,11 +1559,11 @@ fn test_import_of_one_project_names_it() {
 
 #[test]
 fn test_import_answers_json_off_a_terminal() {
-    let mut fake = Fake {
+    let mut fake = FakeImporter {
         report: report(vec![imported(0)]),
-        ..Fake::default()
+        ..FakeImporter::default()
     };
-    let ran = run_on(&mut fake, false, &["import"]);
+    let ran = import_on(&mut fake, false, &["import"]);
     let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(json["complete"], true);
     assert_eq!(json["projects"][0]["project_id"], "jolly-mute-magma");
@@ -1529,11 +1571,11 @@ fn test_import_answers_json_off_a_terminal() {
 
 #[test]
 fn test_import_that_left_records_behind_fails_after_saying_which() {
-    let mut fake = Fake {
+    let mut fake = FakeImporter {
         report: report(vec![imported(2)]),
-        ..Fake::default()
+        ..FakeImporter::default()
     };
-    let ran = run_on(&mut fake, true, &["import"]);
+    let ran = import_on(&mut fake, true, &["import"]);
     assert_eq!(ran.code, 1);
     assert!(ran.out.contains("not imported: line 1"), "{}", ran.out);
     assert_eq!(
@@ -1546,11 +1588,11 @@ fn test_import_that_left_records_behind_fails_after_saying_which() {
 fn test_import_that_stopped_in_a_project_fails() {
     let mut stopped = imported(0);
     stopped.failed = Some(annals_diagnostic::Report::new("x-bad", "bad log"));
-    let mut fake = Fake {
+    let mut fake = FakeImporter {
         report: report(vec![stopped, imported(0)]),
-        ..Fake::default()
+        ..FakeImporter::default()
     };
-    let ran = run_on(&mut fake, true, &["import"]);
+    let ran = import_on(&mut fake, true, &["import"]);
     assert_eq!(ran.code, 1);
     assert_eq!(
         ran.err,
@@ -1560,15 +1602,26 @@ fn test_import_that_stopped_in_a_project_fails() {
 
 #[test]
 fn test_import_that_cannot_start_fails_with_why() {
-    let mut fake = Fake {
+    let mut fake = FakeImporter {
         report: Some(Err(AppError::NoProject)),
-        ..Fake::default()
+        ..FakeImporter::default()
     };
-    let ran = run_on(&mut fake, true, &["import"]);
+    let ran = import_on(&mut fake, true, &["import"]);
     assert_eq!(ran.code, 1);
     assert_eq!(ran.out, "");
     assert!(
         ran.err.starts_with("taskloom: there is no project"),
+        "{}",
+        ran.err
+    );
+}
+
+#[test]
+fn test_the_task_commands_alone_do_not_import() {
+    let ran = run_on(&mut Fake::default(), true, &["import"]);
+    assert_eq!(ran.code, 1);
+    assert!(
+        ran.err.contains("unrecognized subcommand 'import'"),
         "{}",
         ran.err
     );
@@ -1746,7 +1799,7 @@ fn test_mounted_commands_are_listed_beside_the_task_commands() {
     assert_eq!(ran.code, 0);
     assert!(handed.is_empty());
     assert!(ran.out.contains("hello"), "{}", ran.out);
-    assert!(ran.out.contains("import"), "{}", ran.out);
+    assert!(ran.out.contains("prune"), "{}", ran.out);
 }
 
 fn tag(key: &str) -> tasks_application::Tag {

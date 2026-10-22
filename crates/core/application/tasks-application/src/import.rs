@@ -44,8 +44,9 @@ use tasks::{
     AddTask, EditText, RemovalReason, RemoveTask, Retag, SetStatus, TaskCommand, TaskRejection,
 };
 
+use crate::retry::Backoff;
 use crate::tags::{self, Tag, TagRefusal};
-use crate::{book, cover, retry, text_hash, AppError, Service};
+use crate::{book, cover, registry, retry, text_hash, AppError};
 
 /// What to import: every project with a log, or the one named.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
@@ -164,10 +165,6 @@ impl Diagnostic for Why {
     }
 }
 
-/// The logs, as a service without any holds them: none.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub struct NoJsonlLogs;
-
 /// The import use case, as a driving adapter calls it. Its future is
 /// `Send`, so a server can spawn it.
 pub trait ImportService {
@@ -177,15 +174,38 @@ pub trait ImportService {
     ) -> impl Future<Output = Result<ImportReport, AppError>> + Send;
 }
 
-impl<I, S, N, C, D, L, G> ImportService for Service<I, S, N, C, D, L, G>
+/// The import over its ports: `jsonl_logs` are the logs it reads, and only
+/// it holds them, so no other use case can reach them; `identity` and
+/// `stores` resolve and open each project it writes; `delay` waits, with
+/// jitter, between retries.
+pub struct Importer<I, S, D, L> {
+    pub identity: I,
+    pub stores: S,
+    pub delay: D,
+    pub jsonl_logs: L,
+    pub backoff: Backoff,
+    registry: annals::next::Registry,
+}
+
+impl<I, S, D, L> Importer<I, S, D, L> {
+    pub fn new(identity: I, stores: S, delay: D, jsonl_logs: L) -> Self {
+        Importer {
+            identity,
+            stores,
+            delay,
+            jsonl_logs,
+            backoff: Backoff::DEFAULT,
+            registry: registry(),
+        }
+    }
+}
+
+impl<I, S, D, L> ImportService for Importer<I, S, D, L>
 where
     I: ProjectIdentity + Send,
     S: TaskStores + Send,
-    N: Send,
-    C: Send,
     D: Delay + Jitter + Send,
     L: JsonlTaskLogs + Send,
-    G: Send,
 {
     async fn import(&mut self, request: ImportRequest) -> Result<ImportReport, AppError> {
         let projects = match request.project {
@@ -207,7 +227,7 @@ where
     }
 }
 
-impl<I, S, N, C, D, L, G> Service<I, S, N, C, D, L, G>
+impl<I, S, D, L> Importer<I, S, D, L>
 where
     I: ProjectIdentity + Send,
     S: TaskStores + Send,

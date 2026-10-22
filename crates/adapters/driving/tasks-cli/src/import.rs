@@ -1,15 +1,68 @@
-//! `import`'s answer: what each project's JSONL log came to, and everything
-//! that could not be brought over, as text or JSON, its diagnostics
-//! rendered from the catalog.
+//! `import`: a command group of its own, which a binary mounts beside the
+//! task commands ([`crate::run_mounted`]) and runs on an importer it builds
+//! for `import` alone ([`run_import`]), so no other command reaches the
+//! JSONL task logs; and its answer: what each project's log came to, and
+//! everything that could not be brought over, as text or JSON, its
+//! diagnostics rendered from the catalog.
 
 use std::io::{self, Write};
 
 use annals_diagnostic::Diagnostic;
-use presentation::{Catalog, Envelope, Render};
+use presentation::{Catalog, Envelope, Format, Render};
 use serde::Serialize;
-use tasks_application::{ImportReport, Lost, ProjectImport};
+use tasks_application::{ImportReport, ImportRequest, ImportService, Lost, ProjectImport};
 
-use crate::render;
+use crate::{finish, output_failed, render, CliError, Mounted};
+
+/// `import`, mounted beside the task commands.
+#[derive(clap::Subcommand, Clone, PartialEq, Eq, Debug)]
+pub enum ImportGroup {
+    /// Import Go taskloom's task logs (~/.ctxloom/tasks/<project-id>.jsonl)
+    /// into each project's store: every project's, or --project's alone.
+    /// Running it again imports only what is new.
+    Import,
+}
+
+/// `import` on `importer`, with the global flags parsed: its report on
+/// `out`, and the exit code, 1 when the import could not start or left
+/// something behind.
+pub async fn run_import<S: ImportService>(
+    flags: &Mounted,
+    catalog: &Catalog,
+    importer: &mut S,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> u8 {
+    let request = ImportRequest {
+        project: flags.project.clone(),
+    };
+    let result = match importer.import(request).await {
+        Ok(report) => imported(&report, flags.format, catalog, out),
+        Err(e) => Err(CliError::App(e)),
+    };
+    finish(result, flags.format, catalog, err)
+}
+
+/// Render the report; refuse when it left something behind, so a script
+/// sees it in the exit code.
+fn imported(
+    report: &ImportReport,
+    format: Format,
+    catalog: &Catalog,
+    out: &mut dyn Write,
+) -> Result<(), CliError> {
+    presentation::render(out, format, &Imported { report, catalog }).map_err(output_failed)?;
+    if report.complete() {
+        return Ok(());
+    }
+    let stopped = report
+        .projects
+        .iter()
+        .filter(|p| p.failed.is_some())
+        .count();
+    let lost = report.projects.iter().map(|p| p.lost.len()).sum();
+    Err(CliError::Incomplete { stopped, lost })
+}
 
 /// An import's report, with the catalog its diagnostics are rendered from:
 /// JSON the whole report; text a line per project.

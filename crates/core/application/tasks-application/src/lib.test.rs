@@ -269,15 +269,8 @@ impl ports::Configuration for FakeConfiguration {
     }
 }
 
-type Configured = Service<
-    FakeIdentity,
-    FakeStores,
-    FakeNames,
-    FakeClock,
-    FakeDelay,
-    crate::NoJsonlLogs,
-    FakeConfiguration,
->;
+type Configured =
+    Service<FakeIdentity, FakeStores, FakeNames, FakeClock, FakeDelay, FakeConfiguration>;
 
 fn configured(declarations: &[&str]) -> Configured {
     service(&["swift-amber"]).with_configuration(FakeConfiguration {

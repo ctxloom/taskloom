@@ -1,9 +1,10 @@
 //! taskloom: per-project task tracking. The composition root: it reads the
 //! process's environment, wires the tasks use cases to their adapters (the
 //! project registry, harp names, the SQLite task store, the system's
-//! clock, ids, timer and randomness, taskloom's configuration, and the
-//! JSONL task logs to import), mounts the `project` group and `mcp` beside
-//! the task commands, and hands the command line to the CLI. The `project`
+//! clock, ids, timer and randomness, and taskloom's configuration), mounts
+//! `import`, the `project` group and `mcp` beside the task commands, and
+//! hands the command line to the CLI. `import` alone reads the JSONL task
+//! logs: its importer is built only once `import` is parsed. The `project`
 //! group runs over the registry and the SQLite store's integrity check;
 //! `mcp` serves the task tools over stdio, each call on a service of its
 //! own; `watch` streams the project's changes until SIGINT or SIGTERM
@@ -22,7 +23,7 @@ use project_application::Projects;
 use project_registry::{Environment, ProjectRegistry};
 use system::System;
 use task_store_sqlite::SqliteStores;
-use tasks_application::{NoJsonlLogs, Service};
+use tasks_application::{Importer, Service};
 use tasks_cli::Context;
 use tasks_config::TaskloomConfig;
 
@@ -53,6 +54,8 @@ fn catalog() -> Result<presentation::Catalog, presentation::CatalogError> {
 #[derive(clap::Subcommand, Debug)]
 enum Mounted {
     #[command(flatten)]
+    Import(tasks_cli::ImportGroup),
+    #[command(flatten)]
     Project(project_cli::Group),
     #[command(flatten)]
     Mcp(tasks_mcp::Group),
@@ -66,6 +69,7 @@ enum Mounted {
 
 /// What runs once the command line has been read, on the runtime.
 enum After {
+    Import(tasks_cli::Mounted),
     Mcp(Option<String>),
     Watch(tasks_watch::Settings),
     Run(tasks_run::Group, tasks_run::Settings),
@@ -77,21 +81,36 @@ enum After {
 fn service(
     env: &Environment,
     vars: Vec<(String, String)>,
-) -> Service<
-    ProjectRegistry<HarpNames>,
-    SqliteStores,
-    HarpNames,
-    System,
-    System,
-    NoJsonlLogs,
-    TaskloomConfig,
-> {
+) -> Service<ProjectRegistry<HarpNames>, SqliteStores, HarpNames, System, System, TaskloomConfig> {
     let identity = ProjectRegistry::new(env.clone(), HarpNames);
     // The work root's config, where there is a work root: a command that
     // needs one fails on resolving it, and says why.
     let config = TaskloomConfig::new(env.home.clone(), identity.work_root().ok(), vars);
     Service::new(identity, SqliteStores::default(), HarpNames, System, System)
         .with_configuration(config)
+}
+
+/// `taskloom import`: the JSONL task logs under `env`'s home imported into
+/// each project's store, by an importer built for this command alone.
+fn import(
+    runtime: &tokio::runtime::Runtime,
+    env: &Environment,
+    flags: &tasks_cli::Mounted,
+    catalog: &presentation::Catalog,
+) -> ExitCode {
+    let mut importer = Importer::new(
+        ProjectRegistry::new(env.clone(), HarpNames),
+        SqliteStores::default(),
+        System,
+        JsonlTaskLogDir::in_home(env.home.as_deref()),
+    );
+    ExitCode::from(runtime.block_on(tasks_cli::run_import(
+        flags,
+        catalog,
+        &mut importer,
+        &mut io::stdout().lock(),
+        &mut io::stderr().lock(),
+    )))
 }
 
 /// `taskloom mcp`: serve the task tools on stdio until the client goes
@@ -228,6 +247,21 @@ fn launch<S: tasks_application::TaskService>(
     )))
 }
 
+/// What the command line reads from the process besides its arguments.
+fn context() -> Context {
+    Context {
+        session: std::env::var("CTXLOOM_SESSION_HARP").unwrap_or_default(),
+        stdout_is_terminal: io::stdout().is_terminal(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        // True of every lock file taskloom takes, each through file-lock:
+        // the project registry's `index.yaml.lock`, and `manage`'s home
+        // sidecar for the agent configuration it rewrites, with the reap
+        // interlock held shared. It takes none on a JSONL task log (the
+        // importer reads without one); its store is SQLite's to lock.
+        lock_protocol: file_lock::LOCK_PROTOCOL,
+    }
+}
+
 fn main() -> ExitCode {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -252,31 +286,24 @@ fn main() -> ExitCode {
         root: std::env::var_os("CTXLOOM_ROOT").map(PathBuf::from),
         project_id: std::env::var("CTXLOOM_PROJECT_ID").ok(),
     };
-    let jsonl_logs = JsonlTaskLogDir::in_home(env.home.as_deref());
     let mut projects = Projects::new(
         ProjectRegistry::new(env.clone(), HarpNames),
         SqliteStores::default(),
     );
-    let mut service = service(&env, utf8_vars()).with_jsonl_logs(jsonl_logs);
-    let context = Context {
-        session: std::env::var("CTXLOOM_SESSION_HARP").unwrap_or_default(),
-        stdout_is_terminal: io::stdout().is_terminal(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        // True of every lock file taskloom takes, each through file-lock:
-        // the project registry's `index.yaml.lock`, and `manage`'s home
-        // sidecar for the agent configuration it rewrites, with the reap
-        // interlock held shared. It takes none on a JSONL task log (the
-        // importer reads without one); its store is SQLite's to lock.
-        lock_protocol: file_lock::LOCK_PROTOCOL,
-    };
-    // `mcp`, `watch` and `run` run once the command line has been read, on the
-    // same runtime: the CLI's mounted commands are synchronous.
+    let mut service = service(&env, utf8_vars());
+    let context = context();
+    // `import`, `mcp`, `watch` and `run` run once the command line has been
+    // read, on the same runtime: the CLI's mounted commands are synchronous.
     let mut after = None;
     let mounted = |group,
                    flags: tasks_cli::Mounted,
                    catalog: &presentation::Catalog,
                    out: &mut dyn Write,
                    err: &mut dyn Write| match group {
+        Mounted::Import(tasks_cli::ImportGroup::Import) => {
+            after = Some(After::Import(flags));
+            0
+        }
         Mounted::Project(group) => {
             let settings = project_cli::Settings {
                 format: flags.format,
@@ -321,6 +348,7 @@ fn main() -> ExitCode {
         &mut io::stderr().lock(),
     ));
     match after {
+        Some(After::Import(flags)) => import(&runtime, &env, &flags, &catalog),
         Some(After::Watch(settings)) => watch(&runtime, &mut service, &settings, &catalog),
         Some(After::Run(group, settings)) => {
             launch(&runtime, &mut service, group, &settings, &catalog)
