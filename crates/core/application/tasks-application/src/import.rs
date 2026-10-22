@@ -38,7 +38,9 @@ use std::future::Future;
 use annals::next::v1::Uuid;
 use annals::next::{ids, AsyncEventStore, Timestamp};
 use annals_diagnostic::{Arg, Diagnostic, Report};
-use ports::{Clock, Delay, GoOp, GoRecord, GoTaskLogs, Jitter, ProjectIdentity, TaskStores};
+use ports::{
+    Clock, Delay, Jitter, JsonlOp, JsonlRecord, JsonlTaskLogs, ProjectIdentity, TaskStores,
+};
 use tasks::{
     AddTask, EditText, RemovalReason, RemoveTask, Retag, SetStatus, TaskCommand, TaskRejection,
 };
@@ -103,7 +105,7 @@ pub struct ProjectImport {
 pub struct Lost {
     /// Its line in the log.
     pub line: u32,
-    pub op: GoOp,
+    pub op: JsonlOp,
     pub harp_id: String,
     /// Its text, if it carries any: an add's or an edit's.
     pub text: String,
@@ -165,7 +167,7 @@ impl Diagnostic for Why {
 
 /// Go's logs, as a service without any holds them: none.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub struct NoGoLogs;
+pub struct NoJsonlLogs;
 
 /// The import use case, as a driving adapter calls it. Its future is
 /// `Send`, so a server can spawn it.
@@ -183,13 +185,13 @@ where
     N: Send,
     C: Send,
     D: Delay + Jitter + Send,
-    L: GoTaskLogs + Send,
+    L: JsonlTaskLogs + Send,
     G: Send,
 {
     async fn import(&mut self, request: ImportRequest) -> Result<ImportReport, AppError> {
         let projects = match request.project {
             Some(project) => vec![project],
-            None => self.go_logs.projects().map_err(AppError::Failed)?,
+            None => self.jsonl_logs.projects().map_err(AppError::Failed)?,
         };
         let mut report = ImportReport::default();
         for project_id in projects {
@@ -211,13 +213,13 @@ where
     I: ProjectIdentity + Send,
     S: TaskStores + Send,
     D: Delay + Jitter + Send,
-    L: GoTaskLogs + Send,
+    L: JsonlTaskLogs + Send,
 {
     /// Import one project's log, counting into `report` as it goes.
     async fn import_project(&mut self, report: &mut ProjectImport) -> Result<(), Report> {
         let id = report.project_id.clone();
-        let records = self.go_logs.records(&id)?.ok_or_else(|| {
-            Report::of(&AppError::NoGoLog {
+        let records = self.jsonl_logs.records(&id)?.ok_or_else(|| {
+            Report::of(&AppError::NoJsonlLog {
                 project: id.clone(),
             })
         })?;
@@ -285,12 +287,12 @@ where
             {
                 retry::Outcome::Committed => {
                     report.applied += 1;
-                    if record.op == GoOp::Add {
+                    if record.op == JsonlOp::Add {
                         report.tasks += 1;
                     }
                 }
                 retry::Outcome::Refused(rejection) => {
-                    if record.op == GoOp::Add {
+                    if record.op == JsonlOp::Add {
                         fold.not_imported(&record.task);
                     }
                     let why = match rejection {
@@ -305,7 +307,7 @@ where
     }
 }
 
-fn lost(record: &GoRecord, why: Why) -> Lost {
+fn lost(record: &JsonlRecord, why: Why) -> Lost {
     Lost {
         line: record.line,
         op: record.op,
@@ -326,10 +328,10 @@ impl Clock for At {
 
 /// The records in Go's replay order, each line once, and how many lines
 /// repeated an earlier one.
-fn replay_order(records: Vec<GoRecord>) -> (Vec<GoRecord>, usize) {
+fn replay_order(records: Vec<JsonlRecord>) -> (Vec<JsonlRecord>, usize) {
     let total = records.len();
     let mut seen = BTreeSet::new();
-    let mut once: Vec<GoRecord> = records
+    let mut once: Vec<JsonlRecord> = records
         .into_iter()
         .filter(|r| seen.insert(r.raw.clone()))
         .collect();
@@ -372,13 +374,13 @@ struct Fold {
 impl Fold {
     /// The fold of `records`, which must be in replay order; the repairs
     /// are read ahead, since Go counts a repair wherever it falls.
-    fn new(records: &[GoRecord]) -> Fold {
+    fn new(records: &[JsonlRecord]) -> Fold {
         Fold {
             issued: BTreeSet::new(),
             live: BTreeMap::new(),
             repaired: records
                 .iter()
-                .filter(|r| r.op == GoOp::Add && !r.repair_of.is_empty())
+                .filter(|r| r.op == JsonlOp::Add && !r.repair_of.is_empty())
                 .map(|r| r.repair_of.clone())
                 .collect(),
             missing: BTreeSet::new(),
@@ -412,8 +414,8 @@ impl Fold {
         self.missing.insert(harp_id.to_string());
     }
 
-    fn step(&mut self, record: &GoRecord) -> Step {
-        if record.op == GoOp::Add {
+    fn step(&mut self, record: &JsonlRecord) -> Step {
+        if record.op == JsonlOp::Add {
             return self.add(record);
         }
         let harp = &record.task;
@@ -423,9 +425,9 @@ impl Fold {
         // Go's fold changes as Go's did, whether or not the task was
         // imported, so a later record is judged as Go judged it.
         let command: Option<TaskCommand> = match record.op {
-            GoOp::Tag | GoOp::Untag => {
+            JsonlOp::Tag | JsonlOp::Untag => {
                 let given = normalized(&record.tags);
-                let after: BTreeSet<String> = if record.op == GoOp::Tag {
+                let after: BTreeSet<String> = if record.op == JsonlOp::Tag {
                     held.union(&given).cloned().collect()
                 } else {
                     held.difference(&given).cloned().collect()
@@ -458,21 +460,21 @@ impl Fold {
                 }
                 Some(Retag { add, remove }.into())
             }
-            GoOp::Status => Some(
+            JsonlOp::Status => Some(
                 SetStatus {
                     status: record.status.clone(),
                     trigger: record.trigger.clone(),
                 }
                 .into(),
             ),
-            GoOp::Text => Some(
+            JsonlOp::Text => Some(
                 EditText {
                     text: record.text.clone(),
                 }
                 .into(),
             ),
             // An add was taken above.
-            GoOp::Remove | GoOp::Add => {
+            JsonlOp::Remove | JsonlOp::Add => {
                 self.live.remove(harp);
                 Some(
                     RemoveTask {
@@ -495,7 +497,7 @@ impl Fold {
     }
 
     /// An add: the task, unless the harp is already issued.
-    fn add(&mut self, record: &GoRecord) -> Step {
+    fn add(&mut self, record: &JsonlRecord) -> Step {
         let harp = &record.task;
         if !self.issued.insert(harp.clone()) {
             return if self.repaired.contains(&anomaly_key(record)) {
@@ -539,8 +541,10 @@ fn normalized(tags: &[String]) -> BTreeSet<String> {
         .collect()
 }
 
-/// What a command id derived from a Go record's line is prefixed with, so
-/// it can equal no other id derived the same way.
+/// What a command id derived from a log record's line is prefixed with, so
+/// it can equal no other id derived the same way. It keeps the crate's old
+/// name: the ids of records already imported derive from it, and a new
+/// prefix would import each of them again.
 const RECORD_ID_PREFIX: &str = "ctxloom-go-task-log:";
 
 /// The command id a Go record imports under: a UUIDv5 of its line. A Go
@@ -554,7 +558,7 @@ pub fn record_command_id(raw: &str) -> Uuid {
 
 /// The key Go's `repair` names a displaced add by (`anomalyKey`): the text
 /// hash of its harp, text, session and instant, NUL-separated.
-pub fn anomaly_key(record: &GoRecord) -> String {
+pub fn anomaly_key(record: &JsonlRecord) -> String {
     text_hash(&format!(
         "{}\0{}\0{}\0{}",
         record.task,

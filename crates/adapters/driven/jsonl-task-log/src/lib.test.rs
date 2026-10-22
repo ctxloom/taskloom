@@ -4,38 +4,38 @@ use std::fs;
 
 use annals::next::Timestamp;
 use annals_diagnostic::Diagnostic;
-use ports::{GoOp, GoRecord, GoTaskLogs};
+use ports::{JsonlOp, JsonlRecord, JsonlTaskLogs};
 use tempfile::TempDir;
 
-use crate::{parse, GoTaskLogDir, LogError, GO_ZERO_TIME};
+use crate::{parse, JsonlTaskLogDir, LogError, MISSING_TS_INSTANT};
 
 const ADD: &str = r#"{"op":"add","task":"swift-amber","text":"Write the tour","status":"To Do","trigger":"t","session":"calm-otter","repair_of":"abc","tags":["b","a"],"ts":"2026-04-01T12:30:45.123456789Z"}"#;
 
-fn logs(files: &[(&str, &str)]) -> (TempDir, GoTaskLogDir) {
+fn logs(files: &[(&str, &str)]) -> (TempDir, JsonlTaskLogDir) {
     let home = TempDir::new().unwrap();
     let dir = home.path().join(".ctxloom").join("tasks");
     fs::create_dir_all(&dir).unwrap();
     for (name, text) in files {
         fs::write(dir.join(name), text).unwrap();
     }
-    let logs = GoTaskLogDir::in_home(Some(home.path()));
+    let logs = JsonlTaskLogDir::in_home(Some(home.path()));
     (home, logs)
 }
 
-fn only(text: &str) -> GoRecord {
+fn only(text: &str) -> JsonlRecord {
     let mut records = parse("p", text).unwrap();
     assert_eq!(records.len(), 1);
     records.remove(0)
 }
 
 #[test]
-fn test_a_record_carries_every_field_go_writes() {
+fn test_a_record_carries_every_field_the_log_writes() {
     assert_eq!(
         only(ADD),
-        GoRecord {
+        JsonlRecord {
             line: 1,
             raw: ADD.to_string(),
-            op: GoOp::Add,
+            op: JsonlOp::Add,
             task: "swift-amber".to_string(),
             text: "Write the tour".to_string(),
             status: "To Do".to_string(),
@@ -60,7 +60,7 @@ fn test_absent_and_null_fields_are_empty_and_unknown_ones_ignored() {
     assert_eq!(
         record.ts,
         Timestamp {
-            seconds: GO_ZERO_TIME,
+            seconds: MISSING_TS_INSTANT,
             nanos: 0
         },
         "no ts is Go's zero time"
@@ -68,8 +68,8 @@ fn test_absent_and_null_fields_are_empty_and_unknown_ones_ignored() {
 }
 
 #[test]
-fn test_go_zero_time_is_year_one() {
-    let at = time::OffsetDateTime::from_unix_timestamp(GO_ZERO_TIME).unwrap();
+fn test_missing_ts_instant_is_year_one() {
+    let at = time::OffsetDateTime::from_unix_timestamp(MISSING_TS_INSTANT).unwrap();
     assert_eq!((at.year(), u8::from(at.month()), at.day()), (1, 1, 1));
 }
 
@@ -86,20 +86,20 @@ fn test_an_offset_instant_is_the_same_instant_in_utc() {
 }
 
 #[test]
-fn test_every_op_go_knows_is_read() {
-    let ops: Vec<GoOp> = ["add", "status", "text", "remove", "tag", "untag"]
+fn test_every_op_the_log_knows_is_read() {
+    let ops: Vec<JsonlOp> = ["add", "status", "text", "remove", "tag", "untag"]
         .iter()
         .map(|op| only(&format!(r#"{{"op":"{op}","task":"x"}}"#)).op)
         .collect();
     assert_eq!(
         ops,
         [
-            GoOp::Add,
-            GoOp::Status,
-            GoOp::Text,
-            GoOp::Remove,
-            GoOp::Tag,
-            GoOp::Untag
+            JsonlOp::Add,
+            JsonlOp::Status,
+            JsonlOp::Text,
+            JsonlOp::Remove,
+            JsonlOp::Tag,
+            JsonlOp::Untag
         ]
     );
 }
@@ -154,7 +154,7 @@ fn test_a_record_without_an_op_refuses_the_log() {
 }
 
 #[test]
-fn test_an_op_go_does_not_know_refuses_the_log() {
+fn test_an_op_the_log_does_not_know_refuses_the_log() {
     assert_eq!(
         parse("p", r#"{"op":"archive","task":"x"}"#),
         Err(LogError::UnknownOp {
@@ -184,7 +184,9 @@ fn test_projects_are_the_logs_in_the_directory_sorted() {
 fn test_no_directory_is_no_projects() {
     let home = TempDir::new().unwrap();
     assert_eq!(
-        GoTaskLogDir::in_home(Some(home.path())).projects().unwrap(),
+        JsonlTaskLogDir::in_home(Some(home.path()))
+            .projects()
+            .unwrap(),
         Vec::<String>::new()
     );
 }
@@ -194,10 +196,10 @@ fn test_an_unreadable_directory_is_an_error() {
     let home = TempDir::new().unwrap();
     fs::create_dir(home.path().join(".ctxloom")).unwrap();
     fs::write(home.path().join(".ctxloom/tasks"), "not a directory").unwrap();
-    let error = GoTaskLogDir::in_home(Some(home.path()))
+    let error = JsonlTaskLogDir::in_home(Some(home.path()))
         .projects()
         .unwrap_err();
-    assert_eq!(error.code(), "go-task-log-unreadable");
+    assert_eq!(error.code(), "jsonl-task-log-unreadable");
 }
 
 #[test]
@@ -219,14 +221,14 @@ fn test_a_log_that_cannot_be_read_is_an_error() {
     let (home, mut logs) = logs(&[]);
     fs::create_dir(home.path().join(".ctxloom/tasks/able-calm-fox.jsonl")).unwrap();
     let error = logs.records("able-calm-fox").unwrap_err();
-    assert_eq!(error.code(), "go-task-log-unreadable");
+    assert_eq!(error.code(), "jsonl-task-log-unreadable");
 }
 
 #[test]
 fn test_a_bad_log_reports_its_path() {
     let (home, mut logs) = logs(&[("able-calm-fox.jsonl", "{")]);
     let error = logs.records("able-calm-fox").unwrap_err();
-    assert_eq!(error.code(), "go-task-log-malformed");
+    assert_eq!(error.code(), "jsonl-task-log-malformed");
     let path = home.path().join(".ctxloom/tasks/able-calm-fox.jsonl");
     assert!(
         error
@@ -250,11 +252,14 @@ fn test_bytes_that_are_not_utf8_are_replaced_as_go_replaces_them() {
 #[test]
 fn test_without_a_home_every_read_says_so() {
     for home in [None, Some(std::path::Path::new(""))] {
-        let mut logs = GoTaskLogDir::in_home(home);
-        assert_eq!(logs.projects().unwrap_err().code(), "go-task-log-no-home");
+        let mut logs = JsonlTaskLogDir::in_home(home);
+        assert_eq!(
+            logs.projects().unwrap_err().code(),
+            "jsonl-task-log-no-home"
+        );
         assert_eq!(
             logs.records("able-calm-fox").unwrap_err().code(),
-            "go-task-log-no-home"
+            "jsonl-task-log-no-home"
         );
     }
 }
@@ -262,6 +267,6 @@ fn test_without_a_home_every_read_says_so() {
 #[test]
 fn test_a_directory_named_outright_is_read() {
     let (home, _) = logs(&[("able-calm-fox.jsonl", ADD)]);
-    let mut logs = GoTaskLogDir::new(home.path().join(".ctxloom/tasks"));
+    let mut logs = JsonlTaskLogDir::new(home.path().join(".ctxloom/tasks"));
     assert_eq!(logs.projects().unwrap(), ["able-calm-fox"]);
 }

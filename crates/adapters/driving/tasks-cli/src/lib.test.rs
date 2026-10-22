@@ -1466,7 +1466,7 @@ fn imported(lost: usize) -> ProjectImport {
         lost: (0..lost)
             .map(|line| tasks_application::Lost {
                 line: u32::try_from(line).unwrap(),
-                op: tasks_application::GoOp::Status,
+                op: tasks_application::JsonlOp::Status,
                 harp_id: "swift-amber".to_string(),
                 text: String::new(),
                 why: tasks_application::Why::TaskNotImported,

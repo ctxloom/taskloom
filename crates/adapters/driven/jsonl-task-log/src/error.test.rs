@@ -58,11 +58,11 @@ fn test_each_error_has_its_own_code() {
     assert_eq!(
         codes,
         [
-            "go-task-log-no-home",
-            "go-task-log-unreadable",
-            "go-task-log-malformed",
-            "go-task-log-no-op",
-            "go-task-log-unknown-op",
+            "jsonl-task-log-no-home",
+            "jsonl-task-log-unreadable",
+            "jsonl-task-log-malformed",
+            "jsonl-task-log-no-op",
+            "jsonl-task-log-unknown-op",
         ]
     );
 }

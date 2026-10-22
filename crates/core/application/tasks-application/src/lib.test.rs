@@ -275,7 +275,7 @@ type Configured = Service<
     FakeNames,
     FakeClock,
     FakeDelay,
-    crate::NoGoLogs,
+    crate::NoJsonlLogs,
     FakeConfiguration,
 >;
 

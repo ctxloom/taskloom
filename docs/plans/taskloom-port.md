@@ -39,7 +39,7 @@ cutover ("What remains").
   store opener, `PurgingStore` (a store whose store and units of work
   implement annals' opt-in `AsyncPurge`, as SQLite's do), `WatchedStores`
   (a store's change token), names, the clock, command ids, waiting with
-  jitter, configuration, Go's task logs (`GoTaskLogs`), the store's
+  jitter, configuration, Go's task logs (`JsonlTaskLogs`), the store's
   integrity check (`StoreCheck`) and agents' MCP configurations
   (`AgentConfigs`). Every port future, and every use case's, is `Send`, so
   a server can spawn them; project identity is synchronous and blocks on
@@ -139,8 +139,8 @@ cutover ("What remains").
   it is in the home lock directory, a reap that holds it past 30s refusing
   the lock. Its paths are held to Go's own `HomePathFor`'s output.
 - `adapters/driven/harp-names`: harp-core behind the names port.
-- `adapters/driven/go-task-log`: Go's `~/.ctxloom/tasks/<project-id>.jsonl`
-  behind the `GoTaskLogs` port, read only (not even its lock file). A line
+- `adapters/driven/jsonl-task-log`: Go's `~/.ctxloom/tasks/<project-id>.jsonl`
+  behind the `JsonlTaskLogs` port, read only (not even its lock file). A line
   Go's fold would refuse (malformed, no op, an unknown op) refuses the
   whole log, as Go's fold does.
 - `adapters/driven/task-store-sqlite`: annals-store-sql's SQLite store at
@@ -289,7 +289,7 @@ cutover ("What remains").
   It exits 1 when it left anything behind, naming each record and why.
   Its acceptance test compares the store task by task with Go's own fold
   (`scripts/go-fold`, laid into Go's package with `go test -overlay`) over
-  synthetic fixtures, one per kind of record (`fixtures/go-logs`);
+  synthetic fixtures, one per kind of record (`fixtures/jsonl-logs`);
   `scripts/compare-go-import.sh` runs the same comparison over copies of
   real logs. On 2026-10-21's logs (56 files, 23 non-empty, 6241 records)
   all 1162 tasks agreed on every field and a second run applied nothing;
@@ -687,7 +687,7 @@ restarted on a freed harp is under "Where it stands".
   (`--write-upgrades`, not ported) and `tag_schema` extending the default
   schema, where the last declaration wins. Priority's `priority_fn` and
   `decay_fn` come through it.
-- The importer for Go's jsonl logs (Decided, 2): `go-task-log`.
+- The importer for Go's jsonl logs (Decided, 2): `jsonl-task-log`.
 - Harp minting: the same word lists as Go's `harp` (adjective-noun for tasks).
 - Clock.
 

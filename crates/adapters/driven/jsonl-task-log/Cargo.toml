@@ -1,7 +1,7 @@
 [package]
-name = "go-task-log"
+name = "jsonl-task-log"
 version = "0.1.0"
-description = "Go taskloom's per-project task logs (~/.ctxloom/tasks/<project-id>.jsonl), read behind the GoTaskLogs port"
+description = "Go taskloom's per-project task logs (~/.ctxloom/tasks/<project-id>.jsonl), read behind the JsonlTaskLogs port"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

@@ -201,14 +201,14 @@ pub trait Configuration {
 /// One record of Go taskloom's task log, `~/.ctxloom/tasks/<project-id>.jsonl`:
 /// one JSON line, decoded as Go decodes it, with absent fields empty.
 #[derive(Clone, PartialEq, Debug)]
-pub struct GoRecord {
+pub struct JsonlRecord {
     /// Its line in the log, from 1.
     pub line: u32,
     /// The line, trimmed: Go's fold skips a line repeating an earlier one
     /// byte for byte, and the importer derives the record's command id
     /// from it.
     pub raw: String,
-    pub op: GoOp,
+    pub op: JsonlOp,
     /// The task's harp id.
     pub task: String,
     pub text: String,
@@ -227,7 +227,7 @@ pub struct GoRecord {
 
 /// What a Go record does.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum GoOp {
+pub enum JsonlOp {
     Add,
     Status,
     Text,
@@ -236,16 +236,16 @@ pub enum GoOp {
     Untag,
 }
 
-impl GoOp {
+impl JsonlOp {
     /// The op as the log spells it.
     pub fn as_str(self) -> &'static str {
         match self {
-            GoOp::Add => "add",
-            GoOp::Status => "status",
-            GoOp::Text => "text",
-            GoOp::Remove => "remove",
-            GoOp::Tag => "tag",
-            GoOp::Untag => "untag",
+            JsonlOp::Add => "add",
+            JsonlOp::Status => "status",
+            JsonlOp::Text => "text",
+            JsonlOp::Remove => "remove",
+            JsonlOp::Tag => "tag",
+            JsonlOp::Untag => "untag",
         }
     }
 }
@@ -254,7 +254,7 @@ impl GoOp {
 ///
 /// Synchronous, and it blocks on the filesystem, as [`ProjectIdentity`]
 /// does.
-pub trait GoTaskLogs {
+pub trait JsonlTaskLogs {
     /// The ids of the projects that have a log, sorted.
     fn projects(&mut self) -> Result<Vec<String>, Report>;
 
@@ -262,7 +262,7 @@ pub trait GoTaskLogs {
     /// `None` when it has no log. A line Go's fold would refuse (malformed
     /// JSON, no op or one Go does not know) refuses the whole log, as Go's
     /// fold does.
-    fn records(&mut self, project_id: &str) -> Result<Option<Vec<GoRecord>>, Report>;
+    fn records(&mut self, project_id: &str) -> Result<Option<Vec<JsonlRecord>>, Report>;
 }
 
 #[cfg(test)]

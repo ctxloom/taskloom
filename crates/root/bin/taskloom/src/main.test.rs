@@ -462,7 +462,7 @@ fn test_every_diagnostic_of_every_crate_renders_from_the_binarys_catalog() {
         tasks_cli::diagnostic_samples(),
         project_application::diagnostic_samples(),
         project_cli::diagnostic_samples(),
-        go_task_log::diagnostic_samples(),
+        jsonl_task_log::diagnostic_samples(),
         tasks_config::diagnostic_samples(),
         presentation::diagnostic_samples(),
         tasks_mcp::diagnostic_samples(),
@@ -560,7 +560,7 @@ fn test_in_json_each_command_writes_one_document_and_errors_an_envelope() {
     let report = one_document(&incomplete.stdout);
     assert_eq!(
         report["projects"][0]["failed"]["code"],
-        "tasks-application-no-go-log"
+        "tasks-application-no-jsonl-log"
     );
     assert_eq!(
         one_document(&incomplete.stderr)["code"],

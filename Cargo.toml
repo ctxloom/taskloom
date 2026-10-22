@@ -32,7 +32,7 @@ registration-application = { path = "crates/core/application/registration-applic
 project-registry = { path = "crates/adapters/driven/project-registry" }
 harp-names = { path = "crates/adapters/driven/harp-names" }
 task-store-sqlite = { path = "crates/adapters/driven/task-store-sqlite" }
-go-task-log = { path = "crates/adapters/driven/go-task-log" }
+jsonl-task-log = { path = "crates/adapters/driven/jsonl-task-log" }
 tasks-config = { path = "crates/adapters/driven/tasks-config" }
 agent-configs = { path = "crates/adapters/driven/agent-configs" }
 file-lock = { path = "crates/adapters/driven/file-lock" }

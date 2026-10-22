@@ -43,11 +43,11 @@ impl fmt::Display for LogError {
 impl Diagnostic for LogError {
     fn code(&self) -> &'static str {
         match self {
-            LogError::NoHome => "go-task-log-no-home",
-            LogError::Unreadable { .. } => "go-task-log-unreadable",
-            LogError::Malformed { .. } => "go-task-log-malformed",
-            LogError::NoOp { .. } => "go-task-log-no-op",
-            LogError::UnknownOp { .. } => "go-task-log-unknown-op",
+            LogError::NoHome => "jsonl-task-log-no-home",
+            LogError::Unreadable { .. } => "jsonl-task-log-unreadable",
+            LogError::Malformed { .. } => "jsonl-task-log-malformed",
+            LogError::NoOp { .. } => "jsonl-task-log-no-op",
+            LogError::UnknownOp { .. } => "jsonl-task-log-unknown-op",
         }
     }
 
@@ -78,8 +78,8 @@ impl Diagnostic for LogError {
 /// This crate's en-US messages, its name first: what an edge's catalog
 /// embeds to render its diagnostics.
 pub const EN_US: (&str, &str) = (
-    "go-task-log",
-    include_str!("../locales/en-US/go-task-log.ftl"),
+    "jsonl-task-log",
+    include_str!("../locales/en-US/jsonl-task-log.ftl"),
 );
 
 /// One value of every error, for the catalog test.

@@ -2,7 +2,7 @@
 //!
 //! Go's fold is the oracle, dumped as JSON by `scripts/go-fold`'s harness
 //! (`scripts/compare-go-import.sh`) from Go's own `eventLog.fold`. The
-//! fixtures (`fixtures/go-logs`) are synthetic logs, one per kind of record
+//! fixtures (`fixtures/jsonl-logs`) are synthetic logs, one per kind of record
 //! the importer meets, and `fixtures/go-fold.json` is Go's fold of them.
 //! The same comparison runs over real logs, given by path, in an ignored
 //! test: the logs are copied into a temporary home first, so it never
@@ -276,7 +276,7 @@ fn test_the_import_agrees_with_gos_fold_of_every_fixture() {
     let go: Value =
         serde_json::from_str(&fs::read_to_string(fixtures().join("go-fold.json")).unwrap())
             .unwrap();
-    let home = home_with(&fixtures().join("go-logs"));
+    let home = home_with(&fixtures().join("jsonl-logs"));
     let (ran, report) = import(home.path());
     assert!(!ran.ok, "the fixtures leave records behind, so it fails");
     assert_eq!(report["complete"], false);
@@ -373,8 +373,8 @@ fn test_the_import_agrees_with_gos_fold_of_every_fixture() {
         "no store for it"
     );
     let failed = |p: &str| reported(&report, p)["failed"]["code"].clone();
-    assert_eq!(failed("malformed"), "go-task-log-malformed");
-    assert_eq!(failed("unknown-op"), "go-task-log-unknown-op");
+    assert_eq!(failed("malformed"), "jsonl-task-log-malformed");
+    assert_eq!(failed("unknown-op"), "jsonl-task-log-unknown-op");
     assert!(
         !home.path().join(".ctxloom/projects/index.yaml").exists(),
         "an import binds no directory to a project"

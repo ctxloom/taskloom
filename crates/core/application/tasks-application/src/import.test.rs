@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use annals::next::{AsyncEventStore, Stream, Timestamp};
 use annals_diagnostic::{Diagnostic, Report};
-use ports::{GoOp, GoRecord, GoTaskLogs};
+use ports::{JsonlOp, JsonlRecord, JsonlTaskLogs};
 use tasks::{TaskState, Tasks};
 
 use super::{anomaly_key, record_command_id, rfc3339_nano, Step};
@@ -24,13 +24,13 @@ const HARP: &str = "swift-amber";
 /// Go's logs by project id, read in the order given; failing on cue.
 #[derive(Default)]
 struct FakeLogs {
-    logs: BTreeMap<String, Vec<GoRecord>>,
+    logs: BTreeMap<String, Vec<JsonlRecord>>,
     projects_fail: Option<Report>,
     records_fail: Option<Report>,
     read: Vec<String>,
 }
 
-impl GoTaskLogs for FakeLogs {
+impl JsonlTaskLogs for FakeLogs {
     fn projects(&mut self) -> Result<Vec<String>, Report> {
         match &self.projects_fail {
             Some(report) => Err(report.clone()),
@@ -38,7 +38,7 @@ impl GoTaskLogs for FakeLogs {
         }
     }
 
-    fn records(&mut self, project_id: &str) -> Result<Option<Vec<GoRecord>>, Report> {
+    fn records(&mut self, project_id: &str) -> Result<Option<Vec<JsonlRecord>>, Report> {
         self.read.push(project_id.to_string());
         if let Some(report) = &self.records_fail {
             return Err(report.clone());
@@ -49,7 +49,7 @@ impl GoTaskLogs for FakeLogs {
 
 type Fake = Service<FakeIdentity, FakeStores, FakeNames, FakeClock, FakeDelay, FakeLogs>;
 
-fn service(records: Vec<GoRecord>) -> Fake {
+fn service(records: Vec<JsonlRecord>) -> Fake {
     let mut logs = FakeLogs::default();
     logs.logs.insert(PROJECT.to_string(), records);
     Service::new(
@@ -59,7 +59,7 @@ fn service(records: Vec<GoRecord>) -> Fake {
         FakeClock::default(),
         FakeDelay::default(),
     )
-    .with_go_logs(logs)
+    .with_jsonl_logs(logs)
 }
 
 fn import(service: &mut Fake) -> ImportReport {
@@ -95,8 +95,8 @@ fn events(service: &mut Fake, harp: &str) -> usize {
 
 /// A record of `op` to `harp` at `second`, its line unlike any other's
 /// (a clone repeats it).
-fn record(op: GoOp, harp: &str, second: i64) -> GoRecord {
-    let mut record = GoRecord {
+fn record(op: JsonlOp, harp: &str, second: i64) -> JsonlRecord {
+    let mut record = JsonlRecord {
         line: 0,
         raw: String::new(),
         op,
@@ -114,39 +114,39 @@ fn record(op: GoOp, harp: &str, second: i64) -> GoRecord {
     record
 }
 
-fn add(harp: &str, text: &str, second: i64) -> GoRecord {
-    GoRecord {
+fn add(harp: &str, text: &str, second: i64) -> JsonlRecord {
+    JsonlRecord {
         text: text.to_string(),
         status: "To Do".to_string(),
         session: "calm-otter".to_string(),
-        ..record(GoOp::Add, harp, second)
+        ..record(JsonlOp::Add, harp, second)
     }
 }
 
-fn status(harp: &str, status: &str, trigger: &str, second: i64) -> GoRecord {
-    GoRecord {
+fn status(harp: &str, status: &str, trigger: &str, second: i64) -> JsonlRecord {
+    JsonlRecord {
         status: status.to_string(),
         trigger: trigger.to_string(),
-        ..record(GoOp::Status, harp, second)
+        ..record(JsonlOp::Status, harp, second)
     }
 }
 
-fn tags(op: GoOp, harp: &str, tags: &[&str], second: i64) -> GoRecord {
-    GoRecord {
+fn tags(op: JsonlOp, harp: &str, tags: &[&str], second: i64) -> JsonlRecord {
+    JsonlRecord {
         tags: tags.iter().map(|t| t.to_string()).collect(),
         ..record(op, harp, second)
     }
 }
 
-fn text(harp: &str, text: &str, second: i64) -> GoRecord {
-    GoRecord {
+fn text(harp: &str, text: &str, second: i64) -> JsonlRecord {
+    JsonlRecord {
         text: text.to_string(),
-        ..record(GoOp::Text, harp, second)
+        ..record(JsonlOp::Text, harp, second)
     }
 }
 
 /// `records`, numbered as lines from 1 in the order given.
-fn numbered(mut records: Vec<GoRecord>) -> Vec<GoRecord> {
+fn numbered(mut records: Vec<JsonlRecord>) -> Vec<JsonlRecord> {
     for (i, record) in records.iter_mut().enumerate() {
         record.line = u32::try_from(i + 1).unwrap();
     }
@@ -161,7 +161,7 @@ fn strings(values: &[&str]) -> Vec<String> {
 
 #[test]
 fn test_an_add_imports_the_task_with_its_harp_session_and_time() {
-    let mut service = service(numbered(vec![GoRecord {
+    let mut service = service(numbered(vec![JsonlRecord {
         status: "In Progress".to_string(),
         trigger: " later ".to_string(),
         tags: strings(&["b", " a", "b", ""]),
@@ -188,7 +188,7 @@ fn test_an_add_imports_the_task_with_its_harp_session_and_time() {
 
 #[test]
 fn test_an_add_with_no_status_is_to_do() {
-    let mut service = service(vec![GoRecord {
+    let mut service = service(vec![JsonlRecord {
         status: String::new(),
         ..add(HARP, "Ship it", 1)
     }]);
@@ -197,7 +197,7 @@ fn test_an_add_with_no_status_is_to_do() {
 }
 
 #[test]
-fn test_status_changes_keep_go_instants_and_the_trigger() {
+fn test_status_changes_keep_the_logged_instants_and_the_trigger() {
     let mut service = service(vec![
         add(HARP, "Revisit", 1),
         status(HARP, "Deferred", "after the release", 5),
@@ -217,7 +217,7 @@ fn test_status_changes_keep_go_instants_and_the_trigger() {
 
 #[test]
 fn test_an_add_deferred_records_when() {
-    let mut service = service(vec![GoRecord {
+    let mut service = service(vec![JsonlRecord {
         status: "Deferred".to_string(),
         trigger: "after the release".to_string(),
         ..add(HARP, "Revisit", 3)
@@ -234,10 +234,10 @@ fn test_edits_tags_untags_and_a_removal_are_imported() {
     let mut service = service(vec![
         add(HARP, "Draft", 1),
         text(HARP, "Final", 2),
-        tags(GoOp::Tag, HARP, &["x", "y"], 3),
-        tags(GoOp::Untag, HARP, &["x"], 4),
+        tags(JsonlOp::Tag, HARP, &["x", "y"], 3),
+        tags(JsonlOp::Untag, HARP, &["x"], 4),
         add("calm-otter", "Gone", 5),
-        record(GoOp::Remove, "calm-otter", 6),
+        record(JsonlOp::Remove, "calm-otter", 6),
     ]);
     let report = import(&mut service);
     assert_eq!(only(&report).applied, 6);
@@ -274,12 +274,12 @@ fn test_records_replay_in_time_order_and_the_log_breaks_ties() {
 
 #[test]
 fn test_a_line_repeated_byte_for_byte_counts_once() {
-    let first = tags(GoOp::Untag, HARP, &["x"], 4);
+    let first = tags(JsonlOp::Untag, HARP, &["x"], 4);
     let mut service = service(vec![
         add(HARP, "Ship it", 1),
-        tags(GoOp::Tag, HARP, &["x"], 2),
+        tags(JsonlOp::Tag, HARP, &["x"], 2),
         first.clone(),
-        tags(GoOp::Tag, HARP, &["x"], 5),
+        tags(JsonlOp::Tag, HARP, &["x"], 5),
         first,
     ]);
     let report = import(&mut service);
@@ -298,9 +298,9 @@ fn test_records_go_ignores_are_ignored() {
     let mut service = service(vec![
         status("never-added", "Done", "", 1),
         add(HARP, "Ship it", 2),
-        record(GoOp::Remove, HARP, 3),
+        record(JsonlOp::Remove, HARP, 3),
         text(HARP, "After removal", 4),
-        record(GoOp::Remove, HARP, 5),
+        record(JsonlOp::Remove, HARP, 5),
     ]);
     let report = import(&mut service);
     let project = only(&report);
@@ -314,13 +314,13 @@ fn test_records_go_ignores_are_ignored() {
 #[test]
 fn test_a_retag_that_changes_nothing_records_nothing() {
     let mut service = service(vec![
-        GoRecord {
+        JsonlRecord {
             tags: strings(&["x"]),
             ..add(HARP, "Ship it", 1)
         },
-        tags(GoOp::Tag, HARP, &["x", " "], 2),
-        tags(GoOp::Untag, HARP, &["absent"], 3),
-        tags(GoOp::Tag, HARP, &[" "], 4),
+        tags(JsonlOp::Tag, HARP, &["x", " "], 2),
+        tags(JsonlOp::Untag, HARP, &["absent"], 3),
+        tags(JsonlOp::Tag, HARP, &[" "], 4),
     ]);
     let report = import(&mut service);
     assert_eq!(only(&report).unchanged, 3);
@@ -331,15 +331,15 @@ fn test_a_retag_that_changes_nothing_records_nothing() {
 // A Go tag that is not a tag in tagma's grammar is reported and left out;
 // the rest of its record imports. Go's fold still counts it.
 #[test]
-fn test_a_go_tag_outside_the_grammar_is_reported_and_the_rest_imported() {
+fn test_a_logged_tag_outside_the_grammar_is_reported_and_the_rest_imported() {
     let mut service = service(numbered(vec![
-        GoRecord {
+        JsonlRecord {
             tags: strings(&["ok", "has space"]),
             ..add(HARP, "Ship it", 1)
         },
-        tags(GoOp::Tag, HARP, &["a/b", "y"], 2),
-        tags(GoOp::Tag, HARP, &["c/d"], 3),
-        tags(GoOp::Untag, HARP, &["has space"], 4),
+        tags(JsonlOp::Tag, HARP, &["a/b", "y"], 2),
+        tags(JsonlOp::Tag, HARP, &["c/d"], 3),
+        tags(JsonlOp::Untag, HARP, &["has space"], 4),
     ]));
     let report = import(&mut service);
     let project = only(&report);
@@ -377,15 +377,15 @@ fn test_a_go_tag_outside_the_grammar_is_reported_and_the_rest_imported() {
 // ways; an untag of one spelling leaves the other, and the task still
 // carries the tag. A real log has this (`sig:"a.b"` beside `sig:a.b`).
 #[test]
-fn test_a_task_keeps_a_tag_go_still_holds_under_another_spelling() {
+fn test_a_task_keeps_a_tag_the_log_still_holds_under_another_spelling() {
     let mut service = service(numbered(vec![
-        GoRecord {
+        JsonlRecord {
             tags: strings(&["sig:\"a.b\""]),
             ..add(HARP, "Ship it", 1)
         },
-        tags(GoOp::Tag, HARP, &["sig:a.b"], 2),
-        tags(GoOp::Untag, HARP, &["sig:a.b"], 3),
-        tags(GoOp::Untag, HARP, &["sig:\"a.b\""], 4),
+        tags(JsonlOp::Tag, HARP, &["sig:a.b"], 2),
+        tags(JsonlOp::Untag, HARP, &["sig:a.b"], 3),
+        tags(JsonlOp::Untag, HARP, &["sig:\"a.b\""], 4),
     ]));
     let report = import(&mut service);
     let project = only(&report);
@@ -404,7 +404,7 @@ fn test_a_task_keeps_a_tag_go_still_holds_under_another_spelling() {
 fn test_a_displaced_duplicate_add_is_reported_and_its_records_go_to_the_first() {
     let mut service = service(numbered(vec![
         add(HARP, "First", 1),
-        GoRecord {
+        JsonlRecord {
             session: "other-session".to_string(),
             ..add(HARP, "Second", 2)
         },
@@ -416,7 +416,7 @@ fn test_a_displaced_duplicate_add_is_reported_and_its_records_go_to_the_first() 
         project.lost,
         [Lost {
             line: 2,
-            op: GoOp::Add,
+            op: JsonlOp::Add,
             harp_id: HARP.to_string(),
             text: "Second".to_string(),
             why: Why::Displaced,
@@ -434,7 +434,7 @@ fn test_a_displaced_duplicate_add_is_reported_and_its_records_go_to_the_first() 
 #[test]
 fn test_a_repaired_duplicate_add_imports_under_its_fresh_harp() {
     let displaced = add(HARP, "Second", 2);
-    let repair = GoRecord {
+    let repair = JsonlRecord {
         repair_of: anomaly_key(&displaced),
         raw: "repair".to_string(),
         ..add("calm-otter", "Second", 2)
@@ -455,7 +455,7 @@ fn test_a_repaired_duplicate_add_imports_under_its_fresh_harp() {
 fn test_a_repair_found_after_its_anomaly_still_counts() {
     // Go collects every repair before judging an anomaly.
     let displaced = add(HARP, "Second", 5);
-    let repair = GoRecord {
+    let repair = JsonlRecord {
         repair_of: anomaly_key(&displaced),
         ..add("calm-otter", "Second", 9)
     };
@@ -468,8 +468,8 @@ fn test_a_record_to_a_task_that_was_not_imported_is_reported() {
     let mut service = service(numbered(vec![
         add(HARP, "   ", 1),
         status(HARP, "Done", "", 2),
-        tags(GoOp::Tag, HARP, &["x"], 3),
-        record(GoOp::Remove, HARP, 4),
+        tags(JsonlOp::Tag, HARP, &["x"], 3),
+        record(JsonlOp::Remove, HARP, 4),
         text(HARP, "after", 5),
     ]));
     let report = import(&mut service);
@@ -541,7 +541,7 @@ fn test_a_harp_a_task_here_already_holds_is_reported_and_left_alone() {
 fn test_importing_again_duplicates_nothing() {
     let records = vec![
         add(HARP, "Ship it", 1),
-        tags(GoOp::Tag, HARP, &["x"], 2),
+        tags(JsonlOp::Tag, HARP, &["x"], 2),
         status(HARP, "Done", "", 3),
     ];
     let mut service = service(records);
@@ -582,10 +582,10 @@ fn test_an_import_that_stopped_part_way_resumes() {
 }
 
 #[test]
-fn test_records_go_appended_since_are_imported_next_time() {
+fn test_records_appended_since_are_imported_next_time() {
     let mut service = service(vec![add(HARP, "Ship it", 1)]);
     import(&mut service);
-    let log = service.go_logs.logs.get_mut(PROJECT).unwrap();
+    let log = service.jsonl_logs.logs.get_mut(PROJECT).unwrap();
     log.push(status(HARP, "Done", "", 2));
     let report = import(&mut service);
     assert_eq!((only(&report).already, only(&report).applied), (1, 1));
@@ -613,12 +613,21 @@ fn test_a_command_id_is_the_lines_and_only_its() {
     );
 }
 
+#[test]
+fn test_a_command_id_keeps_the_prefix_imported_stores_already_hold() {
+    assert_eq!(
+        record_command_id("a"),
+        annals::next::ids::fact_command_id("ctxloom-go-task-log:a"),
+        "a store imported before the rename finds its records again"
+    );
+}
+
 // ------------------------------------------------------------ projects
 
 #[test]
 fn test_every_project_with_a_log_is_imported_in_turn() {
     let mut service = service(vec![add(HARP, "One", 1)]);
-    service.go_logs.logs.insert(
+    service.jsonl_logs.logs.insert(
         "able-calm-fox".to_string(),
         vec![add("calm-otter", "Two", 1)],
     );
@@ -629,7 +638,7 @@ fn test_every_project_with_a_log_is_imported_in_turn() {
         .map(|p| p.project_id.as_str())
         .collect();
     assert_eq!(ids, ["able-calm-fox", PROJECT]);
-    assert_eq!(service.go_logs.read, ["able-calm-fox", PROJECT]);
+    assert_eq!(service.jsonl_logs.read, ["able-calm-fox", PROJECT]);
     assert_eq!(
         service.identity.pins,
         [Some("able-calm-fox".to_string()), Some(PROJECT.to_string())]
@@ -640,7 +649,7 @@ fn test_every_project_with_a_log_is_imported_in_turn() {
 #[test]
 fn test_a_named_project_alone_is_imported() {
     let mut service = service(vec![add(HARP, "One", 1)]);
-    service.go_logs.logs.insert(
+    service.jsonl_logs.logs.insert(
         "able-calm-fox".to_string(),
         vec![add("calm-otter", "Two", 1)],
     );
@@ -649,7 +658,7 @@ fn test_a_named_project_alone_is_imported() {
     };
     let report = ready(service.import(request)).unwrap();
     assert_eq!(only(&report).project_id, PROJECT);
-    assert_eq!(service.go_logs.read, [PROJECT]);
+    assert_eq!(service.jsonl_logs.read, [PROJECT]);
 }
 
 #[test]
@@ -660,7 +669,7 @@ fn test_a_named_project_without_a_log_fails() {
     };
     let report = ready(service.import(request)).unwrap();
     let failed = only(&report).failed.clone().expect("failed");
-    assert_eq!(failed.code(), "tasks-application-no-go-log");
+    assert_eq!(failed.code(), "tasks-application-no-jsonl-log");
     assert!(!report.complete());
 }
 
@@ -678,19 +687,19 @@ fn test_an_empty_log_opens_no_store() {
 #[test]
 fn test_logs_that_cannot_be_listed_fail_the_import() {
     let mut service = service(Vec::new());
-    service.go_logs.projects_fail = Some(Report::new("go-task-log-unreadable", "no"));
+    service.jsonl_logs.projects_fail = Some(Report::new("jsonl-task-log-unreadable", "no"));
     let error = ready(service.import(ImportRequest::default())).unwrap_err();
-    assert_eq!(error.code(), "go-task-log-unreadable");
+    assert_eq!(error.code(), "jsonl-task-log-unreadable");
 }
 
 #[test]
 fn test_a_log_that_cannot_be_read_fails_its_project() {
     let mut service = service(vec![add(HARP, "One", 1)]);
-    service.go_logs.records_fail = Some(Report::new("go-task-log-malformed", "bad"));
+    service.jsonl_logs.records_fail = Some(Report::new("jsonl-task-log-malformed", "bad"));
     let report = import(&mut service);
     assert_eq!(
         only(&report).failed.as_ref().map(|r| r.code()),
-        Some("go-task-log-malformed")
+        Some("jsonl-task-log-malformed")
     );
     assert!(service.stores.opened.is_empty());
 }
@@ -767,11 +776,14 @@ fn test_instants_are_written_as_gos_rfc3339_nano() {
 #[test]
 fn test_a_step_is_a_command_or_why_not() {
     // The fold's verdicts, apart from any store.
-    let records = vec![add(HARP, "Ship it", 1), tags(GoOp::Untag, HARP, &["x"], 2)];
+    let records = vec![
+        add(HARP, "Ship it", 1),
+        tags(JsonlOp::Untag, HARP, &["x"], 2),
+    ];
     let mut fold = super::Fold::new(&records);
     assert!(matches!(fold.step(&records[0]), Step::Run(_)));
     assert_eq!(fold.step(&records[1]), Step::Unchanged);
-    assert_eq!(fold.step(&record(GoOp::Text, "other", 3)), Step::Ignored);
+    assert_eq!(fold.step(&record(JsonlOp::Text, "other", 3)), Step::Ignored);
 }
 
 // ------------------------------------------------------------ reasons
