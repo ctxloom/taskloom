@@ -250,7 +250,7 @@ pub(crate) fn classes() -> String {
     STATUS_CLASSES.join(", ")
 }
 
-impl<I, S, N, C, D, L, G> Service<I, S, N, C, D, L, G>
+impl<I, S, N, C, D, G> Service<I, S, N, C, D, G>
 where
     I: ProjectIdentity,
     S: TaskStores,

@@ -1,8 +1,10 @@
 //! The tasks command line: `add`, `status`, `edit`, `list`, `show`,
-//! `summary`, `statuses`, `tag`, `tags`, `lint`, `prune` and `import`, translated
+//! `summary`, `statuses`, `tag`, `tags`, `lint` and `prune`, translated
 //! into the application's use cases and their answers rendered through
 //! presentation, with room for another crate's commands mounted beside
-//! them ([`run_mounted`]); and the companion contract ctxloom reads,
+//! them ([`run_mounted`]); `import`, a group of its own ([`ImportGroup`],
+//! [`run_import`]) a binary mounts beside them, so only it reaches the
+//! importer; and the companion contract ctxloom reads,
 //! `version` and `loadout`. Text on a terminal, JSON otherwise, unless
 //! `--format` or `--json` says; stdout holds the answer alone (one JSON
 //! document), and notices, such as the project a write went to, go to
@@ -23,11 +25,11 @@ use std::io::{self, Write};
 use annals_diagnostic::Diagnostic;
 use clap::{Parser, Subcommand};
 use presentation::{Catalog, CatalogError, Format, Render, Source, UnknownFormat};
-use tasks_application::{ImportRequest, ImportService, PruneService, TaskService, Written};
+use tasks_application::{PruneService, TaskService, Written};
 
 pub use companion::{Asked, VersionJson, LOADOUT};
 pub use error::{diagnostic_samples, CliError, EN_US};
-pub use import::{ImportJson, Imported};
+pub use import::{run_import, ImportGroup, ImportJson, Imported};
 pub use notice::Notice;
 pub use prune::{apply_command, PruneReport};
 pub use render::{headline, table, Added, CompactJson, Listed, RowJson, Tagged, HEADLINE_WIDTH};
@@ -77,8 +79,8 @@ struct Cli<X: Subcommand> {
     project: Option<String>,
     /// Override a configuration key for this run: <path>=<value>, e.g.
     /// tag_schema=<declaration>,... (repeatable; beats TASKLOOM_CONFIG_*
-    /// and every config.yaml). The task commands take it; project, mcp,
-    /// watch, run and manage do not.
+    /// and every config.yaml). The task commands take it; import, project,
+    /// mcp, watch, run and manage do not.
     #[arg(long = "config-set", global = true, value_name = "PATH=VALUE")]
     config_set: Vec<String>,
     #[command(subcommand)]
@@ -135,10 +137,6 @@ enum Command<X: Subcommand> {
     /// could not purge is taken too, whatever the flags select. To keep a
     /// finished task, archive it and leave Archived out of --status.
     Prune(commands::PruneArgs),
-    /// Import Go taskloom's task logs (~/.ctxloom/tasks/<project-id>.jsonl)
-    /// into each project's store: every project's, or --project's alone.
-    /// Running it again imports only what is new.
-    Import,
     /// Print the taskloom version.
     Version,
     /// Print the context, commands, hooks and MCP servers taskloom
@@ -203,7 +201,7 @@ fn asked_format(args: &[OsString], context: &Context) -> Format {
 
 /// Run the command line `args` (the program name first) against `service`,
 /// writing to `out` and `err` with messages from `catalog`; the exit code.
-pub async fn run<S: TaskService + ImportService + PruneService>(
+pub async fn run<S: TaskService + PruneService>(
     args: impl IntoIterator<Item = OsString>,
     context: &Context,
     catalog: &Catalog,
@@ -245,7 +243,7 @@ fn parse<X: Subcommand>(
 /// of them parsed is handed to `mounted` with the global flags and the
 /// catalog it renders its diagnostics from, and its exit code is the
 /// run's.
-pub async fn run_mounted<S: TaskService + ImportService + PruneService, X: Subcommand>(
+pub async fn run_mounted<S: TaskService + PruneService, X: Subcommand>(
     args: impl IntoIterator<Item = OsString>,
     context: &Context,
     catalog: &Catalog,
@@ -280,15 +278,6 @@ pub async fn run_mounted<S: TaskService + ImportService + PruneService, X: Subco
         Command::Tag(args) => commands::tag(args, ctx, service, out, err).await,
         Command::Tags(args) => commands::tags(args, ctx, service, out, err).await,
         Command::List(args) => commands::list(args, ctx, service, out, err).await,
-        Command::Import => {
-            let request = ImportRequest {
-                project: ctx.project,
-            };
-            match service.import(request).await {
-                Ok(report) => imported(&report, format, catalog, out),
-                Err(e) => Err(CliError::App(e)),
-            }
-        }
         Command::Prune(args) => commands::prune(args, ctx, service, out, err).await,
         Command::Mounted(command) => {
             let flags = Mounted {
@@ -324,7 +313,7 @@ fn answer_format<X: Subcommand>(
 }
 
 /// The exit code of `result`, its error reported in `format`.
-fn finish(
+pub(crate) fn finish(
     result: Result<(), CliError>,
     format: Format,
     catalog: &Catalog,
@@ -385,27 +374,6 @@ fn version(context: &Context, format: Format, out: &mut dyn Write) -> Result<(),
         lock_protocol: context.lock_protocol,
     };
     presentation::render(out, format, &version).map_err(output_failed)
-}
-
-/// Render the report; refuse when it left something behind, so a script
-/// sees it in the exit code.
-fn imported(
-    report: &tasks_application::ImportReport,
-    format: Format,
-    catalog: &Catalog,
-    out: &mut dyn Write,
-) -> Result<(), CliError> {
-    presentation::render(out, format, &Imported { report, catalog }).map_err(output_failed)?;
-    if report.complete() {
-        return Ok(());
-    }
-    let stopped = report
-        .projects
-        .iter()
-        .filter(|p| p.failed.is_some())
-        .count();
-    let lost = report.projects.iter().map(|p| p.lost.len()).sum();
-    Err(CliError::Incomplete { stopped, lost })
 }
 
 pub(crate) fn output_failed(error: io::Error) -> CliError {

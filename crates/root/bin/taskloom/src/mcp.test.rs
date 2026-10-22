@@ -3,7 +3,7 @@
 //! and its capabilities, the tools and resources offered (their
 //! descriptions and schemas the reference fixtures'), a call of every
 //! tool, a read of each resource, and the command line reading the same
-//! store.
+//! store and resolving the same project in the same environment.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -44,6 +44,12 @@ impl Server {
 
     /// `taskloom mcp` started in `dir`.
     fn start_in(env: &Env, dir: &Path) -> Server {
+        Server::start_with(env, dir, &[])
+    }
+
+    /// [`Server::start_in`], with `vars` in its environment too, as
+    /// [`Env::run_in`] runs the command line.
+    fn start_with(env: &Env, dir: &Path, vars: &[(&str, &str)]) -> Server {
         let mut child = Command::new(binary())
             .arg("mcp")
             .current_dir(dir)
@@ -51,6 +57,7 @@ impl Server {
             .env("HOME", env.home.path())
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
             .env("CTXLOOM_SESSION_HARP", env.session)
+            .envs(vars.iter().copied())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -306,6 +313,46 @@ fn test_mcp_lists_every_project_outside_any_work_root_as_the_cli_does() {
         format!("taskloom: {notice}\n"),
         "one notice, both edges"
     );
+}
+
+// Every entry point resolves the project in one order: --project, then
+// CTXLOOM_PROJECT_ID, then the working directory's; the session
+// (CTXLOOM_SESSION_HARP, set throughout) is provenance, never a project.
+// So the server and the command line, in the same directory and
+// environment, write to the same project, pinned or not.
+#[test]
+fn test_mcp_and_the_cli_resolve_the_same_project_in_the_same_environment() {
+    let env = Env::new("mcp-test-harp");
+    let elsewhere = tempfile::tempdir().unwrap();
+    let there = env.run_in(elsewhere.path(), &["add", "there", "--json"], &[]);
+    assert!(there.ok, "{}", there.stderr);
+    let there = project_of(&env, elsewhere.path(), &there.json()["harp_id"], &[]);
+    let here = project_of(&env, env.project.path(), &env.seed("here")["harp_id"], &[]);
+    assert_ne!(here, there);
+    let pinned = [("CTXLOOM_PROJECT_ID", there.as_str())];
+    for (vars, expected) in [(&[][..], &here), (&pinned[..], &there)] {
+        let mut server = Server::start_with(&env, env.project.path(), vars);
+        server.initialize();
+        let served = server.call("task_add", json!({"text": "from mcp"}));
+        let (ok, stderr) = server.finish();
+        assert!(ok, "{stderr}");
+        let added = env.run_in(env.project.path(), &["add", "from cli", "--json"], vars);
+        assert!(added.ok, "{}", added.stderr);
+        let cli = project_of(&env, env.project.path(), &added.json()["harp_id"], vars);
+        assert_eq!(served["project_id"], cli.as_str(), "{vars:?}");
+        assert_eq!(&cli, expected, "{vars:?}");
+    }
+}
+
+/// The project `taskloom show` finds the task `harp` in, run in `dir`.
+fn project_of(env: &Env, dir: &Path, harp: &Value, vars: &[(&str, &str)]) -> String {
+    let harp = harp.as_str().expect("a harp");
+    let shown = env.run_in(dir, &["show", harp, "--json"], vars);
+    assert!(shown.ok, "{}", shown.stderr);
+    shown.json()["project_id"]
+        .as_str()
+        .expect("the project")
+        .to_string()
 }
 
 // Each call's service is configured as the command line's is: the home's

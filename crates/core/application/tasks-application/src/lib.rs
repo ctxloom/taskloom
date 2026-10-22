@@ -1,6 +1,7 @@
 //! The tasks use cases: add a task, move, edit or retag one, read a
 //! project's tasks (or every project's), watch them change, prune old
-//! finished ones, and import the JSONL task logs.
+//! finished ones; and, apart from them, import the JSONL task logs
+//! ([`Importer`], the one use case that reads them).
 //!
 //! Each resolves its project through [`ProjectIdentity`], opens the
 //! project's store through [`TaskStores`], and runs its command through
@@ -35,8 +36,8 @@ use tasks::{AddTask, EditText, Retag, SetStatus, TaskCommand, TaskRejection, Tas
 pub use annals::next::Timestamp;
 pub use error::{diagnostic_samples, AppError, CATALOGS, EN_US};
 pub use import::{
-    anomaly_key, record_command_id, rfc3339_nano, ImportReport, ImportRequest, ImportService, Lost,
-    NoJsonlLogs, ProjectImport, Why,
+    anomaly_key, record_command_id, rfc3339_nano, ImportReport, ImportRequest, ImportService,
+    Importer, Lost, ProjectImport, Why,
 };
 pub use lint::{Finding, LintReport, Violation, SCHEMA_SUBJECT};
 pub use ports::{JsonlOp, Project};
@@ -215,17 +216,15 @@ pub fn registry() -> Registry {
 }
 
 /// The use cases over their ports: `clock` stamps commands and mints their
-/// ids; `delay` waits, with jitter, between retries; `jsonl_logs` are the
-/// JSONL logs an import reads, none until [`Service::with_jsonl_logs`]
-/// gives some; `configuration` is what is configured, nothing until
-/// [`Service::with_configuration`] gives it.
-pub struct Service<I, S, N, C, D, L = NoJsonlLogs, G = NotConfigured> {
+/// ids; `delay` waits, with jitter, between retries; `configuration` is
+/// what is configured, nothing until [`Service::with_configuration`] gives
+/// it. It reads no JSONL task log: only an [`Importer`] does.
+pub struct Service<I, S, N, C, D, G = NotConfigured> {
     pub identity: I,
     pub stores: S,
     pub names: N,
     pub clock: C,
     pub delay: D,
-    pub jsonl_logs: L,
     pub configuration: G,
     pub backoff: Backoff,
     registry: Registry,
@@ -252,7 +251,6 @@ impl<I, S, N, C, D> Service<I, S, N, C, D> {
             names,
             clock,
             delay,
-            jsonl_logs: NoJsonlLogs,
             configuration: NotConfigured,
             backoff: Backoff::DEFAULT,
             registry: registry(),
@@ -260,31 +258,15 @@ impl<I, S, N, C, D> Service<I, S, N, C, D> {
     }
 }
 
-impl<I, S, N, C, D, L, G> Service<I, S, N, C, D, L, G> {
-    /// The same service, importing from `jsonl_logs`.
-    pub fn with_jsonl_logs<M>(self, jsonl_logs: M) -> Service<I, S, N, C, D, M, G> {
-        Service {
-            identity: self.identity,
-            stores: self.stores,
-            names: self.names,
-            clock: self.clock,
-            delay: self.delay,
-            jsonl_logs,
-            configuration: self.configuration,
-            backoff: self.backoff,
-            registry: self.registry,
-        }
-    }
-
+impl<I, S, N, C, D, G> Service<I, S, N, C, D, G> {
     /// The same service, configured by `configuration`.
-    pub fn with_configuration<H>(self, configuration: H) -> Service<I, S, N, C, D, L, H> {
+    pub fn with_configuration<H>(self, configuration: H) -> Service<I, S, N, C, D, H> {
         Service {
             identity: self.identity,
             stores: self.stores,
             names: self.names,
             clock: self.clock,
             delay: self.delay,
-            jsonl_logs: self.jsonl_logs,
             configuration,
             backoff: self.backoff,
             registry: self.registry,
@@ -292,7 +274,7 @@ impl<I, S, N, C, D, L, G> Service<I, S, N, C, D, L, G> {
     }
 }
 
-impl<I, S, N, C, D, L, G: Configuration> Service<I, S, N, C, D, L, G> {
+impl<I, S, N, C, D, G: Configuration> Service<I, S, N, C, D, G> {
     /// The tag schema: the default one, extended by what is configured,
     /// `overrides` applied.
     fn schema(&mut self, overrides: &[String]) -> Result<TagSchema, AppError> {
@@ -304,7 +286,7 @@ impl<I, S, N, C, D, L, G: Configuration> Service<I, S, N, C, D, L, G> {
     }
 }
 
-impl<I, S, N, C, D, L, G> Service<I, S, N, C, D, L, G>
+impl<I, S, N, C, D, G> Service<I, S, N, C, D, G>
 where
     I: ProjectIdentity,
     S: TaskStores,
@@ -355,14 +337,13 @@ where
     }
 }
 
-impl<I, S, N, C, D, L, G> TaskService for Service<I, S, N, C, D, L, G>
+impl<I, S, N, C, D, G> TaskService for Service<I, S, N, C, D, G>
 where
     I: ProjectIdentity + Send,
     S: TaskStores + Send,
     N: Names + Send,
     C: Clock + CommandIds + Send,
     D: Delay + Jitter + Send,
-    L: Send,
     G: Configuration + Send,
 {
     async fn add(&mut self, task: NewTask) -> Result<Written, AppError> {

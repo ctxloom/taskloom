@@ -14,8 +14,8 @@ use crate::fakes::{
     ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores, Fault, Flaky,
 };
 use crate::{
-    cover, ImportReport, ImportRequest, ImportService, Lost, NewTask, ProjectImport, Service,
-    TaskService, Why,
+    cover, ImportReport, ImportRequest, ImportService, Importer, Lost, NewTask, ProjectImport,
+    Service, TaskService, Why,
 };
 
 const PROJECT: &str = "jolly-mute-magma";
@@ -47,19 +47,17 @@ impl JsonlTaskLogs for FakeLogs {
     }
 }
 
-type Fake = Service<FakeIdentity, FakeStores, FakeNames, FakeClock, FakeDelay, FakeLogs>;
+type Fake = Importer<FakeIdentity, FakeStores, FakeDelay, FakeLogs>;
 
 fn service(records: Vec<JsonlRecord>) -> Fake {
+    over(FakeStores::default(), records)
+}
+
+/// The importer of `records`, as the one project's log, into `stores`.
+fn over(stores: FakeStores, records: Vec<JsonlRecord>) -> Fake {
     let mut logs = FakeLogs::default();
     logs.logs.insert(PROJECT.to_string(), records);
-    Service::new(
-        FakeIdentity::default(),
-        FakeStores::default(),
-        FakeNames::default(),
-        FakeClock::default(),
-        FakeDelay::default(),
-    )
-    .with_jsonl_logs(logs)
+    Importer::new(FakeIdentity::default(), stores, FakeDelay::default(), logs)
 }
 
 fn import(service: &mut Fake) -> ImportReport {
@@ -522,13 +520,20 @@ fn test_a_record_the_domain_refuses_is_reported_and_the_task_goes_on() {
 
 #[test]
 fn test_a_harp_a_task_here_already_holds_is_reported_and_left_alone() {
-    let mut service = service(vec![add(HARP, "From Go", 1), text(HARP, "Go edit", 2)]);
-    service.names = FakeNames::of(&[HARP]);
+    let mut tasks = Service::new(
+        FakeIdentity::default(),
+        FakeStores::default(),
+        FakeNames::of(&[HARP]),
+        FakeClock::default(),
+        FakeDelay::default(),
+    );
     let native = NewTask {
         text: "Native".to_string(),
         ..NewTask::default()
     };
-    ready(service.add(native)).unwrap();
+    ready(tasks.add(native)).unwrap();
+    let records = vec![add(HARP, "From Go", 1), text(HARP, "Go edit", 2)];
+    let mut service = over(tasks.stores, records);
     let report = import(&mut service);
     let lost: Vec<&Why> = only(&report).lost.iter().map(|l| &l.why).collect();
     assert_eq!(lost, [&Why::HarpTaken, &Why::TaskNotImported]);

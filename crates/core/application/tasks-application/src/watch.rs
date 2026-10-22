@@ -80,14 +80,13 @@ pub trait WatchService {
     ) -> impl Future<Output = Result<Vec<Changed>, AppError>> + Send;
 }
 
-impl<I, S, N, C, D, L, G> WatchService for Service<I, S, N, C, D, L, G>
+impl<I, S, N, C, D, G> WatchService for Service<I, S, N, C, D, G>
 where
     I: ProjectIdentity + Send,
     S: WatchedStores + Send,
     N: Send,
     C: Send,
     D: Send,
-    L: Send,
     G: Send,
 {
     async fn watch(&mut self, request: WatchRequest) -> Result<Option<Watch>, AppError> {

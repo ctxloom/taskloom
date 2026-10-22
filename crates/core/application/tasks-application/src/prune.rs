@@ -200,7 +200,7 @@ pub trait PruneService {
     ) -> impl Future<Output = Result<Pruning, AppError>> + Send;
 }
 
-impl<I, S, N, C, D, L, G> PruneService for Service<I, S, N, C, D, L, G>
+impl<I, S, N, C, D, G> PruneService for Service<I, S, N, C, D, G>
 where
     I: ProjectIdentity + Send,
     S: TaskStores + Send,
@@ -208,7 +208,6 @@ where
     N: Send,
     C: Clock + CommandIds + Send,
     D: Delay + Jitter + Send,
-    L: Send,
     G: Configuration + Send,
 {
     async fn prune(&mut self, request: PruneRequest) -> Result<Pruning, AppError> {
