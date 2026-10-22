@@ -269,7 +269,7 @@ fn listed(service: &mut Fake) -> Vec<String> {
         .collect()
 }
 
-/// A project with a task in each status Go's prune treats differently.
+/// A project with a task in each status a prune treats differently.
 fn seeded() -> Fake {
     let mut service = service(&["done-one", "archived-one", "to-do-one", "done-two"]);
     add(&mut service, "Shipped", "Done", "", &[]);

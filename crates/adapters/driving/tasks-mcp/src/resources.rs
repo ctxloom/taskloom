@@ -1,6 +1,6 @@
 //! The resources: the tag schema a write is held to, and the tags in use,
-//! each read fresh through the use cases and answered as Go taskloom's
-//! resources answer, its JSON indented and escaped as Go's encoder does.
+//! each read fresh through the use cases, its JSON indented two spaces a
+//! level with `<`, `>` and `&` escaped.
 
 use std::collections::BTreeMap;
 use std::io;
@@ -20,9 +20,8 @@ pub const TAG_VOCABULARY: &str = "taskloom://tag-vocabulary";
 /// The MIME type both resources are read as.
 pub const JSON: &str = "application/json";
 
-/// The resources this server offers, as `resources/list` answers: Go
-/// taskloom's (URI, name, description and MIME type) verbatim, in Go's
-/// order.
+/// The resources this server offers, as `resources/list` answers: URI,
+/// name, description and MIME type, verbatim, in this order.
 pub const RESOURCES: &str = include_str!("resources.json");
 
 /// The resources `RESOURCES` describes.
@@ -30,8 +29,7 @@ pub fn offered() -> Vec<Resource> {
     serde_json::from_str(RESOURCES).expect("RESOURCES is a JSON array of resources")
 }
 
-/// One declared target: Go's `tagSchemaTargetDoc`, every facet the
-/// resource reports of it.
+/// One declared target: every facet the resource reports of it.
 #[derive(Serialize, Default)]
 struct TargetDoc<'a> {
     target: &'a str,
@@ -53,16 +51,16 @@ struct RangeDoc {
     max: f64,
 }
 
-/// Go's `tagSchemaDoc`.
+/// The tag-schema resource's document.
 #[derive(Serialize)]
 struct SchemaDoc<'a> {
     targets: Vec<TargetDoc<'a>>,
 }
 
 /// `schema` as the tag-schema resource reads: one entry per target any
-/// arity, enum, range or formula is declared for, by target, as Go's
-/// `buildTagSchemaDoc`. What a listing hides and a target's type are not
-/// write-time vocabulary, so are left out, as Go leaves them.
+/// arity, enum, range or formula is declared for, by target. What a
+/// listing hides and a target's type are not write-time vocabulary, so are
+/// left out.
 pub fn schema_text(schema: &TagSchema) -> String {
     let mut targets: BTreeMap<&str, TargetDoc> = BTreeMap::new();
     for (target, scalar) in schema.arities() {
@@ -99,8 +97,8 @@ fn entry<'m, 'a>(
     })
 }
 
-/// Go's `tagVocabularyDoc`: the project read, or a warning saying why
-/// none was, and the tags in use.
+/// The tag-vocabulary resource's document: the project read, or a warning
+/// saying why none was, and the tags in use.
 #[derive(Serialize)]
 struct VocabularyDoc<'a> {
     #[serde(skip_serializing_if = "str::is_empty")]
@@ -113,8 +111,7 @@ struct VocabularyDoc<'a> {
 }
 
 /// What the tag-vocabulary resource counts: every task of the project
-/// here (or the one pinned), whatever its status, as Go's counts the
-/// whole project.
+/// here (or the one pinned), whatever its status: the whole project.
 pub fn vocabulary_query(settings: &Settings) -> ListQuery {
     ListQuery {
         project: settings.project.clone(),
@@ -144,7 +141,7 @@ pub fn vocabulary_text(vocabulary: &Vocabulary, catalog: &Catalog) -> String {
     })
 }
 
-/// `value` as Go's `json.MarshalIndent(value, "", "  ")` writes it.
+/// `value` indented two spaces a level, with no prefix.
 fn go_indented(value: &impl Serialize) -> String {
     let mut out = Vec::new();
     let mut serializer = serde_json::Serializer::with_formatter(&mut out, GoFormatter::default());
@@ -156,9 +153,9 @@ fn go_indented(value: &impl Serialize) -> String {
     String::from_utf8(out).expect("serde_json writes UTF-8")
 }
 
-/// serde_json's pretty printer, two spaces a level, as Go's encoder
-/// writes: a float in Go's shortest form (`5`, not `5.0`), and `<`, `>`,
-/// `&`, U+2028 and U+2029 escaped in strings.
+/// serde_json's pretty printer, two spaces a level: a float in its
+/// shortest form (`5`, not `5.0`), and `<`, `>`, `&`, U+2028 and U+2029
+/// escaped in strings.
 #[derive(Default)]
 struct GoFormatter {
     pretty: PrettyFormatter<'static>,
@@ -229,9 +226,9 @@ impl Formatter for GoFormatter {
     }
 }
 
-/// `value` as Go's encoder writes a float64: its shortest form, plain
-/// from 1e-6 up to 1e21, else in exponent form with a signed exponent of
-/// at least one digit (`1e-7`, `1e+21`).
+/// `value` as a float64 is written: its shortest form, plain from 1e-6 up
+/// to 1e21, else in exponent form with a signed exponent of at least one
+/// digit (`1e-7`, `1e+21`).
 fn go_float(value: f64) -> String {
     let magnitude = value.abs();
     if magnitude == 0.0 || (1e-6..1e21).contains(&magnitude) {

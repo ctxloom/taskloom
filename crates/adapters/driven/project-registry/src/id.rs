@@ -4,8 +4,8 @@
 use crate::RegistryError;
 
 /// `id`, if it is a valid project id: 1 to 255 ASCII letters, digits, '-',
-/// '_' or '.', not starting with '.' and holding no "..", as Go's
-/// `ValidateProjectID`. `origin` names where it came from, for the error.
+/// '_' or '.', not starting with '.' and holding no "..". `origin` names
+/// where it came from, for the error.
 pub fn valid(id: &str, origin: &str) -> Result<String, RegistryError> {
     let refuse = |reason: String| RegistryError::InvalidId {
         id: id.to_string(),

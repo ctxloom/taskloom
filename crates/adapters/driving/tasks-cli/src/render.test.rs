@@ -249,8 +249,8 @@ fn spelled_tag(s: &str) -> tasks_application::Tag {
     tasks_application::parse_tag(s).unwrap().unwrap()
 }
 
-// Go's TestTagCmd_TextHidesConfiguredTagJSONKeepsIt: a hidden tag is left
-// out of what a person reads, and kept in JSON, which a program reads.
+// A hidden tag is left out of what a person reads, and kept in JSON,
+// which a program reads.
 #[test]
 fn test_a_hidden_tag_is_left_out_of_text_and_kept_in_json() {
     let mut tagged = task("swift-amber", "To Do");

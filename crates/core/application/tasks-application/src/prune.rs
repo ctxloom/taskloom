@@ -1,5 +1,4 @@
-//! Pruning: taking old finished tasks out of a project's store, as Go's
-//! `taskloom prune` takes them out of its log.
+//! Pruning: taking old finished tasks out of a project's store.
 //!
 //! A task is selected when its status is one of those asked for, its
 //! status last changed before the cut (an age back from now, or a date),
@@ -37,10 +36,10 @@ use tasks::{RemovalReason, RemoveTask, TaskRejection, TaskState, STATUS_CLASS_SI
 use crate::retry::{Outcome, Runner};
 use crate::{book, cover, failed, query, rejected, AppError, Project, Service, Shown, Task, DONE};
 
-/// The age a prune takes by default: Go's `--older-than 7d`.
+/// The age a prune takes by default: `--older-than 7d`.
 pub const DEFAULT_OLDER_THAN: &str = "7d";
-/// The statuses a prune takes by default: Go's `--status Done`. Archived
-/// is left out, so archiving is how a finished task is kept.
+/// The statuses a prune takes by default: `--status Done`. Archived is
+/// left out, so archiving is how a finished task is kept.
 pub const DEFAULT_PRUNE_STATUSES: [&str; 1] = [DONE];
 
 /// Which tasks to prune, and whether to.
@@ -51,9 +50,8 @@ pub struct PruneRequest {
     /// `@`.
     pub statuses: Vec<String>,
     /// How long ago a qualifying task's status last changed, at the
-    /// least: an offset back from now (`30d`, `12w`, `720h`, Go's
-    /// durations with days and weeks), or a date (`2026-01-01`, midnight
-    /// UTC).
+    /// least: an offset back from now (`30d`, `12w`, `720h`: durations
+    /// with days and weeks), or a date (`2026-01-01`, midnight UTC).
     pub older_than: String,
     /// A tag query, postfix or infix; empty for none.
     pub tag_query: String,
@@ -82,7 +80,7 @@ pub enum Via {
     Trigger,
 }
 
-/// As Go spells it: `tag <tag>`, `text` or `trigger`.
+/// Spelled `tag <tag>`, `text` or `trigger`.
 impl fmt::Display for Via {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -477,7 +475,7 @@ fn dangling(survivors: &[&TaskState], gone: &BTreeSet<&str>) -> Vec<Dangling> {
 
 /// The runs of the characters a harp is spelled with (lowercase letters,
 /// digits and hyphens) in `text`, so a harp is matched as a whole word and
-/// never as part of a longer hyphenated one: Go's `harpWords`.
+/// never as part of a longer hyphenated one.
 fn harp_words(text: &str) -> impl Iterator<Item = &str> {
     text.split(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'))
         .filter(|word| !word.is_empty())
@@ -487,7 +485,7 @@ const NANOS_PER_SECOND: i128 = 1_000_000_000;
 const SECONDS_PER_DAY: i64 = 86_400;
 
 /// The instant `age` bounds, read at `now`: an offset back from now, or a
-/// date's midnight, UTC. Go's `agebound.Parse`.
+/// date's midnight, UTC.
 pub fn cut(age: &str, now: Timestamp) -> Result<Timestamp, PruneRefusal> {
     let trimmed = age.trim();
     if trimmed.is_empty() {
@@ -511,8 +509,8 @@ pub fn cut(age: &str, now: Timestamp) -> Result<Timestamp, PruneRefusal> {
 }
 
 /// `text` as a span of time, in nanoseconds: a whole number of days (`d`)
-/// or weeks (`w`), or Go's `time.ParseDuration` grammar (an optional sign,
-/// then numbers with units, `1h30m`, `1.5h`, `720h`).
+/// or weeks (`w`), or a duration (an optional sign, then numbers with
+/// units, `1h30m`, `1.5h`, `720h`).
 fn offset(text: &str) -> Option<i128> {
     for (suffix, days) in [('d', 1), ('w', 7)] {
         if let Some(count) = text.strip_suffix(suffix) {
@@ -526,7 +524,8 @@ fn offset(text: &str) -> Option<i128> {
     duration(text)
 }
 
-/// Go's `time.ParseDuration`, in nanoseconds.
+/// A duration (an optional sign, then decimal numbers each with a unit of
+/// `ns`, `us`, `µs`, `ms`, `s`, `m` or `h`), in nanoseconds.
 fn duration(text: &str) -> Option<i128> {
     let (sign, mut rest) = match text.as_bytes().first()? {
         b'-' => (-1, &text[1..]),
@@ -569,7 +568,7 @@ fn duration(text: &str) -> Option<i128> {
             "h" => 3_600_000_000_000,
             _ => return None,
         };
-        // Digits past the nanosecond are dropped, as Go drops them.
+        // Digits past the nanosecond are dropped.
         let whole: i128 = if whole.is_empty() {
             0
         } else {
@@ -582,7 +581,7 @@ fn duration(text: &str) -> Option<i128> {
             part += i128::from(digit - b'0') * place;
         }
         total = total.checked_add(whole.checked_mul(scale)?.checked_add(part)?)?;
-        // Go refuses a duration its int64 of nanoseconds cannot hold.
+        // A duration its int64 of nanoseconds cannot hold is refused.
         if total > i128::from(i64::MAX) {
             return None;
         }
@@ -591,7 +590,7 @@ fn duration(text: &str) -> Option<i128> {
     Some(sign * total)
 }
 
-/// `text` as a date, `YYYY-MM-DD`, at midnight UTC: Go's `time.DateOnly`.
+/// `text` as a date, `YYYY-MM-DD`, at midnight UTC.
 fn date(text: &str) -> Option<Timestamp> {
     let bytes = text.as_bytes();
     let digits = |range: std::ops::Range<usize>| -> Option<i64> {

@@ -12,10 +12,10 @@ use serde::Serialize;
 
 use crate::{output_failed, CliError};
 
-/// The loadout document, Go taskloom's own (`cmd/taskloom/loadout.yaml`)
-/// with the human's reviewed factual changes (`fixtures/reviewed.rs`): a
-/// parity test holds it to the Go source with those applied. Printed as
-/// it is, comments and all, as Go prints it.
+/// The loadout document (`fixtures/go/loadout.yaml`) with the human's
+/// reviewed factual changes (`fixtures/reviewed.rs`): a parity test holds
+/// it to the fixture with those applied. Printed as it is, comments and
+/// all.
 pub const LOADOUT: &str = include_str!("loadout.yaml");
 
 /// A `--format` value: one of presentation's formats, or `yaml`, which
@@ -37,8 +37,8 @@ impl FromStr for Asked {
     }
 }
 
-/// What `version` reports: Go's `cobrafmt.VersionInfo`, its fields in its
-/// order, `lock_protocol` left out when 0 as Go leaves it.
+/// What `version` reports: its fields in this order, `lock_protocol` left
+/// out when 0.
 #[derive(Serialize)]
 pub struct VersionJson<'a> {
     pub name: &'a str,
@@ -56,7 +56,7 @@ impl Render for VersionJson<'_> {
         self
     }
 
-    /// The bare version, as Go prints it.
+    /// The bare version.
     fn text(&self, out: &mut dyn Write) -> io::Result<()> {
         writeln!(out, "{}", self.version)
     }

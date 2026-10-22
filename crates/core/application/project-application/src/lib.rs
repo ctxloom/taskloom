@@ -33,7 +33,7 @@ pub enum Problem {
     TwoIds { root: String, ids: Vec<String> },
     /// The root is registered but has no marker.
     MissingMarker { root: String, id: String },
-    /// Only Go's older marker names the root's id.
+    /// Only the older marker names the root's id.
     LegacyMarkerOnly { root: String, id: String },
     /// The marker's id is not registered for the root (whether or not
     /// another tree holding it is: clones share by default).
@@ -131,7 +131,7 @@ impl<A: ProjectAdmin, C: StoreCheck> Projects<A, C> {
     /// whose paths are gone, a moved tree's; another live tree's entry for
     /// it stays, since clones share by default), unregister what else the
     /// root is registered as, write a missing marker from the registry's
-    /// one entry, and adopt Go's older marker. Made only when `apply`.
+    /// one entry, and adopt the older marker. Made only when `apply`.
     ///
     /// The resolved project's database is checked first, read-only, and
     /// damage found is left unresolved: reported, never repaired. No

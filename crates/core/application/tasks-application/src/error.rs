@@ -35,7 +35,7 @@ pub enum AppError {
     Vanished { harp_id: String },
     /// A change to an existing task where the work root has no project.
     NoProject,
-    /// An import of a project Go keeps no task log for.
+    /// An import of a project with no JSONL task log.
     NoJsonlLog { project: String },
     /// A status filter's value starting with `@` that names no class.
     UnknownStatusClass { status: String },

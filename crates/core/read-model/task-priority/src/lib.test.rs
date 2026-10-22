@@ -1,8 +1,7 @@
-//! Priority, as Go's `priority.Compute` derives it: the formula bridge, a
-//! task's tag values, the per-task scores, rank normalization and the
-//! diagnostics. The formulas here are written for each test; what the
-//! shipped default formulas rank is the application's tests', which read
-//! the default schema itself.
+//! Priority: the formula bridge, a task's tag values, the per-task scores,
+//! rank normalization and the diagnostics. The formulas here are written
+//! for each test; what the shipped default formulas rank is the
+//! application's tests', which read the default schema itself.
 
 use std::collections::BTreeMap;
 

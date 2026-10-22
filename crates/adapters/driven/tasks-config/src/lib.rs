@@ -1,5 +1,5 @@
-//! Taskloom's configuration, as Go's `internal/taskloom/config` layers it,
-//! and as far as the tag schema needs it. Each layer beats the one before:
+//! Taskloom's configuration, layered, as far as the tag schema needs it.
+//! Each layer beats the one before:
 //!
 //! 1. `~/.taskloom/config.yaml`;
 //! 2. `<root>/.taskloom/config.yaml`, the work root's;
@@ -7,15 +7,15 @@
 //! 4. `--config-set <path>=<value>` overrides, in order.
 //!
 //! `tag_schema` is a list, and a layer that sets it replaces the whole list
-//! below it, as Go's does: lists are never merged. An environment variable
-//! or override gives the list comma-separated; unlike Go, a comma inside a
-//! double-quoted span does not split, so an enum declaration's members
-//! (`tagma.enum:"k:x"="a,b"`) stay one declaration. A missing file is no
-//! layer; a file that cannot be read, is not YAML, names a key taskloom does
-//! not know or is a newer `schema_version` is refused, as is an environment
-//! variable or override naming no key. `homing` (repo homing is dropped)
-//! and `schema_version` are known and ignored. Nothing is written: Go's
-//! `--write-upgrades` has no version to upgrade from here.
+//! below it: lists are never merged. An environment variable or override
+//! gives the list comma-separated; a comma inside a double-quoted span does
+//! not split, so an enum declaration's members (`tagma.enum:"k:x"="a,b"`)
+//! stay one declaration. A missing file is no layer; a file that cannot be
+//! read, is not YAML, names a key taskloom does not know or is a newer
+//! `schema_version` is refused, as is an environment variable or override
+//! naming no key. `homing` (repo homing is dropped) and `schema_version`
+//! are known and ignored. Nothing is written: there is no older version to
+//! upgrade from.
 
 mod error;
 

@@ -1,5 +1,5 @@
-//! SemVer 2.0.0, strictly: Go's `type_comparator_test.go` cases, and the
-//! strictness Go's `StrictNewVersion` holds a written value to.
+//! SemVer 2.0.0, strictly: precedence, and the strictness a written value
+//! is held to.
 
 use std::cmp::Ordering;
 

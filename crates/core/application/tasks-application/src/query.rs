@@ -1,9 +1,8 @@
-//! Tag queries: tagma-core's engines over a listing's tasks, as Go's
-//! `tagquery.go` runs tagma's Go port.
+//! Tag queries: tagma-core's engines over a listing's tasks.
 //!
-//! A query is postfix, as Go's (`urgent/release/and`, `urgent/not`), or
-//! infix (`urgent and not release`, `(a or b) c`): postfix is tried first,
-//! and infix when postfix cannot read it. No string reads as both with two
+//! A query is postfix (`urgent/release/and`, `urgent/not`), or infix
+//! (`urgent and not release`, `(a or b) c`): postfix is tried first, and
+//! infix when postfix cannot read it. No string reads as both with two
 //! meanings: postfix separates its tokens with `/`, which no infix atom
 //! holds, and infix with spaces and parentheses, which no postfix atom
 //! holds unquoted, so a string both read is a single atom. The operators
@@ -36,8 +35,7 @@ const PRESENCE_NAMESPACE: &str = "taskloom.internal";
 /// since a harp has no colon.
 const TYPE_CONFIG_ITEM: &str = "taskloom.internal:type-config";
 
-/// How to write a query, said with every malformed one (Go's
-/// `tagQueryRemedy`, with infix).
+/// How to write a query, postfix or infix, said with every malformed one.
 pub const QUERY_GRAMMAR: &str = "queries are postfix, tags first and the operator after (urgent/release/and, urgent/not), and an and/or/not needs enough operands before it; or infix (urgent and not release)";
 
 /// A malformed query.

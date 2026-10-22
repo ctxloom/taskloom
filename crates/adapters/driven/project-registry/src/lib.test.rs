@@ -309,7 +309,7 @@ fn test_the_registry_names_the_project_of_a_registered_root() {
 
 #[test]
 fn test_a_symlinked_or_slashed_ctxloom_root_finds_gos_entry() {
-    // Go registers the path cleanPath gives: symlinks resolved.
+    // The path registered is the canonical one: symlinks resolved.
     let world = World::new();
     let mut index = index::Index::default();
     index.register("high-tight-gulf", &text(&world.tree()));

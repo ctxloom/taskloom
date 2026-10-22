@@ -2,10 +2,10 @@
 //! the listing taken from those tasks.
 //!
 //! A read is about the project the work root resolves to, or with
-//! `global` about every project with a store, as Go's `--global` is. A
-//! read that finds no project falls back to every project when the
-//! working directory lies in no work root of its own (no CTXLOOM_ROOT, no
-//! git repository), as Go's does; inside a work root it reads nothing.
+//! `global` about every project with a store (`--global`). A read that
+//! finds no project falls back to every project when the working
+//! directory lies in no work root of its own (no CTXLOOM_ROOT, no git
+//! repository); inside a work root it reads nothing.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -52,8 +52,7 @@ impl Reach {
 }
 
 /// Every live task a read reached: one project's in the order they were
-/// added, or every project's by project id and then harp id, as Go's
-/// `--global` orders them.
+/// added, or every project's by project id and then harp id.
 pub(crate) struct Scan {
     pub reach: Reach,
     pub rows: Vec<Row>,

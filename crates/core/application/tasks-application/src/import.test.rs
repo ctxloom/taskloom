@@ -1,5 +1,5 @@
-//! The import, over fake Go logs and annals' in-memory store, run through
-//! annals' kernel as the binary runs it over SQLite.
+//! The import, over fake JSONL logs and annals' in-memory store, run
+//! through annals' kernel as the binary runs it over SQLite.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -21,7 +21,7 @@ use crate::{
 const PROJECT: &str = "jolly-mute-magma";
 const HARP: &str = "swift-amber";
 
-/// Go's logs by project id, read in the order given; failing on cue.
+/// The logs by project id, read in the order given; failing on cue.
 #[derive(Default)]
 struct FakeLogs {
     logs: BTreeMap<String, Vec<JsonlRecord>>,
@@ -328,8 +328,8 @@ fn test_a_retag_that_changes_nothing_records_nothing() {
     assert_eq!(events(&mut service, HARP), 1);
 }
 
-// A Go tag that is not a tag in tagma's grammar is reported and left out;
-// the rest of its record imports. Go's fold still counts it.
+// A logged tag that is not a tag in tagma's grammar is reported and left
+// out; the rest of its record imports. The fold still counts it.
 #[test]
 fn test_a_logged_tag_outside_the_grammar_is_reported_and_the_rest_imported() {
     let mut service = service(numbered(vec![
@@ -373,7 +373,7 @@ fn test_a_logged_tag_outside_the_grammar_is_reported_and_the_rest_imported() {
     );
 }
 
-// Go keeps tags as strings, so it can hold one tag twice, spelled two
+// The log keeps tags as strings, so it can hold one tag twice, spelled two
 // ways; an untag of one spelling leaves the other, and the task still
 // carries the tag. A real log has this (`sig:"a.b"` beside `sig:a.b`).
 #[test]
@@ -453,7 +453,7 @@ fn test_a_repaired_duplicate_add_imports_under_its_fresh_harp() {
 
 #[test]
 fn test_a_repair_found_after_its_anomaly_still_counts() {
-    // Go collects every repair before judging an anomaly.
+    // Every repair is collected before an anomaly is judged.
     let displaced = add(HARP, "Second", 5);
     let repair = JsonlRecord {
         repair_of: anomaly_key(&displaced),
@@ -733,11 +733,11 @@ fn test_the_import_future_is_send() {
     is_send(&service.import(ImportRequest::default()));
 }
 
-// ------------------------------------------------------------ Go's keys
+// ------------------------------------------------------------ keys
 
 #[test]
 fn test_the_anomaly_key_is_gos() {
-    // Computed by Go's anomalyKey for the same event.
+    // The anomaly key the log's repair wrote for the same event.
     let mut record = add(HARP, "Write the tour", 0);
     record.ts = Timestamp {
         seconds: 1_775_046_645,

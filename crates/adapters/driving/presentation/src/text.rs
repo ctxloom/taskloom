@@ -15,8 +15,8 @@ pub fn pad(s: &str, columns: usize) -> String {
 }
 
 /// The first line of `text`, trailing spaces trimmed, cut to `max`
-/// characters with an ellipsis (the cut's own trailing spaces trimmed):
-/// Go taskloom's `Headline`, which counts characters.
+/// characters with an ellipsis (the cut's own trailing spaces trimmed): a
+/// task's headline, counted in characters.
 pub fn headline(text: &str, max: usize) -> String {
     let first = text
         .lines()

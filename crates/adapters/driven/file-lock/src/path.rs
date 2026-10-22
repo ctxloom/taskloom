@@ -1,6 +1,6 @@
-//! Where a lock lives: Go ctxloom's derivations (`paths.FlatName`,
-//! `paths.HomePathFor`, `paths.LockReapInterlockPath`), so every binary of
-//! the family names one lock file for one guarded file.
+//! Where a lock lives: the flat name, the home path and the reap
+//! interlock's path, derived so every binary of the family names one lock
+//! file for one guarded file.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -8,22 +8,20 @@ use sha2::{Digest, Sha256};
 
 use crate::LockError;
 
-/// The home lock directory under a home: Go's `HomeLocksDir`, the one
-/// directory `ctxloom clean` reaps.
+/// The home lock directory under a home: the one directory `ctxloom clean`
+/// reaps.
 pub const HOME_LOCKS: &str = ".ctxloom/locks";
 
-/// The sessions root under a home: Go's `HomeSessionsDir`.
+/// The sessions root under a home.
 const SESSIONS: &str = ".ctxloom/sessions";
 
-/// A session's own lock directory, inside its harp directory: Go's
-/// `HarpLocksDirName`.
+/// A session's own lock directory, inside its harp directory.
 const HARP_LOCKS: &str = "locks";
 
-/// The reap interlock's name in the home lock directory: Go's
-/// `LockReapInterlockFileName`.
+/// The reap interlock's name in the home lock directory.
 pub const REAP_INTERLOCK: &str = "reap.interlock";
 
-/// A lock file's suffix: Go's `lockSuffix`.
+/// A lock file's suffix.
 const SUFFIX: &str = ".lock";
 
 /// The readable tail a flat name keeps, in bytes.
@@ -32,13 +30,11 @@ const TAIL_MAX: usize = 96;
 /// The hex digits of the path's SHA-256 a flat name keeps.
 const HASH_LEN: usize = 16;
 
-/// Go's `paths.FlatName`: `path` as one bounded file name, the last
-/// [`TAIL_MAX`] bytes of it with `/` as `__` and NTFS's reserved
-/// characters escaped, then `__` and the first [`HASH_LEN`] hex digits of
-/// the whole path's SHA-256.
+/// `path` as one bounded file name: the last [`TAIL_MAX`] bytes of it
+/// with `/` as `__` and NTFS's reserved characters escaped, then `__` and
+/// the first [`HASH_LEN`] hex digits of the whole path's SHA-256.
 pub fn flat_name(path: &str) -> String {
-    // Go's `filepath.ToSlash`: only a platform separator that is not `/`
-    // becomes one.
+    // Only a platform separator that is not `/` becomes one.
     let slashed = path.replace(std::path::MAIN_SEPARATOR, "/");
     let digest = Sha256::digest(slashed.as_bytes());
     let hash: String = digest
@@ -63,8 +59,8 @@ pub fn flat_name(path: &str) -> String {
     format!("{}__{hash}", &flat[cut..])
 }
 
-/// `path` cleaned lexically, as Go's `filepath.Clean` cleans it: no `.`,
-/// and each `..` taking the component before it (none above the root).
+/// `path` cleaned lexically: no `.`, and each `..` taking the component
+/// before it (none above the root).
 pub fn clean(path: &Path) -> PathBuf {
     let mut parts: Vec<Component> = Vec::new();
     for component in path.components() {
@@ -86,9 +82,9 @@ pub fn clean(path: &Path) -> PathBuf {
     parts.iter().collect()
 }
 
-/// Go's `filepath.Abs`: `path` joined to the working directory when it is
-/// relative, and cleaned. Links are never resolved, so a path names its
-/// lock however its links stand.
+/// `path` joined to the working directory when it is relative, and
+/// cleaned. Links are never resolved, so a path names its lock however its
+/// links stand.
 pub fn absolute(path: &Path) -> Result<PathBuf, LockError> {
     if path.is_absolute() {
         return Ok(clean(path));
@@ -109,16 +105,16 @@ pub struct Sidecar {
     pub interlock: Option<PathBuf>,
 }
 
-/// Go's `paths.HomePathFor` under `home`, for `target` (absolute and
-/// clean, as [`absolute`] makes it): strictly inside a session's
-/// directory, `~/.ctxloom/sessions/<harp>/locks/<FlatName(rel)>.lock`,
-/// with no interlock (a session's locks go with it); anywhere else,
-/// `~/.ctxloom/locks/<FlatName(target)>.lock`, under the reap interlock
-/// (Go's `holdReapInterlockFor`).
+/// The lock path under `home` for `target` (absolute and clean, as
+/// [`absolute`] makes it): strictly inside a session's directory,
+/// `~/.ctxloom/sessions/<harp>/locks/<FlatName(rel)>.lock`, with no
+/// interlock (a session's locks go with it); anywhere else,
+/// `~/.ctxloom/locks/<FlatName(target)>.lock`, under the reap interlock.
 pub fn sidecar_for(home: &Path, target: &Path) -> Sidecar {
     let sessions = clean(&home.join(SESSIONS));
     let inside = split_harp(&sessions, target).or_else(|| {
-        // The sessions root as its links resolve, as Go matches it too.
+        // The sessions root as its links resolve too, so a target is
+        // inside it whichever spelling of the root it was given under.
         let resolved = std::fs::canonicalize(&sessions).ok()?;
         split_harp(&resolved, target)
     });
@@ -139,7 +135,6 @@ pub fn sidecar_for(home: &Path, target: &Path) -> Sidecar {
 
 /// `target` split at the harp directory it lies strictly inside, directly
 /// under `sessions`: the harp, and the rest of the path (slash-separated).
-/// Go's `splitHarpPath`.
 fn split_harp(sessions: &Path, target: &Path) -> Option<(String, String)> {
     let root = sessions.to_string_lossy().replace('\\', "/");
     let target = target.to_string_lossy().replace('\\', "/");
@@ -148,8 +143,8 @@ fn split_harp(sessions: &Path, target: &Path) -> Option<(String, String)> {
     (!rel.is_empty() && valid_harp(harp)).then(|| (harp.to_string(), rel.to_string()))
 }
 
-/// Go's `harp.Validate`: one path component, with no edge a human cannot
-/// see.
+/// Whether `harp` is a harp: one path component, with no edge a human
+/// cannot see.
 fn valid_harp(name: &str) -> bool {
     !name.is_empty()
         && name != "."

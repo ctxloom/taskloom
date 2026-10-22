@@ -1,25 +1,24 @@
 //! Agents' MCP configurations behind the [`AgentConfigs`] port: Claude
-//! Code's, as Go taskloom's registrar (`claude.MCPRegistrar`) knows it,
-//! the user's `~/.claude.json` and a project's `<dir>/.mcp.json`, each an
-//! `mcpServers` object of named servers.
+//! Code's, the user's `~/.claude.json` and a project's `<dir>/.mcp.json`,
+//! each an `mcpServers` object of named servers.
 //!
 //! A registration edits only the server's own member and leaves every
-//! other byte of the file as it was, splicing as hew (the patcher Go
-//! writes through) splices, so Go and Rust write the same bytes. An entry
-//! already under the name is taken out first when it runs the owner's
-//! program, and refused when it runs another. A file that is not JSON is
-//! copied beside itself (`<path>.corrupt-<unix seconds>`) and left alone.
-//! A write replaces the file whole, atomically, keeping its permissions
-//! (a new file is private, 0600). The whole read-modify-write, a dry run's
-//! included, runs under the file's lock, the one Go's
-//! `sessions.WithFileLock` takes (file-lock's [`file_lock::lock_file`]:
+//! other byte of the file as it was, splicing as hew splices, so every
+//! taskloom writes the same bytes. An entry already under the name is
+//! taken out first when it runs the owner's program, and refused when it
+//! runs another. A file that is not JSON is copied beside itself
+//! (`<path>.corrupt-<unix seconds>`) and left alone. A write replaces the
+//! file whole, atomically, keeping its permissions (a new file is private,
+//! 0600). The whole read-modify-write, a dry run's included, runs under
+//! the file's lock (file-lock's [`file_lock::lock_file`]:
 //! `~/.ctxloom/locks/<FlatName(path)>.lock` under the reap interlock), so
-//! it takes turns with Go ctxloom's and taskloom's writes of the file.
+//! it takes turns with every other ctxloom-family binary's write of the
+//! file.
 //!
-//! Go remembers what it wrote in application records; Rust keeps none,
-//! and reads Go's for one fact: whether Go made the `mcpServers` object
-//! itself, which an uninstall then takes out once it is empty, as Go's
-//! own would (see [`records`]).
+//! This adapter keeps no application records of what it wrote; it reads
+//! the ones an earlier taskloom left, for one fact: whether that write
+//! made the `mcpServers` object itself, which an uninstall then takes out
+//! once it is empty (see [`records`]).
 
 mod error;
 mod exec;
@@ -39,7 +38,7 @@ use ports::{AgentConfigs, McpServer, Rewritten, Scope};
 pub use error::EN_US;
 pub use error::{diagnostic_samples, ConfigError};
 
-/// Claude Code, as `--engine` names it (Go's `claude.EngineName`).
+/// Claude Code, as `--engine` names it.
 pub const CLAUDE_CODE: &str = "claude-code";
 
 /// The object a configuration's servers are in.
@@ -138,7 +137,7 @@ impl AgentConfigs for AgentConfigFiles {
 }
 
 impl AgentConfigFiles {
-    /// Go's application records for taskloom, under the home.
+    /// taskloom's application records, under the home.
     fn records(&self) -> Option<PathBuf> {
         Some(
             self.home
@@ -148,10 +147,9 @@ impl AgentConfigFiles {
         )
     }
 
-    /// The whole read-modify-write of `path`, under the file's lock: Go's
-    /// `sessions.WithFileLock`, so a Go or Rust ctxloom-family binary
-    /// rewriting it meanwhile takes its turn. A dry run takes it too, as
-    /// Go's does.
+    /// The whole read-modify-write of `path`, under the file's lock, so any
+    /// ctxloom-family binary rewriting it meanwhile takes its turn. A dry
+    /// run takes it too.
     fn rewrite(
         &self,
         path: &Path,
@@ -209,8 +207,9 @@ enum Splice {
 
 /// `src` with `server` registered under `name` (or, for none, with the
 /// entry under `name` taken out), each entry already there that runs
-/// `owner` taken out first. `made_by_go` says whether Go's last write made
-/// the servers object, so an uninstall that empties it takes it out too.
+/// `owner` taken out first. `made_by_go` says whether the last recorded
+/// write made the servers object, so an uninstall that empties it takes it
+/// out too.
 fn splice(
     src: &[u8],
     path: &Path,
@@ -221,8 +220,8 @@ fn splice(
 ) -> Result<Vec<u8>, Splice> {
     let doc = json::parse(src).map_err(|e| Splice::Unparsed(e.to_string()))?;
     if doc.members().is_none() {
-        // Go's install refuses it as unparsable; its uninstall finds
-        // nothing of its own in it.
+        // An install refuses it as unparsable; an uninstall finds nothing
+        // of its own in it.
         return match server {
             Some(_) => Err(Splice::Unparsed(
                 "the configuration is not a JSON object".to_string(),
@@ -281,8 +280,8 @@ fn splice(
     Ok(edit.apply(&out))
 }
 
-/// A server's entry, as Go's `ChatMCPConfigEntry` marshals a stdio
-/// server: its command, and its args when it has any.
+/// A server's entry, as a stdio server is written: its command, and its
+/// args when it has any.
 fn entry(server: &McpServer) -> json::Value {
     let mut entry = BTreeMap::new();
     entry.insert(
@@ -297,7 +296,7 @@ fn entry(server: &McpServer) -> json::Value {
 }
 
 /// Whether the entry `value` runs `owner`: a command line, or an object
-/// whose `command` is one (Go's `confpatch.OwnedBy`).
+/// whose `command` is one.
 fn owned(value: &json::Node, owner: &str) -> bool {
     match &value.kind {
         json::Kind::String(command) => exec::runs(command, owner),
@@ -431,9 +430,9 @@ fn executable(path: &Path) -> bool {
     }
 }
 
-/// `dir` joined with `name` and cleaned lexically, as Go's `filepath.Join`
-/// gives it, so a path reads (and Go's records name it) as Go's would:
-/// `.` and `.mcp.json` are `.mcp.json`.
+/// `dir` joined with `name` and cleaned lexically, so a path reads (and
+/// the records name it) the same however it was spelled: `.` and
+/// `.mcp.json` are `.mcp.json`.
 pub fn go_join(dir: &Path, name: &str) -> PathBuf {
     let joined = dir.join(name);
     let mut parts: Vec<Component> = Vec::new();

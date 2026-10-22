@@ -1,9 +1,9 @@
 //! Tags as the use cases take them: strings in tagma's grammar,
 //! `(namespace:)key(=value)`, parsed into [`Tag`]s at the edge of every
 //! write, and admitted only if they could be queried and the project's
-//! schema allows them (Go's `operations.validateTag`): a write is refused
-//! at the first that is not, with the reason. Only what a write adds is
-//! checked; a tag already held, or one being removed, never is.
+//! schema allows them: a write is refused at the first that is not, with
+//! the reason. Only what a write adds is checked; a tag already held, or
+//! one being removed, never is.
 //!
 //! A scalar target's values collapse before the retag is sent
 //! ([`collapse`]): decide never reads the schema.

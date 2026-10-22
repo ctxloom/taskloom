@@ -14,8 +14,8 @@ use crate::RegistryError;
 /// absent, or names a git directory with no `commondir`, as a submodule's
 /// does), or when its repository is bare and has no primary checkout. A
 /// `.git` naming a git directory that is gone (the primary checkout was
-/// deleted or moved) is an error, as in Go: resolving the worktree on its
-/// own would mint a project nobody finds again.
+/// deleted or moved) is an error: resolving the worktree on its own would
+/// mint a project nobody finds again.
 pub fn primary_checkout(root: &Path) -> Result<Option<PathBuf>, RegistryError> {
     let dot_git = root.join(".git");
     if !dot_git.is_file() {

@@ -1,8 +1,9 @@
 //! Acceptance: `taskloom mcp`, the real binary in a temporary home, served
 //! over its stdin and stdout as an MCP client speaks to it: initialize
-//! and its capabilities, the tools and resources Go offers (their
-//! descriptions and schemas Go's), a call of every tool, a read of each
-//! resource, and the command line reading the same store.
+//! and its capabilities, the tools and resources offered (their
+//! descriptions and schemas the reference fixtures'), a call of every
+//! tool, a read of each resource, and the command line reading the same
+//! store.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -14,11 +15,11 @@ use serde_json::{json, Value};
 
 use super::{binary, Env};
 
-/// Go taskloom's capabilities, tools and resources as its initialize,
-/// tools/list and resources/list answer them, and its tag-schema
-/// resource with nothing configured, as `scripts/go-companion-fixtures.sh`
-/// extracted them from the Go source. Rust serves Go's tools with the
-/// reviewed factual changes applied (`reviewed`).
+/// The reference capabilities, tools and resources as initialize,
+/// tools/list and resources/list answer them, and the tag-schema resource
+/// with nothing configured, as `scripts/go-companion-fixtures.sh`
+/// extracted them. The tools are served with the reviewed factual changes
+/// applied (`reviewed`).
 const GO_CAPABILITIES: &str =
     include_str!("../../../../adapters/driving/tasks-mcp/fixtures/go/capabilities.json");
 #[path = "../../../../adapters/driving/tasks-mcp/fixtures/reviewed.rs"]
@@ -281,7 +282,7 @@ fn lists(server: &mut Server, harp: &Value, project_id: &str) {
     assert_eq!(every["tasks"].as_array().map(Vec::len), Some(2));
 }
 
-// Go's no-project fallback: outside every work root a listing reads every
+// The no-project fallback: outside every work root a listing reads every
 // project and says why, in the words the command line uses on stderr.
 #[test]
 fn test_mcp_lists_every_project_outside_any_work_root_as_the_cli_does() {

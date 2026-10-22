@@ -140,7 +140,7 @@ fn test_list_selects_by_a_tag_query_postfix_or_infix() {
     assert_eq!(code(&ran.stderr), "tasks-application-tag-query");
 }
 
-// Go's TestTagCmd_TextHidesConfiguredTagJSONKeepsIt, through the binary.
+// A hidden tag is left out of text and kept in JSON, through the binary.
 #[test]
 fn test_a_tag_the_schema_hides_is_left_out_of_text_and_kept_in_json() {
     let env = Env::new("calm-otter-fox");

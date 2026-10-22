@@ -13,16 +13,14 @@ pub enum LockError {
     /// happens to run.
     RelativePath { path: String },
     /// The lock path is something other than a regular file (a FIFO, a
-    /// directory): locking it is not locking at all. Go's
-    /// `ErrNotRegularFile`.
+    /// directory): locking it is not locking at all.
     NotRegular { path: String },
     /// The lock was held by another process for longer than the wait.
     Timeout { path: String, waited_ms: u64 },
-    /// Each lock taken was on a lock file unlinked meanwhile. Go's
-    /// `ErrLockReplaced`.
+    /// Each lock taken was on a lock file unlinked meanwhile.
     Replaced { path: String, attempts: u32 },
     /// A reap of the home lock directory held the reap interlock for longer
-    /// than the wait. Go's `ErrLockReapInProgress`.
+    /// than the wait.
     ReapInProgress { path: String, waited_ms: u64 },
     /// A relative path to guard, and no working directory to resolve it in.
     NoWorkingDirectory { path: String, detail: String },

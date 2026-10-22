@@ -1,6 +1,5 @@
 //! Acceptance: the real `taskloom` binary, run as separate processes on one
 //! project's SQLite database, loses no write and duplicates no task id.
-//! A port of Go's `tests/taskloom/crossprocess_test.go`.
 //!
 //! The tests live beside the code (no `tests/` directory), where cargo
 //! does not build the binary for them; so the first test to need it builds
@@ -80,7 +79,7 @@ impl Ran {
 impl Env {
     /// A fresh home and project directory: no registry, no marker, no
     /// store. A test that is not about first sight seeds the project with a
-    /// real `add` before any concurrency, as Go's tests do.
+    /// real `add` before any concurrency.
     fn new(session: &'static str) -> Env {
         Env {
             home: tempfile::tempdir().unwrap(),

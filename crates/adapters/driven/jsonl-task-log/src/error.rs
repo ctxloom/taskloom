@@ -1,5 +1,5 @@
-//! Why a Go task log could not be read: as Go's fold refuses a log, the
-//! whole log, never one line.
+//! Why a task log could not be read: a log is refused whole, never one
+//! line.
 
 use std::fmt;
 
@@ -7,11 +7,11 @@ use annals_diagnostic::{Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum LogError {
-    /// No home to find Go's logs in.
+    /// No home to find the logs in.
     NoHome,
     /// The log, or the directory of logs, could not be read.
     Unreadable { path: String, detail: String },
-    /// A line is not a JSON record Go could decode.
+    /// A line is not a JSON record the log's event decodes from.
     Malformed {
         path: String,
         line: u32,
@@ -19,7 +19,7 @@ pub enum LogError {
     },
     /// A record without an op.
     NoOp { path: String, line: u32 },
-    /// A record whose op Go's fold does not know.
+    /// A record whose op the log's format does not have.
     UnknownOp { path: String, line: u32, op: String },
 }
 

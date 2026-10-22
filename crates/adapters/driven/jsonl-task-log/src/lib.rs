@@ -1,10 +1,10 @@
-//! Go taskloom's task logs, `~/.ctxloom/tasks/<project-id>.jsonl`, behind
-//! the [`JsonlTaskLogs`] port: one append-only JSON line per change, decoded
-//! as Go's `tasks.Event` decodes it. Only read: a log is opened read-only
-//! and nothing beside it is touched, not even its lock file.
+//! The JSONL task logs, `~/.ctxloom/tasks/<project-id>.jsonl`, behind the
+//! [`JsonlTaskLogs`] port: one append-only JSON line per change, an event
+//! with an op, its task and its fields. Only read: a log is opened
+//! read-only and nothing beside it is touched, not even its lock file.
 //!
-//! The fold (Go's replay order, its duplicate lines and its duplicate adds)
-//! is the importer's, in the application; this reads the records.
+//! The fold (replay order, duplicate lines and duplicate adds) is the
+//! importer's, in the application; this reads the records.
 
 mod error;
 
@@ -24,11 +24,11 @@ pub use error::{diagnostic_samples, LogError, EN_US};
 /// The log file's extension.
 const EXTENSION: &str = "jsonl";
 
-/// Go's zero `time.Time`, 0001-01-01T00:00:00Z, in Unix seconds: the
-/// instant a record without one decodes to.
+/// 0001-01-01T00:00:00Z in Unix seconds: the instant a record without a
+/// `ts` decodes to.
 pub const MISSING_TS_INSTANT: i64 = -62_135_596_800;
 
-/// The logs in one directory: Go's `~/.ctxloom/tasks`.
+/// The logs in one directory, `~/.ctxloom/tasks`.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct JsonlTaskLogDir {
     /// `None` where there is no home to find it in.
@@ -43,8 +43,8 @@ impl JsonlTaskLogDir {
         }
     }
 
-    /// The logs Go keeps under `home`, `<home>/.ctxloom/tasks`; with no
-    /// home (HOME unset or empty), every read fails saying so.
+    /// The logs under `home`, `<home>/.ctxloom/tasks`; with no home (HOME
+    /// unset or empty), every read fails saying so.
     pub fn in_home(home: Option<&Path>) -> Self {
         JsonlTaskLogDir {
             dir: home
@@ -109,7 +109,7 @@ impl JsonlTaskLogs for JsonlTaskLogDir {
 }
 
 /// The records of the log `text`, read from `path`: each line trimmed,
-/// blank ones skipped, as Go's fold reads them.
+/// blank ones skipped.
 pub fn parse(path: &str, text: &str) -> Result<Vec<JsonlRecord>, LogError> {
     let mut records = Vec::new();
     for (index, line) in text.split('\n').enumerate() {
@@ -123,8 +123,8 @@ pub fn parse(path: &str, text: &str) -> Result<Vec<JsonlRecord>, LogError> {
     Ok(records)
 }
 
-/// A line as Go's `json.Unmarshal` into `tasks.Event` reads it: a missing
-/// or null field is empty, an unknown one is ignored.
+/// A line as its JSON decodes: a missing or null field is empty, an
+/// unknown one is ignored.
 #[derive(Deserialize)]
 struct Line {
     op: Option<String>,
@@ -188,7 +188,7 @@ fn record(path: &str, line: u32, raw: &str) -> Result<JsonlRecord, LogError> {
     })
 }
 
-/// An RFC 3339 instant, as Go's `time.Time` decodes one from JSON.
+/// An RFC 3339 instant, as a `ts` is written.
 fn instant(text: &str) -> Result<Timestamp, String> {
     let at =
         OffsetDateTime::parse(text, &Rfc3339).map_err(|e| format!("parsing time {text:?}: {e}"))?;

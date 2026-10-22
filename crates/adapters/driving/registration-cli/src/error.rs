@@ -17,8 +17,8 @@ pub enum ManageError {
     Output { detail: String },
 }
 
-/// What `manage` tells the person on stderr, as Go's does: each line
-/// after the first of a notice is indented under it.
+/// What `manage` tells the person on stderr: each line after the first of
+/// a notice is indented under it.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ManageNotice {
     /// The server's command is not on this PATH (an agent looks for it on

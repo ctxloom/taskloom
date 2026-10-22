@@ -1576,8 +1576,8 @@ fn test_import_that_cannot_start_fails_with_why() {
 
 // ------------------------------------------------------------ companion
 
-/// Go taskloom's loadout document (`fixtures/go/loadout.yaml`, which
-/// `scripts/go-companion-fixtures.sh` copies from the Go source), with the
+/// The reference loadout document (`fixtures/go/loadout.yaml`, which
+/// `scripts/go-companion-fixtures.sh` copies from its source), with the
 /// reviewed factual changes applied.
 #[path = "../fixtures/reviewed.rs"]
 mod reviewed;

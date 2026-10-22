@@ -1,8 +1,8 @@
 //! taskloom: per-project task tracking. The composition root: it reads the
 //! process's environment, wires the tasks use cases to their adapters (the
 //! project registry, harp names, the SQLite task store, the system's
-//! clock, ids, timer and randomness, taskloom's configuration, and Go
-//! taskloom's logs to import), mounts the `project` group and `mcp` beside
+//! clock, ids, timer and randomness, taskloom's configuration, and the
+//! JSONL task logs to import), mounts the `project` group and `mcp` beside
 //! the task commands, and hands the command line to the CLI. The `project`
 //! group runs over the registry and the SQLite store's integrity check;
 //! `mcp` serves the task tools over stdio, each call on a service of its
@@ -166,7 +166,7 @@ fn watch<W: tasks_application::WatchService>(
             }
         };
         // Stdin is not watched: the VS Code extension starts the watch
-        // with stdin from /dev/null, and Go's watch ignores it too.
+        // with stdin from /dev/null.
         let mut ticks = tasks_watch::Interval::every(tasks_watch::DEBOUNCE);
         tasks_watch::run(
             service,
@@ -265,7 +265,7 @@ fn main() -> ExitCode {
         // True of every lock file taskloom takes, each through file-lock:
         // the project registry's `index.yaml.lock`, and `manage`'s home
         // sidecar for the agent configuration it rewrites, with the reap
-        // interlock held shared. It takes none on a Go task log (the
+        // interlock held shared. It takes none on a JSONL task log (the
         // importer reads without one); its store is SQLite's to lock.
         lock_protocol: file_lock::LOCK_PROTOCOL,
     };

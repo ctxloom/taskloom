@@ -1,6 +1,6 @@
 //! Names from harp-core: adjectives and a noun, joined by '-'. harp-core's
-//! one word list is the one Go's harp calls its "long" group (1269
-//! adjectives, 4396 nouns), so a task id is Go's `GenerateShortName`.
+//! one word list is harp's "long" group (1269 adjectives, 4396 nouns), so a
+//! task id is a short harp name.
 
 use harp_core::{generate_name_with_options, NameOptions};
 use ports::Names;

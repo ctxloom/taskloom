@@ -1,4 +1,4 @@
-//! Go's records read from a real directory, decoded as Go decodes them.
+//! Records read from a real directory of logs.
 
 use std::fs;
 

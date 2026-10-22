@@ -1,5 +1,5 @@
-//! `run` over a fake service and a recording launcher: Go's argv, the
-//! picker as Go draws and reads it, and each way a run launches nothing.
+//! `run` over a fake service and a recording launcher: the argv, the
+//! picker as it is drawn and read, and each way a run launches nothing.
 //! The real launcher runs only stub scripts in a temporary directory, the
 //! one directory on the PATH it is given: never a real ctxloom.
 

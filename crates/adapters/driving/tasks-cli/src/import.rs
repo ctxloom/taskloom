@@ -1,4 +1,4 @@
-//! `import`'s answer: what each project's Go log came to, and everything
+//! `import`'s answer: what each project's JSONL log came to, and everything
 //! that could not be brought over, as text or JSON, its diagnostics
 //! rendered from the catalog.
 

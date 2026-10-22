@@ -369,8 +369,8 @@ fn test_the_tag_schema_is_the_one_a_write_is_held_to() {
     assert_eq!(error.code(), "tasks-application-schema-unknown-facet");
 }
 
-// Scalar collapse, resolved before the retag is sent: Go's
-// TestScalarCollapse_* cases, over the default schema's scalars.
+// Scalar collapse, resolved before the retag is sent, over the default
+// schema's scalars.
 #[test]
 fn test_a_new_scalar_value_displaces_the_one_the_task_holds() {
     let mut service = service(&["swift-amber"]);
@@ -773,8 +773,7 @@ fn queried(query: &str) -> ListQuery {
     }
 }
 
-// Go's TestFilterTasksTagQueryPreservesInputOrder: the tasks a query
-// selects keep the listing's order.
+// The tasks a query selects keep the listing's order.
 #[test]
 fn test_a_tag_query_keeps_the_tasks_it_selects_in_the_listings_order() {
     let mut service = service(&["zebra-a", "mango-b", "apple-c", "kiwi-d"]);
@@ -792,8 +791,7 @@ fn test_a_tag_query_keeps_the_tasks_it_selects_in_the_listings_order() {
     assert_eq!(listed(&mut service, queried("urgent/not")), ["kiwi-d"]);
 }
 
-// Go's TestFilterTasksTagQueryNotScopedToStatusCandidates: `not`
-// complements within the tasks the listing admits, never past them.
+// `not` complements within the tasks the listing admits, never past them.
 #[test]
 fn test_not_complements_within_the_listed_tasks() {
     let mut service = service(&["keep-me", "done-urgent"]);

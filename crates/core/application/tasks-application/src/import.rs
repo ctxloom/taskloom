@@ -1,35 +1,34 @@
-//! Importing Go taskloom's task logs into each project's store.
+//! Importing the JSONL task logs into each project's store.
 //!
-//! Each Go record becomes the command that does what it did, run at the
-//! instant Go recorded it, so a task's creation, its status's last change
-//! and its last deferral keep Go's times. The records are replayed in Go's
-//! fold order (`eventLog.foldData`): a line repeating an earlier one byte
-//! for byte is skipped, and the rest are sorted by time, stably, so the
-//! file breaks ties. Go's fold decides which records count, as it did
-//! for Go:
+//! Each record becomes the command that does what it did, run at the
+//! instant it was recorded, so a task's creation, its status's last change
+//! and its last deferral keep the log's times. The records are replayed in
+//! fold order: a line repeating an earlier one byte for byte is skipped,
+//! and the rest are sorted by time, stably, so the file breaks ties. The
+//! log's fold decides which records count:
 //!
 //! - an add for a harp the log already issued is a displaced duplicate
 //!   (two tasks minted the same harp). The first keeps it. A displaced add
-//!   that a later add written by Go's `repair` names (`repair_of`) was
-//!   re-added under a fresh harp, which imports as any add does; one no
-//!   repair names is not imported, and is reported.
+//!   that a later repair add names (`repair_of`) was re-added under a
+//!   fresh harp, which imports as any add does; one no repair names is not
+//!   imported, and is reported.
 //! - a record to a harp with no live task (never added, or removed) is
-//!   ignored, as Go's fold ignores it.
+//!   ignored.
 //! - a tag or untag that changes no tag records nothing.
 //!
-//! What the tasks domain refuses that Go's fold accepted (empty text, a
-//! Deferred status with no trigger, a status starting with `@`) is not
+//! What the tasks domain refuses that the log's fold accepts (empty text,
+//! a Deferred status with no trigger, a status starting with `@`) is not
 //! imported, and is reported; so is every later record to a task whose add
-//! was not imported. A Go tag that is not a tag in tagma's grammar is left
-//! out of its record's command, and reported; the rest of the record is
-//! imported. Go's fold still counts it, so a later record is judged as Go
-//! judged it.
+//! was not imported. A logged tag that is not a tag in tagma's grammar is
+//! left out of its record's command, and reported; the rest of the record
+//! is imported. The fold still counts it, so a later record is judged
+//! against the log's tags as written.
 //!
 //! Re-running an import duplicates nothing: a record's command id derives
 //! from its line ([`record_command_id`]), so a record already imported is
 //! found in its task's stream and skipped, and an import that stopped
-//! part way resumes. A log Go has appended to since is imported up to its
-//! new end.
+//! part way resumes. A log appended to since is imported up to its new
+//! end.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -48,7 +47,7 @@ use tasks::{
 use crate::tags::{self, Tag, TagRefusal};
 use crate::{book, cover, retry, text_hash, AppError, Service};
 
-/// What to import: every project Go keeps a log for, or the one named.
+/// What to import: every project with a log, or the one named.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct ImportRequest {
     pub project: Option<String>,
@@ -80,7 +79,7 @@ pub struct ProjectImport {
     pub failed: Option<Report>,
     /// The log's records (its non-blank lines).
     pub records: usize,
-    /// Lines repeating an earlier one byte for byte, which Go's fold skips.
+    /// Lines repeating an earlier one byte for byte, which the fold skips.
     pub repeated: usize,
     /// Tasks this run added.
     pub tasks: usize,
@@ -88,13 +87,13 @@ pub struct ProjectImport {
     pub applied: usize,
     /// Records an earlier run imported.
     pub already: usize,
-    /// Tags and untags that change no tag, recording nothing in Go's fold
+    /// Tags and untags that change no tag, recording nothing in the fold
     /// or here.
     pub unchanged: usize,
-    /// Records Go's fold ignores: to a harp with no live task.
+    /// Records the fold ignores: to a harp with no live task.
     pub ignored: usize,
-    /// Displaced duplicate adds that Go's `repair` re-added under a fresh
-    /// harp: the re-add is imported, under that harp.
+    /// Displaced duplicate adds that a repair re-added under a fresh harp:
+    /// the re-add is imported, under that harp.
     pub repaired: usize,
     /// What could not be brought over.
     pub lost: Vec<Lost>,
@@ -115,9 +114,9 @@ pub struct Lost {
 /// Why a record was not brought over.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Why {
-    /// An add for a harp another task already holds in Go's log, which no
-    /// repair re-added: Go's fold keeps the first task. Run Go's
-    /// `taskloom repair`, then import again.
+    /// An add for a harp another task already holds in the log, which no
+    /// repair re-added: the fold keeps the first task. Run `taskloom
+    /// repair` on the log, then import again.
     Displaced,
     /// The tasks domain refused it.
     Refused(Report),
@@ -165,7 +164,7 @@ impl Diagnostic for Why {
     }
 }
 
-/// Go's logs, as a service without any holds them: none.
+/// The logs, as a service without any holds them: none.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct NoJsonlLogs;
 
@@ -326,7 +325,7 @@ impl Clock for At {
     }
 }
 
-/// The records in Go's replay order, each line once, and how many lines
+/// The records in replay order, each line once, and how many lines
 /// repeated an earlier one.
 fn replay_order(records: Vec<JsonlRecord>) -> (Vec<JsonlRecord>, usize) {
     let total = records.len();
@@ -348,18 +347,19 @@ enum Step {
     Run(TaskCommand),
     /// A retag that changes nothing.
     Unchanged,
-    /// Go's fold ignores it.
+    /// The fold ignores it.
     Ignored,
     /// A displaced add that a repair re-added.
     Repaired,
     /// It cannot be brought over.
     Lost(Why),
-    /// A retag that changed Go's tags only by tags left out, unparseable.
+    /// A retag that changed the logged tags only by tags left out,
+    /// unparseable.
     NothingLeft,
 }
 
-/// Go's fold, as far as it decides which records count: the harps the log
-/// has issued, the live tasks' tags, and the repairs made.
+/// The log's fold, as far as it decides which records count: the harps
+/// the log has issued, the live tasks' tags, and the repairs made.
 struct Fold {
     issued: BTreeSet<String>,
     live: BTreeMap<String, BTreeSet<String>>,
@@ -373,7 +373,7 @@ struct Fold {
 
 impl Fold {
     /// The fold of `records`, which must be in replay order; the repairs
-    /// are read ahead, since Go counts a repair wherever it falls.
+    /// are read ahead, since a repair counts wherever it falls.
     fn new(records: &[JsonlRecord]) -> Fold {
         Fold {
             issued: BTreeSet::new(),
@@ -422,8 +422,8 @@ impl Fold {
         let Some(held) = self.live.get_mut(harp) else {
             return Step::Ignored;
         };
-        // Go's fold changes as Go's did, whether or not the task was
-        // imported, so a later record is judged as Go judged it.
+        // The fold changes whether or not the task was imported, so a
+        // later record is judged against the log as written.
         let command: Option<TaskCommand> = match record.op {
             JsonlOp::Tag | JsonlOp::Untag => {
                 let given = normalized(&record.tags);
@@ -432,10 +432,10 @@ impl Fold {
                 } else {
                     held.difference(&given).cloned().collect()
                 };
-                // The task's tags are Go's, parsed: two Go spellings of
-                // one tag (`k=v`, `k="v"`) are one tag here, so the retag
-                // takes the task from Go's tags before to Go's tags after,
-                // as tags, whatever the record named.
+                // The task's tags are the logged ones, parsed: two
+                // spellings of one tag (`k=v`, `k="v"`) are one tag here, so
+                // the retag takes the task from the logged tags before to
+                // the logged tags after, as tags, whatever the record named.
                 let before = parsed_set(held);
                 let now = parsed_set(&after);
                 *held = after;
@@ -522,7 +522,7 @@ impl Fold {
     }
 }
 
-/// The tags of Go's `spelled` that parse, by their canonical spelling.
+/// The tags of `spelled` that parse, by their canonical spelling.
 fn parsed_set(spelled: &BTreeSet<String>) -> BTreeMap<String, Tag> {
     spelled
         .iter()
@@ -531,8 +531,7 @@ fn parsed_set(spelled: &BTreeSet<String>) -> BTreeMap<String, Tag> {
         .collect()
 }
 
-/// Tags trimmed, empties dropped, deduplicated and sorted, as Go
-/// normalizes them.
+/// Tags trimmed, empties dropped, deduplicated and sorted.
 fn normalized(tags: &[String]) -> BTreeSet<String> {
     tags.iter()
         .map(|t| t.trim())
@@ -547,17 +546,17 @@ fn normalized(tags: &[String]) -> BTreeSet<String> {
 /// prefix would import each of them again.
 const RECORD_ID_PREFIX: &str = "ctxloom-go-task-log:";
 
-/// The command id a Go record imports under: a UUIDv5 of its line. A Go
-/// record is an external fact, and this is the id annals gives a fact
-/// (`ids::fact_command_id`) whose external id is the line, prefixed. Go's
+/// The command id a record imports under: a UUIDv5 of its line. A record
+/// is an external fact, and this is the id annals gives a fact
+/// (`ids::fact_command_id`) whose external id is the line, prefixed. The
 /// fold counts a line once, so within a log the line is the record's
 /// identity.
 pub fn record_command_id(raw: &str) -> Uuid {
     ids::fact_command_id(&format!("{RECORD_ID_PREFIX}{raw}"))
 }
 
-/// The key Go's `repair` names a displaced add by (`anomalyKey`): the text
-/// hash of its harp, text, session and instant, NUL-separated.
+/// The key a repair add names a displaced add by: the text hash of its
+/// harp, text, session and instant, NUL-separated.
 pub fn anomaly_key(record: &JsonlRecord) -> String {
     text_hash(&format!(
         "{}\0{}\0{}\0{}",
@@ -568,8 +567,8 @@ pub fn anomaly_key(record: &JsonlRecord) -> String {
     ))
 }
 
-/// `at` in UTC as Go's `time.RFC3339Nano` writes it: the fraction's
-/// trailing zeros dropped, and the fraction too when it is zero.
+/// `at` in UTC in RFC 3339 with nanoseconds: the fraction's trailing zeros
+/// dropped, and the fraction too when it is zero.
 pub fn rfc3339_nano(at: Timestamp) -> String {
     let (year, month, day) = civil(at.seconds.div_euclid(86_400));
     let second = at.seconds.rem_euclid(86_400);

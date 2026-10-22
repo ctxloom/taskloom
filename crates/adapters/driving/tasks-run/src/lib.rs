@@ -1,14 +1,14 @@
 //! `taskloom run [task-harp-id]`: launch an agent session on a task, by
-//! handing it to `ctxloom run`, as Go taskloom does. With a harp id that
-//! task is launched; without one, on a terminal, a line-buffered picker
-//! on stderr offers the open tasks (`a` shows every status, `q` quits).
+//! handing it to `ctxloom run`. With a harp id that task is launched;
+//! without one, on a terminal, a line-buffered picker on stderr offers the
+//! open tasks (`a` shows every status, `q` quits).
 //!
 //! The launch is ``ctxloom run [--session <origin>] --seed-task <harp>
-//! [--seed-status "To Do"] --prompt "Work on this task (`<harp>`): <text>"``,
-//! Go's argv: ctxloom mints the new session, continues the task's
-//! originating session when it has one, and marks the task In Progress
-//! in Go taskloom's log, not this store (`--no-start` asks it to reset
-//! the task to To Do instead). ctxloom
+//! [--seed-status "To Do"] --prompt "Work on this task (`<harp>`): <text>"``:
+//! ctxloom mints the new session, continues the task's originating session
+//! when it has one, and marks the task In Progress in the JSONL task log,
+//! not this store (`--no-start` asks it to reset the task to To Do
+//! instead). ctxloom
 //! inherits stdin, stdout and stderr; taskloom writes nothing on stdout.
 //! Who is launched is a [`Launch`]: [`Ctxloom`], `ctxloom` found on a
 //! PATH, in the binary.
@@ -159,7 +159,7 @@ impl Launch for Ctxloom {
     }
 }
 
-/// `ctxloom`'s arguments for launching `task`: Go's `launchTaskAgent`.
+/// `ctxloom`'s arguments for launching `task`.
 pub fn launch_args(task: &Task, no_start: bool) -> Vec<String> {
     let mut args = vec!["run".to_string()];
     if !task.origin_session.is_empty() {
@@ -239,7 +239,7 @@ async fn chosen(
     })
 }
 
-/// Go's line-buffered picker: the open tasks (To Do, In Progress) on
+/// The line-buffered picker: the open tasks (To Do, In Progress) on
 /// `out`, a row number read from `input` choosing one, `a` showing every
 /// status (and back), and a blank line, `q`, `quit`, `exit` or the end of
 /// `input` quitting. `None` on a quit or when there is nothing to offer;
@@ -278,7 +278,7 @@ pub fn pick(
     }
 }
 
-/// One view of the picker and its prompt: Go's `renderTaskPicker`.
+/// One view of the picker and its prompt.
 fn picker(out: &mut dyn Write, view: &[&Task], show_all: bool) -> io::Result<()> {
     if view.is_empty() {
         writeln!(
@@ -308,8 +308,8 @@ fn picker(out: &mut dyn Write, view: &[&Task], show_all: bool) -> io::Result<()>
     )
 }
 
-/// `text` padded with spaces to `width` characters, as Go's `%-<width>s`
-/// pads (by rune); longer text is left whole.
+/// `text` padded with spaces to `width` characters, counted by char;
+/// longer text is left whole.
 fn padded(text: &str, width: usize) -> String {
     let pad = width.saturating_sub(text.chars().count());
     format!("{text}{}", " ".repeat(pad))

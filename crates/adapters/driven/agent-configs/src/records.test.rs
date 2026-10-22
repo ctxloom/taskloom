@@ -1,13 +1,13 @@
-//! Go's flat names, and its records read for the one fact they are read
-//! for. The names and records are Go's own: written by Go taskloom's
-//! `manage install` (fixtures/go-records, the home as `$HOME`).
+//! Flat names, and records read for the one fact they are read for. The
+//! names and records are recorded ones: written by taskloom's `manage
+//! install` (fixtures/go-records, the home as `$HOME`).
 
 use std::path::Path;
 
 use super::{added, flat_name};
 
-/// Go's record `fixture`, for the file at `target`, in `dir` under the
-/// name Go gives it.
+/// The record `fixture`, for the file at `target`, in `dir` under its flat
+/// name.
 fn lay(dir: &Path, fixture: &str, target: &str, stamp: &str) {
     let text = std::fs::read_to_string(format!(
         "{}/fixtures/go-records/{fixture}.hew-record.yaml",

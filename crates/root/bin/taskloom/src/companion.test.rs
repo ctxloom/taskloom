@@ -1,6 +1,6 @@
 //! Acceptance: the companion contract, as ctxloom reads it from the real
-//! binary. `version --format json` is fed to a port of the parsing Go
-//! ctxloom does at boot, and `loadout --format yaml` is Go's document with
+//! binary. `version --format json` is fed to a port of the parsing ctxloom
+//! does at boot, and `loadout --format yaml` is the reference document with
 //! the reviewed changes applied.
 
 use std::process::Command;
@@ -9,10 +9,9 @@ use serde::Deserialize;
 
 use super::{binary, Ran};
 
-/// Go ctxloom's `cliversion.Info` (`internal/shared/cliversion`): what its
-/// boot probe and its lock reaper decode from `<bin> version --format
-/// json`. Like Go's `json.Unmarshal` into it, a field left out decodes as
-/// zero and one it does not know is ignored.
+/// What ctxloom's boot probe and its lock reaper decode from `<bin>
+/// version --format json`. A field left out decodes as zero and one it
+/// does not know is ignored.
 #[derive(Deserialize, Default, Debug)]
 #[serde(default)]
 struct Info {
@@ -21,12 +20,12 @@ struct Info {
     lock_protocol: i64,
 }
 
-/// Go's `safefs.LockProtocol`: the protocol a running binary must report,
-/// at least, before ctxloom removes a lock file it may take.
+/// The protocol a running binary must report, at least, before ctxloom
+/// removes a lock file it may take.
 const GO_LOCK_PROTOCOL: i64 = 2;
 
-/// Go's `cliversion.Parse` over `cliversion.ParseInfo`: the whole output
-/// decoded, and a missing version an error, never an empty version.
+/// ctxloom's parse of the version output: the whole output decoded, and a
+/// missing version an error, never an empty version.
 fn parse(raw: &[u8]) -> Result<Info, String> {
     let info: Info = serde_json::from_slice(raw)
         .map_err(|e| format!("parse version --format json output: {e}"))?;
@@ -36,9 +35,9 @@ fn parse(raw: &[u8]) -> Result<Info, String> {
     Ok(info)
 }
 
-/// Go's lock reaper's verdict on a running binary
-/// (`internal/adapters/operations/lockreap.go`): none when it reports a
-/// protocol at least Go's, else why it predates the re-check.
+/// ctxloom's lock reaper's verdict on a running binary: none when it
+/// reports at least the protocol required, else why it predates the
+/// re-check.
 fn predates_the_recheck(info: &Info) -> Option<String> {
     match info.lock_protocol {
         0 => Some("reports no lock_protocol, so it predates the re-check".to_string()),
@@ -49,9 +48,8 @@ fn predates_the_recheck(info: &Info) -> Option<String> {
     }
 }
 
-/// Go's probe, `cliversion.Output`: `<bin> version --format json`, its
-/// stdout, failing on a non-zero exit. Run with nothing but a temporary
-/// HOME and PATH.
+/// ctxloom's probe: `<bin> version --format json`, its stdout, failing on
+/// a non-zero exit. Run with nothing but a temporary HOME and PATH.
 fn probe(home: &std::path::Path) -> Ran {
     let output = Command::new(binary())
         .args(["version", "--format", "json"])
@@ -91,9 +89,8 @@ fn test_the_ported_parse_refuses_what_go_refuses() {
     assert!(predates_the_recheck(&older).is_some());
 }
 
-/// Go taskloom's loadout document, as `scripts/go-companion-fixtures.sh`
-/// copied it from the Go source (`cmd/taskloom/loadout.yaml`), with the
-/// reviewed factual changes applied.
+/// The reference loadout document, as `scripts/go-companion-fixtures.sh`
+/// copied it from its source, with the reviewed factual changes applied.
 #[path = "../../../../adapters/driving/tasks-cli/fixtures/reviewed.rs"]
 mod reviewed;
 

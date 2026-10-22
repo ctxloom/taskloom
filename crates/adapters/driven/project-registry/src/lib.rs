@@ -1,11 +1,11 @@
 //! Project identity: which project a directory is, and where its store is.
 //!
 //! The work root is `CTXLOOM_ROOT`, else the nearest ancestor holding
-//! `.git`, else the working directory; canonical, as Go's `cleanPath` makes
-//! it (symlinks resolved, else cleaned lexically), and registered so.
+//! `.git`, else the working directory; canonical (symlinks resolved, else
+//! cleaned lexically), and registered so.
 //! Registry entries are compared canonical too. Its project id is, in order: the
 //! one pinned (`--project`), `CTXLOOM_PROJECT_ID`, the marker
-//! `<root>/.project-id`, Go's older marker `<root>/.ctxloom/project-id`
+//! `<root>/.project-id`, the older marker `<root>/.ctxloom/project-id`
 //! (adopted into `.project-id` on a write), and the registry entry for the
 //! root's path. A linked worktree with no marker of its own (neither) is
 //! its primary checkout's project, found through git's common directory:
@@ -41,7 +41,7 @@ pub use error::{diagnostic_samples, RegistryError, EN_US};
 pub use index::LOCK_WAIT;
 
 /// How many project ids a mint draws before giving up, each already
-/// registered: Go's `harp.UniqueFrom`.
+/// registered.
 pub const MINT_ATTEMPTS: u32 = 100;
 
 /// What resolution reads from the process: its environment and where it
@@ -182,7 +182,7 @@ impl<N: Names> ProjectRegistry<N> {
     }
 
     /// The id the work root is already bound to, and what binds it,
-    /// adopting Go's older marker into `.project-id` when `adopt`.
+    /// adopting the older marker into `.project-id` when `adopt`.
     pub(crate) fn bound(
         &self,
         root: &Path,
@@ -278,7 +278,7 @@ pub(crate) fn marker(root: &Path) -> PathBuf {
     root.join(".project-id")
 }
 
-/// Go's older, private marker.
+/// The older, private marker.
 pub(crate) fn legacy_marker(root: &Path) -> PathBuf {
     root.join(".ctxloom").join("project-id")
 }

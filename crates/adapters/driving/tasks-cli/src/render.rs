@@ -1,6 +1,6 @@
 //! The tasks views: answers as a person reads them (text) or a program
-//! does (JSON), in Go taskloom's shapes, on presentation's [`Render`]. A
-//! task's JSON is tasks-presentation's, shared with the MCP server.
+//! does (JSON), on presentation's [`Render`]. A task's JSON is
+//! tasks-presentation's, shared with the MCP server.
 
 use std::io::{self, Write};
 
@@ -177,9 +177,9 @@ impl Render for Listed<'_> {
 }
 
 /// The tasks `show` found: JSON one task with its project when one id was
-/// asked for, else an array of them (Go's rule: a group is a list, one
-/// value an object); text each task whole, a blank line between, each
-/// headed by its project when read across projects.
+/// asked for, else an array of them (a group is a list, one value an
+/// object); text each task whole, a blank line between, each headed by its
+/// project when read across projects.
 pub struct Detailed<'a>(pub &'a Details);
 
 impl Render for Detailed<'_> {
@@ -219,9 +219,9 @@ enum OneOrMany<T> {
     Many(Vec<T>),
 }
 
-/// A summary: JSON Go's `Summary`, the counts by status and each task In
-/// Progress with its project; text a line per status, then the tasks In
-/// Progress, by id (with its project across projects).
+/// A summary: JSON the counts by status and each task In Progress with its
+/// project; text a line per status, then the tasks In Progress, by id
+/// (with its project across projects).
 pub struct Summed<'a>(pub &'a Summary);
 
 impl Render for Summed<'_> {
@@ -253,8 +253,8 @@ impl Render for Summed<'_> {
     }
 }
 
-/// The statuses: JSON Go's `StatusInfo` array; text a line each, its
-/// order, its name, and whether it is terminal or requires a trigger.
+/// The statuses: JSON an array of them; text a line each, its order, its
+/// name, and whether it is terminal or requires a trigger.
 pub struct Taxonomy<'a>(pub &'a Statuses);
 
 #[derive(Serialize)]
@@ -300,7 +300,7 @@ impl Render for Taxonomy<'_> {
     }
 }
 
-/// The tags in use: JSON Go's `TagCount` array; text the project, then a
+/// The tags in use: JSON an array of tag counts; text the project, then a
 /// line per tag, its counts aligned.
 pub struct Counted<'a>(pub &'a Vocabulary);
 
@@ -338,9 +338,9 @@ impl Render for Counted<'_> {
 }
 
 /// A lint's report, with the catalog its findings are worded from: JSON
-/// Go's `Result` (each violation's subject and reason, with its project
-/// and its finding's envelope), text a line per violation, or what the
-/// sweep came to.
+/// the result (each violation's subject and reason, with its project and
+/// its finding's envelope), text a line per violation, or what the sweep
+/// came to.
 pub struct Linted<'a> {
     pub report: &'a LintReport,
     pub catalog: &'a Catalog,

@@ -1,6 +1,6 @@
 //! The tasks use cases: add a task, move, edit or retag one, read a
 //! project's tasks (or every project's), watch them change, prune old
-//! finished ones, and import Go taskloom's logs.
+//! finished ones, and import the JSONL task logs.
 //!
 //! Each resolves its project through [`ProjectIdentity`], opens the
 //! project's store through [`TaskStores`], and runs its command through
@@ -60,7 +60,7 @@ pub use view::{
 pub use watch::{Changed, Watch, WatchRequest, WatchService};
 
 /// How many task ids an add mints before giving up, each refused because a
-/// task already holds it: Go's `harp.UniqueFrom`.
+/// task already holds it.
 pub const HARP_ATTEMPTS: u32 = 100;
 
 /// A task to add.
@@ -160,12 +160,12 @@ pub struct ListQuery {
     /// At most this many tasks, the rest counted as omitted; 0 for no
     /// limit.
     pub limit: usize,
-    /// The order: empty for the listing's own, or [`PRIORITY`], Go's one
+    /// The order: empty for the listing's own, or [`PRIORITY`], the one
     /// sort.
     pub sort: String,
 }
 
-/// The sort by derived priority, Go's `--sort priority`.
+/// The sort by derived priority, `--sort priority`.
 pub const PRIORITY: &str = "priority";
 
 /// A task written, the project it was written in, and which of its tags a
@@ -215,9 +215,9 @@ pub fn registry() -> Registry {
 }
 
 /// The use cases over their ports: `clock` stamps commands and mints their
-/// ids; `delay` waits, with jitter, between retries; `jsonl_logs` are the Go
-/// logs an import reads, none until [`Service::with_jsonl_logs`] gives some;
-/// `configuration` is what is configured, nothing until
+/// ids; `delay` waits, with jitter, between retries; `jsonl_logs` are the
+/// JSONL logs an import reads, none until [`Service::with_jsonl_logs`]
+/// gives some; `configuration` is what is configured, nothing until
 /// [`Service::with_configuration`] gives it.
 pub struct Service<I, S, N, C, D, L = NoJsonlLogs, G = NotConfigured> {
     pub identity: I,
@@ -414,8 +414,7 @@ where
     }
 
     async fn tag(&mut self, change: TagChange) -> Result<Written, AppError> {
-        // Nothing to add or remove is refused before anything is read, as
-        // Go's `tag` refuses it.
+        // Nothing to add or remove is refused before anything is read.
         if change
             .add
             .iter()

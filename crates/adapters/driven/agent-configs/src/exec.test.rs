@@ -1,4 +1,4 @@
-//! Go's exectoken cases.
+//! Command lines and the program each runs.
 
 use super::{program, runs};
 

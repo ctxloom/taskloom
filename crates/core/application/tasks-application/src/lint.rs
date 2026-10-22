@@ -1,18 +1,17 @@
-//! Lint: a read-time sweep of every task's tags against the tag schema
-//! (Go's `internal/shared/tasks/lint`). A write is already refused a value
-//! outside a declared enum or range and collapses a scalar target, so a
-//! violation here is data that did not come in through a write: an
-//! import, or a schema changed since the tag was written. Lint never
-//! blocks a write.
+//! Lint: a read-time sweep of every task's tags against the tag schema. A
+//! write is already refused a value outside a declared enum or range and
+//! collapses a scalar target, so a violation here is data that did not
+//! come in through a write: an import, or a schema changed since the tag
+//! was written. Lint never blocks a write.
 //!
 //! It checks, for every task whatever its status: a value outside its
 //! target's declared enum; a value on a range-declared target that is not
 //! a finite number, or lies outside the range; a scalar target holding
 //! more than one value. And, against the schema itself, a value-qualified
 //! placeholder in a `priority_fn` or `decay_fn` (`{{triage:kind=foo}}`)
-//! naming a value its target's enum does not declare. Go also reports a
-//! stored tag that does not parse; here every stored tag is a parsed one,
-//! so none can.
+//! naming a value its target's enum does not declare. A stored tag that
+//! does not parse is not checked for: every stored tag is a parsed one, so
+//! none can.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -23,8 +22,8 @@ use crate::schema::{self, TagSchema};
 use crate::view::Row;
 use task_priority::placeholders;
 
-/// The subject of a violation in the schema rather than in a task (Go's
-/// `SchemaViolationHarpID`), sorting before every harp id.
+/// The subject of a violation in the schema rather than in a task, sorting
+/// before every harp id.
 pub const SCHEMA_SUBJECT: &str = "(schema)";
 
 /// What a violation is.

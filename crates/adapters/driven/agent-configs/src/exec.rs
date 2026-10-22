@@ -1,7 +1,6 @@
-//! Which program a command line runs, as Go's `exectoken` reads it: the
-//! base name of its first token, quotes and a `.exe` taken off. An entry
-//! is a writer's own when it runs the writer's program, wherever the
-//! program was installed.
+//! Which program a command line runs: the base name of its first token,
+//! quotes and a `.exe` taken off. An entry is a writer's own when it runs
+//! the writer's program, wherever the program was installed.
 
 /// The base name of the program `command` runs.
 pub fn program(command: &str) -> &str {
