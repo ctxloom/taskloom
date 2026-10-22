@@ -509,6 +509,14 @@ Where the port differs from Go:
   `tagma`, where prost's relative path lands; the domain layer finds `Tag`
   re-exported in `tasks_proto::v1`. An `extern_path` argument in
   angzarr-build would retire both.
+- A local build (step 9): `just install` installs the binary into a cargo
+  root on no PATH (`install_root`, `~/.local/share/taskloom-rs`), so it
+  never shadows the Go taskloom other projects run. ctxloom registers a
+  companion by name only and resolves it, and the engine its MCP command
+  (`taskloom mcp`), on the PATH a session starts with; the first binary of
+  that name on PATH is the one that runs. So this repository's `.envrc`
+  (direnv) puts the install root's `bin` first, and a session or shell
+  started here runs the Rust taskloom; elsewhere nothing changes.
 
 ## Open
 
@@ -568,9 +576,12 @@ order.
      companion: a skill in the loadout's `run.skills` (the run bundle
      carries skills as it carries fragments), and `init.setup_guidance`
      and `init.questions` for configuring a project at setup.
-9. **A local build**: `just install` (`cargo install --path
-   crates/root/bin/taskloom --locked`), then the companion registration
-   pointed at that binary.
+9. **A local build** is in place for this repository (Where it stands).
+   What remains: a release channel, and ctxloom finding a missing or
+   stale companion (gorged-jam). An agent ctxloom runs in a container
+   gets its companions from the host PATH at image build, but only the
+   Go JSONL log is mounted, never `projects/<id>/state.db`: such an agent
+   writes tasks the host never sees until ctxloom mounts the database.
 10. **Git dependencies**: push annals (`feat/audit`), tagma (`kvtag`) and
     angzarr-cli (angzarr-build), and depend on each by git, pinned by
     commit, in place of the local paths; then ctxloom depends on this

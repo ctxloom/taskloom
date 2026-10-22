@@ -68,6 +68,20 @@ lint:
     exec just --justfile {{TOP}}/justfile _run lint workspace cargo \
         cargo clippy "${terse[@]}" --manifest-path {{TOP}}/Cargo.toml --workspace --all-targets -- -D warnings
 
+# Where `just install` puts the Rust taskloom: a cargo root of its own, so
+# the binary lands in <root>/bin, a directory on no one's PATH, and never
+# shadows the Go taskloom every other project still runs (cargo's default,
+# ~/.cargo/bin, is on PATH). This repository's .envrc puts <root>/bin first
+# on PATH for sessions and shells started here: the one place a session's
+# companion binaries are chosen. TASKLOOM_RS_ROOT overrides it, in both.
+install_root := env("TASKLOOM_RS_ROOT", home_directory() / ".local/share/taskloom-rs")
+
+# Build and install the taskloom binary into `install_root` (plan step 9).
+[no-exit-message]
+install:
+    cargo install --locked --path {{TOP}}/crates/root/bin/taskloom --root {{install_root}}
+    @echo "ok   install ({{install_root}}/bin/taskloom; on PATH only where .envrc is allowed)"
+
 # The bootstrap, which must run without the shared gates, so it uses nothing
 # from them.
 
