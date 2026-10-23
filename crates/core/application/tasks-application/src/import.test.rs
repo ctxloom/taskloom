@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use annals::next::{AsyncEventStore, Stream, Timestamp};
-use annals_diagnostic::{Diagnostic, Report};
+use annals_diagnostic::{Arg, Diagnostic, Report};
 use ports::{JsonlOp, JsonlRecord, JsonlTaskLogs};
 use tasks::{TaskState, Tasks};
 
@@ -414,7 +414,7 @@ fn test_a_displaced_duplicate_add_is_reported_and_its_records_go_to_the_first() 
         project.lost,
         [Lost {
             line: 2,
-            op: JsonlOp::Add,
+            op: "add",
             harp_id: HARP.to_string(),
             text: "Second".to_string(),
             why: Why::Displaced,
@@ -675,6 +675,11 @@ fn test_a_named_project_without_a_log_fails() {
     let report = ready(service.import(request)).unwrap();
     let failed = only(&report).failed.clone().expect("failed");
     assert_eq!(failed.code(), "tasks-application-no-jsonl-log");
+    assert_eq!(
+        failed.to_string(),
+        "Go taskloom has no task log for project tpyo"
+    );
+    assert!(matches!(&failed.args()[..], [("project", Arg::Str(s))] if s == "tpyo"));
     assert!(!report.complete());
 }
 

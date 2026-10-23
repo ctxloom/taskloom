@@ -145,7 +145,7 @@ fn project_json<'a>(project: &'a ProjectImport, catalog: &Catalog) -> ProjectJso
             .iter()
             .map(|lost| LostJson {
                 line: lost.line,
-                op: lost.op.as_str(),
+                op: lost.op,
                 harp_id: &lost.harp_id,
                 text: &lost.text,
                 why: catalog.envelope(&lost.why),
@@ -196,7 +196,7 @@ fn summary(project: &ProjectImport) -> String {
 }
 
 fn lost_line(lost: &Lost, catalog: &Catalog) -> String {
-    let mut line = format!("line {}, {} {}", lost.line, lost.op.as_str(), lost.harp_id);
+    let mut line = format!("line {}, {} {}", lost.line, lost.op, lost.harp_id);
     if !lost.text.is_empty() {
         line.push_str(&format!(" {:?}", render::headline(&lost.text)));
     }

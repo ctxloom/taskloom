@@ -35,8 +35,6 @@ pub enum AppError {
     Vanished { harp_id: String },
     /// A change to an existing task where the work root has no project.
     NoProject,
-    /// An import of a project with no JSONL task log.
-    NoJsonlLog { project: String },
     /// A status filter's value starting with `@` that names no class.
     UnknownStatusClass { status: String },
     /// A sort taskloom does not know.
@@ -90,9 +88,6 @@ impl fmt::Display for AppError {
             AppError::NoProject => {
                 f.write_str("there is no project here yet, so no task to change")
             }
-            AppError::NoJsonlLog { project } => {
-                write!(f, "Go taskloom has no task log for project {project}")
-            }
             AppError::UnknownStatusClass { status } => write!(
                 f,
                 "{status} is no status class (the classes are {}): '@' is reserved for them, so no status starts with it",
@@ -130,7 +125,6 @@ impl Diagnostic for AppError {
             AppError::HarpsExhausted { .. } => "tasks-application-harps-exhausted",
             AppError::Vanished { .. } => "tasks-application-vanished",
             AppError::NoProject => "tasks-application-no-project",
-            AppError::NoJsonlLog { .. } => "tasks-application-no-jsonl-log",
             AppError::UnknownStatusClass { .. } => "tasks-application-unknown-status-class",
             AppError::UnknownSort { .. } => "tasks-application-unknown-sort",
             AppError::NotFound { .. } => "tasks-application-not-found",
@@ -155,7 +149,6 @@ impl Diagnostic for AppError {
             AppError::HarpsExhausted { attempts } => vec![("attempts", (*attempts).into())],
             AppError::Vanished { harp_id } => vec![("harp_id", harp_id.as_str().into())],
             AppError::NoProject => Vec::new(),
-            AppError::NoJsonlLog { project } => vec![("project", project.as_str().into())],
             AppError::UnknownStatusClass { status } => vec![
                 ("status", status.as_str().into()),
                 ("classes", crate::read::classes().into()),
@@ -199,7 +192,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             harp_id: "swift-amber".to_string(),
         }),
         Box::new(AppError::NoProject),
-        Box::new(AppError::NoJsonlLog {
+        Box::new(crate::import::NoJsonlLog {
             project: "jolly-mute-magma".to_string(),
         }),
         Box::new(AppError::UnknownStatusClass {

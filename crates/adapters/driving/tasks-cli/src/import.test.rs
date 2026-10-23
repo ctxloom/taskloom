@@ -2,7 +2,7 @@
 
 use annals_diagnostic::Report;
 use serde_json::{json, Value};
-use tasks_application::{ImportReport, JsonlOp, Lost, ProjectImport, Why};
+use tasks_application::{ImportReport, Lost, ProjectImport, Why};
 
 use super::{text, ImportJson};
 
@@ -25,14 +25,14 @@ fn every_count() -> ProjectImport {
         lost: vec![
             Lost {
                 line: 12,
-                op: JsonlOp::Add,
+                op: "add",
                 harp_id: "swift-amber".to_string(),
                 text: "Ship it\nwith notes".to_string(),
                 why: Why::Displaced,
             },
             Lost {
                 line: 13,
-                op: JsonlOp::Status,
+                op: "status",
                 harp_id: "calm-otter".to_string(),
                 text: String::new(),
                 why: Why::Refused(Report::new("tasks-trigger-required", "needs a trigger")),
