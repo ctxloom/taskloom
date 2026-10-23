@@ -152,15 +152,39 @@ fn test_an_add_gives_up_once_every_harp_it_mints_is_taken() {
     assert_eq!(service.names.minted, HARP_ATTEMPTS);
 }
 
+// A refused add writes nothing: the domain's rules are held before a
+// project is bound, a store opened or a harp minted.
 #[test]
-fn test_an_add_the_domain_refuses_is_answered_with_its_rejection() {
-    let mut service = service(&["swift-amber"]);
-    let error = add(&mut service, new_task("   ")).unwrap_err();
-    let AppError::Rejected(rejection) = &error else {
-        panic!("rejected: {error:?}");
+fn test_an_add_the_domain_refuses_is_refused_before_anything_is_bound_or_created() {
+    let deferred = |trigger: &str| NewTask {
+        status: "Deferred".to_string(),
+        trigger: trigger.to_string(),
+        ..new_task("Revisit")
     };
-    assert_eq!(rejection.code(), "tasks-text-required");
-    assert_eq!(service.names.minted, 1, "not re-minted");
+    let reserved = NewTask {
+        status: "@open".to_string(),
+        ..new_task("Ship it")
+    };
+    for (task, code) in [
+        (new_task("   "), "tasks-text-required"),
+        (deferred(" "), "tasks-trigger-required"),
+        (reserved, "tasks-status-reserved"),
+    ] {
+        let mut service = service(&["swift-amber"]);
+        let error = add(&mut service, task).unwrap_err();
+        let AppError::Rejected(rejection) = &error else {
+            panic!("rejected: {error:?}");
+        };
+        assert_eq!(rejection.code(), code);
+        assert_eq!(service.identity.writes, 0, "no project bound");
+        assert_eq!(service.identity.bound, None);
+        assert!(service.stores.opened.is_empty(), "no store opened");
+        assert_eq!(service.names.minted, 0, "no harp minted");
+    }
+    let mut service = service(&["swift-amber"]);
+    let written = add(&mut service, deferred("the release")).unwrap();
+    assert_eq!(written.task.trigger, "the release");
+    assert_eq!(service.identity.writes, 1);
 }
 
 #[test]
@@ -362,7 +386,7 @@ fn test_the_tag_schema_is_the_one_a_write_is_held_to() {
     assert_eq!(error.code(), "tasks-application-schema-unknown-facet");
 }
 
-// Scalar collapse, resolved before the retag is sent, over the default
+// Scalar collapse, resolved in the retag's own unit of work, over the default
 // schema's scalars.
 #[test]
 fn test_a_new_scalar_value_displaces_the_one_the_task_holds() {
@@ -388,6 +412,30 @@ fn test_a_new_scalar_value_displaces_the_one_the_task_holds() {
         2,
         "nothing recorded"
     );
+}
+
+// The displacement is resolved against the task as the retag's own unit
+// of work reads it: a value another process set since the task was last
+// read is displaced too, so a scalar target never holds two.
+#[test]
+fn test_a_scalar_value_set_by_another_since_is_displaced_too() {
+    let mut service = service(&["swift-amber"]);
+    add(&mut service, tagged(&["triage:level=3", "x"])).unwrap();
+    let parse = |tag: &str| crate::parse_tag(tag).unwrap().unwrap();
+    let retag: tasks::TaskCommand = tasks::Retag {
+        add: vec![parse("triage:level=2")],
+        remove: vec![parse("triage:level=3")],
+    }
+    .into();
+    service.stores.store.meanwhile = Some(Box::new(move |store| {
+        crate::fakes::run(store, "swift-amber", retag);
+    }));
+    let written = ready(service.tag(change("swift-amber", &["triage:level=1"], &[]))).unwrap();
+    assert!(
+        service.stores.store.meanwhile.is_none(),
+        "the other retag ran"
+    );
+    assert_eq!(spelled(&written.task.tags), ["triage:level=1", "x"]);
 }
 
 #[test]
@@ -628,6 +676,25 @@ fn test_a_status_change_of_no_task_or_where_there_is_none_is_refused() {
     let error = ready(storeless.set_status(moved("swift-amber", "Done", ""))).unwrap_err();
     assert_eq!(error.code(), "tasks-no-task");
     assert!(storeless.stores.opened.is_empty(), "no store created");
+}
+
+// What the domain refuses of a change alone is refused before its project
+// is resolved or its store opened.
+#[test]
+fn test_a_status_change_or_edit_the_domain_refuses_alone_resolves_nothing() {
+    let mut service = configured(&["unreadable"]);
+    for status in [" ", "@open"] {
+        let error = ready(service.set_status(moved("swift-amber", status, ""))).unwrap_err();
+        assert!(matches!(error, AppError::Rejected(_)), "{error:?}");
+    }
+    let error = ready(service.edit(edited("swift-amber", " "))).unwrap_err();
+    assert_eq!(error.code(), "tasks-text-required");
+    assert!(
+        service.configuration.asked.is_empty(),
+        "no configuration read"
+    );
+    assert!(service.identity.pins.is_empty(), "no project resolved");
+    assert!(service.stores.opened.is_empty() && service.stores.looked.is_empty());
 }
 
 #[test]

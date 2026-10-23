@@ -6,9 +6,9 @@
 //! store-backed pipeline together.
 
 use crate::{
-    AddTask, EditText, RemovalReason, RemoveTask, Retag, Retagged, SetStatus, StatusChanged, Tag,
-    TaskAdded, TaskCommand, TaskEvent, TaskRejection, TaskRemoved, TaskState, Tasks, TextEdited,
-    DEFERRED, TO_DO,
+    check, AddTask, EditText, RemovalReason, RemoveTask, Retag, Retagged, SetStatus, StatusChanged,
+    Tag, TaskAdded, TaskCommand, TaskEvent, TaskRejection, TaskRemoved, TaskState, Tasks,
+    TextEdited, DEFERRED, TO_DO,
 };
 use annals::next::v1::{command_page, CommandBook, CommandPage, Cover, Uuid};
 use annals::next::{
@@ -537,6 +537,94 @@ fn test_retag_without_a_tag_is_refused() {
         Task::added("Ship it").run(retag(&[], &[])),
         Err(TaskRejection::TagRequired)
     );
+}
+
+// What decide refuses of a command alone, check refuses too, before any
+// stream is read; what needs the stream (a harp taken, a trigger held) it
+// leaves to decide.
+#[test]
+fn test_check_refuses_what_decide_refuses_of_a_command_alone() {
+    let refused: Vec<(TaskCommand, TaskRejection)> = vec![
+        (add("  \n ").into(), TaskRejection::TextRequired),
+        (
+            AddTask {
+                status: DEFERRED.to_string(),
+                trigger: " ".to_string(),
+                ..add("Revisit")
+            }
+            .into(),
+            TaskRejection::TriggerRequired,
+        ),
+        (
+            AddTask {
+                status: "@open".to_string(),
+                ..add("Ship it")
+            }
+            .into(),
+            TaskRejection::StatusReserved {
+                status: "@open".to_string(),
+            },
+        ),
+        (status(" ", "").into(), TaskRejection::StatusRequired),
+        (
+            status("@open", "").into(),
+            TaskRejection::StatusReserved {
+                status: "@open".to_string(),
+            },
+        ),
+        (
+            EditText {
+                text: " ".to_string(),
+            }
+            .into(),
+            TaskRejection::TextRequired,
+        ),
+        (retag(&[], &[]).into(), TaskRejection::TagRequired),
+    ];
+    for (command, rejection) in refused {
+        assert_eq!(check(&command), Err(rejection.clone()), "{command:?}");
+        assert_eq!(
+            Task::added("Ship it").run(command.clone()).unwrap_err(),
+            match command {
+                TaskCommand::AddTask(_) => TaskRejection::TaskExists {
+                    harp_id: HARP.to_string(),
+                },
+                _ => rejection.clone(),
+            },
+            "decide, on a task held"
+        );
+        if let TaskCommand::AddTask(_) = command {
+            assert_eq!(Task::new().run(command), Err(rejection), "decide, fresh");
+        }
+    }
+}
+
+#[test]
+fn test_check_passes_what_only_the_stream_can_refuse() {
+    let passed: Vec<TaskCommand> = vec![
+        add("Ship it").into(),
+        AddTask {
+            harp_id: String::new(),
+            status: DEFERRED.to_string(),
+            trigger: "the release".to_string(),
+            ..add("Revisit")
+        }
+        .into(),
+        status(DEFERRED, "").into(),
+        EditText {
+            text: "x".to_string(),
+        }
+        .into(),
+        retag(&["x"], &[]).into(),
+        retag(&[], &["x"]).into(),
+        RemoveTask {
+            reason: RemovalReason::Removed,
+        }
+        .into(),
+    ];
+    for command in passed {
+        assert_eq!(check(&command), Ok(()), "{command:?}");
+    }
 }
 
 #[test]

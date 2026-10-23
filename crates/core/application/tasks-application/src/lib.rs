@@ -31,7 +31,9 @@ use annals::next::{
 };
 use annals_diagnostic::Report;
 use ports::{Clock, CommandIds, Configuration, Delay, Jitter, Names, ProjectIdentity, TaskStores};
-use tasks::{AddTask, EditText, Retag, SetStatus, TaskCommand, TaskRejection, Tasks, TASK_DOMAIN};
+use tasks::{
+    AddTask, EditText, Retag, SetStatus, TaskCommand, TaskRejection, TaskState, Tasks, TASK_DOMAIN,
+};
 
 pub use annals::next::Timestamp;
 pub use error::{diagnostic_samples, AppError, CATALOGS, EN_US};
@@ -316,6 +318,21 @@ where
         harp_id: &str,
         command: TaskCommand,
     ) -> Result<Task, AppError> {
+        let unshaped: Option<&fn(&TaskState) -> Option<CommandBook>> = None;
+        self.commit_shaped(project, harp_id, command, unshaped)
+            .await
+    }
+
+    /// [`Service::commit`] of what `shape` makes of the task as each
+    /// attempt's unit of work reads it ([`retry::Runner::run_shaped`]),
+    /// or of `command` when there is no `shape`.
+    async fn commit_shaped<F: Fn(&TaskState) -> Option<CommandBook> + Sync>(
+        &mut self,
+        project: &Project,
+        harp_id: &str,
+        command: TaskCommand,
+        shape: Option<&F>,
+    ) -> Result<Task, AppError> {
         let store = self.stores.open(project).await.map_err(failed)?;
         let command_id = self.clock.command_id();
         let book = book(harp_id, command);
@@ -325,9 +342,9 @@ where
             delay: &mut self.delay,
             backoff: self.backoff,
         };
-        match runner.run(store, &book, &command_id).await? {
-            retry::Outcome::Committed => {}
-            retry::Outcome::Refused(rejection) => return Err(rejected(&rejection)),
+        match runner.run_shaped(store, &book, &command_id, shape).await? {
+            None | Some(retry::Outcome::Committed) => {}
+            Some(retry::Outcome::Refused(rejection)) => return Err(rejected(&rejection)),
         }
         read(store, &self.registry, harp_id)
             .await?
@@ -350,6 +367,18 @@ where
         let schema = self.schema(&task.config_set)?;
         let tags = tags::admit_all(&task.tags, &schema).map_err(|r| refused(&r))?;
         let (tags, _) = tags::collapse(&schema, &[], tags);
+        // Each attempt mints its own harp; everything else is this, held to
+        // the domain's rules now, before a project is bound or a store
+        // created for an add they refuse.
+        let template = AddTask {
+            harp_id: String::new(),
+            text: task.text,
+            status: task.status,
+            trigger: task.trigger,
+            tags,
+            origin_session: task.origin_session,
+        };
+        tasks::check(&template.clone().into()).map_err(|r| rejected(&r))?;
         let project = self
             .identity
             .for_write(task.project.as_deref())
@@ -366,11 +395,7 @@ where
             let command_id = runner.clock.command_id();
             let add = AddTask {
                 harp_id: harp_id.clone(),
-                text: task.text.clone(),
-                status: task.status.clone(),
-                trigger: task.trigger.clone(),
-                tags: tags.clone(),
-                origin_session: task.origin_session.clone(),
+                ..template.clone()
             };
             let book = book(&harp_id, add.into());
             match runner.run(store, &book, &command_id).await? {
@@ -396,30 +421,32 @@ where
 
     async fn tag(&mut self, change: TagChange) -> Result<Written, AppError> {
         // Nothing to add or remove is refused before anything is read.
-        if change
-            .add
-            .iter()
-            .chain(&change.remove)
-            .all(|t| t.trim().is_empty())
-        {
-            return Err(rejected(&TaskRejection::TagRequired));
+        let add = tags::parse_all(&change.add).map_err(|r| refused(&r))?;
+        let remove = tags::parse_all(&change.remove).map_err(|r| refused(&r))?;
+        let retag: TaskCommand = Retag {
+            add: add.clone(),
+            remove: remove.clone(),
         }
+        .into();
+        tasks::check(&retag).map_err(|r| rejected(&r))?;
         let schema = self.schema(&change.config_set)?;
-        let add = tags::admit_all(&change.add, &schema).map_err(|r| refused(&r))?;
-        let mut remove = tags::parse_all(&change.remove).map_err(|r| refused(&r))?;
+        for tag in &add {
+            tags::admit(tag, &schema).map_err(|r| refused(&r))?;
+        }
         let project = self.existing(change.project.as_deref()).await?;
-        let store = self.stores.open(&project).await.map_err(failed)?;
         // A scalar target's new value displaces the one the task holds:
-        // resolved here, against the task as it is, so decide never reads
-        // the schema.
-        let held = read(store, &self.registry, &change.harp_id)
-            .await?
-            .map(|task| task.tags)
-            .unwrap_or_default();
-        let (add, displaced) = tags::collapse(&schema, &held, add);
-        remove.extend(displaced);
-        let retag = Retag { add, remove };
-        let task = self.commit(&project, &change.harp_id, retag.into()).await?;
+        // resolved here, against the task as the retag's own unit of work
+        // reads it, so decide never reads the schema and no value written
+        // since is left beside the new one.
+        let shape = |task: &TaskState| {
+            let (add, displaced) = tags::collapse(&schema, &task.tags, add.clone());
+            let mut remove = remove.clone();
+            remove.extend(displaced);
+            Some(book(&change.harp_id, Retag { add, remove }.into()))
+        };
+        let task = self
+            .commit_shaped(&project, &change.harp_id, retag, Some(&shape))
+            .await?;
         Ok(Written {
             project,
             task,
@@ -428,13 +455,15 @@ where
     }
 
     async fn set_status(&mut self, change: StatusChange) -> Result<Written, AppError> {
-        let schema = self.schema(&change.config_set)?;
-        let project = self.existing(change.project.as_deref()).await?;
-        let set = SetStatus {
+        let set: TaskCommand = SetStatus {
             status: change.status,
             trigger: change.trigger,
-        };
-        let task = self.commit(&project, &change.harp_id, set.into()).await?;
+        }
+        .into();
+        tasks::check(&set).map_err(|r| rejected(&r))?;
+        let schema = self.schema(&change.config_set)?;
+        let project = self.existing(change.project.as_deref()).await?;
+        let task = self.commit(&project, &change.harp_id, set).await?;
         Ok(Written {
             project,
             task,
@@ -443,10 +472,11 @@ where
     }
 
     async fn edit(&mut self, edit: TextEdit) -> Result<Written, AppError> {
+        let command: TaskCommand = EditText { text: edit.text }.into();
+        tasks::check(&command).map_err(|r| rejected(&r))?;
         let schema = self.schema(&edit.config_set)?;
         let project = self.existing(edit.project.as_deref()).await?;
-        let command = EditText { text: edit.text };
-        let task = self.commit(&project, &edit.harp_id, command.into()).await?;
+        let task = self.commit(&project, &edit.harp_id, command).await?;
         Ok(Written {
             project,
             task,
