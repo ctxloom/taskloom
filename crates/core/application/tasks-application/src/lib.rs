@@ -42,7 +42,7 @@ pub use import::{
     Importer, Lost, ProjectImport, Why,
 };
 pub use lint::{Finding, LintReport, Violation, SCHEMA_SUBJECT};
-pub use ports::{JsonlOp, Project};
+pub use ports::Project;
 pub use priority::{PriorityNote, PriorityWarning};
 pub use prune::{
     cut, Dangling, PruneRefusal, PruneRequest, PruneService, Pruned, Pruning, Via,

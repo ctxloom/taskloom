@@ -1,18 +1,18 @@
-//! taskloom: per-project task tracking. The composition root: it reads the
-//! process's environment, wires the tasks use cases to their adapters (the
-//! project registry, harp names, the SQLite task store, the system's
-//! clock, ids, timer and randomness, and taskloom's configuration), mounts
-//! `import`, the `project` group and `mcp` beside the task commands, and
-//! hands the command line to the CLI. `import` alone reads the JSONL task
-//! logs: its importer is built only once `import` is parsed. The `project`
-//! group runs over the registry and the SQLite store's integrity check;
-//! `mcp` serves the task tools over stdio, each call on a service of its
-//! own; `watch` streams the project's changes until SIGINT or SIGTERM
-//! (never at a closed stdin); `run` hands a task to the `ctxloom` on PATH; `manage`
-//! registers `taskloom mcp` in the agents' configurations under HOME. It
-//! holds no logic of its own.
+//! taskloom: per-project task tracking. The composition root: it parses the
+//! command line (the global flags, the task commands, and `import`, the
+//! `project` group, `mcp`, `watch` and `manage` mounted beside them), then
+//! builds only what the command parsed uses: the tasks use cases over their
+//! adapters (the project registry, harp names, the SQLite task store, the
+//! system's clock, ids, timer and randomness, and taskloom's
+//! configuration) for the task commands and `watch`, and for nothing else.
+//! `import` alone reads the JSONL task logs, through an importer built for
+//! it. The `project` group runs over the registry and the SQLite store's
+//! integrity check; `mcp` serves the task tools over stdio, each call on a
+//! service of its own; `watch` streams the project's changes until SIGINT
+//! or SIGTERM (never at a closed stdin); `manage` registers `taskloom mcp`
+//! in the agents' configurations under HOME. It holds no logic of its own.
 
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -45,9 +45,26 @@ fn catalog() -> Result<presentation::Catalog, presentation::CatalogError> {
         jsonl_task_log::EN_US,
         tasks_config::EN_US,
         tasks_mcp::EN_US,
-        tasks_run::EN_US,
         tasks_watch::EN_US,
     ])
+}
+
+/// The command line.
+#[derive(clap::Parser, Debug)]
+#[command(name = tasks_cli::PROG, about = "Manage the per-project task store")]
+struct Cli {
+    #[command(flatten)]
+    globals: tasks_cli::Globals,
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum Command {
+    #[command(flatten)]
+    Tasks(tasks_cli::Command),
+    #[command(flatten)]
+    Mounted(Mounted),
 }
 
 /// The commands mounted beside the task commands.
@@ -62,17 +79,7 @@ enum Mounted {
     #[command(flatten)]
     Watch(tasks_watch::Group),
     #[command(flatten)]
-    Run(tasks_run::Group),
-    #[command(flatten)]
     Manage(registration_cli::Group),
-}
-
-/// What runs once the command line has been read, on the runtime.
-enum After {
-    Import(tasks_cli::Mounted),
-    Mcp(Option<String>),
-    Watch(tasks_watch::Settings),
-    Run(tasks_run::Group, tasks_run::Settings),
 }
 
 /// The tasks use cases over the real adapters, configured from the work
@@ -95,7 +102,8 @@ fn service(
 fn import(
     runtime: &tokio::runtime::Runtime,
     env: &Environment,
-    flags: &tasks_cli::Mounted,
+    project: Option<String>,
+    format: presentation::Format,
     catalog: &presentation::Catalog,
 ) -> ExitCode {
     let mut importer = Importer::new(
@@ -105,7 +113,8 @@ fn import(
         JsonlTaskLogDir::in_home(env.home.as_deref()),
     );
     ExitCode::from(runtime.block_on(tasks_cli::run_import(
-        flags,
+        project,
+        format,
         catalog,
         &mut importer,
         &mut io::stdout().lock(),
@@ -208,9 +217,7 @@ fn manage(
     format: presentation::Format,
     home: Option<PathBuf>,
     catalog: &presentation::Catalog,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> u8 {
+) -> ExitCode {
     let settings = registration_cli::Settings {
         format,
         stdout_is_terminal: io::stdout().is_terminal(),
@@ -222,29 +229,36 @@ fn manage(
         waits: file_lock::Waits::DEFAULT,
     };
     let mut registrations = registration_application::Registrations::taskloom(configs);
-    registration_cli::run(words, &settings, &mut registrations, catalog, out, err)
+    ExitCode::from(registration_cli::run(
+        words,
+        &settings,
+        &mut registrations,
+        catalog,
+        &mut io::stdout().lock(),
+        &mut io::stderr().lock(),
+    ))
 }
 
-/// `taskloom run`: the task handed to the `ctxloom` on PATH.
-fn launch<S: tasks_application::TaskService>(
-    runtime: &tokio::runtime::Runtime,
-    service: &mut S,
-    group: tasks_run::Group,
-    settings: &tasks_run::Settings,
+/// The `project` group, over the project registry and the SQLite store's
+/// integrity check.
+fn project_group(
+    env: Environment,
+    group: project_cli::Group,
+    settings: &project_cli::Settings,
     catalog: &presentation::Catalog,
 ) -> ExitCode {
-    let mut ctxloom = tasks_run::Ctxloom {
-        path: std::env::var_os("PATH"),
-    };
-    ExitCode::from(runtime.block_on(tasks_run::run(
-        service,
+    let mut projects = Projects::new(
+        ProjectRegistry::new(env, HarpNames),
+        SqliteStores::default(),
+    );
+    ExitCode::from(project_cli::run(
         group,
         settings,
-        &mut ctxloom,
-        &mut io::stdin().lock(),
         catalog,
+        &mut projects,
+        &mut io::stdout().lock(),
         &mut io::stderr().lock(),
-    )))
+    ))
 }
 
 /// What the command line reads from the process besides its arguments.
@@ -280,80 +294,63 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    let context = context();
+    // Stdout and stderr are locked for one call at a time: the MCP
+    // server's writes come from another thread.
+    let (stdout, stderr) = (io::stdout(), io::stderr());
+    let parsed = tasks_cli::parse(
+        std::env::args_os(),
+        &context,
+        &catalog,
+        &mut stdout.lock(),
+        &mut stderr.lock(),
+    );
+    let Cli { globals, command } = match parsed {
+        Ok(cli) => cli,
+        Err(code) => return ExitCode::from(code),
+    };
     let env = Environment {
         home: std::env::var_os("HOME").map(PathBuf::from),
         cwd: std::env::current_dir().map_err(|e| e.to_string()),
         root: std::env::var_os("CTXLOOM_ROOT").map(PathBuf::from),
         project_id: std::env::var("CTXLOOM_PROJECT_ID").ok(),
     };
-    let mut projects = Projects::new(
-        ProjectRegistry::new(env.clone(), HarpNames),
-        SqliteStores::default(),
-    );
-    let mut service = service(&env, utf8_vars());
-    let context = context();
-    // `import`, `mcp`, `watch` and `run` run once the command line has been
-    // read, on the same runtime: the CLI's mounted commands are synchronous.
-    let mut after = None;
-    let mounted = |group,
-                   flags: tasks_cli::Mounted,
-                   catalog: &presentation::Catalog,
-                   out: &mut dyn Write,
-                   err: &mut dyn Write| match group {
+    let group = match command {
+        Command::Tasks(command) => {
+            let mut service = service(&env, utf8_vars());
+            return ExitCode::from(runtime.block_on(tasks_cli::run(
+                command,
+                globals,
+                &context,
+                &catalog,
+                &mut service,
+                &mut stdout.lock(),
+                &mut stderr.lock(),
+            )));
+        }
+        Command::Mounted(group) => group,
+    };
+    let format = match globals.format(&context, &catalog, &mut stderr.lock()) {
+        Ok(format) => format,
+        Err(code) => return ExitCode::from(code),
+    };
+    let project = globals.project;
+    match group {
         Mounted::Import(tasks_cli::ImportGroup::Import) => {
-            after = Some(After::Import(flags));
-            0
+            import(&runtime, &env, project, format, &catalog)
         }
         Mounted::Project(group) => {
             let settings = project_cli::Settings {
-                format: flags.format,
-                project: flags.project,
+                format,
+                project,
                 prog: tasks_cli::PROG,
             };
-            project_cli::run(group, &settings, catalog, &mut projects, out, err)
+            project_group(env, group, &settings, &catalog)
         }
         Mounted::Manage(registration_cli::Group::Manage { words }) => {
-            manage(words, flags.format, env.home.clone(), catalog, out, err)
+            manage(words, format, env.home, &catalog)
         }
         Mounted::Mcp(tasks_mcp::Group::Mcp) => {
-            after = Some(After::Mcp(flags.project));
-            0
-        }
-        Mounted::Run(group) => {
-            let settings = tasks_run::Settings {
-                format: flags.format,
-                project: flags.project,
-                prog: tasks_cli::PROG,
-                interactive: io::stdin().is_terminal() && io::stdout().is_terminal(),
-            };
-            after = Some(After::Run(group, settings));
-            0
-        }
-        Mounted::Watch(tasks_watch::Group::Watch) => {
-            after = Some(After::Watch(tasks_watch::Settings {
-                format: flags.format,
-                project: flags.project,
-                prog: tasks_cli::PROG,
-            }));
-            0
-        }
-    };
-    let code = runtime.block_on(tasks_cli::run_mounted::<_, Mounted>(
-        std::env::args_os(),
-        &context,
-        &catalog,
-        &mut service,
-        mounted,
-        &mut io::stdout().lock(),
-        &mut io::stderr().lock(),
-    ));
-    match after {
-        Some(After::Import(flags)) => import(&runtime, &env, &flags, &catalog),
-        Some(After::Watch(settings)) => watch(&runtime, &mut service, &settings, &catalog),
-        Some(After::Run(group, settings)) => {
-            launch(&runtime, &mut service, group, &settings, &catalog)
-        }
-        Some(After::Mcp(project)) => {
             let settings = tasks_mcp::Settings {
                 project,
                 session: context.session,
@@ -362,7 +359,19 @@ fn main() -> ExitCode {
             };
             serve_mcp(runtime, env, settings, catalog)
         }
-        None => ExitCode::from(code),
+        Mounted::Watch(tasks_watch::Group::Watch) => {
+            let settings = tasks_watch::Settings {
+                format,
+                project,
+                prog: tasks_cli::PROG,
+            };
+            watch(
+                &runtime,
+                &mut service(&env, utf8_vars()),
+                &settings,
+                &catalog,
+            )
+        }
     }
 }
 

@@ -217,3 +217,18 @@ fn test_manage_takes_gos_lock_on_the_file_and_waits_its_turn() {
         .contains("\"taskloom\""));
     assert!(!held(&sidecar), "let go once written");
 }
+
+/// `manage` is not a task command: it runs where the task store and the
+/// project registry cannot be reached (`~/.ctxloom` a file, so nothing
+/// under it opens) and in a directory no project is bound to, because
+/// nothing of the tasks' wiring is built for it.
+#[test]
+fn test_manage_builds_nothing_of_the_tasks() {
+    let env = Env::new("manage-no-tasks-harp");
+    let empty = tempfile::tempdir().unwrap();
+    std::fs::write(env.home.path().join(".ctxloom"), "not a directory").unwrap();
+    let ran = manage(&env, &empty, &["check", "--format", "text"]);
+    assert!(ran.ok, "{}", ran.stderr);
+    assert_eq!(ran.stdout, "binary: taskloom NOT on PATH\n");
+    assert!(!env.project.path().join(".project-id").exists());
+}

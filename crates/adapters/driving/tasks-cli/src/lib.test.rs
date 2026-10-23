@@ -3,6 +3,7 @@
 
 use std::ffi::OsString;
 use std::future::Future;
+use std::io::Write;
 use std::path::PathBuf;
 use std::pin::pin;
 use std::task::{Context as TaskContext, Poll, Waker};
@@ -16,9 +17,9 @@ use tasks_application::{
     Vocabulary, Written,
 };
 
-use presentation::{Catalog, Format};
+use presentation::Catalog;
 
-use super::{run, run_import, run_mounted, Context, ImportGroup, Mounted};
+use super::{parse, run, run_import, Command, Context, Globals, ImportGroup};
 
 mod shapes {
     use tasks_application::{Task, Timestamp};
@@ -185,18 +186,64 @@ fn run_on(fake: &mut Fake, terminal: bool, args: &[&str]) -> Ran {
     run_in(&context, fake, args)
 }
 
-fn run_in(context: &Context, fake: &mut Fake, args: &[&str]) -> Ran {
-    let args: Vec<OsString> = std::iter::once("taskloom")
+/// The command line as a binary mounts these commands: the global flags
+/// over the task commands and `import`.
+#[derive(clap::Parser, Debug)]
+#[command(name = super::PROG, about = "Manage the per-project task store")]
+struct Cli {
+    #[command(flatten)]
+    globals: Globals,
+    #[command(subcommand)]
+    command: Line,
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum Line {
+    #[command(flatten)]
+    Tasks(Command),
+    #[command(flatten)]
+    Import(ImportGroup),
+}
+
+/// `args` (after the program's name) parsed as a binary parses them, and
+/// answered by `answer`, or by the parser when they name no command.
+fn ran(
+    context: &Context,
+    args: &[&str],
+    answer: impl FnOnce(Line, Globals, &Catalog, &mut dyn Write, &mut dyn Write) -> u8,
+) -> Ran {
+    let args = std::iter::once("taskloom")
         .chain(args.iter().copied())
-        .map(OsString::from)
-        .collect();
+        .map(OsString::from);
     let (mut out, mut err) = (Vec::new(), Vec::new());
-    let code = ready(run(args, context, &catalog(), fake, &mut out, &mut err));
+    let catalog = catalog();
+    let code = match parse::<Cli>(args, context, &catalog, &mut out, &mut err) {
+        Ok(cli) => answer(cli.command, cli.globals, &catalog, &mut out, &mut err),
+        Err(code) => code,
+    };
     Ran {
         code,
         out: String::from_utf8(out).unwrap(),
         err: String::from_utf8(err).unwrap(),
     }
+}
+
+fn run_in(context: &Context, fake: &mut Fake, args: &[&str]) -> Ran {
+    ran(context, args, |line, globals, catalog, out, err| {
+        let Line::Tasks(command) = line else {
+            panic!("not a task command: {args:?}")
+        };
+        ready(run(command, globals, context, catalog, fake, out, err))
+    })
+}
+
+/// A task command `args` (the program's name first) parsed.
+fn parsed(args: &[&str]) -> (Command, Globals) {
+    let cli = <Cli as clap::Parser>::try_parse_from(args).expect("parsed");
+    let Line::Tasks(command) = cli.command else {
+        panic!("not a task command: {args:?}")
+    };
+    (command, cli.globals)
 }
 
 fn tagged_task() -> Task {
@@ -1315,7 +1362,7 @@ fn test_an_unknown_command_is_a_usage_error_exiting_1() {
 /// A writer that refuses everything.
 struct Broken;
 
-impl std::io::Write for Broken {
+impl Write for Broken {
     fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
         Err(std::io::Error::new(
             std::io::ErrorKind::BrokenPipe,
@@ -1341,9 +1388,10 @@ fn test_output_that_cannot_be_written_fails_with_why() {
             ..Fake::default()
         };
         let mut err = Vec::new();
-        let argv = args.iter().map(OsString::from);
+        let (command, globals) = parsed(args);
         let code = ready(run(
-            argv,
+            command,
+            globals,
             &context,
             &catalog(),
             &mut fake,
@@ -1362,9 +1410,10 @@ fn test_output_that_cannot_be_written_fails_with_why() {
         ..Fake::default()
     };
     let mut err = Vec::new();
-    let argv = ["taskloom", "--json", "list"].map(OsString::from);
+    let (command, globals) = parsed(&["taskloom", "--json", "list"]);
     let code = ready(run(
-        argv,
+        command,
+        globals,
         &context,
         &catalog(),
         &mut fake,
@@ -1472,7 +1521,7 @@ fn imported(lost: usize) -> ProjectImport {
         lost: (0..lost)
             .map(|line| tasks_application::Lost {
                 line: u32::try_from(line).unwrap(),
-                op: tasks_application::JsonlOp::Status,
+                op: "status",
                 harp_id: "swift-amber".to_string(),
                 text: String::new(),
                 why: tasks_application::Why::TaskNotImported,
@@ -1493,33 +1542,22 @@ fn import_on(importer: &mut FakeImporter, terminal: bool, args: &[&str]) -> Ran 
         stdout_is_terminal: terminal,
         ..Context::default()
     };
-    let args: Vec<OsString> = std::iter::once("taskloom")
-        .chain(args.iter().copied())
-        .map(OsString::from)
-        .collect();
-    let (mut out, mut err) = (Vec::new(), Vec::new());
-    let catalog = catalog();
-    let mounted = |ImportGroup::Import,
-                   flags: Mounted,
-                   catalog: &Catalog,
-                   out: &mut dyn std::io::Write,
-                   err: &mut dyn std::io::Write| {
-        ready(run_import(&flags, catalog, importer, out, err))
-    };
-    let code = ready(run_mounted(
-        args,
-        &context,
-        &catalog,
-        &mut Fake::default(),
-        mounted,
-        &mut out,
-        &mut err,
-    ));
-    Ran {
-        code,
-        out: String::from_utf8(out).unwrap(),
-        err: String::from_utf8(err).unwrap(),
-    }
+    ran(&context, args, |line, globals, catalog, out, err| {
+        let Line::Import(ImportGroup::Import) = line else {
+            panic!("not import: {args:?}")
+        };
+        match globals.format(&context, catalog, err) {
+            Ok(format) => ready(run_import(
+                globals.project,
+                format,
+                catalog,
+                importer,
+                out,
+                err,
+            )),
+            Err(code) => code,
+        }
+    })
 }
 
 #[test]
@@ -1616,17 +1654,6 @@ fn test_import_that_cannot_start_fails_with_why() {
     );
 }
 
-#[test]
-fn test_the_task_commands_alone_do_not_import() {
-    let ran = run_on(&mut Fake::default(), true, &["import"]);
-    assert_eq!(ran.code, 1);
-    assert!(
-        ran.err.contains("unrecognized subcommand 'import'"),
-        "{}",
-        ran.err
-    );
-}
-
 // ------------------------------------------------------------ companion
 
 /// The reference loadout document (`fixtures/go/loadout.yaml`, which
@@ -1712,94 +1739,6 @@ fn test_yaml_is_only_the_loadout_s() {
             "{args:?}"
         );
     }
-}
-
-// ------------------------------------------------------------ mounted
-
-/// Another crate's commands, as a binary mounts them.
-#[derive(clap::Subcommand, Debug, PartialEq)]
-enum Extra {
-    /// Say hello.
-    Hello { name: String },
-}
-
-fn run_extra(terminal: bool, args: &[&str]) -> (Ran, Vec<(Extra, Mounted)>) {
-    let context = Context {
-        stdout_is_terminal: terminal,
-        ..Context::default()
-    };
-    let args: Vec<OsString> = std::iter::once("taskloom")
-        .chain(args.iter().copied())
-        .map(OsString::from)
-        .collect();
-    let (mut out, mut err) = (Vec::new(), Vec::new());
-    let mut handed = Vec::new();
-    let catalog = catalog();
-    let mounted = |command: Extra,
-                   flags: Mounted,
-                   given: &Catalog,
-                   out: &mut dyn std::io::Write,
-                   err: &mut dyn std::io::Write| {
-        assert!(std::ptr::eq(given, &catalog), "the run's own catalog");
-        writeln!(out, "out").unwrap();
-        writeln!(err, "err").unwrap();
-        handed.push((command, flags));
-        7
-    };
-    let code = ready(run_mounted(
-        args,
-        &context,
-        &catalog,
-        &mut Fake::default(),
-        mounted,
-        &mut out,
-        &mut err,
-    ));
-    let ran = Ran {
-        code,
-        out: String::from_utf8(out).unwrap(),
-        err: String::from_utf8(err).unwrap(),
-    };
-    (ran, handed)
-}
-
-#[test]
-fn test_a_mounted_command_gets_the_global_flags_and_gives_the_exit_code() {
-    let (ran, handed) = run_extra(true, &["--project", "p", "hello", "world", "--json"]);
-    assert_eq!(
-        (ran.code, ran.out.as_str(), ran.err.as_str()),
-        (7, "out\n", "err\n")
-    );
-    assert_eq!(
-        handed,
-        [(
-            Extra::Hello {
-                name: "world".to_string()
-            },
-            Mounted {
-                format: Format::Json,
-                project: Some("p".to_string()),
-            }
-        )]
-    );
-    let (_, handed) = run_extra(true, &["hello", "x"]);
-    assert_eq!(
-        handed[0].1,
-        Mounted {
-            format: Format::Text,
-            project: None,
-        },
-        "text on a terminal"
-    );
-}
-
-#[test]
-fn test_mounted_commands_are_listed_beside_the_task_commands() {
-    let (ran, handed) = run_extra(true, &["--help"]);
-    assert_eq!(ran.code, 0);
-    assert!(handed.is_empty());
-    assert!(ran.out.contains("hello"), "{}", ran.out);
-    assert!(ran.out.contains("prune"), "{}", ran.out);
 }
 
 fn tag(key: &str) -> tasks_application::Tag {

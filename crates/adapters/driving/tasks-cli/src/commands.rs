@@ -25,7 +25,7 @@ pub(crate) struct Ctx<'a> {
 }
 
 #[derive(Args, Debug)]
-pub(crate) struct AddArgs {
+pub struct AddArgs {
     /// The task's text; several words are joined with spaces.
     #[arg(required = true, num_args = 1..)]
     text: Vec<String>,
@@ -68,7 +68,7 @@ pub(crate) async fn add(
 }
 
 #[derive(Args, Debug)]
-pub(crate) struct StatusArgs {
+pub struct StatusArgs {
     /// The task's id.
     harp_id: String,
     /// The status: any name not starting with '@' (see `taskloom statuses`).
@@ -105,7 +105,7 @@ pub(crate) async fn status(
 }
 
 #[derive(Args, Debug)]
-pub(crate) struct EditArgs {
+pub struct EditArgs {
     /// The task's id.
     harp_id: String,
     /// The new text, whole; several words are joined with spaces. Text
@@ -139,7 +139,7 @@ pub(crate) async fn edit(
 }
 
 #[derive(Args, Debug)]
-pub(crate) struct TagArgs {
+pub struct TagArgs {
     /// The task's id.
     harp_id: String,
     /// Tag to add (repeatable).
@@ -170,7 +170,7 @@ pub(crate) async fn tag(
 }
 
 #[derive(Args, Debug)]
-pub(crate) struct ListArgs {
+pub struct ListArgs {
     /// Only tasks in this status (repeatable, or comma-separated); the
     /// classes @open (every status not terminal) and @terminal (Done,
     /// Archived) mix with statuses.
@@ -238,7 +238,7 @@ pub(crate) async fn list(
 }
 
 #[derive(Args, Debug)]
-pub(crate) struct ShowArgs {
+pub struct ShowArgs {
     /// The tasks' ids: every one must be found.
     #[arg(required = true, num_args = 1..)]
     harp_ids: Vec<String>,
@@ -267,7 +267,7 @@ pub(crate) async fn show(
 }
 
 #[derive(Args, Debug)]
-pub(crate) struct GlobalArgs {
+pub struct GlobalArgs {
     /// Every project, not just this one.
     #[arg(long)]
     global: bool,
@@ -324,7 +324,7 @@ pub(crate) async fn statuses(
 }
 
 #[derive(Args, Debug)]
-pub(crate) struct TagsArgs {
+pub struct TagsArgs {
     /// Count only the tasks in this status (repeatable, or
     /// comma-separated); @open and @terminal as list takes them.
     #[arg(long, value_delimiter = ',')]
@@ -392,7 +392,7 @@ pub(crate) async fn lint(
 
 /// `prune`'s flags.
 #[derive(Args, Debug)]
-pub(crate) struct PruneArgs {
+pub struct PruneArgs {
     /// Only tasks whose last status change is older than this age (30d,
     /// 12w, 720h) or date (2026-01-01).
     #[arg(long = "older-than", default_value = DEFAULT_OLDER_THAN)]

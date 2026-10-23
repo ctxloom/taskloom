@@ -201,12 +201,9 @@ fn test_mcp_serves_every_tool_and_the_vocabulary_on_the_projects_store() {
     let project_id = added["project_id"]
         .as_str()
         .expect("the project written to");
-    assert!(
-        added["path"]
-            .as_str()
-            .is_some_and(|p| p.ends_with(&format!(".ctxloom/projects/{project_id}/state.db"))),
-        "{added}"
-    );
+    let store = format!(".ctxloom/projects/{project_id}/state.db");
+    assert!(env.home.path().join(store).exists(), "{added}");
+    assert_eq!(added.get("path"), None, "no result names its store");
     let harp = task["harp_id"].clone();
     server.call(
         "task_add",

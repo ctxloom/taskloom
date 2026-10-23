@@ -105,7 +105,9 @@ pub struct ProjectImport {
 pub struct Lost {
     /// Its line in the log.
     pub line: u32,
-    pub op: JsonlOp,
+    /// What kind of record it is, as the log names it (`add`, `status`,
+    /// `text`, `remove`, `tag`, `untag`).
+    pub op: &'static str,
     pub harp_id: String,
     /// Its text, if it carries any: an add's or an edit's.
     pub text: String,
@@ -162,6 +164,33 @@ impl Diagnostic for Why {
             Why::Tag(refusal) => refusal.args(),
             _ => Vec::new(),
         }
+    }
+}
+
+/// Why a project's import stopped before it began: Go taskloom keeps no
+/// task log for the project.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct NoJsonlLog {
+    pub project: String,
+}
+
+impl fmt::Display for NoJsonlLog {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Go taskloom has no task log for project {}",
+            self.project
+        )
+    }
+}
+
+impl Diagnostic for NoJsonlLog {
+    fn code(&self) -> &'static str {
+        "tasks-application-no-jsonl-log"
+    }
+
+    fn args(&self) -> Vec<(&'static str, Arg)> {
+        vec![("project", self.project.as_str().into())]
     }
 }
 
@@ -238,7 +267,7 @@ where
     async fn import_project(&mut self, report: &mut ProjectImport) -> Result<(), Report> {
         let id = report.project_id.clone();
         let records = self.jsonl_logs.records(&id)?.ok_or_else(|| {
-            Report::of(&AppError::NoJsonlLog {
+            Report::of(&NoJsonlLog {
                 project: id.clone(),
             })
         })?;
@@ -329,7 +358,7 @@ where
 fn lost(record: &JsonlRecord, why: Why) -> Lost {
     Lost {
         line: record.line,
-        op: record.op,
+        op: record.op.as_str(),
         harp_id: record.task.clone(),
         text: record.text.clone(),
         why,

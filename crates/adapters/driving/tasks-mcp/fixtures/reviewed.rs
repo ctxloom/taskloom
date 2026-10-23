@@ -18,7 +18,8 @@ pub fn instructions() -> String {
 
 /// The reference tools, as tools/list answers them, reviewed.
 pub fn tools() -> String {
-    applied(include_str!("go/tools.json"), TOOLS)
+    let tools = applied(include_str!("go/tools.json"), TOOLS);
+    applied_to_each(&tools, EVERY_TOOL, 5)
 }
 
 pub const INSTRUCTIONS: &[(&str, &str)] = &[
@@ -49,6 +50,36 @@ pub const TOOLS: &[(&str, &str)] = &[
         r#"""#,
     ),
 ];
+
+/// Changes made to each of the five tools' output schemas alike.
+pub const EVERY_TOOL: &[(&str, &str)] = &[
+    // 5. No result names its store (`path`): where a project's store lies
+    // is the binary's business, not the caller's.
+    (
+        "        \"path\": {\n          \"type\": \"string\"\n        },\n",
+        "",
+    ),
+    (
+        "      \"required\": [\n        \"path\",\n",
+        "      \"required\": [\n",
+    ),
+];
+
+/// `text` with each pair applied to every occurrence of its `old`, which
+/// is found exactly `times` times.
+pub fn applied_to_each(text: &str, pairs: &[(&str, &str)], times: usize) -> String {
+    let mut text = text.to_string();
+    for (old, new) in pairs {
+        let found = text.matches(old).count();
+        assert!(
+            found == times,
+            "a reviewed change's old text occurs {found} times, not {times}, in Go's text: \
+             Go has changed it, so review the change again: {old:?}"
+        );
+        text = text.replace(old, new);
+    }
+    text
+}
 
 /// `go` with each pair applied, each `old` found exactly once.
 pub fn applied(go: &str, pairs: &[(&str, &str)]) -> String {
