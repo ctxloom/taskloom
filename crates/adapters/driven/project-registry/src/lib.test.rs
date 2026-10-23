@@ -66,7 +66,7 @@ impl World {
     }
 
     pub(crate) fn registry(&self, ids: &[&str]) -> ProjectRegistry<Scripted> {
-        ProjectRegistry::new(self.env(), names(ids))
+        ProjectRegistry::new(os(), self.env(), names(ids))
     }
 
     pub(crate) fn index(&self) -> index::Index {
@@ -97,7 +97,7 @@ fn test_the_work_root_is_ctxloom_root_when_set() {
     let world = World::new();
     let mut env = world.env();
     env.root = Some(PathBuf::from("/somewhere/else"));
-    let registry = ProjectRegistry::new(env, names(&[]));
+    let registry = ProjectRegistry::new(os(), env, names(&[]));
     assert_eq!(registry.work_root().unwrap(), Path::new("/somewhere/else"));
 }
 
@@ -111,7 +111,7 @@ fn test_the_work_root_is_the_nearest_ancestor_holding_git() {
     let mut env = world.env();
     env.cwd = Ok(deep);
     env.root = Some(PathBuf::new());
-    let registry = ProjectRegistry::new(env, names(&[]));
+    let registry = ProjectRegistry::new(os(), env, names(&[]));
     assert_eq!(
         registry.work_root().unwrap(),
         world.tree().join("a"),
@@ -125,7 +125,7 @@ fn test_a_linked_worktrees_git_file_marks_its_root() {
     fs::write(world.tree().join(".git"), "gitdir: /elsewhere\n").unwrap();
     let mut env = world.env();
     env.cwd = Ok(world.tree().join("sub"));
-    let registry = ProjectRegistry::new(env, names(&[]));
+    let registry = ProjectRegistry::new(os(), env, names(&[]));
     assert_eq!(registry.work_root().unwrap(), world.tree());
 }
 
@@ -143,7 +143,7 @@ fn test_the_work_root_is_canonical_symlinks_resolved_and_slashes_cleaned() {
     for root in [link.clone(), link.join(""), link.join(".")] {
         let mut env = world.env();
         env.root = Some(root.clone());
-        let registry = ProjectRegistry::new(env, names(&[]));
+        let registry = ProjectRegistry::new(os(), env, names(&[]));
         assert_eq!(registry.work_root().unwrap(), world.tree(), "{root:?}");
     }
 }
@@ -153,7 +153,7 @@ fn test_a_work_root_that_does_not_resolve_is_cleaned_lexically() {
     let world = World::new();
     let mut env = world.env();
     env.root = Some(PathBuf::from("/no/such/./tree/../root/"));
-    let registry = ProjectRegistry::new(env, names(&[]));
+    let registry = ProjectRegistry::new(os(), env, names(&[]));
     assert_eq!(registry.work_root().unwrap(), Path::new("/no/such/root"));
 }
 
@@ -163,7 +163,7 @@ fn test_a_relative_ctxloom_root_is_under_the_working_directory() {
     fs::create_dir(world.tree().join("sub")).unwrap();
     let mut env = world.env();
     env.root = Some(PathBuf::from("sub/"));
-    let registry = ProjectRegistry::new(env, names(&[]));
+    let registry = ProjectRegistry::new(os(), env, names(&[]));
     assert_eq!(registry.work_root().unwrap(), world.tree().join("sub"));
 }
 
@@ -172,13 +172,13 @@ fn test_a_working_directory_that_cannot_be_read_is_an_error() {
     let world = World::new();
     let mut env = world.env();
     env.cwd = Err("No such file or directory (os error 2)".to_string());
-    let mut registry = ProjectRegistry::new(env.clone(), names(&["fresh-new-id"]));
+    let mut registry = ProjectRegistry::new(os(), env.clone(), names(&["fresh-new-id"]));
     let error = registry.for_write(None).unwrap_err();
     assert_eq!(error.code(), "project-registry-no-cwd");
     assert!(error.to_string().contains("os error 2"), "{error}");
     assert_eq!(registry.names.minted, 0);
     env.root = Some(world.tree());
-    let registry = ProjectRegistry::new(env, names(&[]));
+    let registry = ProjectRegistry::new(os(), env, names(&[]));
     assert_eq!(
         registry.work_root().unwrap(),
         world.tree(),
@@ -194,7 +194,7 @@ fn test_a_pinned_id_wins_over_the_environment_and_the_marker() {
     fs::write(world.tree().join(".project-id"), "from-marker\n").unwrap();
     let mut env = world.env();
     env.project_id = Some("from-env".to_string());
-    let mut registry = ProjectRegistry::new(env, names(&[]));
+    let mut registry = ProjectRegistry::new(os(), env, names(&[]));
     let project = registry.for_write(Some("from-flag")).unwrap();
     assert_eq!(project.id, "from-flag");
     assert_eq!(project.root, text(&world.tree()));
@@ -209,7 +209,7 @@ fn test_ctxloom_project_id_wins_over_the_marker() {
     fs::write(world.tree().join(".project-id"), "from-marker\n").unwrap();
     let mut env = world.env();
     env.project_id = Some("from-env".to_string());
-    let mut registry = ProjectRegistry::new(env, names(&[]));
+    let mut registry = ProjectRegistry::new(os(), env, names(&[]));
     assert_eq!(registry.for_read(None).unwrap().unwrap().id, "from-env");
     assert_eq!(registry.for_read(Some("")).unwrap().unwrap().id, "from-env");
 }
@@ -219,7 +219,7 @@ fn test_an_empty_ctxloom_project_id_is_unset() {
     let world = World::new();
     let mut env = world.env();
     env.project_id = Some(String::new());
-    let mut registry = ProjectRegistry::new(env, names(&[]));
+    let mut registry = ProjectRegistry::new(os(), env, names(&[]));
     assert_eq!(registry.for_read(None).unwrap(), None);
 }
 
@@ -234,7 +234,7 @@ fn test_an_invalid_pinned_id_is_refused_naming_where_it_came_from() {
     assert!(error.to_string().contains("--project"), "{error}");
     let mut env = world.env();
     env.project_id = Some("a/b".to_string());
-    let error = ProjectRegistry::new(env, names(&[]))
+    let error = ProjectRegistry::new(os(), env, names(&[]))
         .for_read(None)
         .unwrap_err();
     assert!(error.to_string().contains("CTXLOOM_PROJECT_ID"), "{error}");
@@ -319,7 +319,7 @@ fn test_a_symlinked_or_slashed_ctxloom_root_finds_gos_entry() {
     for root in [link.clone(), link.join(""), world.tree().join("")] {
         let mut env = world.env();
         env.root = Some(root.clone());
-        let mut registry = ProjectRegistry::new(env, names(&[]));
+        let mut registry = ProjectRegistry::new(os(), env, names(&[]));
         let project = registry.for_read(None).unwrap().expect("Go's entry");
         assert_eq!(project.id, "high-tight-gulf", "{root:?}");
         assert_eq!(project.root, text(&world.tree()));
@@ -345,7 +345,7 @@ fn test_a_mint_registers_the_canonical_path() {
     std::os::unix::fs::symlink(world.tree(), &link).unwrap();
     let mut env = world.env();
     env.root = Some(link);
-    ProjectRegistry::new(env, names(&["fresh-new-id"]))
+    ProjectRegistry::new(os(), env, names(&["fresh-new-id"]))
         .for_write(None)
         .unwrap();
     assert_eq!(world.index().projects[0].path, text(&world.tree()));
@@ -437,7 +437,8 @@ fn test_a_custom_lock_wait_is_the_one_a_write_waits_for() {
     // write must wait: it gives up after its short wait, long before the
     // default would have.
     let world = World::new();
-    let held = index::lock_within(&index::path(world.home.path()), index::LOCK_WAIT).unwrap();
+    let held =
+        index::lock_within(&*os(), &index::path(world.home.path()), index::LOCK_WAIT).unwrap();
     let wait = std::time::Duration::from_millis(50);
     let mut registry = world.registry(&["never-minted"]).with_lock_wait(wait);
     let started = std::time::Instant::now();
@@ -459,7 +460,7 @@ fn test_without_a_home_there_is_no_store_and_no_registry() {
     for home in [None, Some(PathBuf::new())] {
         let mut env = world.env();
         env.home = home;
-        let error = ProjectRegistry::new(env, names(&[]))
+        let error = ProjectRegistry::new(os(), env, names(&[]))
             .for_write(Some("pinned"))
             .unwrap_err();
         assert_eq!(error.code(), "project-registry-no-home");
@@ -578,7 +579,7 @@ fn test_a_linked_worktree_reads_its_primary_checkouts_project() {
     let repo = git::Repo::new();
     let linked = repo.worktree("linked");
     fs::write(repo.root().join(".project-id"), "jolly-mute-magma\n").unwrap();
-    let mut registry = ProjectRegistry::new(world.env_in(&linked.join(".")), names(&[]));
+    let mut registry = ProjectRegistry::new(os(), world.env_in(&linked.join(".")), names(&[]));
     let project = registry.for_read(None).unwrap().unwrap();
     assert_eq!(project.id, "jolly-mute-magma");
     assert_eq!(
@@ -602,7 +603,7 @@ fn test_a_linked_worktree_finds_its_primary_checkouts_registry_entry() {
     index.register("high-tight-gulf", &text(&repo.root()));
     index.register("own-old-id", &text(&linked));
     index::save(&index::path(world.home.path()), &index).unwrap();
-    let project = ProjectRegistry::new(world.env_in(&linked), names(&[]))
+    let project = ProjectRegistry::new(os(), world.env_in(&linked), names(&[]))
         .for_read(None)
         .unwrap()
         .unwrap();
@@ -617,7 +618,7 @@ fn test_a_write_in_a_new_worktree_binds_the_primary_checkout_and_marks_only_it()
     let world = World::new();
     let repo = git::Repo::new();
     let linked = repo.worktree("linked");
-    let project = ProjectRegistry::new(world.env_in(&linked), names(&["fresh-new-id"]))
+    let project = ProjectRegistry::new(os(), world.env_in(&linked), names(&["fresh-new-id"]))
         .for_write(None)
         .unwrap();
     assert_eq!(project.id, "fresh-new-id");
@@ -631,7 +632,7 @@ fn test_a_write_in_a_new_worktree_binds_the_primary_checkout_and_marks_only_it()
     );
     assert_eq!(world.index().id_for(&repo.root()), Some("fresh-new-id"));
     assert_eq!(world.index().id_for(&linked), None);
-    let primary = ProjectRegistry::new(world.env_in(&repo.root()), names(&[]))
+    let primary = ProjectRegistry::new(os(), world.env_in(&repo.root()), names(&[]))
         .for_read(None)
         .unwrap()
         .unwrap();
@@ -645,7 +646,7 @@ fn test_a_linked_worktree_with_its_own_marker_keeps_its_own_project() {
     let linked = repo.worktree("linked");
     fs::write(repo.root().join(".project-id"), "jolly-mute-magma\n").unwrap();
     fs::write(linked.join(".project-id"), "its-own-id\n").unwrap();
-    let project = ProjectRegistry::new(world.env_in(&linked), names(&[]))
+    let project = ProjectRegistry::new(os(), world.env_in(&linked), names(&[]))
         .for_read(None)
         .unwrap()
         .unwrap();
@@ -661,7 +662,7 @@ fn test_a_linked_worktree_with_gos_older_marker_keeps_its_own_project() {
     fs::write(repo.root().join(".project-id"), "jolly-mute-magma\n").unwrap();
     fs::create_dir(linked.join(".ctxloom")).unwrap();
     fs::write(linked.join(".ctxloom/project-id"), "go-minted-id\n").unwrap();
-    let project = ProjectRegistry::new(world.env_in(&linked), names(&[]))
+    let project = ProjectRegistry::new(os(), world.env_in(&linked), names(&[]))
         .for_write(None)
         .unwrap();
     assert_eq!(project.id, "go-minted-id");
@@ -716,7 +717,7 @@ fn test_every_project_without_a_home_fails() {
     let world = World::new();
     let mut env = world.env();
     env.home = None;
-    let error = ProjectRegistry::new(env, names(&[]))
+    let error = ProjectRegistry::new(os(), env, names(&[]))
         .every_project()
         .unwrap_err();
     assert_eq!(error.code(), "project-registry-no-home");
@@ -738,14 +739,14 @@ fn test_a_directory_in_a_git_repository_or_under_ctxloom_root_is_not_rootless() 
     let world = World::new();
     let mut env = world.env();
     env.root = Some(world.tree());
-    let mut registry = ProjectRegistry::new(env, names(&[]));
+    let mut registry = ProjectRegistry::new(os(), env, names(&[]));
     assert_eq!(registry.rootless_directory().unwrap(), None);
     fs::create_dir(world.tree().join(".git")).unwrap();
     let deep = world.tree().join("a");
     fs::create_dir_all(&deep).unwrap();
     let mut env = world.env();
     env.cwd = Ok(deep);
-    let mut registry = ProjectRegistry::new(env, names(&[]));
+    let mut registry = ProjectRegistry::new(os(), env, names(&[]));
     assert_eq!(registry.rootless_directory().unwrap(), None);
 }
 
@@ -754,8 +755,13 @@ fn test_rootlessness_with_no_working_directory_fails() {
     let world = World::new();
     let mut env = world.env();
     env.cwd = Err("gone".to_string());
-    let error = ProjectRegistry::new(env, names(&[]))
+    let error = ProjectRegistry::new(os(), env, names(&[]))
         .rootless_directory()
         .unwrap_err();
     assert_eq!(error.code(), "project-registry-no-cwd");
+}
+
+/// The real filesystem, for tests over real temporary directories.
+fn os() -> std::sync::Arc<dyn file_system::Fs> {
+    std::sync::Arc::new(file_system::Os::new(std::path::Path::new("/")).unwrap())
 }

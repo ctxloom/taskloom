@@ -79,7 +79,7 @@ impl<N: Names> ProjectRegistry<N> {
     ) -> Result<(), RegistryError> {
         let projects = self.projects_dir()?;
         let path = projects.join("index.yaml");
-        let _locked = index::lock_within(&path, self.lock_wait)?;
+        let _locked = index::lock_within(&*self.fs, &path, self.lock_wait)?;
         if self.survey_of(pinned)? != *seen {
             return Err(RegistryError::Changed);
         }

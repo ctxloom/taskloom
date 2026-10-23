@@ -176,7 +176,11 @@ fn test_a_list_reads_one_moment_though_another_process_writes_and_purges_meanwhi
         meanwhile: Some(meanwhile),
     };
     let mut service = Service::new(
-        ProjectRegistry::new(environment, HarpNames),
+        ProjectRegistry::new(
+            std::sync::Arc::new(file_system::Os::new(env.project.path()).unwrap()),
+            environment,
+            HarpNames,
+        ),
         stores,
         HarpNames,
         System,

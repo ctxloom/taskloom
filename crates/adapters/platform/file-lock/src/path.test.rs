@@ -2,20 +2,30 @@
 
 use std::path::{Path, PathBuf};
 
+use file_system::{Fs, Mode, Rooted};
+
 use super::{absolute, clean, flat_name, sidecar_for, valid_harp, Sidecar};
 
-const SCRATCH: &str =
-    "/tmp/claude-1000/-home-babbitt-workspace-ctxloom-ctxloom-rs/74fb18c8-0651-4a53-83c8-19f8a2e256cc/scratchpad";
+/// A deep directory: its paths' flat names are cut to their tails.
+const DEEP: &str =
+    "/home/u/checkouts/a-checkout-with-a-long-name/scratch/0123456789abcdef-0123-4567-89ab-cdef01234567";
 
+/// An empty filesystem of the test's own.
+fn empty() -> Rooted {
+    Rooted::temp().unwrap()
+}
+
+/// Each, as Go's derivation gives it: the tail cut to 96 bytes, then the
+/// whole path's hash.
 #[test]
 fn test_a_flat_name_is_gos() {
     assert_eq!(
-        flat_name(&format!("{SCRATCH}/tmp.L0iKUu4t5Y/home/.claude.json")),
-        "ctxloom-rs__74fb18c8-0651-4a53-83c8-19f8a2e256cc__scratchpad__tmp.L0iKUu4t5Y__home__.claude.json__d07667d34aae78ed"
+        flat_name(&format!("{DEEP}/tmp.L0iKUu4t5Y/home/.claude.json")),
+        "-name__scratch__0123456789abcdef-0123-4567-89ab-cdef01234567__tmp.L0iKUu4t5Y__home__.claude.json__6cf0c83be30d6300"
     );
     assert_eq!(
-        flat_name(&format!("{SCRATCH}/tmp.qBAVn0XNgO/home/.claude.json")),
-        "ctxloom-rs__74fb18c8-0651-4a53-83c8-19f8a2e256cc__scratchpad__tmp.qBAVn0XNgO__home__.claude.json__1865b30e2a6a57b4"
+        flat_name(&format!("{DEEP}/tmp.qBAVn0XNgO/home/.claude.json")),
+        "-name__scratch__0123456789abcdef-0123-4567-89ab-cdef01234567__tmp.qBAVn0XNgO__home__.claude.json__e38e07bd3f26586a"
     );
 }
 
@@ -59,12 +69,15 @@ fn test_a_path_is_cleaned_as_gos_filepath_clean_cleans_it() {
 
 #[test]
 fn test_a_relative_path_is_made_absolute_against_the_working_directory() {
-    let cwd = std::env::current_dir().unwrap();
+    let fs = Rooted::temp_with_cwd(Path::new("/work/here")).unwrap();
     assert_eq!(
-        absolute(Path::new("a/./b/../.mcp.json")).unwrap(),
-        cwd.join("a/.mcp.json")
+        absolute(&fs, Path::new("a/./b/../.mcp.json")).unwrap(),
+        Path::new("/work/here/a/.mcp.json")
     );
-    assert_eq!(absolute(Path::new("/x/../y")).unwrap(), Path::new("/y"));
+    assert_eq!(
+        absolute(&fs, Path::new("/x/../y")).unwrap(),
+        Path::new("/y")
+    );
 }
 
 /// The home path and the reap interlock's path of each of these, with HOME
@@ -73,7 +86,7 @@ fn test_a_relative_path_is_made_absolute_against_the_working_directory() {
 fn test_a_file_outside_every_session_is_locked_in_the_home_lock_directory() {
     let home = Path::new("/home/u");
     assert_eq!(
-        sidecar_for(home, Path::new("/home/u/work/.mcp.json")),
+        sidecar_for(&empty(), home, Path::new("/home/u/work/.mcp.json")),
         Sidecar {
             lock: PathBuf::from(
                 "/home/u/.ctxloom/locks/__home__u__work__.mcp.json__54e9de5e9d028e9c.lock"
@@ -82,7 +95,7 @@ fn test_a_file_outside_every_session_is_locked_in_the_home_lock_directory() {
         }
     );
     assert_eq!(
-        sidecar_for(home, Path::new("/home/u/.claude.json")).lock,
+        sidecar_for(&empty(), home, Path::new("/home/u/.claude.json")).lock,
         Path::new("/home/u/.ctxloom/locks/__home__u__.claude.json__93b778aeca6eb169.lock")
     );
 }
@@ -92,7 +105,7 @@ fn test_a_file_inside_a_session_is_locked_in_that_sessions_own_lock_directory() 
     let home = Path::new("/home/u");
     let target = Path::new("/home/u/.ctxloom/sessions/jolly-mute-magma/work/.mcp.json");
     assert_eq!(
-        sidecar_for(home, target),
+        sidecar_for(&empty(), home, target),
         Sidecar {
             lock: PathBuf::from(
                 "/home/u/.ctxloom/sessions/jolly-mute-magma/locks/work__.mcp.json__2087cb7edc82acdc.lock"
@@ -106,13 +119,18 @@ fn test_a_file_inside_a_session_is_locked_in_that_sessions_own_lock_directory() 
 fn test_the_sessions_root_a_harp_dir_and_the_files_beside_them_are_in_no_session() {
     let home = Path::new("/home/u");
     assert_eq!(
-        sidecar_for(home, Path::new("/home/u/.ctxloom/sessions/jolly-mute-magma")).lock,
+        sidecar_for(&empty(), home, Path::new("/home/u/.ctxloom/sessions/jolly-mute-magma")).lock,
         Path::new(
             "/home/u/.ctxloom/locks/__home__u__.ctxloom__sessions__jolly-mute-magma__a7979502be344972.lock"
         )
     );
     assert_eq!(
-        sidecar_for(home, Path::new("/home/u/.ctxloom/sessions/ bad/a")).lock,
+        sidecar_for(
+            &empty(),
+            home,
+            Path::new("/home/u/.ctxloom/sessions/ bad/a")
+        )
+        .lock,
         Path::new(
             "/home/u/.ctxloom/locks/__home__u__.ctxloom__sessions__ bad__a__cbeb694342752469.lock"
         )
@@ -123,7 +141,7 @@ fn test_the_sessions_root_a_harp_dir_and_the_files_beside_them_are_in_no_session
         "/home/u/.ctxloom/sessionsx/jolly/a",
         "/home/u/.ctxloom/sessions/ bad/a",
     ] {
-        let sidecar = sidecar_for(home, Path::new(outside));
+        let sidecar = sidecar_for(&empty(), home, Path::new(outside));
         assert_eq!(
             sidecar.lock,
             Path::new(&format!(
@@ -151,14 +169,16 @@ fn test_a_harp_is_one_path_component_with_visible_edges() {
 #[cfg(unix)]
 #[test]
 fn test_a_session_file_under_a_linked_sessions_root_names_the_lock_as_home_spells_it() {
-    let dir = tempfile::tempdir().unwrap();
-    let home = dir.path().join("home");
-    let real = dir.path().join("elsewhere");
-    std::fs::create_dir_all(home.join(".ctxloom")).unwrap();
-    std::fs::create_dir_all(real.join("jolly-mute-magma/work")).unwrap();
-    std::os::unix::fs::symlink(&real, home.join(".ctxloom/sessions")).unwrap();
-    let real = std::fs::canonicalize(&real).unwrap();
-    let sidecar = sidecar_for(&home, &real.join("jolly-mute-magma/work/.mcp.json"));
+    let fs = empty();
+    let home = Path::new("/home/u");
+    let real = Path::new("/elsewhere");
+    fs.create_dir_all(&home.join(".ctxloom"), Mode::DIR)
+        .unwrap();
+    fs.create_dir_all(&real.join("jolly-mute-magma/work"), Mode::DIR)
+        .unwrap();
+    fs.symlink_dir(real, &home.join(".ctxloom/sessions"))
+        .unwrap();
+    let sidecar = sidecar_for(&fs, home, &real.join("jolly-mute-magma/work/.mcp.json"));
     assert_eq!(
         sidecar,
         Sidecar {
@@ -170,7 +190,7 @@ fn test_a_session_file_under_a_linked_sessions_root_names_the_lock_as_home_spell
         }
     );
     // Outside the resolved root as well as the spelled one.
-    assert!(sidecar_for(&home, &dir.path().join("x/.mcp.json"))
+    assert!(sidecar_for(&fs, home, Path::new("/x/.mcp.json"))
         .interlock
         .is_some());
 }

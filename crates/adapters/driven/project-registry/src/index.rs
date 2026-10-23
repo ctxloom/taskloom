@@ -12,6 +12,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use file_system::Fs;
 use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -144,9 +145,9 @@ pub use file_lock::Locked;
 /// to `wait` (in use, [`LOCK_WAIT`]) for whoever holds it: `index.yaml.lock`
 /// beside it, taken as every ctxloom lock is (file-lock's re-check and
 /// bounded wait).
-pub fn lock_within(path: &Path, wait: Duration) -> Result<Locked, RegistryError> {
+pub fn lock_within(fs: &dyn Fs, path: &Path, wait: Duration) -> Result<Locked, RegistryError> {
     let lock_path = absolute(path)?.with_file_name("index.yaml.lock");
-    file_lock::lock_within(&lock_path, wait).map_err(|e| from_lock(&lock_path, e))
+    file_lock::lock_within(fs, &lock_path, wait).map_err(|e| from_lock(&lock_path, e))
 }
 
 /// A failure to take the lock at `lock_path` as the registry's: a timeout

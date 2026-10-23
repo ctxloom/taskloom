@@ -32,9 +32,11 @@ mod worktree;
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use annals_diagnostic::Report;
+use file_system::Fs;
 use ports::{IdSource, Names, Project, ProjectIdentity};
 
 pub use error::{diagnostic_samples, RegistryError, EN_US};
@@ -58,8 +60,9 @@ pub struct Environment {
     pub project_id: Option<String>,
 }
 
-/// Project identity over the filesystem, minting ids from `names`.
+/// Project identity over the filesystem `fs`, minting ids from `names`.
 pub struct ProjectRegistry<N> {
+    fs: Arc<dyn Fs>,
     env: Environment,
     names: N,
     /// How long a change waits for the registry's lock.
@@ -67,8 +70,9 @@ pub struct ProjectRegistry<N> {
 }
 
 impl<N: Names> ProjectRegistry<N> {
-    pub fn new(env: Environment, names: N) -> Self {
+    pub fn new(fs: Arc<dyn Fs>, env: Environment, names: N) -> Self {
         ProjectRegistry {
+            fs,
             env,
             names,
             lock_wait: index::LOCK_WAIT,
@@ -208,7 +212,7 @@ impl<N: Names> ProjectRegistry<N> {
     /// one another process bound while this one waited, else a new one.
     fn bind(&mut self, root: &Path) -> Result<String, RegistryError> {
         let path = index::path(self.home()?);
-        let _locked = index::lock_within(&path, self.lock_wait)?;
+        let _locked = index::lock_within(&*self.fs, &path, self.lock_wait)?;
         if let Some((id, _)) = self.bound(root, true)? {
             return Ok(id);
         }

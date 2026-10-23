@@ -112,7 +112,7 @@ fn test_a_survey_names_where_the_id_came_from() {
     assert!(world.marker().is_none(), "a survey adopts nothing");
     let mut env = world.env();
     env.project_id = Some(s("env-id"));
-    let mut registry = ProjectRegistry::new(env, names(&[]));
+    let mut registry = ProjectRegistry::new(os(), env, names(&[]));
     assert_eq!(
         registry.survey(None).unwrap().resolved,
         Some((s("env-id"), IdSource::Environment))
@@ -129,7 +129,7 @@ fn test_a_survey_in_a_linked_worktree_is_rooted_at_its_primary_checkout() {
     let repo = git::Repo::new();
     let linked = repo.worktree("linked");
     fs::write(repo.root().join(".project-id"), "primary-id\n").unwrap();
-    let survey = ProjectRegistry::new(world.env_in(&linked), names(&[]))
+    let survey = ProjectRegistry::new(os(), world.env_in(&linked), names(&[]))
         .survey(None)
         .unwrap();
     assert_eq!(survey.work_root, text(&linked));
@@ -303,7 +303,7 @@ fn test_removing_what_is_not_a_database_directory_is_refused() {
 fn test_a_change_is_made_under_the_registry_lock() {
     let world = World::new();
     let file = index::path(world.home.path());
-    let held = index::lock_within(&file, index::LOCK_WAIT).unwrap();
+    let held = index::lock_within(&*os(), &file, index::LOCK_WAIT).unwrap();
     let mut registry = world
         .registry(&[])
         .with_lock_wait(std::time::Duration::ZERO);
@@ -321,4 +321,9 @@ fn test_a_change_is_made_under_the_registry_lock() {
     let mut registry = registry.with_lock_wait(index::LOCK_WAIT);
     registry.apply(None, &seen, &change).unwrap();
     assert_eq!(world.index().projects.len(), 1);
+}
+
+/// The real filesystem, for tests over real temporary directories.
+fn os() -> std::sync::Arc<dyn file_system::Fs> {
+    std::sync::Arc::new(file_system::Os::new(std::path::Path::new("/")).unwrap())
 }

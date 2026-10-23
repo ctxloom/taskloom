@@ -13,12 +13,12 @@ use crate::RegistryError;
 /// is per open file description, and a child another thread here forks
 /// (git, for the worktree tests) shares every descriptor until it execs.
 fn released(lock_file: &Path) -> bool {
-    file_lock::lock_within(lock_file, LOCK_WAIT).is_ok()
+    file_lock::lock_within(&*os(), lock_file, LOCK_WAIT).is_ok()
 }
 
 /// The lock, waited for as a change waits.
 pub(crate) fn lock(path: &Path) -> Result<super::Locked, RegistryError> {
-    lock_within(path, LOCK_WAIT)
+    lock_within(&*os(), path, LOCK_WAIT)
 }
 
 const GO_WRITTEN: &str = "\
@@ -211,7 +211,7 @@ fn test_a_lock_held_past_the_wait_fails_saying_who_to_look_for() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("index.yaml");
     let held = lock(&file).unwrap();
-    let refused = lock_within(&file, std::time::Duration::from_millis(30));
+    let refused = lock_within(&*os(), &file, std::time::Duration::from_millis(30));
     let lock_path = dir.path().join("index.yaml.lock").display().to_string();
     assert!(matches!(
         refused.as_ref().map(drop),
@@ -270,4 +270,9 @@ fn test_a_lock_file_that_is_not_a_file_is_an_io_failure_naming_it() {
             ),
         })
     );
+}
+
+/// The real filesystem, for tests over real temporary directories.
+fn os() -> std::sync::Arc<dyn file_system::Fs> {
+    std::sync::Arc::new(file_system::Os::new(std::path::Path::new("/")).unwrap())
 }

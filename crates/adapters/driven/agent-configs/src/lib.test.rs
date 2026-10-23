@@ -77,6 +77,7 @@ impl Home {
             tempfile::tempdir().unwrap(),
         );
         let mut configs = AgentConfigFiles {
+            fs: os(),
             home: Some(home.path().to_path_buf()),
             path: Some(bin.path().as_os_str().to_owned()),
             waits: file_lock::Waits::DEFAULT,
@@ -287,6 +288,7 @@ fn test_a_check_reads_each_file_as_gos_did() {
 fn files() -> (TempDir, AgentConfigFiles) {
     let home = tempfile::tempdir().unwrap();
     let configs = AgentConfigFiles {
+        fs: os(),
         home: Some(home.path().to_path_buf()),
         path: None,
         waits: file_lock::Waits::DEFAULT,
@@ -317,6 +319,7 @@ fn test_claude_code_is_the_one_agent_and_its_files_are_gos() {
         .unwrap_err();
     assert_eq!(refused.code(), "agent-configs-unknown-engine");
     let homeless = AgentConfigFiles {
+        fs: os(),
         home: None,
         path: None,
         waits: file_lock::Waits::DEFAULT,
@@ -339,6 +342,7 @@ fn test_an_agent_is_present_where_its_file_or_its_directory_is() {
     assert!(configs.present(CLAUDE_CODE, &scope));
     assert!(!configs.present("codex", &Scope::User));
     let homeless = AgentConfigFiles {
+        fs: os(),
         home: None,
         path: None,
         waits: file_lock::Waits::DEFAULT,
@@ -347,6 +351,7 @@ fn test_an_agent_is_present_where_its_file_or_its_directory_is() {
     let other = tempfile::tempdir().unwrap();
     std::fs::write(other.path().join(".claude.json"), "{}").unwrap();
     let mut configs = AgentConfigFiles {
+        fs: os(),
         home: Some(other.path().to_path_buf()),
         path: None,
         waits: file_lock::Waits::DEFAULT,
@@ -523,6 +528,7 @@ fn test_a_command_resolves_where_an_executable_of_its_name_is_on_the_path() {
     let bin = tempfile::tempdir().unwrap();
     let other = tempfile::tempdir().unwrap();
     let mut configs = AgentConfigFiles {
+        fs: os(),
         home: None,
         path: Some(std::env::join_paths([other.path(), bin.path()]).unwrap()),
         waits: file_lock::Waits::DEFAULT,
@@ -540,6 +546,7 @@ fn test_a_command_resolves_where_an_executable_of_its_name_is_on_the_path() {
     std::fs::create_dir(other.path().join("dir")).unwrap();
     assert!(!configs.resolvable("dir"), "a directory runs nothing");
     let mut pathless = AgentConfigFiles {
+        fs: os(),
         home: None,
         path: None,
         waits: file_lock::Waits::DEFAULT,
@@ -639,6 +646,7 @@ impl Locking {
     fn new(wait: std::time::Duration) -> Locking {
         let (home, dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let configs = AgentConfigFiles {
+            fs: os(),
             home: Some(home.path().to_path_buf()),
             path: None,
             waits: file_lock::Waits {
@@ -647,7 +655,7 @@ impl Locking {
             },
         };
         let path = dir.path().join(".mcp.json");
-        let sidecar = file_lock::path::sidecar_for(home.path(), &path);
+        let sidecar = file_lock::path::sidecar_for(&*os(), home.path(), &path);
         assert_eq!(
             sidecar.lock.parent().unwrap(),
             home.path().join(".ctxloom/locks"),
@@ -748,6 +756,7 @@ fn test_a_registration_whose_file_stays_locked_past_the_wait_is_refused_and_writ
 fn test_a_registration_with_no_home_has_no_lock_to_take_and_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let mut homeless = AgentConfigFiles {
+        fs: os(),
         home: None,
         path: None,
         waits: file_lock::Waits::DEFAULT,
@@ -765,4 +774,9 @@ fn test_a_registration_with_no_home_has_no_lock_to_take_and_is_refused() {
         .unwrap_err();
     assert_eq!(refused.code(), "agent-configs-no-home");
     assert!(!path.exists());
+}
+
+/// The real filesystem, for tests over real temporary directories.
+fn os() -> std::sync::Arc<dyn file_system::Fs> {
+    std::sync::Arc::new(file_system::Os::new(std::path::Path::new("/")).unwrap())
 }

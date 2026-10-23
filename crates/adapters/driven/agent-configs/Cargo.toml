@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 annals-diagnostic.workspace = true
 file-lock.workspace = true
+file-system.workspace = true
 ports.workspace = true
 serde.workspace = true
 serde_norway.workspace = true

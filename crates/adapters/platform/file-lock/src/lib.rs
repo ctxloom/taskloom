@@ -1,5 +1,8 @@
 //! ctxloom's advisory file locks, taken the one way every ctxloom-family
-//! binary takes them, so binaries take turns on one file:
+//! binary takes them, so binaries take turns on one file. Every lock file
+//! is opened, made and checked through the file-system seam ([`Fs`]); the
+//! lock itself is `flock` on the handle the seam opens.
+//!
 //!
 //! - a lock is `flock(2)` on a lock file (shared or exclusive), created
 //!   with its directory if missing, refused when it is not a regular file;
@@ -19,10 +22,12 @@
 mod error;
 pub mod path;
 
-use std::fs::{self, File, OpenOptions};
+use std::fs::File;
 use std::io::{ErrorKind, Write};
 use std::path::Path;
 use std::time::{Duration, Instant};
+
+use file_system::{Fs, Mode, Open};
 
 pub use error::{diagnostic_samples, LockError, EN_US};
 
@@ -49,12 +54,10 @@ const LOCK_POLL: Duration = Duration::from_millis(20);
 
 /// A lock file's mode, before umask. Not group- or world-writable, since
 /// who can open it is who can take it.
-#[cfg(unix)]
-const LOCK_FILE_MODE: u32 = 0o644;
+const LOCK_FILE_MODE: Mode = Mode::FILE;
 
 /// A lock directory's mode, before umask.
-#[cfg(unix)]
-const LOCK_DIR_MODE: u32 = 0o755;
+const LOCK_DIR_MODE: Mode = Mode::DIR;
 
 /// How a lock is held.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -73,8 +76,9 @@ pub struct Locked {
 
 /// Take the exclusive lock at `lock_path`, an absolute path, waiting up to
 /// `wait` for whoever holds it.
-pub fn lock_within(lock_path: &Path, wait: Duration) -> Result<Locked, LockError> {
+pub fn lock_within(fs: &dyn Fs, lock_path: &Path, wait: Duration) -> Result<Locked, LockError> {
     lock(
+        fs,
         lock_path,
         Kind::Exclusive,
         None,
@@ -86,6 +90,7 @@ pub fn lock_within(lock_path: &Path, wait: Duration) -> Result<Locked, LockError
 /// `pause` each time another holds it, until `pause` gives up. A lock file
 /// it creates records `guarded`, when given.
 pub fn lock(
+    fs: &dyn Fs,
     lock_path: &Path,
     kind: Kind,
     guarded: Option<&Path>,
@@ -97,9 +102,12 @@ pub fn lock(
         });
     }
     if let Some(dir) = lock_path.parent() {
-        make_dir(dir)?;
+        fs.create_dir_all(dir, LOCK_DIR_MODE)
+            .map_err(|e| LockError::io(dir, e))?;
     }
-    take_current(lock_path, || take_once(lock_path, kind, guarded, pause))
+    take_current(fs, lock_path, || {
+        take_once(fs, lock_path, kind, guarded, pause)
+    })
 }
 
 /// The lock `take` grants, taken again while what it granted is no longer
@@ -107,12 +115,14 @@ pub fn lock(
 /// on a file since unlinked excludes nobody, because the next taker
 /// creates a new file at the path and locks that.
 pub fn take_current(
+    fs: &dyn Fs,
     lock_path: &Path,
     mut take: impl FnMut() -> Result<File, LockError>,
 ) -> Result<Locked, LockError> {
     for _ in 0..LOCK_ATTEMPTS {
         let file = take()?;
-        if same_file_at(&file, lock_path) {
+        // Nothing there, or nothing to tell, is not the file held.
+        if fs.same_file(&file, lock_path).unwrap_or(false) {
             return Ok(Locked { _file: file });
         }
     }
@@ -126,15 +136,16 @@ pub fn take_current(
 /// `guarded` when given) and locked as `kind`, calling `pause` each time
 /// another holds it, until `pause` gives up.
 pub fn take_once(
+    fs: &dyn Fs,
     lock_path: &Path,
     kind: Kind,
     guarded: Option<&Path>,
     pause: &mut impl FnMut() -> Result<(), LockError>,
 ) -> Result<File, LockError> {
     if let Some(guarded) = guarded {
-        record(lock_path, guarded)?;
+        record(fs, lock_path, guarded)?;
     }
-    let file = open(lock_path)?;
+    let file = open(fs, lock_path)?;
     loop {
         let tried = match kind {
             Kind::Exclusive => fs4::FileExt::try_lock(&file),
@@ -200,10 +211,15 @@ pub struct FileLock {
 /// lock directory is taken with the reap interlock held shared from before
 /// the take until after the release, and a reap that holds it past
 /// `waits.reap_interlock` refuses the lock ([`LockError::ReapInProgress`]).
-pub fn lock_file(home: &Path, target: &Path, waits: Waits) -> Result<FileLock, LockError> {
-    let target = path::absolute(target)?;
-    let home = path::absolute(home)?;
-    let sidecar = path::sidecar_for(&home, &target);
+pub fn lock_file(
+    fs: &dyn Fs,
+    home: &Path,
+    target: &Path,
+    waits: Waits,
+) -> Result<FileLock, LockError> {
+    let target = path::absolute(fs, target)?;
+    let home = path::absolute(fs, home)?;
+    let sidecar = path::sidecar_for(fs, &home, &target);
     let interlock = match &sidecar.interlock {
         Some(interlock) => {
             let mut wait = until(interlock, waits.reap_interlock);
@@ -215,11 +231,12 @@ pub fn lock_file(home: &Path, target: &Path, waits: Waits) -> Result<FileLock, L
                     other => other,
                 })
             };
-            Some(lock(interlock, Kind::Shared, None, &mut reaping)?)
+            Some(lock(fs, interlock, Kind::Shared, None, &mut reaping)?)
         }
         None => None,
     };
     let held = lock(
+        fs,
         &sidecar.lock,
         Kind::Exclusive,
         Some(&target),
@@ -234,15 +251,8 @@ pub fn lock_file(home: &Path, target: &Path, waits: Waits) -> Result<FileLock, L
 /// Create the lock file at `lock_path` recording `guarded` (its path and a
 /// newline) when none is there; one already there is left exactly as it
 /// is.
-fn record(lock_path: &Path, guarded: &Path) -> Result<(), LockError> {
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(LOCK_FILE_MODE);
-    }
-    let mut file = match options.open(lock_path) {
+fn record(fs: &dyn Fs, lock_path: &Path, guarded: &Path) -> Result<(), LockError> {
+    let mut file = match fs.open(lock_path, Open::CreateNew(LOCK_FILE_MODE)) {
         Ok(file) => file,
         Err(e) if e.kind() == ErrorKind::AlreadyExists => return Ok(()),
         Err(e) => return Err(LockError::io(lock_path, e)),
@@ -257,23 +267,19 @@ fn record(lock_path: &Path, guarded: &Path) -> Result<(), LockError> {
 /// there (a lock needs no write access), created when it is not, and
 /// refused unless it is a regular file, checked before the open (a FIFO's
 /// open would block) and on the open handle.
-fn open(lock_path: &Path) -> Result<File, LockError> {
+fn open(fs: &dyn Fs, lock_path: &Path) -> Result<File, LockError> {
     let not_regular = || LockError::NotRegular {
         path: lock_path.display().to_string(),
     };
-    if fs::metadata(lock_path).is_ok_and(|m| !m.is_file()) {
+    if fs
+        .metadata(lock_path)
+        .is_ok_and(|m| m.kind != file_system::Kind::File)
+    {
         return Err(not_regular());
     }
-    let file = match File::open(lock_path) {
+    let file = match fs.open(lock_path, Open::Read) {
         Err(e) if e.kind() == ErrorKind::NotFound => {
-            let mut options = OpenOptions::new();
-            options.write(true).create(true).truncate(false);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(LOCK_FILE_MODE);
-            }
-            options.open(lock_path)
+            fs.open(lock_path, Open::Create(LOCK_FILE_MODE))
         }
         opened => opened,
     }
@@ -293,38 +299,6 @@ fn require_regular(file: &File, lock_path: &Path) -> Result<(), LockError> {
             path: lock_path.display().to_string(),
         })
     }
-}
-
-/// Make `dir` and its parents, traversable and not group- or
-/// world-writable.
-fn make_dir(dir: &Path) -> Result<(), LockError> {
-    let mut builder = fs::DirBuilder::new();
-    builder.recursive(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        builder.mode(LOCK_DIR_MODE);
-    }
-    builder.create(dir).map_err(|e| LockError::io(dir, e))
-}
-
-/// Whether `file` is the file at `path` now.
-#[cfg(unix)]
-fn same_file_at(file: &File, path: &Path) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    match (file.metadata(), fs::metadata(path)) {
-        (Ok(held), Ok(on_disk)) => held.dev() == on_disk.dev() && held.ino() == on_disk.ino(),
-        _ => false,
-    }
-}
-
-/// Whether `file` is the file at `path` now: elsewhere an open file cannot
-/// be unlinked, so it is.
-#[cfg(not(unix))]
-// Not compiled on unix, where the mutation tests run.
-#[cfg_attr(test, mutants::skip)]
-fn same_file_at(_file: &File, path: &Path) -> bool {
-    path.exists()
 }
 
 #[cfg(test)]

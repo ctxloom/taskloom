@@ -14,6 +14,7 @@ version = "0.1.0"
 dependencies = [
  "annals-diagnostic 0.1.0",
  "file-lock",
+ "file-system",
  "fluent-syntax",
  "fs4",
  "ports",
@@ -529,11 +530,11 @@ name = "file-lock"
 version = "0.1.0"
 dependencies = [
  "annals-diagnostic 0.1.0",
+ "file-system",
  "fluent-syntax",
  "fs4",
  "mutants",
  "sha2",
- "tempfile",
 ]
 
 [[package]]
@@ -1540,6 +1541,7 @@ version = "0.1.0"
 dependencies = [
  "annals-diagnostic 0.1.0",
  "file-lock",
+ "file-system",
  "fluent-syntax",
  "fs4",
  "mutants",
@@ -2470,6 +2472,7 @@ dependencies = [
  "annals-store-sql",
  "clap",
  "file-lock",
+ "file-system",
  "fs4",
  "harp-names",
  "jsonl-task-log",

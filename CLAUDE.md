@@ -32,7 +32,7 @@ the architecture; there is no other table of crates.
 - `core/application`: command and query handlers.
 - `adapters/driven`: port implementations (stores, clock, git).
 - `adapters/platform`: libraries adapters build on (the `file-system`
-  seam); they implement no port.
+  seam, and `file-lock`'s advisory locks over it); they implement no port.
 - `adapters/driving`: CLI, MCP, gRPC: translation only.
 - `root/bin`: binaries, the composition root.
 
@@ -60,8 +60,9 @@ Dependencies point inward; a review refuses a change that breaks these:
   `task-priority` evaluates the tag schema's priority formulas with
   expr-lang (the Rust port of the language Go's taskloom evaluates them
   in), which is computation and nothing else.
-- A platform crate depends on nothing else in the workspace; a driven
-  adapter may depend on it (that is not one adapter depending on another).
+- A platform crate depends on no other workspace crate but another
+  platform crate (`file-lock` on `file-system`); a driven adapter may
+  depend on one (that is not one adapter depending on another).
 - A driven adapter sees only ports (and wire types), never a use case. A
   driving adapter sees only the application layer, never a domain's
   internals. Adapters never depend on each other, with one exception:

@@ -22,8 +22,6 @@ pub enum LockError {
     /// A reap of the home lock directory held the reap interlock for longer
     /// than the wait.
     ReapInProgress { path: String, waited_ms: u64 },
-    /// A relative path to guard, and no working directory to resolve it in.
-    NoWorkingDirectory { path: String, detail: String },
 }
 
 impl LockError {
@@ -59,10 +57,6 @@ impl fmt::Display for LockError {
                 f,
                 "a reap of the home lock directory (`ctxloom clean --yes`) is in progress: it still held {path} after {waited_ms}ms; let it finish, then retry"
             ),
-            LockError::NoWorkingDirectory { path, detail } => write!(
-                f,
-                "the working directory cannot be read, so {path} has no absolute path to lock: {detail}"
-            ),
         }
     }
 }
@@ -78,16 +72,13 @@ impl Diagnostic for LockError {
             LockError::Timeout { .. } => "file-lock-timeout",
             LockError::Replaced { .. } => "file-lock-replaced",
             LockError::ReapInProgress { .. } => "file-lock-reap-in-progress",
-            LockError::NoWorkingDirectory { .. } => "file-lock-no-working-directory",
         }
     }
 
     fn args(&self) -> Vec<(&'static str, Arg)> {
         let s = |v: &String| Arg::from(v.as_str());
         match self {
-            LockError::Io { path, detail } | LockError::NoWorkingDirectory { path, detail } => {
-                vec![("path", s(path)), ("detail", s(detail))]
-            }
+            LockError::Io { path, detail } => vec![("path", s(path)), ("detail", s(detail))],
             LockError::RelativePath { path } | LockError::NotRegular { path } => {
                 vec![("path", s(path))]
             }
@@ -129,10 +120,6 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(LockError::ReapInProgress {
             path: "/home/u/.ctxloom/locks/reap.interlock".to_string(),
             waited_ms: 30_000,
-        }),
-        Box::new(LockError::NoWorkingDirectory {
-            path: ".mcp.json".to_string(),
-            detail: "No such file or directory (os error 2)".to_string(),
         }),
     ]
 }

@@ -30,9 +30,11 @@ use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use annals_diagnostic::Report;
+use file_system::Fs;
 use ports::{AgentConfigs, McpServer, Rewritten, Scope};
 
 pub use error::EN_US;
@@ -44,11 +46,12 @@ pub const CLAUDE_CODE: &str = "claude-code";
 /// The object a configuration's servers are in.
 pub const SERVERS: &str = "mcpServers";
 
-/// The agents' configuration files under a home, the PATH a server's
-/// command is looked for on, and how long a write waits for the file's
-/// lock.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// The agents' configuration files under a home, on the filesystem `fs`,
+/// the PATH a server's command is looked for on, and how long a write
+/// waits for the file's lock.
+#[derive(Clone, Debug)]
 pub struct AgentConfigFiles {
+    pub fs: Arc<dyn Fs>,
     pub home: Option<PathBuf>,
     pub path: Option<OsString>,
     /// The waits for the file's lock ([`file_lock::Waits::DEFAULT`] in
@@ -162,7 +165,8 @@ impl AgentConfigFiles {
             .home
             .as_ref()
             .ok_or_else(|| Report::of(&ConfigError::NoHome))?;
-        let _locked = file_lock::lock_file(home, path, self.waits).map_err(|e| Report::of(&e))?;
+        let _locked =
+            file_lock::lock_file(&*self.fs, home, path, self.waits).map_err(|e| Report::of(&e))?;
         self.rewrite_locked(path, name, owner, server, dry_run)
             .map_err(|e| Report::of(&e))
     }

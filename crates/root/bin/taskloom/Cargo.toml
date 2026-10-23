@@ -14,6 +14,7 @@ annals.workspace = true
 annals-store-sql.workspace = true
 clap.workspace = true
 file-lock.workspace = true
+file-system.workspace = true
 jsonl-task-log.workspace = true
 harp-names.workspace = true
 presentation.workspace = true
