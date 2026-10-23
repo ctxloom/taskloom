@@ -419,8 +419,9 @@ Where the port differs from Go:
   one of `priority_warning`'s lines. Every task's JSON, the CLI's too,
   carries `derived_priority`, null unless sorted by it, a whole number
   written without a fraction as Go writes it.
-- `taskloom mcp`, against Go's: a result's `path` is the project's store
-  (`state.db`), not Go's jsonl log; there is no `refused` (no
+- `taskloom mcp`, against Go's: no result carries Go's `path` (its jsonl
+  log; where a project's store lies is the binary's business, decided
+  2026-10-22), so neither do the output schemas; there is no `refused` (no
   `--degraded`) and no project-resolution `warning` but "no project
   here". An explicit `global` carries no `notice`: Go's always names
   repo-homed projects as out of its reach, and there are none here
@@ -831,13 +832,15 @@ restarted on a freed harp is under "Where it stands".
     reviewed and approved where Go's text is false of Rust: the SQLite
     store path in place of the jsonl log, repo homing gone, `--format`
     taking text alone, and where the binary is built from and installed
-    (`github.com/ctxloom/taskloom`, `crates/root/bin/taskloom`). The
+    (`github.com/ctxloom/taskloom`, `crates/root/bin/taskloom`); and no
+    `path` in a tool's output schema (2026-10-22). The
     install text is pending: two placeholders stand in the loadout until
     the human writes it. The parity tests keep Go's fixtures
     (`scripts/go-companion-fixtures.sh`) and hold each change as an exact
     `(old, new)` pair beside them (`fixtures/reviewed.rs` in tasks-mcp and
     tasks-cli), applied to the fixture's raw bytes, each `old` found
-    exactly once: a Go rewording of a changed sentence fails the pair, and
+    exactly once (or, for a change made to every tool's output schema
+    alike, exactly once per tool): a Go rewording of a changed sentence fails the pair, and
     any other Go change fails the byte comparison. Other wording is not
     changed: prompt text is the human's voice.
 12. **`manage` keeps no hew records; no hew port for now** (decided

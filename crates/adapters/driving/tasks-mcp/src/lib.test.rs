@@ -23,7 +23,6 @@ mod reviewed;
 /// source; run it again to regenerate them. The instructions and tools are
 /// served with the reviewed factual changes applied (`reviewed`).
 const GO_CAPABILITIES: &str = include_str!("../fixtures/go/capabilities.json");
-const GO_TOOLS: &str = include_str!("../fixtures/go/tools.json");
 const GO_RESOURCES: &str = include_str!("../fixtures/go/resources.json");
 const GO_TAG_SCHEMA: &str = include_str!("../fixtures/go/tag-schema.json");
 
@@ -246,7 +245,6 @@ fn test_task_add_answers_the_task_in_gos_shape() {
         assert_eq!(
             structured(&result),
             &json!({
-                "path": "/home/.ctxloom/projects/jolly-mute-magma/state.db",
                 "project_id": "jolly-mute-magma",
                 "project_dir": "/work/tree",
                 "task": {
@@ -278,7 +276,6 @@ fn test_task_list_answers_each_task_with_its_project() {
         assert_eq!(
             structured(&listed),
             &json!({
-                "path": "/home/.ctxloom/projects/jolly-mute-magma/state.db",
                 "project_id": "jolly-mute-magma",
                 "project_dir": "/work/tree",
                 "tasks": [],
@@ -295,7 +292,6 @@ fn test_task_list_where_there_is_no_project_says_so_and_lists_nothing() {
         assert_eq!(
             structured(&listed),
             &json!({
-                "path": "",
                 "tasks": [],
                 "warning": "no project here yet: nothing to list",
             })
@@ -468,11 +464,12 @@ fn conforms(value: &Value, schema: &Value, at: &str) {
 
 /// `tool`'s output schema.
 fn output_schema(tool: &str) -> Value {
-    let go: Vec<Value> = serde_json::from_str(GO_TOOLS).unwrap();
-    go.into_iter()
+    let served: Vec<Value> = serde_json::from_str(super::TOOLS).unwrap();
+    served
+        .into_iter()
         .find(|t| t["name"] == tool)
         .map(|t| t["outputSchema"].clone())
-        .expect("Go has the tool")
+        .expect("the tool is served")
 }
 
 /// A call's structured result, held to the tool's output schema.
@@ -498,7 +495,6 @@ fn test_a_status_change_answers_the_task_moved() {
         assert_eq!(moved["task"]["status"], "Deferred");
         assert_eq!(moved["task"]["trigger"], "the v2 API ships");
         assert_eq!(moved["project_id"], "jolly-mute-magma");
-        assert_eq!(moved["path"], added["path"]);
         let done = answered(
             &mut client,
             "task_set_status",
@@ -732,7 +728,6 @@ fn test_a_global_listing_reads_every_project_and_needs_no_notice() {
         let listed = answered(&mut client, "task_list", json!({"global": true})).await;
         assert_eq!(listed["global"], true);
         assert_eq!(listed["project_count"], 1);
-        assert_eq!(listed["path"], "");
         assert_eq!(listed.get("notice"), None);
         assert_eq!(
             texts(&listed, "tasks", "project_id"),

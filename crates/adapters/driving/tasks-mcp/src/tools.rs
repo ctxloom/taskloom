@@ -7,8 +7,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tasks_application::{
-    ListQuery, Listing, NewTask, Project, Reach, Scope, StatusChange, Summary, TagChange, TextEdit,
-    Written,
+    ListQuery, Listing, NewTask, Reach, Scope, StatusChange, Summary, TagChange, TextEdit, Written,
 };
 use tasks_presentation::{CompactJson, RowJson, SummaryJson, TaskJson};
 
@@ -186,11 +185,9 @@ pub fn tag_change(arguments: Value, settings: &Settings) -> Result<TagChange, Mc
 type Row<'a> = RowJson<'a, TaskJson<'a>>;
 type CompactRow<'a> = RowJson<'a, CompactJson<'a>>;
 
-/// `task_list`'s result. `path` is the project's store, and is empty where
-/// no one project was read. `tasks` is null when the rows are compact.
+/// `task_list`'s result. `tasks` is null when the rows are compact.
 #[derive(Serialize)]
 struct ListResult<'a> {
-    path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     project_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -223,17 +220,12 @@ fn is_zero(n: &usize) -> bool {
 }
 
 /// A write's result, for `task_add`, `task_set_status`, `task_edit` and
-/// `task_tag` alike, its `path` the project's store.
+/// `task_tag` alike.
 #[derive(Serialize)]
 struct WriteResult<'a> {
-    path: String,
     task: TaskJson<'a>,
     project_id: &'a str,
     project_dir: &'a str,
-}
-
-fn store_path(project: &Project) -> String {
-    project.store.display().to_string()
 }
 
 /// `listing` as `task_list` answers it, its rows compact if `compact`,
@@ -287,7 +279,6 @@ pub fn listed(
         ),
     };
     let result = ListResult {
-        path: project.map(store_path).unwrap_or_default(),
         project_id: project.map(|p| p.id.as_str()),
         project_dir: project.map(|p| p.root.as_str()),
         tasks: rows,
@@ -313,7 +304,6 @@ pub fn listed(
 /// `written` as a write tool answers it.
 pub fn written(written: &Written) -> Value {
     let result = WriteResult {
-        path: store_path(&written.project),
         task: TaskJson::of(&written.task),
         project_id: &written.project.id,
         project_dir: &written.project.root,

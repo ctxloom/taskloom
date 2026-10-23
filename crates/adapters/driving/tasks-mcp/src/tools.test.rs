@@ -261,7 +261,7 @@ fn test_each_change_without_what_its_schema_requires_is_refused_by_name() {
 fn test_a_listed_task_carries_its_project_and_no_priority_unsorted() {
     let listing = listing(Reach::Project(project()), vec![task()], Shown::default());
     let value = listed(&listing, false, None, &catalog());
-    assert_eq!(value["path"], "/s/state.db");
+    assert_eq!(value.get("path"), None);
     assert_eq!(value["project_id"], "jolly-mute-magma");
     assert_eq!(value.get("warning"), None);
     assert_eq!(value.get("global"), None);
@@ -372,14 +372,14 @@ fn test_a_summary_comes_with_the_listing_when_asked_for() {
 }
 
 #[test]
-fn test_an_added_task_is_answered_with_its_store_and_project() {
+fn test_an_added_task_is_answered_with_its_project_and_no_store() {
     let written = Written {
         project: project(),
         task: task(),
         shown: Shown::default(),
     };
     let value = super::written(&written);
-    assert_eq!(value["path"], "/s/state.db");
+    assert_eq!(value.get("path"), None);
     assert_eq!(value["project_id"], "jolly-mute-magma");
     assert_eq!(value["project_dir"], "/work/tree");
     assert_eq!(value["task"]["tags"], json!(["a"]));
@@ -417,7 +417,7 @@ fn test_a_listing_of_no_project_says_so_and_lists_nothing() {
     );
     assert_eq!(
         value,
-        json!({"path": "", "tasks": [], "warning": "no project here yet: nothing to list"})
+        json!({"tasks": [], "warning": "no project here yet: nothing to list"})
     );
 }
 
@@ -436,7 +436,6 @@ fn test_a_listing_of_every_project_says_so_and_why_when_it_fell_back() {
         None,
         &catalog(),
     );
-    assert_eq!(value["path"], "");
     assert_eq!(value.get("project_id"), None);
     assert_eq!(value.get("warning"), None);
     assert_eq!(value["global"], true);

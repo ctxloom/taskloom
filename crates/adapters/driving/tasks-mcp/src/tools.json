@@ -36,9 +36,6 @@
     "outputSchema": {
       "additionalProperties": false,
       "properties": {
-        "path": {
-          "type": "string"
-        },
         "project_dir": {
           "type": "string"
         },
@@ -116,7 +113,6 @@
         }
       },
       "required": [
-        "path",
         "task"
       ],
       "type": "object"
@@ -146,9 +142,6 @@
     "outputSchema": {
       "additionalProperties": false,
       "properties": {
-        "path": {
-          "type": "string"
-        },
         "project_dir": {
           "type": "string"
         },
@@ -217,7 +210,6 @@
         }
       },
       "required": [
-        "path",
         "task"
       ],
       "type": "object"
@@ -339,9 +331,6 @@
         },
         "omitted_by_limit": {
           "type": "integer"
-        },
-        "path": {
-          "type": "string"
         },
         "priority_warning": {
           "type": "string"
@@ -472,7 +461,6 @@
         }
       },
       "required": [
-        "path",
         "tasks"
       ],
       "type": "object"
@@ -506,9 +494,6 @@
     "outputSchema": {
       "additionalProperties": false,
       "properties": {
-        "path": {
-          "type": "string"
-        },
         "project_dir": {
           "type": "string"
         },
@@ -577,7 +562,6 @@
         }
       },
       "required": [
-        "path",
         "task"
       ],
       "type": "object"
@@ -622,9 +606,6 @@
     "outputSchema": {
       "additionalProperties": false,
       "properties": {
-        "path": {
-          "type": "string"
-        },
         "project_dir": {
           "type": "string"
         },
@@ -702,7 +683,6 @@
         }
       },
       "required": [
-        "path",
         "task"
       ],
       "type": "object"
