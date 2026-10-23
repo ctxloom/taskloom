@@ -8,7 +8,8 @@ and angzarr here.
 The port lives in `github.com/ctxloom/taskloom` (Decided 16). Steps 1 to 7
 are done: the importer, healing and repointing, tags on tagma, MCP and the
 companion contract, the remaining commands and tools, priority, and
-`manage`, `watch` and `run`. What remains, in order: project and team data
+`manage` and `watch` (`run` was dropped: picking a task and launching an
+agent on it is ctxloom's). What remains, in order: project and team data
 out of the code, a local build, git dependencies, then parity and the
 cutover ("What remains").
 
@@ -228,12 +229,8 @@ cutover ("What remains").
   /dev/null), and with why when a line cannot be written. Its tests drive
   every tick and script every poll; the binary's run it with stdin from
   /dev/null and see a second line from a live process.
-- `adapters/driving/tasks-run`: `taskloom run [harp] [--no-start]`: the
-  task named (any status), or Go's line-buffered picker on a terminal,
-  handed to `ctxloom run [--session <origin>] --seed-task <harp>
-  [--seed-status "To Do"] --prompt "Work on this task (`<harp>`): <text>"`,
-  Go's argv, through a `Launch`; the binary's runs the `ctxloom` on PATH
-  with the process's stdio. Tests run only stub scripts alone on a PATH.
+- `taskloom run` was dropped (decided 2026-10-22): picking a task and
+  launching an agent session on it is ctxloom's, not taskloom's.
 - `adapters/driving/registration-cli`: the `manage` group. The binary
   mounts it with its words unparsed, and it reads them with its own
   parser: Go's `--project` is a switch there and a project id elsewhere.
@@ -248,7 +245,7 @@ cutover ("What remains").
   `~/.ctxloom/projects/<project-id>/state.db` (CLAUDE.md, "Storage"). It
   mounts the `project` group over the project registry, `mcp` (served
   once the command line is read, each call's service the CLI's own wiring
-  made fresh), and `watch`, `run` and `manage`. Its tests are Go's
+  made fresh), and `watch` and `manage`. Its tests are Go's
   `crossprocess_test.go` ported, each process separate on one database,
   and they build the binary themselves: 40 concurrent adds at a project's
   first sight (racing the mint and the migration; one registry entry), 20
@@ -487,11 +484,6 @@ Where the port differs from Go:
   token that moves with nothing new answers nothing, so no line. A
   burst's line comes 100-200ms after its last commit (Go's: 100ms after
   its last file event).
-- `run` hands the task to Go ctxloom's `run --seed-task`, which marks the
-  task In Progress in Go's jsonl log, not the Rust store (Decided 1
-  accepts the loss). A child that fails is exit 1 with an error naming
-  its status, not the child's own exit code (Go's does not propagate it
-  either).
 - `manage` writes no application records (hew's §9.7 records, Go's
   memory of what it wrote): Rust has no hew. It reads Go's newest record
   for one fact, whether Go made the `mcpServers` object itself, and then
@@ -553,8 +545,7 @@ order.
    - Status taxonomy: `TO_DO`, `DEFERRED` (the domain's trigger and
      `deferred_since` rule), `IN_PROGRESS`, `DONE`, `ARCHIVED`,
      `DEFAULT_STATUSES`, `is_terminal`, `is_active` (the default view),
-     the classes `@open`/`@terminal`, and tasks-run's own copies of
-     `TO_DO`/`IN_PROGRESS` (its picker's idea of open).
+     the classes `@open`/`@terminal`.
    - Served text teaching the triage vocabulary and the statuses
      (`loadout.yaml`, `tools.json`, `instructions.txt`).
    Only `tag_schema` is configurable today (`tasks-config`'s `KEYS`).
@@ -658,7 +649,7 @@ Parity and the cutover:
 - Fill the install placeholders; un-ignore the placeholder test
   (`test_no_served_text_carries_a_placeholder`, Decided 11).
 - Reword or delete the served text that names Go (decided 2026-10-21):
-  the `import` and `run` help, the JSONL importer's and the application's
+  the `import` help, the JSONL importer's and the application's
   Fluent messages (no task log for a project, run Go's `taskloom repair`),
   and `project-cli`'s Go marker lines. They stay as written until then,
   since until the cutover Go writes those logs and owns `repair`.
@@ -751,8 +742,9 @@ restarted on a freed harp is under "Where it stands".
 - Companion: `loadout --format yaml` (hooks, the MCP server, the `taskloom`
   fragment), and `version --format json` with `lock_protocol`, which
   ctxloom's boot probe parses.
-- `manage install|uninstall|check`, `watch` (a JSONL change stream,
-  debounced) and `run` (`ctxloom run --seed-task`).
+- `manage install|uninstall|check` and `watch` (a JSONL change stream,
+  debounced). Go's `run` is dropped: launching an agent on a task is
+  ctxloom's.
 
 ## Decided
 
@@ -890,7 +882,7 @@ fired) is ctxloom's, run by its triage agent; taskloom only exposes
 ## Inventory of the Go surface
 
 CLI: `list`, `add`, `status`, `edit`, `tag`, `tags`, `summary`, `statuses`,
-`show`, `prune`, `repair`, `lint`, `run`, `plan list|show`, `watch`, `mcp`,
+`show`, `prune`, `repair`, `lint`, `run` (dropped), `plan list|show`, `watch`, `mcp`,
 `manage install|uninstall|check`, `loadout`, `version`. Persistent flags:
 `--format`, `--json`, `--degraded`, `--project`, `--homing` (dropped),
 `--config-set`, `--write-upgrades`. `repair` is dropped too.

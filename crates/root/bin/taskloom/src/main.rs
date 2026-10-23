@@ -8,8 +8,7 @@
 //! group runs over the registry and the SQLite store's integrity check;
 //! `mcp` serves the task tools over stdio, each call on a service of its
 //! own; `watch` streams the project's changes until SIGINT or SIGTERM
-//! (never at a closed stdin); `run` hands a task to the `ctxloom` on PATH; `manage`
-//! registers `taskloom mcp` in the agents' configurations under HOME. It
+//! (never at a closed stdin); `manage` registers `taskloom mcp` in the agents' configurations under HOME. It
 //! holds no logic of its own.
 
 use std::io::{self, IsTerminal, Write};
@@ -45,7 +44,6 @@ fn catalog() -> Result<presentation::Catalog, presentation::CatalogError> {
         jsonl_task_log::EN_US,
         tasks_config::EN_US,
         tasks_mcp::EN_US,
-        tasks_run::EN_US,
         tasks_watch::EN_US,
     ])
 }
@@ -62,8 +60,6 @@ enum Mounted {
     #[command(flatten)]
     Watch(tasks_watch::Group),
     #[command(flatten)]
-    Run(tasks_run::Group),
-    #[command(flatten)]
     Manage(registration_cli::Group),
 }
 
@@ -72,7 +68,6 @@ enum After {
     Import(tasks_cli::Mounted),
     Mcp(Option<String>),
     Watch(tasks_watch::Settings),
-    Run(tasks_run::Group, tasks_run::Settings),
 }
 
 /// The tasks use cases over the real adapters, configured from the work
@@ -225,28 +220,6 @@ fn manage(
     registration_cli::run(words, &settings, &mut registrations, catalog, out, err)
 }
 
-/// `taskloom run`: the task handed to the `ctxloom` on PATH.
-fn launch<S: tasks_application::TaskService>(
-    runtime: &tokio::runtime::Runtime,
-    service: &mut S,
-    group: tasks_run::Group,
-    settings: &tasks_run::Settings,
-    catalog: &presentation::Catalog,
-) -> ExitCode {
-    let mut ctxloom = tasks_run::Ctxloom {
-        path: std::env::var_os("PATH"),
-    };
-    ExitCode::from(runtime.block_on(tasks_run::run(
-        service,
-        group,
-        settings,
-        &mut ctxloom,
-        &mut io::stdin().lock(),
-        catalog,
-        &mut io::stderr().lock(),
-    )))
-}
-
 /// What the command line reads from the process besides its arguments.
 fn context() -> Context {
     Context {
@@ -292,7 +265,7 @@ fn main() -> ExitCode {
     );
     let mut service = service(&env, utf8_vars());
     let context = context();
-    // `import`, `mcp`, `watch` and `run` run once the command line has been
+    // `import`, `mcp` and `watch` run once the command line has been
     // read, on the same runtime: the CLI's mounted commands are synchronous.
     let mut after = None;
     let mounted = |group,
@@ -319,16 +292,6 @@ fn main() -> ExitCode {
             after = Some(After::Mcp(flags.project));
             0
         }
-        Mounted::Run(group) => {
-            let settings = tasks_run::Settings {
-                format: flags.format,
-                project: flags.project,
-                prog: tasks_cli::PROG,
-                interactive: io::stdin().is_terminal() && io::stdout().is_terminal(),
-            };
-            after = Some(After::Run(group, settings));
-            0
-        }
         Mounted::Watch(tasks_watch::Group::Watch) => {
             after = Some(After::Watch(tasks_watch::Settings {
                 format: flags.format,
@@ -350,9 +313,6 @@ fn main() -> ExitCode {
     match after {
         Some(After::Import(flags)) => import(&runtime, &env, &flags, &catalog),
         Some(After::Watch(settings)) => watch(&runtime, &mut service, &settings, &catalog),
-        Some(After::Run(group, settings)) => {
-            launch(&runtime, &mut service, group, &settings, &catalog)
-        }
         Some(After::Mcp(project)) => {
             let settings = tasks_mcp::Settings {
                 project,
