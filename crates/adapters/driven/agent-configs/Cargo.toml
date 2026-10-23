@@ -18,7 +18,6 @@ serde_norway.workspace = true
 [dev-dependencies]
 fs4.workspace = true
 fluent-syntax.workspace = true
-tempfile.workspace = true
 
 [lints]
 workspace = true
