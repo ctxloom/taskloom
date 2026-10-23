@@ -1,7 +1,5 @@
-//! The survey and its changes over a real filesystem: a temporary home and
-//! work tree, and repositories git makes.
-
-use std::fs;
+//! The survey and its changes over a filesystem of the test's own: a home
+//! and work tree; and over the real one where git makes the repositories.
 
 use annals_diagnostic::Diagnostic;
 use ports::{Change, IdSource, ProjectAdmin, Registered, Survey};
@@ -12,20 +10,17 @@ use crate::ProjectRegistry;
 
 impl World {
     fn register(&self, id: &str, path: &str) {
-        let file = index::path(self.home.path());
-        let mut registry = index::load(&file).unwrap();
+        let mut registry = self.index();
         registry.register(id, path);
-        index::save(&file, &registry).unwrap();
+        self.save(&registry);
     }
 
     fn database(&self, id: &str) {
-        let dir = self.home.path().join(".ctxloom/projects").join(id);
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("state.db"), "tasks").unwrap();
+        self.write(&self.projects().join(id).join("state.db"), "tasks");
     }
 
     fn projects(&self) -> std::path::PathBuf {
-        self.home.path().join(".ctxloom/projects")
+        self.home().join(".ctxloom/projects")
     }
 
     fn survey(&self) -> Survey {
@@ -49,16 +44,16 @@ fn s(text: &str) -> String {
 fn test_a_survey_reads_the_markers_the_registry_and_the_databases() {
     let world = World::new();
     let tree = text(&world.tree());
-    fs::write(world.tree().join(".project-id"), "mark-id\n").unwrap();
-    fs::create_dir(world.tree().join(".ctxloom")).unwrap();
-    fs::write(world.tree().join(".ctxloom/project-id"), "go-id\n").unwrap();
+    world.write(&world.tree().join(".project-id"), "mark-id\n");
+    world.mkdir(&world.tree().join(".ctxloom"));
+    world.write(&world.tree().join(".ctxloom/project-id"), "go-id\n");
     world.register("mark-id", &format!("{tree}/./"));
     world.register("gone-id", "/no/such/tree");
     world.database("mark-id");
     world.database("b-orphan");
-    fs::write(world.projects().join("not-a-dir"), "").unwrap();
-    fs::create_dir(world.projects().join(".hidden")).unwrap();
-    std::os::unix::fs::symlink(world.tree(), world.projects().join("linked-id")).unwrap();
+    world.write(&world.projects().join("not-a-dir"), "");
+    world.mkdir(&world.projects().join(".hidden"));
+    world.link(&world.tree(), &world.projects().join("linked-id"));
     let survey = world.survey();
     assert_eq!(
         survey,
@@ -103,8 +98,8 @@ fn test_a_survey_names_where_the_id_came_from() {
         world.survey().resolved,
         Some((s("reg-id"), IdSource::Registry))
     );
-    fs::create_dir(world.tree().join(".ctxloom")).unwrap();
-    fs::write(world.tree().join(".ctxloom/project-id"), "go-id\n").unwrap();
+    world.mkdir(&world.tree().join(".ctxloom"));
+    world.write(&world.tree().join(".ctxloom/project-id"), "go-id\n");
     assert_eq!(
         world.survey().resolved,
         Some((s("go-id"), IdSource::LegacyMarker))
@@ -112,7 +107,7 @@ fn test_a_survey_names_where_the_id_came_from() {
     assert!(world.marker().is_none(), "a survey adopts nothing");
     let mut env = world.env();
     env.project_id = Some(s("env-id"));
-    let mut registry = ProjectRegistry::new(os(), env, names(&[]));
+    let mut registry = ProjectRegistry::new(world.fs(), env, names(&[]));
     assert_eq!(
         registry.survey(None).unwrap().resolved,
         Some((s("env-id"), IdSource::Environment))
@@ -125,11 +120,11 @@ fn test_a_survey_names_where_the_id_came_from() {
 
 #[test]
 fn test_a_survey_in_a_linked_worktree_is_rooted_at_its_primary_checkout() {
-    let world = World::new();
+    let world = World::real();
     let repo = git::Repo::new();
     let linked = repo.worktree("linked");
-    fs::write(repo.root().join(".project-id"), "primary-id\n").unwrap();
-    let survey = ProjectRegistry::new(os(), world.env_in(&linked), names(&[]))
+    world.write(&repo.root().join(".project-id"), "primary-id\n");
+    let survey = ProjectRegistry::new(world.fs(), world.env_in(&linked), names(&[]))
         .survey(None)
         .unwrap();
     assert_eq!(survey.work_root, text(&linked));
@@ -139,15 +134,13 @@ fn test_a_survey_in_a_linked_worktree_is_rooted_at_its_primary_checkout() {
 
 #[test]
 fn test_a_survey_fails_on_a_projects_directory_it_cannot_list() {
-    use std::os::unix::fs::PermissionsExt;
-
     let world = World::new();
-    fs::create_dir_all(world.projects()).unwrap();
+    world.mkdir(&world.projects());
     // Its files can be opened by name (there is no registry yet), but it
     // cannot be listed.
-    fs::set_permissions(world.projects(), fs::Permissions::from_mode(0o300)).unwrap();
+    world.chmod(&world.projects(), 0o300);
     let error = world.registry(&[]).survey(None).unwrap_err();
-    fs::set_permissions(world.projects(), fs::Permissions::from_mode(0o700)).unwrap();
+    world.chmod(&world.projects(), 0o700);
     assert_eq!(error.code(), "project-registry-io");
     assert!(error.to_string().contains("projects"), "{error}");
 }
@@ -215,7 +208,7 @@ fn test_a_change_without_registry_changes_leaves_the_registry_unwritten() {
     world
         .apply(&[Change::RemoveDatabase { id: s("stray-id") }])
         .unwrap();
-    assert!(!index::path(world.home.path()).exists());
+    assert!(!world.exists(&index::path(&world.home())));
 }
 
 #[test]
@@ -223,7 +216,7 @@ fn test_a_stale_survey_changes_nothing() {
     let world = World::new();
     let mut registry = world.registry(&[]);
     let seen = registry.survey(None).unwrap();
-    fs::write(world.tree().join(".project-id"), "raced-in\n").unwrap();
+    world.write(&world.tree().join(".project-id"), "raced-in\n");
     let refused = registry.apply(
         None,
         &seen,
@@ -258,7 +251,7 @@ fn test_a_change_naming_an_invalid_id_is_refused() {
         );
     }
     assert!(world.marker().is_none());
-    assert!(world.home.path().exists());
+    assert!(world.exists(&world.home()));
 }
 
 #[test]
@@ -270,20 +263,20 @@ fn test_removing_a_database_deletes_only_its_directory() {
     world
         .apply(&[Change::RemoveDatabase { id: s("stray-id") }])
         .unwrap();
-    assert!(!world.projects().join("stray-id").exists());
-    assert!(world.projects().join("kept-id/state.db").exists());
+    assert!(!world.exists(&world.projects().join("stray-id")));
+    assert!(world.exists(&world.projects().join("kept-id/state.db")));
     assert_eq!(world.index().projects.len(), 1, "the registry kept");
 }
 
 #[test]
 fn test_removing_what_is_not_a_database_directory_is_refused() {
     let world = World::new();
-    fs::create_dir_all(world.projects()).unwrap();
+    world.mkdir(&world.projects());
     let target = world.tree().join("precious");
-    fs::create_dir(&target).unwrap();
-    fs::write(target.join("keep"), "").unwrap();
-    std::os::unix::fs::symlink(&target, world.projects().join("link-id")).unwrap();
-    fs::write(world.projects().join("file-id"), "").unwrap();
+    world.mkdir(&target);
+    world.write(&target.join("keep"), "");
+    world.link(&target, &world.projects().join("link-id"));
+    world.write(&world.projects().join("file-id"), "");
     for id in ["link-id", "file-id"] {
         let mut registry = world.registry(&[]);
         let seen = registry.survey(None).unwrap();
@@ -294,7 +287,7 @@ fn test_removing_what_is_not_a_database_directory_is_refused() {
             "{id}"
         );
     }
-    assert!(target.join("keep").exists());
+    assert!(world.exists(&target.join("keep")));
     let missing = world.apply(&[Change::RemoveDatabase { id: s("no-such") }]);
     assert_eq!(missing.unwrap_err().code(), "project-registry-io");
 }
@@ -302,8 +295,8 @@ fn test_removing_what_is_not_a_database_directory_is_refused() {
 #[test]
 fn test_a_change_is_made_under_the_registry_lock() {
     let world = World::new();
-    let file = index::path(world.home.path());
-    let held = index::lock_within(&*os(), &file, index::LOCK_WAIT).unwrap();
+    let file = index::path(&world.home());
+    let held = index::lock_within(&*world.fs, &file, index::LOCK_WAIT).unwrap();
     let mut registry = world
         .registry(&[])
         .with_lock_wait(std::time::Duration::ZERO);
@@ -321,9 +314,4 @@ fn test_a_change_is_made_under_the_registry_lock() {
     let mut registry = registry.with_lock_wait(index::LOCK_WAIT);
     registry.apply(None, &seen, &change).unwrap();
     assert_eq!(world.index().projects.len(), 1);
-}
-
-/// The real filesystem, for tests over real temporary directories.
-fn os() -> std::sync::Arc<dyn file_system::Fs> {
-    std::sync::Arc::new(file_system::Os::new(std::path::Path::new("/")).unwrap())
 }

@@ -3,13 +3,13 @@
 //! under the registry's lock only while a fresh survey still matches the
 //! one the changes were planned from.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use annals_diagnostic::Report;
+use file_system::{Fs, Kind};
 use ports::{Change, Names, Project, ProjectAdmin, Registered, Survey};
 
-use crate::path::canonical;
+use crate::worktree::is;
 use crate::{
     id, index, legacy_marker, marker, read_marker, write_marker, ProjectRegistry, RegistryError,
 };
@@ -29,12 +29,12 @@ impl<N: Names> ProjectRegistry<N> {
             None => self.bound(&root, false)?,
         };
         let projects = self.projects_dir()?;
-        let registry = index::load(&projects.join("index.yaml"))?
+        let registry = index::load(&*self.fs, &projects.join("index.yaml"))?
             .projects
             .into_iter()
             .map(|e| Registered {
-                canonical: canonical(Path::new(&e.path)).display().to_string(),
-                exists: Path::new(&e.path).is_dir(),
+                canonical: self.canonical(Path::new(&e.path)).display().to_string(),
+                exists: is(&*self.fs, Path::new(&e.path), Kind::Dir),
                 id: e.project_id,
                 path: e.path,
             })
@@ -43,10 +43,10 @@ impl<N: Names> ProjectRegistry<N> {
             work_root: work_root.display().to_string(),
             root: root.display().to_string(),
             resolved,
-            marker: read_marker(&marker(&root))?,
-            legacy_marker: read_marker(&legacy_marker(&root))?,
+            marker: read_marker(&*self.fs, &marker(&root))?,
+            legacy_marker: read_marker(&*self.fs, &legacy_marker(&root))?,
             registry,
-            databases: databases(&projects)?,
+            databases: databases(&*self.fs, &projects)?,
             projects,
         })
     }
@@ -55,15 +55,15 @@ impl<N: Names> ProjectRegistry<N> {
     /// the registry first holds it.
     pub(crate) fn every(&self) -> Result<Vec<Project>, RegistryError> {
         let projects = self.projects_dir()?;
-        let registry = index::load(&projects.join("index.yaml"))?;
-        databases(&projects)?
+        let registry = index::load(&*self.fs, &projects.join("index.yaml"))?;
+        databases(&*self.fs, &projects)?
             .into_iter()
             .map(|id| {
                 let root = registry
                     .projects
                     .iter()
                     .find(|e| e.project_id == id)
-                    .map(|e| canonical(Path::new(&e.path)).display().to_string())
+                    .map(|e| self.canonical(Path::new(&e.path)).display().to_string())
                     .unwrap_or_default();
                 let store = projects.join(&id).join("state.db");
                 Ok(Project { id, root, store })
@@ -83,7 +83,7 @@ impl<N: Names> ProjectRegistry<N> {
         if self.survey_of(pinned)? != *seen {
             return Err(RegistryError::Changed);
         }
-        let mut registry = index::load(&path)?;
+        let mut registry = index::load(&*self.fs, &path)?;
         let mut registry_changed = false;
         for change in changes {
             match change {
@@ -93,7 +93,8 @@ impl<N: Names> ProjectRegistry<N> {
                 }
                 Change::Unregister { id, path } => {
                     registry.projects.retain(|e| {
-                        !(e.project_id == *id && canonical(Path::new(&e.path)) == Path::new(path))
+                        !(e.project_id == *id
+                            && self.canonical(Path::new(&e.path)) == Path::new(path))
                     });
                     registry_changed = true;
                 }
@@ -101,15 +102,15 @@ impl<N: Names> ProjectRegistry<N> {
             }
         }
         if registry_changed {
-            index::save(&path, &registry)?;
+            index::save(&*self.fs, &path, &registry)?;
         }
         for change in changes {
             match change {
                 Change::WriteMarker { root, id } => {
-                    write_marker(Path::new(root), &id::valid(id, "a change")?)?;
+                    write_marker(&*self.fs, Path::new(root), &id::valid(id, "a change")?)?;
                 }
                 Change::RemoveDatabase { id } => {
-                    remove_database(&projects, &id::valid(id, "a change")?)?;
+                    remove_database(&*self.fs, &projects, &id::valid(id, "a change")?)?;
                 }
                 Change::Register { .. } | Change::Unregister { .. } => {}
             }
@@ -139,41 +140,37 @@ impl<N: Names> ProjectAdmin for ProjectRegistry<N> {
 /// The ids with a directory of their own under `projects`, sorted: what is
 /// not a directory (the registry, its lock, a symlink) or not named as a
 /// project id is left out.
-fn databases(projects: &Path) -> Result<Vec<String>, RegistryError> {
-    let listing = match fs::read_dir(projects) {
+fn databases(fs: &dyn Fs, projects: &Path) -> Result<Vec<String>, RegistryError> {
+    let listing = match fs.read_dir(projects) {
         Ok(listing) => listing,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(RegistryError::io(projects, e)),
     };
-    let mut ids = Vec::new();
-    for entry in listing {
-        let entry = entry.map_err(|e| RegistryError::io(projects, e))?;
-        let is_dir = entry
-            .file_type()
-            .map_err(|e| RegistryError::io(&entry.path(), e))?
-            .is_dir();
-        let name = entry.file_name().to_string_lossy().to_string();
-        if is_dir && id::valid(&name, "").is_ok() {
-            ids.push(name);
-        }
-    }
-    ids.sort_unstable();
-    Ok(ids)
+    // Listed sorted by name already.
+    Ok(listing
+        .into_iter()
+        .filter(|entry| entry.kind == Kind::Dir)
+        .map(|entry| entry.name.to_string_lossy().to_string())
+        .filter(|name| id::valid(name, "").is_ok())
+        .collect())
 }
 
 /// Delete `<projects>/<id>/`, which must be a directory of its own, not a
 /// link to one elsewhere.
-fn remove_database(projects: &Path, id: &str) -> Result<(), RegistryError> {
+fn remove_database(fs: &dyn Fs, projects: &Path, id: &str) -> Result<(), RegistryError> {
     let dir = projects.join(id);
-    let is_dir = fs::symlink_metadata(&dir)
+    let is_dir = fs
+        .symlink_metadata(&dir)
         .map_err(|e| RegistryError::io(&dir, e))?
-        .is_dir();
+        .kind
+        == Kind::Dir;
     if !is_dir {
         return Err(RegistryError::NotADatabase {
             path: dir.display().to_string(),
         });
     }
-    fs::remove_dir_all(&dir).map_err(|e| RegistryError::io(&dir, e))
+    fs.remove_dir_all(&dir)
+        .map_err(|e| RegistryError::io(&dir, e))
 }
 
 #[cfg(test)]
