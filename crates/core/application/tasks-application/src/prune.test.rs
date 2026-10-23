@@ -2,18 +2,15 @@
 //! what is reported, what is removed and purged, and what a prune does
 //! when the store changes under it.
 
-use annals::next::v1::Uuid;
-use annals::next::{
-    AsyncEventStore, InMemoryStore, Kernel, MemoryDeadLetters, Routes, Sampled, Timestamp,
-};
+use annals::next::{AsyncEventStore, Timestamp};
 use annals_diagnostic::Diagnostic;
-use tasks::{RemovalReason, RemoveTask, SetStatus, TaskCommand, Tasks};
+use tasks::{RemovalReason, RemoveTask, SetStatus, TaskCommand};
 
 use super::{cut, PruneRefusal};
-use crate::fakes::{ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores, Fault};
+use crate::fakes::{ready, run, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores, Fault};
 use crate::{
-    book, cover, registry, AppError, Dangling, ListQuery, NewTask, PruneRequest, PruneService,
-    Pruning, Service, TaskService, Via,
+    cover, AppError, Dangling, ListQuery, NewTask, PruneRequest, PruneService, Pruning, Service,
+    TaskService, Via,
 };
 
 type Fake = Service<FakeIdentity, FakeStores, FakeNames, FakeClock, FakeDelay>;
@@ -568,26 +565,6 @@ fn test_a_via_is_spelled_as_gos() {
 }
 
 // ------------------------------------------------------------ races
-
-/// Run `command` on `harp`'s stream in `store` directly, as another
-/// process would.
-fn run(store: &mut InMemoryStore, harp: &str, command: TaskCommand) {
-    let registry = registry();
-    let dead_letters = MemoryDeadLetters::new();
-    let sampled = Sampled {
-        now: at(1_700_000_000 + 20 * DAY),
-        command_id: Uuid::from_bytes([0xee; 16]),
-    };
-    Kernel::new(&registry, &dead_letters)
-        .handle::<Tasks, _, _>(
-            store.begin(),
-            &Routes::new(),
-            book(harp, command),
-            &sampled,
-            &mut (),
-        )
-        .unwrap_or_else(|failure| panic!("{failure:?}"));
-}
 
 fn remove_by_name() -> TaskCommand {
     RemoveTask {

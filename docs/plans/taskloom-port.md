@@ -327,8 +327,10 @@ cutover ("What remains").
     namespace, a declared enum or range (non-finite refused) and
     `type=semver` (a strict SemVer 2.0.0 parser written here). Removed
     tags are never checked. A scalar target's new value displaces the
-    task's old one in the application, before `Retag`: decide never reads
-    the schema.
+    task's old one in the application, before `Retag`, resolved against
+    the task as the retag's own unit of work reads it (so a value another
+    process set meanwhile is displaced too): decide never reads the
+    schema.
   - The tag schema (Go's `tagschema`): the seven facets, immutable, the
     default declaring nothing; Go's `DefaultTagSchema` is the baseline a
     project's declarations extend, the last of a facet and target

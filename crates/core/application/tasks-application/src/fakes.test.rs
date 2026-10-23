@@ -12,7 +12,8 @@ use std::time::Duration;
 use annals::next::v1::{Cover, EventPage, Snapshot, Uuid};
 use annals::next::{
     AsyncEventStore, AsyncPurge, AsyncReadStore, AsyncReadUnit, AsyncStore, AsyncUnitOfWork,
-    AsyncWatch, InMemoryRead, InMemoryStore, InMemoryTx, Ready, Slice, StoreError, Timestamp,
+    AsyncWatch, InMemoryRead, InMemoryStore, InMemoryTx, Kernel, MemoryDeadLetters, Ready, Routes,
+    Sampled, Slice, StoreError, Timestamp,
 };
 use annals_diagnostic::Report;
 use ports::{
@@ -45,6 +46,8 @@ pub fn project() -> Project {
 #[derive(Default)]
 pub struct FakeIdentity {
     pub bound: Option<Project>,
+    /// Resolutions for a write: each may bind a project.
+    pub writes: u32,
     pub pins: Vec<Option<String>>,
     pub fails: Option<Report>,
     pub every: Vec<Project>,
@@ -54,6 +57,7 @@ pub struct FakeIdentity {
 impl ProjectIdentity for FakeIdentity {
     fn for_write(&mut self, pinned: Option<&str>) -> Result<Project, Report> {
         self.pins.push(pinned.map(str::to_string));
+        self.writes += 1;
         if let Some(report) = &self.fails {
             return Err(report.clone());
         }
@@ -100,6 +104,29 @@ pub enum Fault {
 
 /// What another process does to a store.
 pub type Meanwhile = Box<dyn FnOnce(&mut InMemoryStore) + Send>;
+
+/// Run `command` on `harp`'s stream in `store` directly, as another
+/// process would: what a [`Meanwhile`] does to change a task.
+pub fn run(store: &mut InMemoryStore, harp: &str, command: tasks::TaskCommand) {
+    let registry = crate::registry();
+    let dead_letters = MemoryDeadLetters::new();
+    let sampled = Sampled {
+        now: Timestamp {
+            seconds: 1_700_000_000 + 20 * 86_400,
+            nanos: 0,
+        },
+        command_id: Uuid::from_bytes([0xee; 16]),
+    };
+    Kernel::new(&registry, &dead_letters)
+        .handle::<tasks::Tasks, _, _>(
+            store.begin(),
+            &Routes::new(),
+            crate::book(harp, command),
+            &sampled,
+            &mut (),
+        )
+        .unwrap_or_else(|failure| panic!("{failure:?}"));
+}
 
 /// An in-memory store whose units of work fail on cue, in order.
 pub struct Flaky {

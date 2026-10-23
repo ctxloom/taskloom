@@ -46,7 +46,7 @@ impl Domain for Tasks {
             TaskCommand::AddTask(add) => decide_add(add, tx),
             TaskCommand::SetStatus(set) => {
                 let held = live(tx.state())?;
-                let status = valid_status(&set.status)?.ok_or(TaskRejection::StatusRequired)?;
+                let status = target(set)?;
                 let given = set.trigger.trim();
                 let trigger = if given.is_empty() {
                     held.trigger.clone()
@@ -81,9 +81,7 @@ impl Domain for Tasks {
             }
             TaskCommand::Retag(retag) => {
                 let held = normalized(&live(tx.state())?.tags);
-                if retag.add.is_empty() && retag.remove.is_empty() {
-                    return Err(TaskRejection::TagRequired);
-                }
+                retagging(retag)?;
                 let mut after = held.clone();
                 after.extend(normalized(&retag.add));
                 for spelled in normalized(&retag.remove).keys() {
@@ -158,12 +156,11 @@ fn decide_add(add: &AddTask, tx: &mut Tx<'_, Tasks>) -> Result<(), TaskRejection
             harp_id: harp_id.to_string(),
         });
     }
-    let text = required_text(&add.text)?;
-    let status = valid_status(&add.status)?.unwrap_or_else(|| TO_DO.to_string());
-    let trigger = add.trigger.trim().to_string();
-    if status == DEFERRED && trigger.is_empty() {
-        return Err(TaskRejection::TriggerRequired);
-    }
+    let Added {
+        text,
+        status,
+        trigger,
+    } = added(add)?;
     let at = tx.recorded_at();
     let deferred_since = (status == DEFERRED).then_some(at);
     tx.emit(
@@ -180,6 +177,61 @@ fn decide_add(add: &AddTask, tx: &mut Tx<'_, Tasks>) -> Result<(), TaskRejection
         .into(),
     );
     Ok(())
+}
+
+/// Whether `command` keeps the rules decide holds it to by what it carries
+/// alone, whatever its stream holds: an add's text, status and trigger
+/// (not its harp id, which is its stream's address), a status change's
+/// status, an edit's text, and a retag's having a tag. Decide holds every
+/// command to these same rules, through the same functions; a caller runs
+/// them first so that a command they refuse is refused before anything is
+/// bound, created or written for it.
+pub fn check(command: &TaskCommand) -> Result<(), TaskRejection> {
+    match command {
+        TaskCommand::AddTask(add) => added(add).map(drop),
+        TaskCommand::SetStatus(set) => target(set).map(drop),
+        TaskCommand::EditText(edit) => required_text(&edit.text).map(drop),
+        TaskCommand::Retag(retag) => retagging(retag),
+        TaskCommand::RemoveTask(_) => Ok(()),
+    }
+}
+
+/// What an add records of its own fields.
+struct Added {
+    text: String,
+    status: String,
+    trigger: String,
+}
+
+/// An add's text trimmed, its status (To Do when it gives none) and its
+/// trigger trimmed; refused without text, with a reserved status, or
+/// Deferred with no trigger.
+fn added(add: &AddTask) -> Result<Added, TaskRejection> {
+    let text = required_text(&add.text)?;
+    let status = valid_status(&add.status)?.unwrap_or_else(|| TO_DO.to_string());
+    let trigger = add.trigger.trim().to_string();
+    if status == DEFERRED && trigger.is_empty() {
+        return Err(TaskRejection::TriggerRequired);
+    }
+    Ok(Added {
+        text,
+        status,
+        trigger,
+    })
+}
+
+/// The status a status change moves to: refused when it gives none, or a
+/// reserved one.
+fn target(set: &SetStatus) -> Result<String, TaskRejection> {
+    valid_status(&set.status)?.ok_or(TaskRejection::StatusRequired)
+}
+
+/// Refused when a retag adds and removes nothing.
+fn retagging(retag: &Retag) -> Result<(), TaskRejection> {
+    match retag.add.is_empty() && retag.remove.is_empty() {
+        true => Err(TaskRejection::TagRequired),
+        false => Ok(()),
+    }
 }
 
 /// The task, if the stream holds one that is not removed.

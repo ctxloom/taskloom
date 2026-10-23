@@ -97,6 +97,25 @@ impl<C: Clock, D: Delay + Jitter> Runner<'_, C, D> {
         command_id: &Uuid,
         holds: Option<&P>,
     ) -> Result<Option<Outcome>, AppError> {
+        let shape = holds.map(|holds| |state: &TaskState| holds(state).then(|| book.clone()));
+        self.run_shaped(store, book, command_id, shape.as_ref())
+            .await
+    }
+
+    /// [`Runner::run`] of what `shape` makes of the task on `book`'s
+    /// stream, read in each attempt's own unit of work as
+    /// [`Runner::run_where`] reads it: `None` (nothing sent) when it makes
+    /// nothing; `book` itself, unread, when there is no `shape`. A command
+    /// that depends on the task as it is (a scalar value displacing the
+    /// one it holds) is shaped here, so nothing written between an earlier
+    /// read and this unit is missed.
+    pub async fn run_shaped<S: AsyncStore, F: Fn(&TaskState) -> Option<CommandBook> + Sync>(
+        &mut self,
+        store: &mut S,
+        book: &CommandBook,
+        command_id: &Uuid,
+        shape: Option<&F>,
+    ) -> Result<Option<Outcome>, AppError> {
         let dead_letters = MemoryDeadLetters::new();
         let kernel = Kernel::new(self.registry, &dead_letters);
         let routes = Routes::new();
@@ -107,10 +126,10 @@ impl<C: Clock, D: Delay + Jitter> Runner<'_, C, D> {
                 command_id: command_id.clone(),
             };
             let mut unit = store.begin().await;
-            let (failure, recovery) = match held(self.registry, &mut unit, book, holds).await {
-                Ok(false) => return Ok(None),
-                Ok(true) => match kernel
-                    .handle_async::<Tasks, _, _>(unit, &routes, book.clone(), &sampled, &mut ())
+            let (failure, recovery) = match shaped(self.registry, &mut unit, book, shape).await {
+                Ok(None) => return Ok(None),
+                Ok(Some(book)) => match kernel
+                    .handle_async::<Tasks, _, _>(unit, &routes, book, &sampled, &mut ())
                     .await
                 {
                     Ok(_) => return Ok(Some(Outcome::Committed)),
@@ -191,16 +210,16 @@ async fn purge_removed<U: AsyncUnitOfWork + AsyncPurge>(
     Ok(deleted)
 }
 
-/// Whether the task on `book`'s stream, read through `unit`, meets
-/// `holds`; true when there is no condition, without reading.
-async fn held<U: AsyncEventStore, P: Fn(&TaskState) -> bool + Sync>(
+/// What `shape` makes of the task on `book`'s stream, read through
+/// `unit`; `book` itself when there is no `shape`, without reading.
+async fn shaped<U: AsyncEventStore, F: Fn(&TaskState) -> Option<CommandBook> + Sync>(
     registry: &Registry,
     unit: &mut U,
     book: &CommandBook,
-    holds: Option<&P>,
-) -> Result<bool, StoreError> {
-    let Some(holds) = holds else {
-        return Ok(true);
+    shape: Option<&F>,
+) -> Result<Option<CommandBook>, StoreError> {
+    let Some(shape) = shape else {
+        return Ok(Some(book.clone()));
     };
     let cover = book.cover.clone().unwrap_or_default();
     let pages = unit
@@ -211,9 +230,9 @@ async fn held<U: AsyncEventStore, P: Fn(&TaskState) -> bool + Sync>(
     // A stream that does not replay is the kernel's to report, as it
     // replays it again.
     let Ok(stream) = Stream::<Tasks>::replay(cover, &pages, registry) else {
-        return Ok(true);
+        return Ok(Some(book.clone()));
     };
-    Ok(holds(stream.state()))
+    Ok(shape(stream.state()))
 }
 
 #[cfg(test)]
