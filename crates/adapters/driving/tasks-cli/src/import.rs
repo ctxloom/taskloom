@@ -1,6 +1,6 @@
 //! `import`: a command group of its own, which a binary mounts beside the
-//! task commands ([`crate::run_mounted`]) and runs on an importer it builds
-//! for `import` alone ([`run_import`]), so no other command reaches the
+//! task commands and runs on an importer it builds for `import` alone
+//! ([`run_import`]), so no other command reaches the
 //! JSONL task logs; and its answer: what each project's log came to, and
 //! everything that could not be brought over, as text or JSON, its
 //! diagnostics rendered from the catalog.
@@ -12,7 +12,7 @@ use presentation::{Catalog, Envelope, Format, Render};
 use serde::Serialize;
 use tasks_application::{ImportReport, ImportRequest, ImportService, Lost, ProjectImport};
 
-use crate::{finish, output_failed, render, CliError, Mounted};
+use crate::{finish, output_failed, render, CliError};
 
 /// `import`, mounted beside the task commands.
 #[derive(clap::Subcommand, Clone, PartialEq, Eq, Debug)]
@@ -23,24 +23,22 @@ pub enum ImportGroup {
     Import,
 }
 
-/// `import` on `importer`, with the global flags parsed: its report on
-/// `out`, and the exit code, 1 when the import could not start or left
-/// something behind.
+/// `import` on `importer`, of `--project`'s log or every one, written in
+/// `format`: its report on `out`, and the exit code, 1 when the import
+/// could not start or left something behind.
 pub async fn run_import<S: ImportService>(
-    flags: &Mounted,
+    project: Option<String>,
+    format: Format,
     catalog: &Catalog,
     importer: &mut S,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
-    let request = ImportRequest {
-        project: flags.project.clone(),
-    };
-    let result = match importer.import(request).await {
-        Ok(report) => imported(&report, flags.format, catalog, out),
+    let result = match importer.import(ImportRequest { project }).await {
+        Ok(report) => imported(&report, format, catalog, out),
         Err(e) => Err(CliError::App(e)),
     };
-    finish(result, flags.format, catalog, err)
+    finish(result, format, catalog, err)
 }
 
 /// Render the report; refuse when it left something behind, so a script

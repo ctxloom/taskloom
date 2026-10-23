@@ -1,11 +1,12 @@
 //! The tasks command line: `add`, `status`, `edit`, `list`, `show`,
 //! `summary`, `statuses`, `tag`, `tags`, `lint` and `prune`, translated
 //! into the application's use cases and their answers rendered through
-//! presentation, with room for another crate's commands mounted beside
-//! them ([`run_mounted`]); `import`, a group of its own ([`ImportGroup`],
-//! [`run_import`]) a binary mounts beside them, so only it reaches the
-//! importer; and the companion contract ctxloom reads,
-//! `version` and `loadout`. Text on a terminal, JSON otherwise, unless
+//! presentation ([`Command`], [`run`]); `import`, a group of its own
+//! ([`ImportGroup`], [`run_import`]), so only it reaches the importer; and
+//! the companion contract ctxloom reads, `version` and `loadout`. A binary
+//! owns the parser: it flattens [`Globals`] and these commands into its
+//! own, beside whatever else it mounts, and [`parse`] answers help and
+//! usage errors as the task commands do. Text on a terminal, JSON otherwise, unless
 //! `--format` or `--json` says; stdout holds the answer alone (one JSON
 //! document), and notices, such as the project a write went to, go to
 //! stderr. Exit 0, or 1 with the error on stderr: its catalog message in
@@ -23,7 +24,7 @@ use std::ffi::OsString;
 use std::io::{self, Write};
 
 use annals_diagnostic::Diagnostic;
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use presentation::{Catalog, CatalogError, Format, Render, Source, UnknownFormat};
 use tasks_application::{PruneService, TaskService, Written};
 
@@ -64,31 +65,31 @@ pub fn catalog(adapters: &[Source]) -> Result<Catalog, CatalogError> {
     Catalog::en_us(&sources)
 }
 
-#[derive(Parser, Debug)]
-#[command(name = PROG, about = "Manage the per-project task store")]
-struct Cli<X: Subcommand> {
+/// The global flags, every command's: a binary flattens them into its
+/// parser.
+#[derive(Args, Clone, PartialEq, Eq, Debug, Default)]
+pub struct Globals {
     /// Output format: text, or json (the default when stdout is not a
     /// terminal); yaml, for loadout alone.
     #[arg(long, global = true)]
-    format: Option<Asked>,
+    pub format: Option<Asked>,
     /// Shorthand for --format json.
     #[arg(long, global = true)]
-    json: bool,
+    pub json: bool,
     /// Project id to act on (overrides CTXLOOM_PROJECT_ID and the working directory's).
     #[arg(long, global = true)]
-    project: Option<String>,
+    pub project: Option<String>,
     /// Override a configuration key for this run: <path>=<value>, e.g.
     /// tag_schema=<declaration>,... (repeatable; beats TASKLOOM_CONFIG_*
     /// and every config.yaml). The task commands take it; import, project,
     /// mcp, watch and manage do not.
     #[arg(long = "config-set", global = true, value_name = "PATH=VALUE")]
-    config_set: Vec<String>,
-    #[command(subcommand)]
-    command: Command<X>,
+    pub config_set: Vec<String>,
 }
 
+/// The task commands and the companion contract's.
 #[derive(Subcommand, Debug)]
-enum Command<X: Subcommand> {
+pub enum Command {
     /// Add a new task.
     Add(commands::AddArgs),
     /// List tasks: by default the active ones (not Done, Archived or
@@ -143,39 +144,35 @@ enum Command<X: Subcommand> {
     /// contributes to a session: the loadout document ctxloom reads
     /// (`taskloom loadout --format yaml`).
     Loadout,
-    /// Commands another crate defines, mounted beside these.
-    #[command(flatten)]
-    Mounted(X),
 }
 
-/// Nothing mounted.
-#[derive(Subcommand, Debug)]
-pub enum Unmounted {}
-
-/// What a mounted command is handed besides itself: the global flags
-/// parsed.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Mounted {
-    /// The format asked for, or chosen by whether stdout is a terminal.
-    pub format: Format,
-    /// `--project`.
-    pub project: Option<String>,
-}
-
-impl<X: Subcommand> Cli<X> {
-    /// The format asked for, else text on a terminal and JSON off one;
-    /// refused when it is yaml, which only `loadout` speaks.
-    fn format(&self, context: &Context) -> Result<Format, CliError> {
+impl Globals {
+    /// The format asked for, else text on a terminal and JSON off one; or,
+    /// when it is yaml, which only `loadout` speaks, the exit code of
+    /// refusing it on `err`.
+    pub fn format(
+        &self,
+        context: &Context,
+        catalog: &Catalog,
+        err: &mut dyn Write,
+    ) -> Result<Format, u8> {
         let asked = match self.format {
             Some(Asked::Yaml) => {
-                return Err(CliError::Format(UnknownFormat {
+                let refused = CliError::Format(UnknownFormat {
                     value: "yaml".to_string(),
-                }))
+                });
+                return Err(finish(Err(refused), self.fallback(context), catalog, err));
             }
             Some(Asked::Format(format)) => Some(format),
             None => None,
         };
         Ok(Format::choose(self.json, asked, context.stdout_is_terminal))
+    }
+
+    /// The format an error is reported in when `--format` gave none: JSON
+    /// under `--json` or off a terminal.
+    fn fallback(&self, context: &Context) -> Format {
+        Format::choose(self.json, None, context.stdout_is_terminal)
     }
 }
 
@@ -199,34 +196,19 @@ fn asked_format(args: &[OsString], context: &Context) -> Format {
     Format::choose(json, asked, context.stdout_is_terminal)
 }
 
-/// Run the command line `args` (the program name first) against `service`,
-/// writing to `out` and `err` with messages from `catalog`; the exit code.
-pub async fn run<S: TaskService + PruneService>(
-    args: impl IntoIterator<Item = OsString>,
-    context: &Context,
-    catalog: &Catalog,
-    service: &mut S,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> u8 {
-    let unmounted =
-        |never: Unmounted, _: Mounted, _: &Catalog, _: &mut dyn Write, _: &mut dyn Write| {
-            match never {}
-        };
-    run_mounted(args, context, catalog, service, unmounted, out, err).await
-}
-
-/// The command line parsed, or the exit code of answering it without a
-/// command: help and --version on stdout, a usage error on `err`.
-fn parse<X: Subcommand>(
+/// The command line `args` (the program name first) parsed as `P`, or the
+/// exit code of answering it without a command: help and --version on
+/// `out`, a usage error on `err` (in the format the words ask for, since
+/// clap parsed nothing).
+pub fn parse<P: Parser>(
     args: impl IntoIterator<Item = OsString>,
     context: &Context,
     catalog: &Catalog,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<Cli<X>, u8> {
+) -> Result<P, u8> {
     let args: Vec<OsString> = args.into_iter().collect();
-    Cli::<X>::try_parse_from(&args).map_err(|e| {
+    P::try_parse_from(&args).map_err(|e| {
         if e.use_stderr() {
             let usage = CliError::Usage {
                 detail: e.render().to_string(),
@@ -239,35 +221,34 @@ fn parse<X: Subcommand>(
     })
 }
 
-/// [`run`], with the commands `X` mounted beside the task commands: one
-/// of them parsed is handed to `mounted` with the global flags and the
-/// catalog it renders its diagnostics from, and its exit code is the
-/// run's.
-pub async fn run_mounted<S: TaskService + PruneService, X: Subcommand>(
-    args: impl IntoIterator<Item = OsString>,
+/// Run `command` under the global flags against `service`, writing to
+/// `out` and `err` with messages from `catalog`; the exit code.
+pub async fn run<S: TaskService + PruneService>(
+    command: Command,
+    globals: Globals,
     context: &Context,
     catalog: &Catalog,
     service: &mut S,
-    mounted: impl FnOnce(X, Mounted, &Catalog, &mut dyn Write, &mut dyn Write) -> u8,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
-    let cli = match parse::<X>(args, context, catalog, out, err) {
-        Ok(cli) => cli,
-        Err(code) => return code,
-    };
-    let format = match answer_format(&cli, context, catalog, out, err) {
+    if let Command::Loadout = command {
+        // Printed in its own format.
+        let printed = companion::loadout(globals.json, globals.format, out);
+        return finish(printed, globals.fallback(context), catalog, err);
+    }
+    let format = match globals.format(context, catalog, err) {
         Ok(format) => format,
         Err(code) => return code,
     };
     let ctx = commands::Ctx {
-        project: cli.project,
-        config_set: cli.config_set,
+        project: globals.project,
+        config_set: globals.config_set,
         format,
         catalog,
         session: &context.session,
     };
-    let result = match cli.command {
+    let result = match command {
         Command::Add(args) => commands::add(args, ctx, service, out, err).await,
         Command::Status(args) => commands::status(args, ctx, service, out, err).await,
         Command::Edit(args) => commands::edit(args, ctx, service, out, err).await,
@@ -279,37 +260,11 @@ pub async fn run_mounted<S: TaskService + PruneService, X: Subcommand>(
         Command::Tags(args) => commands::tags(args, ctx, service, out, err).await,
         Command::List(args) => commands::list(args, ctx, service, out, err).await,
         Command::Prune(args) => commands::prune(args, ctx, service, out, err).await,
-        Command::Mounted(command) => {
-            let flags = Mounted {
-                format,
-                project: ctx.project,
-            };
-            return mounted(command, flags, catalog, out, err);
-        }
         Command::Version => version(context, format, out),
-        // Answered before the format is chosen: it has its own.
+        // Answered above: it has its own format.
         Command::Loadout => Ok(()),
     };
     finish(result, format, catalog, err)
-}
-
-/// The format `cli`'s answer is written in; or the exit code when there
-/// is no format to choose: `loadout`, printed in its own, or a format
-/// refused.
-fn answer_format<X: Subcommand>(
-    cli: &Cli<X>,
-    context: &Context,
-    catalog: &Catalog,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> Result<Format, u8> {
-    let fallback = Format::choose(cli.json, None, context.stdout_is_terminal);
-    if let Command::Loadout = cli.command {
-        let printed = companion::loadout(cli.json, cli.format, out);
-        return Err(finish(printed, fallback, catalog, err));
-    }
-    cli.format(context)
-        .map_err(|error| finish(Err(error), fallback, catalog, err))
 }
 
 /// The exit code of `result`, its error reported in `format`.

@@ -183,10 +183,11 @@ cutover ("What remains").
   `pruneReport` shape, and on stderr, after a report that would take
   something, the exact command that applies it) and `import`, with
   `--config-set`, text and json in Go's shapes, its errors and notices
-  rendered from the catalogs, and `run_mounted`, which flattens another
-  crate's commands in beside them and hands one parsed to its caller with
-  the global flags (the format and `--project`; not `--config-set`) and
-  the catalog. Text hides the tags the schema hides; JSON keeps them, as
+  rendered from the catalogs. It exports its commands (`Command`, run by
+  `run` with the global flags and only the tasks service) and the global
+  flags (`Globals`, whose `format` refuses yaml for every command but
+  `loadout`) for a binary's own parser to flatten, and `parse`, which
+  answers help and renders a usage error as the task commands do. Text hides the tags the schema hides; JSON keeps them, as
   Go does. Also the companion contract: `version` (`--format json` is
   Go's `{name, version, lock_protocol}`, the lock protocol file-lock's
   `LOCK_PROTOCOL`, 2, true of every lock file taskloom takes: the
@@ -243,7 +244,10 @@ cutover ("What remains").
   does, and ctxloom can, since it names no tasks crate.
 - `root/bin/taskloom`: the binary, over annals-store-sql's SQLite store at
   `~/.ctxloom/projects/<project-id>/state.db` (CLAUDE.md, "Storage"). It
-  mounts the `project` group over the project registry, `mcp` (served
+  owns the parser (the global flags, the task commands, and each group's
+  `Subcommand` flattened beside them), parses first, and builds only what
+  the command parsed uses: the tasks service for the task commands and
+  `watch`, `Projects` for the `project` group. It mounts the `project` group over the project registry, `mcp` (served
   once the command line is read, each call's service the CLI's own wiring
   made fresh), and `watch` and `manage`. Its tests are Go's
   `crossprocess_test.go` ported, each process separate on one database,
@@ -728,9 +732,9 @@ restarted on a freed harp is under "Where it stands".
   task's JSON (`TaskJson`) is `tasks-presentation`'s, which the CLI and the
   MCP server share; the task table and a written task's line are
   `tasks-cli`'s, and the project group's (`ShowJson`, `PlanJson`, the
-  orphans) `project-cli`'s, each implementing `Render`; a mounted group
-  gets the binary's catalog through `run_mounted`, so its errors render as
-  the task commands' do. Output goes to an injected `&mut dyn Write`.
+  orphans) `project-cli`'s, each implementing `Render`; each group is
+  handed the binary's catalog by the composition root, so its errors
+  render as the task commands' do. Output goes to an injected `&mut dyn Write`.
   annals' crates export their catalogs as ctxloom's do (`annals::EN_US`,
   `annals_store_sql::EN_US`), and the binary's catalog embeds those it
   links, so an annals error renders from its catalog too.
