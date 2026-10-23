@@ -537,6 +537,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "file-system"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
