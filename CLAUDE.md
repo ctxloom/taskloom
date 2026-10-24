@@ -34,6 +34,9 @@ the architecture; there is no other table of crates.
 - `adapters/platform`: libraries adapters build on (the `file-system`
   seam); they implement no port.
 - `adapters/driving`: CLI, MCP, gRPC: translation only.
+- `root/lib`: the composition root's wiring as a library (`tasks-lib`):
+  the use cases over the default adapters, which the binaries, their
+  servers and ctxloom build from, so no frontend wires an adapter.
 - `root/bin`: binaries, the composition root.
 
 This repository is taskloom: the `taskloom` binary and the crates it

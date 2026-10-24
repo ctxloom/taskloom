@@ -2555,6 +2555,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "tasks-lib"
+version = "0.1.0"
+dependencies = [
+ "agent-configs",
+ "annals",
+ "annals-diagnostic 0.1.0",
+ "annals-store-sql",
+ "file-lock",
+ "file-system",
+ "fluent-syntax",
+ "harp-names",
+ "jsonl-task-log",
+ "presentation",
+ "project-application",
+ "project-cli",
+ "project-registry",
+ "registration-application",
+ "system",
+ "task-store-sqlite",
+ "tasks-application",
+ "tasks-config",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "tasks-mcp"
 version = "0.1.0"
 dependencies = [

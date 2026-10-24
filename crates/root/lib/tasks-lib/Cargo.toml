@@ -1,0 +1,35 @@
+[package]
+name = "tasks-lib"
+version = "0.1.0"
+description = "The tasks use cases over the default adapters, wired once: the composition root the taskloom binary, its servers and ctxloom share"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+agent-configs.workspace = true
+annals.workspace = true
+annals-diagnostic.workspace = true
+annals-store-sql.workspace = true
+file-lock.workspace = true
+file-system.workspace = true
+harp-names.workspace = true
+jsonl-task-log.workspace = true
+presentation.workspace = true
+project-application.workspace = true
+project-registry.workspace = true
+registration-application.workspace = true
+system.workspace = true
+task-store-sqlite.workspace = true
+tasks-application.workspace = true
+tasks-config.workspace = true
+
+[dev-dependencies]
+fluent-syntax.workspace = true
+project-cli.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

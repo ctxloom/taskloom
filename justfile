@@ -31,8 +31,9 @@ features_prepare := ""
 # code. core/wire is not here: .cargo/mutants.toml excludes it (generated).
 # root/bin at 0 reports its survivors and refuses nothing: the composition root
 # holds no logic, and the binary's wiring is shown by running it, not by unit
-# tests.
-mutation_thresholds := "crates/core/domain=90 crates/core/read-model=90 crates/core/ports=90 crates/core/application=90 crates/adapters=90 crates/root/bin=0"
+# tests. root/lib, the wiring the binary and its servers share, is a library
+# with tests of its own, and held as the adapters are.
+mutation_thresholds := "crates/core/domain=90 crates/core/read-model=90 crates/core/ports=90 crates/core/application=90 crates/adapters=90 crates/root/lib=90 crates/root/bin=0"
 
 # Staged paths outside any crate that can change what every crate builds or
 # tests (bash globs, `*` crossing `/`): one of these staged tests the whole
