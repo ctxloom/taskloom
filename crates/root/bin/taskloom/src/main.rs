@@ -94,7 +94,12 @@ fn service(
     let identity = ProjectRegistry::new(Arc::clone(fs), env.clone(), HarpNames);
     // The work root's config, where there is a work root: a command that
     // needs one fails on resolving it, and says why.
-    let config = TaskloomConfig::new(env.home.clone(), identity.work_root().ok(), vars);
+    let config = TaskloomConfig::new(
+        Arc::clone(fs),
+        env.home.clone(),
+        identity.work_root().ok(),
+        vars,
+    );
     Service::new(identity, SqliteStores::default(), HarpNames, System, System)
         .with_configuration(config)
 }

@@ -1,50 +1,62 @@
-//! The layers, over temporary homes and work roots: never a real one.
+//! The layers, over a home and a work root on a filesystem of the test's
+//! own (`Rooted::temp`): never a real one.
 
-use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use annals_diagnostic::Diagnostic;
+use file_system::{Fs, Mode, Perms, Rooted};
 use ports::Configuration;
-use tempfile::TempDir;
 
 use super::{split, ConfigError, TaskloomConfig};
 
-/// A home and a work root, each with a config file holding `home` and
-/// `root` when given.
+/// A home (`/home/u`) and a work root (`/tree`), each with a config file
+/// holding `home` and `root` when given.
 struct Dirs {
-    home: TempDir,
-    root: TempDir,
+    fs: Arc<dyn Fs>,
+    home: PathBuf,
+    root: PathBuf,
 }
 
 impl Dirs {
     fn new(home: Option<&str>, root: Option<&str>) -> Dirs {
         let dirs = Dirs {
-            home: TempDir::new().unwrap(),
-            root: TempDir::new().unwrap(),
+            fs: Arc::new(Rooted::temp().unwrap()),
+            home: PathBuf::from("/home/u"),
+            root: PathBuf::from("/tree"),
         };
         if let Some(text) = home {
-            write(dirs.home.path(), text);
+            dirs.write(&dirs.home, text);
         }
         if let Some(text) = root {
-            write(dirs.root.path(), text);
+            dirs.write(&dirs.root, text);
         }
         dirs
     }
 
     fn config(&self, env: &[(&str, &str)]) -> TaskloomConfig {
         TaskloomConfig::new(
-            Some(self.home.path().to_path_buf()),
-            Some(self.root.path().to_path_buf()),
+            Arc::clone(&self.fs),
+            Some(self.home.clone()),
+            Some(self.root.clone()),
             env.iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
         )
     }
-}
 
-fn write(dir: &Path, text: &str) {
-    fs::create_dir_all(dir.join(".taskloom")).unwrap();
-    fs::write(dir.join(".taskloom/config.yaml"), text).unwrap();
+    fn write(&self, dir: &Path, text: &str) {
+        self.fs
+            .create_dir_all(&dir.join(".taskloom"), Mode::DIR)
+            .unwrap();
+        self.fs
+            .write_atomic(
+                &dir.join(".taskloom/config.yaml"),
+                text.as_bytes(),
+                Perms::Exact(Mode::FILE),
+            )
+            .unwrap();
+    }
 }
 
 fn strings(values: &[&str]) -> Vec<String> {
@@ -62,7 +74,7 @@ const ROOT: &str = "schema_version: 1\nhoming: home\ntag_schema:\n  - 'tagma.ari
 fn test_nothing_configured_is_no_declaration() {
     let dirs = Dirs::new(None, None);
     assert_eq!(schema(&dirs.config(&[]), &[]), Ok(Vec::new()));
-    let nowhere = TaskloomConfig::new(None, None, Vec::new());
+    let nowhere = TaskloomConfig::new(Arc::clone(&dirs.fs), None, None, Vec::new());
     assert_eq!(schema(&nowhere, &[]), Ok(Vec::new()));
 }
 
@@ -166,9 +178,15 @@ fn test_a_file_that_is_not_taskloom_config_is_refused() {
 fn test_a_config_file_that_cannot_be_read_is_refused() {
     let dirs = Dirs::new(None, None);
     // A directory where the file should be.
-    fs::create_dir_all(dirs.root.path().join(".taskloom/config.yaml")).unwrap();
+    dirs.fs
+        .create_dir_all(&dirs.root.join(".taskloom/config.yaml"), Mode::DIR)
+        .unwrap();
     let error = schema(&dirs.config(&[]), &[]).unwrap_err();
     assert_eq!(error.code(), "tasks-config-unreadable");
+    assert!(
+        error.to_string().contains("/tree/.taskloom/config.yaml"),
+        "named as the caller names it: {error}"
+    );
 }
 
 #[test]

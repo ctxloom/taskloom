@@ -2548,11 +2548,11 @@ name = "tasks-config"
 version = "0.1.0"
 dependencies = [
  "annals-diagnostic 0.1.0",
+ "file-system",
  "fluent-syntax",
  "ports",
  "serde",
  "serde_norway",
- "tempfile",
 ]
 
 [[package]]
