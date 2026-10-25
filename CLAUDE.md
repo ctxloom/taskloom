@@ -48,6 +48,15 @@ clippy reads the nearest `clippy.toml`. A crate's own `clippy.toml` would
 replace it, so none has one. It repeats the root `clippy.toml`'s settings,
 and `just lint` refuses to run if they disagree.
 
+All file I/O goes through the `file-system` seam: an `Arc<dyn Fs>`, the
+real `Os` in the binary, a temp-rooted `Rooted` in tests (`Rooted::temp`;
+where a real process must see the files, an `Os` under a directory a
+`Rooted` owns). SQLite and lock files take their path from it
+(`Fs::real_path`, `Fs::open`), so a test's databases are sandboxed too.
+The root `clippy.toml` disallows `std::fs`, `Path`'s filesystem methods
+and `tempfile` everywhere else, tests included; only the seam crate
+allows them.
+
 ## Architecture: hexagonal around CQRS/ES (checked in review)
 
 Dependencies point inward; a review refuses a change that breaks these:
