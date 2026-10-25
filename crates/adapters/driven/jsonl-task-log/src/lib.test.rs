@@ -1,24 +1,62 @@
-//! Records read from a real directory of logs.
+//! Records read from a directory of logs on a filesystem of the test's own
+//! (`Rooted::temp`), its home `/home/u`.
 
-use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use annals::next::Timestamp;
 use annals_diagnostic::Diagnostic;
+use file_system::{Fs, Mode, Perms, Rooted};
 use ports::{JsonlOp, JsonlRecord, JsonlTaskLogs};
-use tempfile::TempDir;
 
 use crate::{parse, JsonlTaskLogDir, LogError, MISSING_TS_INSTANT};
 
 const ADD: &str = r#"{"op":"add","task":"swift-amber","text":"Write the tour","status":"To Do","trigger":"t","session":"calm-otter","repair_of":"abc","tags":["b","a"],"ts":"2026-04-01T12:30:45.123456789Z"}"#;
 
-fn logs(files: &[(&str, &str)]) -> (TempDir, JsonlTaskLogDir) {
-    let home = TempDir::new().unwrap();
-    let dir = home.path().join(".ctxloom").join("tasks");
-    fs::create_dir_all(&dir).unwrap();
-    for (name, text) in files {
-        fs::write(dir.join(name), text).unwrap();
+/// A home on a filesystem of its own.
+struct Home {
+    fs: Arc<dyn Fs>,
+}
+
+impl Home {
+    fn new() -> Home {
+        Home {
+            fs: Arc::new(Rooted::temp().unwrap()),
+        }
     }
-    let logs = JsonlTaskLogDir::in_home(Some(home.path()));
+
+    fn path(&self) -> PathBuf {
+        PathBuf::from("/home/u")
+    }
+
+    fn fs(&self) -> Arc<dyn Fs> {
+        Arc::clone(&self.fs)
+    }
+
+    fn logs(&self) -> JsonlTaskLogDir {
+        JsonlTaskLogDir::in_home(self.fs(), Some(&self.path()))
+    }
+
+    fn mkdir(&self, path: &Path) {
+        self.fs.create_dir_all(path, Mode::DIR).unwrap();
+    }
+
+    fn write(&self, path: &Path, bytes: &[u8]) {
+        self.fs
+            .write_atomic(path, bytes, Perms::Exact(Mode::FILE))
+            .unwrap();
+    }
+}
+
+/// A home whose log directory holds `files`, and its logs.
+fn logs(files: &[(&str, &str)]) -> (Home, JsonlTaskLogDir) {
+    let home = Home::new();
+    let dir = home.path().join(".ctxloom").join("tasks");
+    home.mkdir(&dir);
+    for (name, text) in files {
+        home.write(&dir.join(name), text.as_bytes());
+    }
+    let logs = home.logs();
     (home, logs)
 }
 
@@ -170,35 +208,35 @@ fn test_projects_are_the_logs_in_the_directory_sorted() {
     let (home, mut logs) = logs(&[
         ("zany-bold-crab.jsonl", ""),
         ("able-calm-fox.jsonl", ADD),
+        ("able.jsonl", ""),
         ("able-calm-fox.jsonl.lock", ""),
         ("able-calm-fox.jsonl.premove.bak", ""),
     ]);
-    fs::create_dir(home.path().join(".ctxloom/tasks/dir.jsonl")).unwrap();
+    home.mkdir(&home.path().join(".ctxloom/tasks/dir.jsonl"));
+    home.fs
+        .symlink_dir(
+            &home.path().join(".ctxloom/tasks"),
+            &home.path().join(".ctxloom/tasks/linked.jsonl"),
+        )
+        .unwrap();
     assert_eq!(
         logs.projects().unwrap(),
-        ["able-calm-fox", "zany-bold-crab"]
+        ["able", "able-calm-fox", "zany-bold-crab"]
     );
 }
 
 #[test]
 fn test_no_directory_is_no_projects() {
-    let home = TempDir::new().unwrap();
-    assert_eq!(
-        JsonlTaskLogDir::in_home(Some(home.path()))
-            .projects()
-            .unwrap(),
-        Vec::<String>::new()
-    );
+    let home = Home::new();
+    assert_eq!(home.logs().projects().unwrap(), Vec::<String>::new());
 }
 
 #[test]
 fn test_an_unreadable_directory_is_an_error() {
-    let home = TempDir::new().unwrap();
-    fs::create_dir(home.path().join(".ctxloom")).unwrap();
-    fs::write(home.path().join(".ctxloom/tasks"), "not a directory").unwrap();
-    let error = JsonlTaskLogDir::in_home(Some(home.path()))
-        .projects()
-        .unwrap_err();
+    let home = Home::new();
+    home.mkdir(&home.path().join(".ctxloom"));
+    home.write(&home.path().join(".ctxloom/tasks"), b"not a directory");
+    let error = home.logs().projects().unwrap_err();
     assert_eq!(error.code(), "jsonl-task-log-unreadable");
 }
 
@@ -219,7 +257,7 @@ fn test_a_project_without_a_log_has_no_records() {
 #[test]
 fn test_a_log_that_cannot_be_read_is_an_error() {
     let (home, mut logs) = logs(&[]);
-    fs::create_dir(home.path().join(".ctxloom/tasks/able-calm-fox.jsonl")).unwrap();
+    home.mkdir(&home.path().join(".ctxloom/tasks/able-calm-fox.jsonl"));
     let error = logs.records("able-calm-fox").unwrap_err();
     assert_eq!(error.code(), "jsonl-task-log-unreadable");
 }
@@ -244,15 +282,18 @@ fn test_bytes_that_are_not_utf8_are_replaced_as_go_replaces_them() {
     let mut line = br#"{"op":"add","task":"x","text":"caf"#.to_vec();
     line.extend_from_slice(&[0xff]);
     line.extend_from_slice(br#""}"#);
-    fs::write(home.path().join(".ctxloom/tasks/able-calm-fox.jsonl"), line).unwrap();
+    home.write(
+        &home.path().join(".ctxloom/tasks/able-calm-fox.jsonl"),
+        &line,
+    );
     let records = logs.records("able-calm-fox").unwrap().unwrap();
     assert_eq!(records[0].text, "caf\u{fffd}");
 }
 
 #[test]
 fn test_without_a_home_every_read_says_so() {
-    for home in [None, Some(std::path::Path::new(""))] {
-        let mut logs = JsonlTaskLogDir::in_home(home);
+    for home in [None, Some(Path::new(""))] {
+        let mut logs = JsonlTaskLogDir::in_home(Home::new().fs(), home);
         assert_eq!(
             logs.projects().unwrap_err().code(),
             "jsonl-task-log-no-home"
@@ -267,6 +308,6 @@ fn test_without_a_home_every_read_says_so() {
 #[test]
 fn test_a_directory_named_outright_is_read() {
     let (home, _) = logs(&[("able-calm-fox.jsonl", ADD)]);
-    let mut logs = JsonlTaskLogDir::new(home.path().join(".ctxloom/tasks"));
+    let mut logs = JsonlTaskLogDir::new(home.fs(), home.path().join(".ctxloom/tasks"));
     assert_eq!(logs.projects().unwrap(), ["able-calm-fox"]);
 }

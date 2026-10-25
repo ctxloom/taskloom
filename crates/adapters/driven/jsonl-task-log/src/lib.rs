@@ -3,17 +3,20 @@
 //! with an op, its task and its fields. Only read: a log is opened
 //! read-only and nothing beside it is touched, not even its lock file.
 //!
+//! Every read goes through the [`Fs`] it is given.
+//!
 //! The fold (replay order, duplicate lines and duplicate adds) is the
 //! importer's, in the application; this reads the records.
 
 mod error;
 
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use annals::next::Timestamp;
 use annals_diagnostic::Report;
+use file_system::{Fs, Kind};
 use ports::{JsonlOp, JsonlRecord, JsonlTaskLogs};
 use serde::Deserialize;
 use time::format_description::well_known::Rfc3339;
@@ -28,25 +31,28 @@ const EXTENSION: &str = "jsonl";
 /// `ts` decodes to.
 pub const MISSING_TS_INSTANT: i64 = -62_135_596_800;
 
-/// The logs in one directory, `~/.ctxloom/tasks`.
-#[derive(Clone, PartialEq, Eq, Debug)]
+/// The logs in one directory, `~/.ctxloom/tasks`, on a filesystem.
+#[derive(Clone, Debug)]
 pub struct JsonlTaskLogDir {
+    fs: Arc<dyn Fs>,
     /// `None` where there is no home to find it in.
     dir: Option<PathBuf>,
 }
 
 impl JsonlTaskLogDir {
-    /// The logs in `dir`.
-    pub fn new(dir: impl Into<PathBuf>) -> Self {
+    /// The logs in `dir` on `fs`.
+    pub fn new(fs: Arc<dyn Fs>, dir: impl Into<PathBuf>) -> Self {
         JsonlTaskLogDir {
+            fs,
             dir: Some(dir.into()),
         }
     }
 
-    /// The logs under `home`, `<home>/.ctxloom/tasks`; with no home (HOME
-    /// unset or empty), every read fails saying so.
-    pub fn in_home(home: Option<&Path>) -> Self {
+    /// The logs under `home` on `fs`, `<home>/.ctxloom/tasks`; with no home
+    /// (HOME unset or empty), every read fails saying so.
+    pub fn in_home(fs: Arc<dyn Fs>, home: Option<&Path>) -> Self {
         JsonlTaskLogDir {
+            fs,
             dir: home
                 .filter(|h| !h.as_os_str().is_empty())
                 .map(|h| h.join(".ctxloom").join("tasks")),
@@ -69,27 +75,27 @@ impl JsonlTaskLogs for JsonlTaskLogDir {
                 detail: e.to_string(),
             })
         };
-        let entries = match fs::read_dir(dir) {
+        let entries = match self.fs.read_dir(dir) {
             Ok(entries) => entries,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(e) => return Err(unreadable(e)),
         };
-        let mut projects = Vec::new();
-        for entry in entries {
-            let path = entry.map_err(unreadable)?.path();
-            if path.extension().is_some_and(|e| e == EXTENSION) && path.is_file() {
-                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    projects.push(stem.to_string());
-                }
-            }
-        }
+        // A log is a file, or a link to one.
+        let mut projects: Vec<String> = entries
+            .into_iter()
+            .map(|entry| dir.join(entry.name))
+            .filter(|path| path.extension().is_some_and(|e| e == EXTENSION))
+            .filter(|path| self.fs.metadata(path).is_ok_and(|m| m.kind == Kind::File))
+            .filter_map(|path| Some(path.file_stem()?.to_str()?.to_string()))
+            .collect();
+        // By project id, not file name: `a-b.jsonl` lists before `a.jsonl`.
         projects.sort_unstable();
         Ok(projects)
     }
 
     fn records(&mut self, project_id: &str) -> Result<Option<Vec<JsonlRecord>>, Report> {
         let path = self.dir()?.join(format!("{project_id}.{EXTENSION}"));
-        let bytes = match fs::read(&path) {
+        let bytes = match self.fs.read(&path) {
             Ok(bytes) => bytes,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(e) => {

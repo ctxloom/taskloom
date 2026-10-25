@@ -113,7 +113,7 @@ fn import(
         ProjectRegistry::new(Arc::clone(fs), env.clone(), HarpNames),
         SqliteStores::default(),
         System,
-        JsonlTaskLogDir::in_home(env.home.as_deref()),
+        JsonlTaskLogDir::in_home(Arc::clone(fs), env.home.as_deref()),
     );
     ExitCode::from(runtime.block_on(tasks_cli::run_import(
         project,
