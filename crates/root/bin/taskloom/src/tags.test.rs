@@ -1,14 +1,13 @@
 //! Acceptance: tags through the real binary, its configuration read from
 //! a temporary home and project, never a real one.
 
-use std::fs;
 use std::path::Path;
 
-use super::Env;
+use super::{disk, Env};
 
 fn configure(dir: &Path, yaml: &str) {
-    fs::create_dir_all(dir.join(".taskloom")).unwrap();
-    fs::write(dir.join(".taskloom/config.yaml"), yaml).unwrap();
+    disk::create_dir_all(dir.join(".taskloom")).unwrap();
+    disk::write(dir.join(".taskloom/config.yaml"), yaml).unwrap();
 }
 
 /// The `code` of the JSON error envelope on stderr.

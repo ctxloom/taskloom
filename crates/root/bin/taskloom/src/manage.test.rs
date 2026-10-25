@@ -6,9 +6,7 @@
 
 use std::path::Path;
 
-use tempfile::TempDir;
-
-use super::{one_document, Env, Ran};
+use super::{disk, one_document, Env, Ran, Temp};
 
 /// The recorded case `name`'s file `file`.
 fn go(name: &str, file: &str) -> Vec<u8> {
@@ -16,11 +14,11 @@ fn go(name: &str, file: &str) -> Vec<u8> {
         .join("../../../adapters/driven/agent-configs/fixtures/go-manage")
         .join(name)
         .join(file);
-    std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    disk::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
 /// `taskloom manage <args>` in `env`, nothing on its PATH.
-fn manage(env: &Env, path: &TempDir, args: &[&str]) -> Ran {
+fn manage(env: &Env, path: &Temp, args: &[&str]) -> Ran {
     let mut all = vec!["manage"];
     all.extend_from_slice(args);
     env.run_with(&all, &[("PATH", path.path().to_str().unwrap())])
@@ -38,9 +36,9 @@ fn go_said(name: &str, file: &str, env: &Env) -> String {
 #[test]
 fn test_install_and_uninstall_write_gos_bytes_and_say_gos_words() {
     let env = Env::new("manage-harp");
-    let empty = tempfile::tempdir().unwrap();
+    let empty = Temp::new();
     let config = env.home.path().join(".claude.json");
-    std::fs::write(&config, go("indented-other-server", "before.json")).unwrap();
+    disk::write(&config, go("indented-other-server", "before.json")).unwrap();
 
     let ran = manage(&env, &empty, &["install", "--format", "text"]);
     assert!(ran.ok, "{}", ran.stderr);
@@ -50,7 +48,7 @@ fn test_install_and_uninstall_write_gos_bytes_and_say_gos_words() {
         go_said("indented-other-server", "install.out", &env)
     );
     assert_eq!(
-        std::fs::read(&config).unwrap(),
+        disk::read(&config).unwrap(),
         go("indented-other-server", "install.json")
     );
 
@@ -70,7 +68,7 @@ fn test_install_and_uninstall_write_gos_bytes_and_say_gos_words() {
         go_said("indented-other-server", "uninstall.out", &env)
     );
     assert_eq!(
-        std::fs::read(&config).unwrap(),
+        disk::read(&config).unwrap(),
         go("indented-other-server", "before.json")
     );
 }
@@ -78,7 +76,7 @@ fn test_install_and_uninstall_write_gos_bytes_and_say_gos_words() {
 #[test]
 fn test_an_engine_named_makes_its_file_and_project_is_a_switch() {
     let env = Env::new("manage-project-harp");
-    let empty = tempfile::tempdir().unwrap();
+    let empty = Temp::new();
     let ran = manage(&env, &empty, &["install", "--format", "text"]);
     assert!(!ran.ok);
     assert_eq!(
@@ -93,11 +91,11 @@ fn test_an_engine_named_makes_its_file_and_project_is_a_switch() {
     assert!(ran.ok, "{}", ran.stderr);
     assert_eq!(one_document(&ran.stdout)["configs"][0]["written"], true);
     assert_eq!(
-        std::fs::read(env.home.path().join(".claude.json")).unwrap(),
+        disk::read(env.home.path().join(".claude.json")).unwrap(),
         go("absent", "install.json")
     );
 
-    std::fs::write(
+    disk::write(
         env.project.path().join(".mcp.json"),
         go("project-scope", "before.json"),
     )
@@ -110,7 +108,7 @@ fn test_an_engine_named_makes_its_file_and_project_is_a_switch() {
         ran.stderr
     );
     assert_eq!(
-        std::fs::read(env.project.path().join(".mcp.json")).unwrap(),
+        disk::read(env.project.path().join(".mcp.json")).unwrap(),
         go("project-scope", "install.json")
     );
     let ran = manage(&env, &empty, &["check", "--json"]);
@@ -126,10 +124,10 @@ fn test_an_engine_named_makes_its_file_and_project_is_a_switch() {
 #[test]
 fn test_a_corrupt_file_is_copied_aside_and_left_alone() {
     let env = Env::new("manage-corrupt-harp");
-    let empty = tempfile::tempdir().unwrap();
+    let empty = Temp::new();
     let config = env.home.path().join(".claude.json");
     let broken = go("corrupt", "before.json");
-    std::fs::write(&config, &broken).unwrap();
+    disk::write(&config, &broken).unwrap();
     let ran = manage(&env, &empty, &["install", "--json"]);
     assert!(!ran.ok);
     assert_eq!(ran.stdout, "");
@@ -137,15 +135,15 @@ fn test_a_corrupt_file_is_copied_aside_and_left_alone() {
     assert_eq!(envelope["code"], "registration-application-engine-failed");
     assert_eq!(envelope["args"]["engine"], "claude-code");
     assert_eq!(envelope["args"]["error"]["code"], "agent-configs-corrupt");
-    assert_eq!(std::fs::read(&config).unwrap(), broken);
-    let copies: Vec<_> = std::fs::read_dir(env.home.path())
+    assert_eq!(disk::read(&config).unwrap(), broken);
+    let copies: Vec<_> = disk::read_dir(env.home.path())
         .unwrap()
-        .filter_map(|e| {
-            let e = e.unwrap();
-            e.file_name()
+        .into_iter()
+        .filter_map(|path| {
+            path.file_name()?
                 .to_string_lossy()
                 .starts_with(".claude.json.corrupt-")
-                .then(|| std::fs::read(e.path()).unwrap())
+                .then(|| disk::read(&path).unwrap())
         })
         .collect();
     assert_eq!(copies, [broken]);
@@ -153,7 +151,7 @@ fn test_a_corrupt_file_is_copied_aside_and_left_alone() {
 
 /// Whether some holder keeps `path` from being locked exclusively now.
 fn held(path: &Path) -> bool {
-    match std::fs::File::open(path) {
+    match disk::open(path) {
         Ok(file) => fs4::FileExt::try_lock(&file).is_err(),
         Err(_) => false,
     }
@@ -162,7 +160,7 @@ fn held(path: &Path) -> bool {
 #[test]
 fn test_manage_takes_gos_lock_on_the_file_and_waits_its_turn() {
     let env = Env::new("manage-lock-harp");
-    let empty = tempfile::tempdir().unwrap();
+    let empty = Temp::new();
     let config = env.home.path().join(".claude.json");
     // The sidecar lock taken for the file:
     // ~/.ctxloom/locks/<FlatName(path)>.lock.
@@ -173,19 +171,19 @@ fn test_manage_takes_gos_lock_on_the_file_and_waits_its_turn() {
     ));
     let interlock = locks.join("reap.interlock");
     // Claude Code is in use here.
-    std::fs::create_dir(env.home.path().join(".claude")).unwrap();
+    disk::create_dir_all(env.home.path().join(".claude")).unwrap();
 
     // Uncontended, it makes the sidecar, recording the file it guards.
     let ran = manage(&env, &empty, &["install", "--json"]);
     assert!(ran.ok, "{}", ran.stderr);
     assert_eq!(
-        std::fs::read_to_string(&sidecar).unwrap(),
+        disk::read_to_string(&sidecar).unwrap(),
         format!("{}\n", config.display())
     );
-    std::fs::remove_file(&config).unwrap();
+    disk::remove_file(&config).unwrap();
 
     // Held here, as another ctxloom-family binary mid-write holds it.
-    let holder = std::fs::File::open(&sidecar).unwrap();
+    let holder = disk::open(&sidecar).unwrap();
     fs4::FileExt::lock(&holder).unwrap();
     let mut child = std::process::Command::new(super::binary())
         .args(["manage", "install", "--json"])
@@ -208,11 +206,14 @@ fn test_manage_takes_gos_lock_on_the_file_and_waits_its_turn() {
         );
         std::thread::yield_now();
     }
-    assert!(!config.exists(), "nothing written while Go's lock is held");
+    assert!(
+        !disk::exists(&config),
+        "nothing written while Go's lock is held"
+    );
     assert!(child.try_wait().unwrap().is_none(), "still waiting");
     drop(holder);
     assert!(child.wait().unwrap().success());
-    assert!(std::fs::read_to_string(&config)
+    assert!(disk::read_to_string(&config)
         .unwrap()
         .contains("\"taskloom\""));
     assert!(!held(&sidecar), "let go once written");
@@ -225,10 +226,10 @@ fn test_manage_takes_gos_lock_on_the_file_and_waits_its_turn() {
 #[test]
 fn test_manage_builds_nothing_of_the_tasks() {
     let env = Env::new("manage-no-tasks-harp");
-    let empty = tempfile::tempdir().unwrap();
-    std::fs::write(env.home.path().join(".ctxloom"), "not a directory").unwrap();
+    let empty = Temp::new();
+    disk::write(env.home.path().join(".ctxloom"), "not a directory").unwrap();
     let ran = manage(&env, &empty, &["check", "--format", "text"]);
     assert!(ran.ok, "{}", ran.stderr);
     assert_eq!(ran.stdout, "binary: taskloom NOT on PATH\n");
-    assert!(!env.project.path().join(".project-id").exists());
+    assert!(!disk::exists(env.project.path().join(".project-id")));
 }

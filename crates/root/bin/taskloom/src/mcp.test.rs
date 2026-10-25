@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use super::{binary, Env};
+use super::{binary, disk, Env, Temp};
 
 /// The reference capabilities, tools and resources as initialize,
 /// tools/list and resources/list answer them, and the tag-schema resource
@@ -202,7 +202,7 @@ fn test_mcp_serves_every_tool_and_the_vocabulary_on_the_projects_store() {
         .as_str()
         .expect("the project written to");
     let store = format!(".ctxloom/projects/{project_id}/state.db");
-    assert!(env.home.path().join(store).exists(), "{added}");
+    assert!(disk::exists(env.home.path().join(store)), "{added}");
     assert_eq!(added.get("path"), None, "no result names its store");
     let harp = task["harp_id"].clone();
     server.call(
@@ -292,7 +292,7 @@ fn lists(server: &mut Server, harp: &Value, project_id: &str) {
 fn test_mcp_lists_every_project_outside_any_work_root_as_the_cli_does() {
     let env = Env::new("mcp-test-harp");
     env.seed("in the project");
-    let stray = tempfile::tempdir().unwrap();
+    let stray = Temp::new();
     let mut server = Server::start_in(&env, stray.path());
     server.initialize();
     let listing = server.call("task_list", json!({}));
@@ -320,7 +320,7 @@ fn test_mcp_lists_every_project_outside_any_work_root_as_the_cli_does() {
 #[test]
 fn test_mcp_and_the_cli_resolve_the_same_project_in_the_same_environment() {
     let env = Env::new("mcp-test-harp");
-    let elsewhere = tempfile::tempdir().unwrap();
+    let elsewhere = Temp::new();
     let there = env.run_in(elsewhere.path(), &["add", "there", "--json"], &[]);
     assert!(there.ok, "{}", there.stderr);
     let there = project_of(&env, elsewhere.path(), &there.json()["harp_id"], &[]);
@@ -359,8 +359,8 @@ fn project_of(env: &Env, dir: &Path, harp: &Value, vars: &[(&str, &str)]) -> Str
 fn test_mcp_calls_are_served_under_the_configured_tag_schema() {
     let env = Env::new("mcp-test-harp");
     let dir = env.home.path().join(".taskloom");
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(
+    disk::create_dir_all(&dir).unwrap();
+    disk::write(
         dir.join("config.yaml"),
         "tag_schema:\n  - 'tagma.enum:\"team:size\"=\"small,large\"'\n  - 'tagma.hide:\"team:size\"=true'\n",
     )

@@ -2493,7 +2493,6 @@ dependencies = [
  "tasks-config",
  "tasks-mcp",
  "tasks-watch",
- "tempfile",
  "time",
  "tokio",
 ]
