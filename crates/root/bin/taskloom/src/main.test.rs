@@ -47,6 +47,13 @@ fn binary() -> &'static Path {
     })
 }
 
+/// The real filesystem, through the seam: where the binary's processes
+/// run, for what a test lays out for them and reads back. Every path a
+/// test gives it is absolute; its working directory is this crate's.
+pub(crate) fn os() -> std::sync::Arc<dyn file_system::Fs> {
+    std::sync::Arc::new(file_system::Os::new(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap())
+}
+
 /// An isolated home and project directory.
 struct Env {
     home: TempDir,

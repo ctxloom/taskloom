@@ -100,8 +100,14 @@ fn service(
         identity.work_root().ok(),
         vars,
     );
-    Service::new(identity, SqliteStores::default(), HarpNames, System, System)
-        .with_configuration(config)
+    Service::new(
+        identity,
+        SqliteStores::new(Arc::clone(fs)),
+        HarpNames,
+        System,
+        System,
+    )
+    .with_configuration(config)
 }
 
 /// `taskloom import`: the JSONL task logs under `env`'s home imported into
@@ -116,7 +122,7 @@ fn import(
 ) -> ExitCode {
     let mut importer = Importer::new(
         ProjectRegistry::new(Arc::clone(fs), env.clone(), HarpNames),
-        SqliteStores::default(),
+        SqliteStores::new(Arc::clone(fs)),
         System,
         JsonlTaskLogDir::in_home(Arc::clone(fs), env.home.as_deref()),
     );
@@ -260,8 +266,8 @@ fn project_group(
     catalog: &presentation::Catalog,
 ) -> ExitCode {
     let mut projects = Projects::new(
-        ProjectRegistry::new(fs, env, HarpNames),
-        SqliteStores::default(),
+        ProjectRegistry::new(Arc::clone(&fs), env, HarpNames),
+        SqliteStores::new(fs),
     );
     ExitCode::from(project_cli::run(
         group,

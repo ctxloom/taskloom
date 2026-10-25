@@ -2454,9 +2454,9 @@ dependencies = [
  "annals",
  "annals-diagnostic 0.1.0",
  "annals-store-sql",
+ "file-system",
  "fluent-syntax",
  "ports",
- "tempfile",
  "tokio",
 ]
 

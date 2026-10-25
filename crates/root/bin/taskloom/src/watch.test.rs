@@ -246,7 +246,7 @@ mod ticked {
     fn service(project: &Project) -> Real {
         Service::new(
             Here(project.clone()),
-            SqliteStores::default(),
+            SqliteStores::new(crate::tests::os()),
             HarpNames,
             System,
             System,

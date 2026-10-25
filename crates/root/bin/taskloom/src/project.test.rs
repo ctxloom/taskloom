@@ -320,7 +320,7 @@ fn settled(path: &Path) {
         root: "/".to_string(),
         store: path.to_path_buf(),
     };
-    let mut stores = SqliteStores::default();
+    let mut stores = SqliteStores::new(super::os());
     tokio::runtime::Builder::new_current_thread()
         .enable_time()
         .build()

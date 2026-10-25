@@ -9,6 +9,9 @@ use annals_diagnostic::{Arg, Diagnostic};
 pub enum StoreOpenError {
     /// The directory the database goes in could not be made.
     CreateDir { path: String, detail: String },
+    /// The filesystem could not say where the database is on disk, for
+    /// SQLite to open.
+    Unplaced { path: String, detail: String },
     /// No runtime could be started to open the database and check it.
     NoRuntime { detail: String },
 }
@@ -18,6 +21,9 @@ impl fmt::Display for StoreOpenError {
         match self {
             StoreOpenError::CreateDir { path, detail } => {
                 write!(f, "cannot create the store's directory {path}: {detail}")
+            }
+            StoreOpenError::Unplaced { path, detail } => {
+                write!(f, "cannot find where the store {path} is on disk: {detail}")
             }
             StoreOpenError::NoRuntime { detail } => {
                 write!(f, "cannot start a runtime to check the store: {detail}")
@@ -30,13 +36,15 @@ impl Diagnostic for StoreOpenError {
     fn code(&self) -> &'static str {
         match self {
             StoreOpenError::CreateDir { .. } => "task-store-sqlite-create-dir",
+            StoreOpenError::Unplaced { .. } => "task-store-sqlite-unplaced",
             StoreOpenError::NoRuntime { .. } => "task-store-sqlite-no-runtime",
         }
     }
 
     fn args(&self) -> Vec<(&'static str, Arg)> {
         match self {
-            StoreOpenError::CreateDir { path, detail } => vec![
+            StoreOpenError::CreateDir { path, detail }
+            | StoreOpenError::Unplaced { path, detail } => vec![
                 ("path", path.as_str().into()),
                 ("detail", detail.as_str().into()),
             ],
@@ -59,6 +67,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(StoreOpenError::CreateDir {
             path: path(),
             detail: "permission denied".to_string(),
+        }),
+        Box::new(StoreOpenError::Unplaced {
+            path: format!("{}/state.db", path()),
+            detail: "not an absolute path: C:state.db".to_string(),
         }),
         Box::new(StoreOpenError::NoRuntime {
             detail: "too many open files".to_string(),
