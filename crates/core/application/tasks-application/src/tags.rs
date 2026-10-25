@@ -25,6 +25,8 @@ pub const OPERATOR_WORDS: [&str; 3] = ["and", "or", "not"];
 /// Why a tag given to a write was refused.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum TagRefusal {
+    /// Blank: a tag given is never read as none given.
+    Blank,
     /// Not a tag in tagma's grammar: it could never be queried.
     Unparseable { tag: String, detail: String },
     /// `and`, `or` or `not`, which a query always reads as an operator.
@@ -67,6 +69,7 @@ pub enum TagRefusal {
 impl fmt::Display for TagRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            TagRefusal::Blank => f.write_str("a tag was given blank: give one, or leave it out"),
             TagRefusal::Unparseable { tag, detail } => {
                 write!(f, "the tag {tag} is not a tag in tagma's grammar: {detail}")
             }
@@ -123,6 +126,7 @@ impl fmt::Display for TagRefusal {
 impl Diagnostic for TagRefusal {
     fn code(&self) -> &'static str {
         match self {
+            TagRefusal::Blank => "tasks-application-tag-blank",
             TagRefusal::Unparseable { .. } => "tasks-application-tag-unparseable",
             TagRefusal::OperatorWord { .. } => "tasks-application-tag-operator-word",
             TagRefusal::ReservedNamespace { .. } => "tasks-application-tag-reserved-namespace",
@@ -136,6 +140,7 @@ impl Diagnostic for TagRefusal {
     fn args(&self) -> Vec<(&'static str, Arg)> {
         let s = |v: &String| Arg::from(v.as_str());
         match self {
+            TagRefusal::Blank => Vec::new(),
             TagRefusal::Unparseable { tag, detail } => vec![("tag", s(tag)), ("detail", s(detail))],
             TagRefusal::OperatorWord { tag } => vec![("tag", s(tag))],
             TagRefusal::ReservedNamespace { tag, namespace } => {
@@ -204,10 +209,15 @@ pub fn parse(spelled: &str) -> Option<Result<Tag, TagRefusal>> {
     )
 }
 
-/// Every tag `spelled` names, in its order, the empty ones left out;
-/// refused at the first that does not parse.
+/// Every tag `spelled` names, in its order, as a write is given them;
+/// refused at the first that does not parse, or is blank: a tag given is
+/// never read as none (an import, reading what Go wrote, leaves a blank
+/// one out through [`parse`] instead).
 pub fn parse_all(spelled: &[String]) -> Result<Vec<Tag>, TagRefusal> {
-    spelled.iter().filter_map(|s| parse(s)).collect()
+    spelled
+        .iter()
+        .map(|s| parse(s).unwrap_or(Err(TagRefusal::Blank)))
+        .collect()
 }
 
 /// Whether `tag` may be written under `schema`: it could be queried, it
@@ -332,6 +342,7 @@ pub fn collapse(schema: &TagSchema, held: &[Tag], add: Vec<Tag>) -> (Vec<Tag>, V
 pub(crate) fn samples() -> Vec<TagRefusal> {
     let x = || "x".to_string();
     vec![
+        TagRefusal::Blank,
         TagRefusal::Unparseable {
             tag: x(),
             detail: x(),

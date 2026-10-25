@@ -34,7 +34,9 @@ use task_lists::TaskList;
 use tasks::{RemovalReason, RemoveTask, TaskRejection, TaskState, STATUS_CLASS_SIGIL};
 
 use crate::retry::{Outcome, Runner};
-use crate::{book, cover, failed, query, rejected, AppError, Project, Service, Shown, Task, DONE};
+use crate::{
+    book, cover, failed, given, query, rejected, AppError, Project, Service, Shown, Task, DONE,
+};
 
 /// The age a prune takes by default: `--older-than 7d`.
 pub const DEFAULT_OLDER_THAN: &str = "7d";
@@ -53,8 +55,9 @@ pub struct PruneRequest {
     /// least: an offset back from now (`30d`, `12w`, `720h`: durations
     /// with days and weeks), or a date (`2026-01-01`, midnight UTC).
     pub older_than: String,
-    /// A tag query, postfix or infix; empty for none.
-    pub tag_query: String,
+    /// A tag query, postfix or infix; given blank, it is refused
+    /// ([`AppError::Blank`]), never read as none.
+    pub tag_query: Option<String>,
     /// Remove and purge what is selected; without it, only report.
     pub apply: bool,
     /// Configuration overrides, `<path>=<value>` (`--config-set`).
@@ -110,7 +113,8 @@ pub struct Pruning {
     pub statuses: Vec<String>,
     /// The cut: a selected task's status last changed before it.
     pub before: Timestamp,
-    pub tag_query: String,
+    /// The tag query selected by, if one was given.
+    pub tag_query: Option<String>,
     /// Whether the tasks were taken, or only reported.
     pub applied: bool,
     /// The tasks taken (or that would be), in the order added.
@@ -211,7 +215,8 @@ where
     G: Configuration + Send,
 {
     async fn prune(&mut self, request: PruneRequest) -> Result<Pruning, AppError> {
-        query::check(&request.tag_query).map_err(|e| AppError::TagQuery(Report::of(&e)))?;
+        let tag_query = given(request.tag_query.as_deref(), "tag_query")?;
+        query::check(tag_query).map_err(|e| AppError::TagQuery(Report::of(&e)))?;
         let schema = self.schema(&request.config_set)?;
         let statuses = statuses(&request.statuses)?;
         let before = cut(&request.older_than, self.clock.now()).map_err(|e| refused(&e))?;
@@ -261,11 +266,11 @@ where
         let selection = Selection {
             statuses: &pruning.statuses,
             before,
-            tag_query: &request.tag_query,
+            tag_query,
             schema: &schema,
         };
         let matched = query::select(
-            &request.tag_query,
+            tag_query,
             tasks
                 .iter()
                 .map(|t| (t.harp_id.as_str(), t.tags.as_slice())),
@@ -393,7 +398,7 @@ async fn take<S: PurgingStore, C: Clock + CommandIds, D: Delay + Jitter>(
 struct Selection<'a> {
     statuses: &'a [String],
     before: Timestamp,
-    tag_query: &'a str,
+    tag_query: Option<&'a str>,
     schema: &'a crate::TagSchema,
 }
 

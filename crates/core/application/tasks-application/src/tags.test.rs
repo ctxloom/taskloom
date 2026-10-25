@@ -39,15 +39,27 @@ fn test_a_tag_outside_the_grammar_is_refused_with_why() {
 }
 
 #[test]
-fn test_every_tag_is_parsed_in_order_the_empty_ones_left_out() {
+fn test_every_tag_is_parsed_in_order() {
     assert_eq!(
-        parse_all(&strings(&["b", " ", "a=1"])),
+        parse_all(&strings(&["b", "a=1"])),
         Ok(vec![tag(None, "b", None), tag(None, "a", Some("1"))])
     );
     assert!(matches!(
         parse_all(&strings(&["ok", "not/ok", "a b"])),
         Err(TagRefusal::Unparseable { tag, .. }) if tag == "not/ok"
     ));
+}
+
+// A tag given to a write is a tag given: blank, it is refused, never left
+// out, so `--tag "$UNSET"` cannot write a task without the tag it meant.
+#[test]
+fn test_a_blank_tag_given_is_refused_not_left_out() {
+    for blank in ["", "   "] {
+        assert_eq!(
+            parse_all(&strings(&["b", blank, "a=1"])),
+            Err(TagRefusal::Blank)
+        );
+    }
 }
 
 #[test]
@@ -252,8 +264,12 @@ fn test_admitting_every_tag_stops_at_the_first_refused() {
         Err(TagRefusal::NotInEnum { .. })
     ));
     assert_eq!(
-        admit_all(&strings(&["ok", " "]), &triage()),
+        admit_all(&strings(&["ok"]), &triage()),
         Ok(vec![tag(None, "ok", None)])
+    );
+    assert_eq!(
+        admit_all(&strings(&["ok", " "]), &triage()),
+        Err(TagRefusal::Blank)
     );
 }
 

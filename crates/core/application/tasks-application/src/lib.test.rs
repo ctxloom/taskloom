@@ -106,10 +106,10 @@ fn test_an_add_mints_a_harp_and_answers_with_the_task_and_its_project() {
     let task = NewTask {
         project: Some("pinned-id".to_string()),
         text: "Ship it".to_string(),
-        status: "In Progress".to_string(),
-        trigger: String::new(),
+        status: Some("In Progress".to_string()),
+        trigger: None,
         tags: vec!["b".to_string(), "a".to_string()],
-        origin_session: "calm-otter-fox".to_string(),
+        origin_session: Some("calm-otter-fox".to_string()),
         config_set: Vec::new(),
     };
     let written = add(&mut service, task).unwrap();
@@ -156,18 +156,18 @@ fn test_an_add_gives_up_once_every_harp_it_mints_is_taken() {
 // project is bound, a store opened or a harp minted.
 #[test]
 fn test_an_add_the_domain_refuses_is_refused_before_anything_is_bound_or_created() {
-    let deferred = |trigger: &str| NewTask {
-        status: "Deferred".to_string(),
-        trigger: trigger.to_string(),
+    let deferred = |trigger: Option<&str>| NewTask {
+        status: Some("Deferred".to_string()),
+        trigger: trigger.map(str::to_string),
         ..new_task("Revisit")
     };
     let reserved = NewTask {
-        status: "@open".to_string(),
+        status: Some("@open".to_string()),
         ..new_task("Ship it")
     };
     for (task, code) in [
         (new_task("   "), "tasks-text-required"),
-        (deferred(" "), "tasks-trigger-required"),
+        (deferred(None), "tasks-trigger-required"),
         (reserved, "tasks-status-reserved"),
     ] {
         let mut service = service(&["swift-amber"]);
@@ -182,9 +182,62 @@ fn test_an_add_the_domain_refuses_is_refused_before_anything_is_bound_or_created
         assert_eq!(service.names.minted, 0, "no harp minted");
     }
     let mut service = service(&["swift-amber"]);
-    let written = add(&mut service, deferred("the release")).unwrap();
+    let written = add(&mut service, deferred(Some("the release"))).unwrap();
     assert_eq!(written.task.trigger, "the release");
     assert_eq!(service.identity.writes, 1);
+}
+
+// A status, trigger or session given blank is given: refused, never read
+// as one left out (To Do, no trigger, no session), before the
+// configuration is read or anything bound, created or minted.
+#[test]
+fn test_an_add_given_a_blank_status_trigger_or_session_is_refused_before_anything_is_read() {
+    let mut service = configured(&["unreadable"]);
+    for blank in ["", "  "] {
+        let given = || Some(blank.to_string());
+        for (task, field) in [
+            (
+                NewTask {
+                    status: given(),
+                    ..new_task("Ship it")
+                },
+                "status",
+            ),
+            (
+                NewTask {
+                    trigger: given(),
+                    ..new_task("Ship it")
+                },
+                "trigger",
+            ),
+            (
+                NewTask {
+                    origin_session: given(),
+                    ..new_task("Ship it")
+                },
+                "origin_session",
+            ),
+        ] {
+            let error = ready(service.add(task)).unwrap_err();
+            assert_eq!(error, AppError::Blank { field });
+        }
+    }
+    assert!(
+        service.configuration.asked.is_empty(),
+        "no configuration read"
+    );
+    assert!(service.identity.pins.is_empty(), "no project resolved");
+    assert_eq!(service.names.minted, 0, "no harp minted");
+}
+
+// What is left out is the default: To Do, no trigger, no session.
+#[test]
+fn test_an_add_leaving_out_status_trigger_and_session_is_to_do_with_none() {
+    let mut service = service(&["swift-amber"]);
+    let written = add(&mut service, new_task("Ship it")).unwrap();
+    assert_eq!(written.task.status, "To Do");
+    assert_eq!(written.task.trigger, "");
+    assert_eq!(written.task.origin_session, "");
 }
 
 #[test]
@@ -245,6 +298,23 @@ fn test_an_add_with_a_tag_outside_the_grammar_is_refused_and_writes_nothing() {
     assert!(error.to_string().contains("not ok"), "{error}");
     assert!(service.identity.pins.is_empty(), "no project resolved");
     assert!(service.stores.opened.is_empty());
+}
+
+// A blank tag given is refused, never left out: the add it came with would
+// otherwise write a task without the tag it meant.
+#[test]
+fn test_an_add_with_a_blank_tag_is_refused_and_writes_nothing() {
+    for blank in ["", " "] {
+        let mut service = service(&["swift-amber"]);
+        let task = NewTask {
+            tags: vec!["ok".to_string(), blank.to_string()],
+            ..new_task("Ship it")
+        };
+        let error = add(&mut service, task).unwrap_err();
+        assert_eq!(error.code(), "tasks-application-tag-blank");
+        assert!(service.identity.pins.is_empty(), "no project resolved");
+        assert!(service.stores.opened.is_empty());
+    }
 }
 
 #[test]
@@ -516,9 +586,11 @@ fn test_a_tag_changing_nothing_answers_with_the_task_as_it_is() {
 #[test]
 fn test_a_tag_with_nothing_to_add_or_remove_is_refused_before_anything_is_read() {
     let mut service = configured(&["unreadable"]);
-    for (add, remove) in [(&[][..], &[][..]), (&[" "], &[""])] {
+    let error = ready(service.tag(change("swift-amber", &[], &[]))).unwrap_err();
+    assert_eq!(error.code(), "tasks-tag-required");
+    for (add, remove) in [(&[" "][..], &[][..]), (&[][..], &[""][..])] {
         let error = ready(service.tag(change("swift-amber", add, remove))).unwrap_err();
-        assert_eq!(error.code(), "tasks-tag-required");
+        assert_eq!(error.code(), "tasks-application-tag-blank");
     }
     assert!(
         service.configuration.asked.is_empty(),
@@ -610,12 +682,12 @@ fn test_a_tag_whose_store_does_not_open_fails() {
 
 // ------------------------------------------------------------ status
 
-fn moved(harp: &str, status: &str, trigger: &str) -> StatusChange {
+fn moved(harp: &str, status: &str, trigger: Option<&str>) -> StatusChange {
     StatusChange {
         project: Some("pinned-id".to_string()),
         harp_id: harp.to_string(),
         status: status.to_string(),
-        trigger: trigger.to_string(),
+        trigger: trigger.map(str::to_string),
         config_set: Vec::new(),
     }
 }
@@ -624,7 +696,7 @@ fn moved(harp: &str, status: &str, trigger: &str) -> StatusChange {
 fn test_a_status_change_moves_the_task_and_answers_with_it_and_its_project() {
     let mut service = service(&["swift-amber"]);
     add(&mut service, new_task("Ship it")).unwrap();
-    let written = ready(service.set_status(moved("swift-amber", "Done", ""))).unwrap();
+    let written = ready(service.set_status(moved("swift-amber", "Done", None))).unwrap();
     assert_eq!(written.task.status, "Done");
     assert!(written.task.checked);
     assert_eq!(written.project, project());
@@ -639,21 +711,38 @@ fn test_a_status_change_moves_the_task_and_answers_with_it_and_its_project() {
 fn test_deferred_needs_a_trigger_given_or_held() {
     let mut service = service(&["swift-amber"]);
     add(&mut service, new_task("Ship it")).unwrap();
-    let error = ready(service.set_status(moved("swift-amber", "Deferred", " "))).unwrap_err();
+    let error = ready(service.set_status(moved("swift-amber", "Deferred", None))).unwrap_err();
     assert_eq!(error.code(), "tasks-trigger-required");
     let written =
-        ready(service.set_status(moved("swift-amber", "Deferred", "the release"))).unwrap();
+        ready(service.set_status(moved("swift-amber", "Deferred", Some("the release")))).unwrap();
     assert_eq!(written.task.trigger, "the release");
-    ready(service.set_status(moved("swift-amber", "To Do", ""))).unwrap();
-    let again = ready(service.set_status(moved("swift-amber", "Deferred", ""))).unwrap();
+    ready(service.set_status(moved("swift-amber", "To Do", None))).unwrap();
+    let again = ready(service.set_status(moved("swift-amber", "Deferred", None))).unwrap();
     assert_eq!(again.task.trigger, "the release", "kept from before");
+}
+
+// A trigger given blank is given: refused, never read as none (which keeps
+// the one held), before the configuration is read or a project resolved.
+#[test]
+fn test_a_status_change_given_a_blank_trigger_is_refused_before_anything_is_read() {
+    let mut service = configured(&["unreadable"]);
+    for blank in ["", " "] {
+        let change = moved("swift-amber", "Deferred", Some(blank));
+        let error = ready(service.set_status(change)).unwrap_err();
+        assert_eq!(error, AppError::Blank { field: "trigger" });
+    }
+    assert!(
+        service.configuration.asked.is_empty(),
+        "no configuration read"
+    );
+    assert!(service.identity.pins.is_empty(), "no project resolved");
 }
 
 #[test]
 fn test_a_status_class_is_no_status_to_move_to() {
     let mut service = service(&["swift-amber"]);
     add(&mut service, new_task("Ship it")).unwrap();
-    let error = ready(service.set_status(moved("swift-amber", "@open", ""))).unwrap_err();
+    let error = ready(service.set_status(moved("swift-amber", "@open", None))).unwrap_err();
     assert_eq!(error.code(), "tasks-status-reserved");
 }
 
@@ -661,19 +750,19 @@ fn test_a_status_class_is_no_status_to_move_to() {
 fn test_a_status_change_of_no_task_or_where_there_is_none_is_refused() {
     let mut held = service(&["swift-amber"]);
     add(&mut held, new_task("Ship it")).unwrap();
-    let error = ready(held.set_status(moved("calm-otter", "Done", ""))).unwrap_err();
+    let error = ready(held.set_status(moved("calm-otter", "Done", None))).unwrap_err();
     assert_eq!(error.code(), "tasks-no-task");
     let mut nowhere = service(&[]);
     let unpinned = StatusChange {
         project: None,
-        ..moved("swift-amber", "Done", "")
+        ..moved("swift-amber", "Done", None)
     };
     let error = ready(nowhere.set_status(unpinned)).unwrap_err();
     assert_eq!(error, AppError::NoProject);
     assert!(nowhere.stores.opened.is_empty() && nowhere.stores.looked.is_empty());
     let mut storeless = service(&[]);
     storeless.stores.absent = true;
-    let error = ready(storeless.set_status(moved("swift-amber", "Done", ""))).unwrap_err();
+    let error = ready(storeless.set_status(moved("swift-amber", "Done", None))).unwrap_err();
     assert_eq!(error.code(), "tasks-no-task");
     assert!(storeless.stores.opened.is_empty(), "no store created");
 }
@@ -684,7 +773,7 @@ fn test_a_status_change_of_no_task_or_where_there_is_none_is_refused() {
 fn test_a_status_change_or_edit_the_domain_refuses_alone_resolves_nothing() {
     let mut service = configured(&["unreadable"]);
     for status in [" ", "@open"] {
-        let error = ready(service.set_status(moved("swift-amber", status, ""))).unwrap_err();
+        let error = ready(service.set_status(moved("swift-amber", status, None))).unwrap_err();
         assert!(matches!(error, AppError::Rejected(_)), "{error:?}");
     }
     let error = ready(service.edit(edited("swift-amber", " "))).unwrap_err();
@@ -702,7 +791,7 @@ fn test_a_status_change_retries_through_store_failures() {
     let mut service = service(&["swift-amber"]);
     add(&mut service, new_task("Ship it")).unwrap();
     service.stores.store.faults = [Fault::Conflict].into();
-    let written = ready(service.set_status(moved("swift-amber", "Done", ""))).unwrap();
+    let written = ready(service.set_status(moved("swift-amber", "Done", None))).unwrap();
     assert_eq!(written.task.status, "Done");
     assert_eq!(service.delay.slept.len(), 1);
 }
@@ -710,7 +799,7 @@ fn test_a_status_change_retries_through_store_failures() {
 #[test]
 fn test_a_status_change_under_a_malformed_configuration_is_refused() {
     let mut service = configured(&["tagma.arty:x=1"]);
-    let error = ready(service.set_status(moved("swift-amber", "Done", ""))).unwrap_err();
+    let error = ready(service.set_status(moved("swift-amber", "Done", None))).unwrap_err();
     assert_eq!(error.code(), "tasks-application-schema-unknown-facet");
     assert!(service.identity.pins.is_empty());
 }
@@ -730,8 +819,8 @@ fn edited(harp: &str, text: &str) -> TextEdit {
 fn test_an_edit_replaces_the_text_whole_and_keeps_the_status_and_trigger() {
     let mut service = service(&["swift-amber"]);
     let deferred = NewTask {
-        status: "Deferred".to_string(),
-        trigger: "the release".to_string(),
+        status: Some("Deferred".to_string()),
+        trigger: Some("the release".to_string()),
         ..new_task("Ship it")
     };
     let before = add(&mut service, deferred).unwrap();
@@ -775,16 +864,16 @@ fn test_an_edit_to_no_text_or_no_task_is_refused() {
 fn with_every_status() -> Fake {
     let mut service = service(&["to-do", "doing", "deferred", "done", "archived", "other"]);
     for (status, trigger) in [
-        ("To Do", ""),
-        ("In Progress", ""),
-        ("Deferred", "the release"),
-        ("Done", ""),
-        ("Archived", ""),
-        ("Blocked", ""),
+        ("To Do", None),
+        ("In Progress", None),
+        ("Deferred", Some("the release")),
+        ("Done", None),
+        ("Archived", None),
+        ("Blocked", None),
     ] {
         let task = NewTask {
-            status: status.to_string(),
-            trigger: trigger.to_string(),
+            status: Some(status.to_string()),
+            trigger: trigger.map(str::to_string),
             ..new_task(status)
         };
         add(&mut service, task).unwrap();
@@ -828,7 +917,7 @@ fn test_a_list_of_named_statuses_holds_exactly_their_tasks() {
 
 fn queried(query: &str) -> ListQuery {
     ListQuery {
-        tag_query: query.to_string(),
+        tag_query: Some(query.to_string()),
         ..ListQuery::default()
     }
 }
@@ -857,7 +946,7 @@ fn test_not_complements_within_the_listed_tasks() {
     let mut service = service(&["keep-me", "done-urgent"]);
     add(&mut service, new_task("Keep")).unwrap();
     let done = NewTask {
-        status: "Done".to_string(),
+        status: Some("Done".to_string()),
         ..tagged(&["urgent"])
     };
     add(&mut service, done).unwrap();
@@ -972,7 +1061,7 @@ fn test_a_list_whose_store_does_not_open_fails() {
 fn test_an_add_in_a_status_class_is_refused() {
     let mut service = service(&["swift-amber"]);
     let task = NewTask {
-        status: "@terminal".to_string(),
+        status: Some("@terminal".to_string()),
         ..new_task("Ship it")
     };
     let error = add(&mut service, task).unwrap_err();

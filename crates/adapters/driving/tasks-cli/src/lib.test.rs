@@ -289,10 +289,10 @@ fn test_add_joins_its_words_and_passes_its_flags_and_the_session() {
         [NewTask {
             project: Some("pinned".to_string()),
             text: "Ship it".to_string(),
-            status: "Deferred".to_string(),
-            trigger: "later".to_string(),
+            status: Some("Deferred".to_string()),
+            trigger: Some("later".to_string()),
             tags: vec!["a".to_string(), "b".to_string()],
-            origin_session: "cross-proc-harp".to_string(),
+            origin_session: Some("cross-proc-harp".to_string()),
             config_set: vec!["tag_schema=x".to_string(), "homing=home".to_string()],
         }]
     );
@@ -301,7 +301,7 @@ fn test_add_joins_its_words_and_passes_its_flags_and_the_session() {
 }
 
 #[test]
-fn test_add_with_no_flags_leaves_status_trigger_and_tags_empty() {
+fn test_add_with_no_flags_leaves_status_trigger_and_tags_out() {
     let mut fake = Fake {
         written: written(shapes::task("swift-amber", "To Do")),
         ..Fake::default()
@@ -309,9 +309,53 @@ fn test_add_with_no_flags_leaves_status_trigger_and_tags_empty() {
     run_on(&mut fake, true, &["add", "Ship it"]);
     let added = &fake.added[0];
     assert_eq!(added.project, None);
-    assert_eq!(added.status, "");
-    assert_eq!(added.trigger, "");
+    assert_eq!(added.status, None);
+    assert_eq!(added.trigger, None);
     assert!(added.tags.is_empty());
+}
+
+// A flag given empty is given: passed on as given, for the use case to
+// refuse, never read as the flag left out.
+#[test]
+fn test_add_passes_a_flag_given_empty_on_as_given() {
+    let mut fake = Fake {
+        written: written(shapes::task("swift-amber", "To Do")),
+        ..Fake::default()
+    };
+    run_on(
+        &mut fake,
+        true,
+        &[
+            "add",
+            "Ship it",
+            "--status",
+            "",
+            "--trigger",
+            "",
+            "--tag",
+            "",
+        ],
+    );
+    let added = &fake.added[0];
+    assert_eq!(added.status.as_deref(), Some(""));
+    assert_eq!(added.trigger.as_deref(), Some(""));
+    assert_eq!(added.tags, [""]);
+}
+
+// CTXLOOM_SESSION_HARP set empty is unset, as an empty variable of the
+// environment is: no session, never an empty one.
+#[test]
+fn test_add_in_an_empty_session_is_added_in_none() {
+    let mut fake = Fake {
+        written: written(shapes::task("swift-amber", "To Do")),
+        ..Fake::default()
+    };
+    let context = Context {
+        session: String::new(),
+        ..Context::default()
+    };
+    run_in(&context, &mut fake, &["add", "Ship it"]);
+    assert_eq!(fake.added[0].origin_session, None);
 }
 
 #[test]
@@ -465,7 +509,7 @@ fn test_status_passes_its_id_status_and_trigger_and_answers_like_add() {
             project: Some("p".to_string()),
             harp_id: "swift-amber".to_string(),
             status: "Deferred".to_string(),
-            trigger: "the release".to_string(),
+            trigger: Some("the release".to_string()),
             config_set: vec!["tag_schema=x".to_string()],
         }]
     );
@@ -474,7 +518,13 @@ fn test_status_passes_its_id_status_and_trigger_and_answers_like_add() {
     let ran = run_on(&mut fake, false, &["status", "swift-amber", "Done"]);
     let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(json["harp_id"], "swift-amber");
-    assert_eq!(fake.moved[1].trigger, "", "no trigger given");
+    assert_eq!(fake.moved[1].trigger, None, "no trigger given");
+    run_on(
+        &mut fake,
+        true,
+        &["status", "swift-amber", "Done", "--trigger", ""],
+    );
+    assert_eq!(fake.moved[2].trigger.as_deref(), Some(""), "given empty");
 }
 
 #[test]
@@ -868,8 +918,8 @@ fn test_tags_passes_its_filters_and_aligns_its_counts() {
         [ListQuery {
             project: Some("p".to_string()),
             statuses: vec!["@open".to_string(), "Done".to_string()],
-            tag_query: "x".to_string(),
-            term: "ship".to_string(),
+            tag_query: Some("x".to_string()),
+            term: Some("ship".to_string()),
             global: true,
             config_set: vec!["tag_schema=x".to_string()],
             ..ListQuery::default()
@@ -1109,12 +1159,12 @@ fn test_list_passes_its_filters() {
                 "Deferred".to_string()
             ],
             all: true,
-            tag_query: "urgent/not".to_string(),
+            tag_query: Some("urgent/not".to_string()),
             config_set: Vec::new(),
-            term: "docs".to_string(),
+            term: Some("docs".to_string()),
             global: true,
             limit: 5,
-            sort: "priority".to_string(),
+            sort: Some("priority".to_string()),
         }]
     );
     let mut fake = Fake {
@@ -1123,6 +1173,32 @@ fn test_list_passes_its_filters() {
     };
     run_on(&mut fake, true, &["list"]);
     assert_eq!(fake.listed, [ListQuery::default()]);
+}
+
+// A filter given empty is given: passed on as given, for the use case to
+// refuse, never read as the filter left out.
+#[test]
+fn test_list_tags_and_prune_pass_a_filter_given_empty_on_as_given() {
+    let mut fake = Fake {
+        listing: listing(Vec::new()),
+        vocabulary: vocabulary(Reach::NoProject, &[]),
+        pruning: Some(Ok(pruning(true, &[]))),
+        ..Fake::default()
+    };
+    run_on(
+        &mut fake,
+        true,
+        &["list", "--term", "", "--tag-query", "", "--sort", ""],
+    );
+    let given = Some(String::new());
+    assert_eq!(fake.listed[0].term, given);
+    assert_eq!(fake.listed[0].tag_query, given);
+    assert_eq!(fake.listed[0].sort, given);
+    run_on(&mut fake, true, &["tags", "--term", "", "--tag-query", ""]);
+    assert_eq!(fake.counts[0].term, given);
+    assert_eq!(fake.counts[0].tag_query, given);
+    run_on(&mut fake, true, &["prune", "--tag-query", "", "--yes"]);
+    assert_eq!(fake.prunes[0].tag_query, given);
 }
 
 #[test]
@@ -1759,7 +1835,7 @@ fn pruning(applied: bool, taken: &[&str]) -> Pruning {
             seconds: 1_767_225_600,
             nanos: 0,
         },
-        tag_query: String::new(),
+        tag_query: None,
         applied,
         pruned: taken
             .iter()
@@ -1793,7 +1869,7 @@ fn test_prune_by_default_reports_done_tasks_older_than_seven_days() {
             project: None,
             statuses: vec!["Done".to_string()],
             older_than: "7d".to_string(),
-            tag_query: String::new(),
+            tag_query: None,
             apply: false,
             config_set: Vec::new(),
         }]
@@ -1838,7 +1914,7 @@ fn test_prune_passes_its_flags() {
                 "To Do".to_string()
             ],
             older_than: "30d".to_string(),
-            tag_query: "release".to_string(),
+            tag_query: Some("release".to_string()),
             apply: true,
             config_set: vec!["tag_schema=x".to_string()],
         }]

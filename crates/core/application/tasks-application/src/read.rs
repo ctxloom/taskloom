@@ -19,7 +19,7 @@ use crate::view::{
     is_active, is_terminal, Row, StatusInfo, Task, DEFAULT_STATUSES, IN_PROGRESS, OPEN,
     STATUS_CLASSES, TERMINAL,
 };
-use crate::{failed, query, AppError, Project, Service, Shown, Tag};
+use crate::{failed, given, query, AppError, Project, Service, Shown, Tag};
 
 /// What a read reached.
 #[derive(Clone, PartialEq, Debug)]
@@ -206,11 +206,10 @@ impl StatusFilter {
     }
 }
 
-/// Whether `text` holds `term`, case-insensitively; an empty term is
+/// Whether `text` holds `term`, trimmed, case-insensitively; no term is
 /// held by every text.
-pub(crate) fn mentions(text: &str, term: &str) -> bool {
-    let term = term.trim().to_lowercase();
-    term.is_empty() || text.to_lowercase().contains(&term)
+pub(crate) fn mentions(text: &str, term: Option<&str>) -> bool {
+    term.is_none_or(|term| text.to_lowercase().contains(&term.trim().to_lowercase()))
 }
 
 /// The rows of `rows` whose status `filter` holds, whose text mentions
@@ -218,8 +217,8 @@ pub(crate) fn mentions(text: &str, term: &str) -> bool {
 pub(crate) fn matching(
     rows: Vec<Row>,
     filter: &StatusFilter,
-    term: &str,
-    tag_query: &str,
+    term: Option<&str>,
+    tag_query: Option<&str>,
     schema: &crate::TagSchema,
 ) -> Result<Vec<Row>, AppError> {
     let candidates: Vec<Row> = rows
@@ -384,11 +383,13 @@ where
         &mut self,
         query: crate::ListQuery,
     ) -> Result<Vocabulary, AppError> {
-        query::check(&query.tag_query).map_err(|e| AppError::TagQuery(Report::of(&e)))?;
+        let term = given(query.term.as_deref(), "term")?;
+        let tag_query = given(query.tag_query.as_deref(), "tag_query")?;
+        query::check(tag_query).map_err(|e| AppError::TagQuery(Report::of(&e)))?;
         let filter = StatusFilter::parse(&query.statuses)?;
         let schema = self.schema(&query.config_set)?;
         let scan = self.scan(query.project.as_deref(), query.global).await?;
-        let rows = matching(scan.rows, &filter, &query.term, &query.tag_query, &schema)?;
+        let rows = matching(scan.rows, &filter, term, tag_query, &schema)?;
         let shown = Shown::of(&schema);
         let mut counts: BTreeMap<String, TagCount> = BTreeMap::new();
         for row in &rows {
@@ -452,12 +453,14 @@ where
 
     /// The listing `query` asks for.
     pub(crate) async fn listing(&mut self, query: crate::ListQuery) -> Result<Listing, AppError> {
+        let term = given(query.term.as_deref(), "term")?;
+        let tag_query = given(query.tag_query.as_deref(), "tag_query")?;
         // A malformed query is refused whatever there is to run it over.
-        query::check(&query.tag_query).map_err(|e| AppError::TagQuery(Report::of(&e)))?;
-        let by_priority = match query.sort.trim() {
-            "" => false,
-            crate::PRIORITY => true,
-            sort => {
+        query::check(tag_query).map_err(|e| AppError::TagQuery(Report::of(&e)))?;
+        let by_priority = match given(query.sort.as_deref(), "sort")?.map(str::trim) {
+            None => false,
+            Some(crate::PRIORITY) => true,
+            Some(sort) => {
                 return Err(AppError::UnknownSort {
                     sort: sort.to_string(),
                 })
@@ -481,7 +484,7 @@ where
             }
             false => None,
         };
-        let matched = matching(scan.rows, &filter, &query.term, &query.tag_query, &schema)?;
+        let matched = matching(scan.rows, &filter, term, tag_query, &schema)?;
         let mut hidden = Hidden::default();
         let mut rows: Vec<Row> = if query.all || filter.is_explicit() {
             matched
@@ -524,7 +527,7 @@ where
             reach: scan.reach,
             shown: Shown::of(&schema),
             hidden,
-            searched: !query.term.trim().is_empty() || !query.tag_query.trim().is_empty(),
+            searched: term.is_some() || tag_query.is_some(),
             omitted,
             priorities: ranked.as_ref().map(|ranked| rows_priorities(&rows, ranked)),
             priority_notes: ranked.map(|ranked| ranked.notes).unwrap_or_default(),

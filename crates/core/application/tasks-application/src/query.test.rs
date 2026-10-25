@@ -98,7 +98,11 @@ fn go() -> BTreeMap<(String, String), Option<BTreeSet<String>>> {
         .collect()
 }
 
+/// `query` run over `scenario`'s tasks. A case's empty query is Go's
+/// spelling of no query, which here is `None`: an empty one given is
+/// refused before it reaches [`select`] (`AppError::Blank`).
 fn run(scenario: &Scenario, query: &str) -> Result<BTreeSet<String>, QueryError> {
+    let query = Some(query).filter(|q| !q.is_empty());
     let schema = TagSchema::parse(&scenario.schema).expect("the schema parses");
     let candidates = scenario
         .tasks
@@ -139,23 +143,23 @@ fn test_every_query_answers_as_go_taskloom_answers() {
 // A malformed query fails loud, saying how to write one.
 #[test]
 fn test_a_malformed_query_is_refused_with_the_grammar() {
-    let error = check("and").unwrap_err();
+    let error = check(Some("and")).unwrap_err();
     assert_eq!(error.code(), "tasks-application-tag-query");
     assert!(error.to_string().contains(QUERY_GRAMMAR), "{error}");
     assert!(error.to_string().contains("and"), "{error}");
     let names: Vec<&str> = error.args().into_iter().map(|(n, _)| n).collect();
     assert_eq!(names, ["query", "postfix", "infix", "grammar"]);
     assert!(!error.postfix.is_empty() && !error.infix.is_empty());
-    assert_eq!(check(""), Ok(()));
-    assert_eq!(check("urgent and release"), Ok(()));
-    assert_eq!(check("urgent/release/and"), Ok(()));
+    assert_eq!(check(None), Ok(()));
+    assert_eq!(check(Some("urgent and release")), Ok(()));
+    assert_eq!(check(Some("urgent/release/and")), Ok(()));
 }
 
 #[test]
-fn test_an_empty_query_selects_every_candidate() {
+fn test_no_query_selects_every_candidate() {
     let tags = [parse("x").unwrap().unwrap()];
     let selected = select(
-        " ",
+        None,
         [("a", &tags[..]), ("b", &[][..])],
         &TagSchema::default(),
     );
@@ -167,8 +171,8 @@ fn test_an_empty_query_selects_every_candidate() {
 #[test]
 fn test_the_type_declarations_are_never_selected() {
     let schema = TagSchema::parse([r#"tagma.type:"triage:x"=semver"#]).unwrap();
-    let selected = select("*:*", [("a", &[][..])], &schema).unwrap();
+    let selected = select(Some("*:*"), [("a", &[][..])], &schema).unwrap();
     assert_eq!(selected, BTreeSet::from(["a".to_string()]));
-    let selected = select("tagma.type:*", [("a", &[][..])], &schema).unwrap();
+    let selected = select(Some("tagma.type:*"), [("a", &[][..])], &schema).unwrap();
     assert!(selected.is_empty());
 }
