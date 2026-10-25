@@ -375,7 +375,9 @@ fn main() -> ExitCode {
     }
 }
 
-/// The environment's variables whose names and values are UTF-8.
+/// The environment's variables whose names and values are UTF-8. Any other
+/// is dropped without a word: configuration reads only UTF-8, so a
+/// non-UTF-8 `TASKLOOM_CONFIG_*` override is ignored, not refused.
 fn utf8_vars() -> Vec<(String, String)> {
     std::env::vars_os()
         .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
