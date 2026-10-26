@@ -81,8 +81,9 @@ impl<C: Clock, D: Delay + Jitter> Runner<'_, C, D> {
     ) -> Result<Outcome, AppError> {
         let always: Option<&fn(&TaskState) -> bool> = None;
         let outcome = self.run_where(store, book, command_id, always).await?;
-        // Equivalent: with no condition nothing is declined.
-        Ok(outcome.unwrap_or(Outcome::Committed))
+        // With no condition `shaped` always sends the book, so nothing is
+        // declined: a `None` here is a broken invariant, never a commit.
+        Ok(outcome.expect("a command run with no condition is never declined"))
     }
 
     /// [`Runner::run`], if the task on `book`'s stream, read in each
