@@ -21,10 +21,7 @@ use presentation::{Catalog, Format};
 use project_application::{ProjectAdmin, Projects, StoreCheck};
 
 pub use error::{diagnostic_samples, CliError, EN_US};
-pub use render::{
-    change_line, problem_line, ChangeJson, EntryJson, OrphanJson, Orphans, PlanJson, Planned,
-    ProblemJson, Show, ShowJson,
-};
+use render::{Orphans, Planned, Show};
 
 /// The group, mounted as `project`.
 #[derive(Subcommand, Debug, PartialEq, Eq)]
