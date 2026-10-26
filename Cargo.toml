@@ -15,13 +15,14 @@ prost = "0.14"
 prost-types = "0.14"
 angzarr-proto = { version = "0.1", git = "https://github.com/angzarr-io/angzarr-project", rev = "672ed768aa1c8a8e05818c457c757cd406105e55" }
 
-# Local checkouts while annals and the generator change together; each
-# becomes a git dependency pinned by commit once pushed.
-annals = { path = "../../annals/crates/annals" }
-annals-diagnostic = { path = "../../annals/crates/annals-diagnostic" }
+# annals is pinned by full commit; bumps are deliberate commits.
+# angzarr-build is still a local checkout until angzarr-cli's main is
+# reconciled with its origin.
+annals = { git = "https://github.com/benjaminabbitt/annals", rev = "583256c38fb7b61b8cc6704ff050a17a26999a67" }
+annals-diagnostic = { git = "https://github.com/benjaminabbitt/annals", rev = "583256c38fb7b61b8cc6704ff050a17a26999a67" }
 angzarr-build = { path = "../../angzarr/angzarr-cli/main/crates/angzarr-build" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
-annals-store-sql = { path = "../../annals/crates/annals-store-sql", features = ["sqlite"] }
+annals-store-sql = { git = "https://github.com/benjaminabbitt/annals", rev = "583256c38fb7b61b8cc6704ff050a17a26999a67", features = ["sqlite"] }
 tasks = { path = "crates/core/domain/tasks" }
 task-lists = { path = "crates/core/read-model/task-lists" }
 task-priority = { path = "crates/core/read-model/task-priority" }
