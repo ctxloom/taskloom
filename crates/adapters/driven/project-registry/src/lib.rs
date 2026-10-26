@@ -226,11 +226,13 @@ impl<N: Names> ProjectRegistry<N> {
         Ok(id)
     }
 
-    /// A project id `index` does not hold.
+    /// A project id neither `index` nor a database holds: an orphan's
+    /// database (no registry entry names it) still holds its id's tasks.
     fn mint(&mut self, index: &index::Index) -> Result<String, RegistryError> {
+        let projects = self.home()?.join(".ctxloom").join("projects");
         for _ in 0..MINT_ATTEMPTS {
             let id = self.names.project_id();
-            if !index.holds(&id) {
+            if !index.holds(&id) && !projects.join(&id).exists() {
                 return Ok(id);
             }
         }

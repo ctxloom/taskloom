@@ -480,6 +480,19 @@ fn test_a_mint_skips_ids_already_registered() {
     assert_eq!(world.index().projects.len(), 2);
 }
 
+// An orphan's database (a projects/<id>/ directory no registry entry
+// names) holds that id's tasks: a new tree minted onto it would take them.
+#[test]
+fn test_a_mint_skips_ids_an_orphaned_database_holds() {
+    let world = World::new();
+    fs::create_dir_all(world.home.path().join(".ctxloom/projects/orphan-id")).unwrap();
+    let project = world
+        .registry(&["orphan-id", "free-id"])
+        .for_write(None)
+        .unwrap();
+    assert_eq!(project.id, "free-id");
+}
+
 #[test]
 fn test_a_mint_gives_up_when_every_id_is_taken() {
     let world = World::new();
