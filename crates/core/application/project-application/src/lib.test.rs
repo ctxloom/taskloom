@@ -28,13 +28,7 @@ impl ProjectAdmin for Fake {
         }
     }
 
-    fn apply(
-        &mut self,
-        pinned: Option<&str>,
-        seen: &Survey,
-        changes: &[Change],
-    ) -> Result<(), Report> {
-        assert_eq!(pinned, None, "changes are made for the directory, unpinned");
+    fn apply(&mut self, seen: &Survey, changes: &[Change]) -> Result<(), Report> {
         self.applied.push((seen.clone(), changes.to_vec()));
         Ok(())
     }

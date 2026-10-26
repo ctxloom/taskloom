@@ -85,11 +85,13 @@ enum Mounted {
 
 /// The tasks use cases over the real adapters, configured from the work
 /// root's config, as one call or command needs them. `vars` are the
-/// environment's, as the config reads them.
+/// environment's, as the config reads them; `config_set` the global
+/// `--config-set` overrides, applied last.
 fn service(
     fs: &Arc<dyn Fs>,
     env: &Environment,
     vars: Vec<(String, String)>,
+    config_set: Vec<String>,
 ) -> Service<ProjectRegistry<HarpNames>, SqliteStores, HarpNames, System, System, TaskloomConfig> {
     let identity = ProjectRegistry::new(Arc::clone(fs), env.clone(), HarpNames);
     // The work root's config, where there is a work root: a command that
@@ -99,6 +101,7 @@ fn service(
         env.home.clone(),
         identity.work_root().ok(),
         vars,
+        config_set,
     );
     Service::new(
         identity,
@@ -144,11 +147,12 @@ fn serve_mcp(
     env: Environment,
     settings: tasks_mcp::Settings,
     catalog: presentation::Catalog,
+    config_set: Vec<String>,
 ) -> ExitCode {
     let catalog = Arc::new(catalog);
     let vars = utf8_vars();
     let tools = tasks_mcp::TaskTools::new(
-        move || service(&fs, &env, vars.clone()),
+        move || service(&fs, &env, vars.clone(), config_set.clone()),
         settings,
         Arc::clone(&catalog),
     );
@@ -265,8 +269,9 @@ fn project_group(
     settings: &project_cli::Settings,
     catalog: &presentation::Catalog,
 ) -> ExitCode {
+    // Surveying and changing the registry mints nothing: no names.
     let mut projects = Projects::new(
-        ProjectRegistry::new(Arc::clone(&fs), env, HarpNames),
+        ProjectRegistry::new(Arc::clone(&fs), env, ()),
         SqliteStores::new(fs),
     );
     ExitCode::from(project_cli::run(
@@ -339,7 +344,7 @@ fn main() -> ExitCode {
     };
     let group = match command {
         Command::Tasks(command) => {
-            let mut service = service(&fs, &env, utf8_vars());
+            let mut service = service(&fs, &env, utf8_vars(), globals.config_set.clone());
             return ExitCode::from(runtime.block_on(tasks_cli::run(
                 command,
                 globals,
@@ -357,6 +362,7 @@ fn main() -> ExitCode {
         Err(code) => return ExitCode::from(code),
     };
     let project = globals.project;
+    let config_set = globals.config_set;
     match group {
         Mounted::Import(tasks_cli::ImportGroup::Import) => {
             import(&runtime, &fs, &env, project, format, &catalog)
@@ -379,7 +385,7 @@ fn main() -> ExitCode {
                 name: tasks_cli::PROG.to_string(),
                 version: context.version,
             };
-            serve_mcp(runtime, fs, env, settings, catalog)
+            serve_mcp(runtime, fs, env, settings, catalog, config_set)
         }
         Mounted::Watch(tasks_watch::Group::Watch) => {
             let settings = tasks_watch::Settings {
@@ -389,7 +395,7 @@ fn main() -> ExitCode {
             };
             watch(
                 &runtime,
-                &mut service(&fs, &env, utf8_vars()),
+                &mut service(&fs, &env, utf8_vars(), config_set),
                 &settings,
                 &catalog,
             )
@@ -411,7 +417,9 @@ fn filesystem(cwd: &Result<PathBuf, String>) -> Option<Arc<dyn Fs>> {
     }
 }
 
-/// The environment's variables whose names and values are UTF-8.
+/// The environment's variables whose names and values are UTF-8. Any other
+/// is dropped without a word: configuration reads only UTF-8, so a
+/// non-UTF-8 `TASKLOOM_CONFIG_*` override is ignored, not refused.
 fn utf8_vars() -> Vec<(String, String)> {
     std::env::vars_os()
         .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))

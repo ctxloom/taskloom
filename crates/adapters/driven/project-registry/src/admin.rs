@@ -7,14 +7,14 @@ use std::path::{Path, PathBuf};
 
 use annals_diagnostic::Report;
 use file_system::{Fs, Kind};
-use ports::{Change, Names, Project, ProjectAdmin, Registered, Survey};
+use ports::{Change, Project, ProjectAdmin, Registered, Survey};
 
 use crate::worktree::is;
 use crate::{
     id, index, legacy_marker, marker, read_marker, write_marker, ProjectRegistry, RegistryError,
 };
 
-impl<N: Names> ProjectRegistry<N> {
+impl<N> ProjectRegistry<N> {
     /// The directory projects' databases are kept in.
     fn projects_dir(&self) -> Result<PathBuf, RegistryError> {
         Ok(self.home()?.join(".ctxloom").join("projects"))
@@ -59,28 +59,18 @@ impl<N: Names> ProjectRegistry<N> {
         databases(&*self.fs, &projects)?
             .into_iter()
             .map(|id| {
-                let root = registry
-                    .projects
-                    .iter()
-                    .find(|e| e.project_id == id)
-                    .map(|e| self.canonical(Path::new(&e.path)).display().to_string())
-                    .unwrap_or_default();
+                let root = registry.root_of(&*self.fs, &id);
                 let store = projects.join(&id).join("state.db");
                 Ok(Project { id, root, store })
             })
             .collect()
     }
 
-    fn apply_changes(
-        &self,
-        pinned: Option<&str>,
-        seen: &Survey,
-        changes: &[Change],
-    ) -> Result<(), RegistryError> {
+    fn apply_changes(&self, seen: &Survey, changes: &[Change]) -> Result<(), RegistryError> {
         let projects = self.projects_dir()?;
         let path = projects.join("index.yaml");
         let _locked = index::lock_within(&*self.fs, &path, self.lock_wait)?;
-        if self.survey_of(pinned)? != *seen {
+        if self.survey_of(None)? != *seen {
             return Err(RegistryError::Changed);
         }
         let mut registry = index::load(&*self.fs, &path)?;
@@ -119,20 +109,16 @@ impl<N: Names> ProjectRegistry<N> {
     }
 }
 
-impl<N: Names> ProjectAdmin for ProjectRegistry<N> {
+// No Names bound: surveying and changing the registry never mints an id.
+impl<N> ProjectAdmin for ProjectRegistry<N> {
     fn survey(&mut self, pinned: Option<&str>) -> Result<Survey, Report> {
         self.survey_of(pinned).map_err(|e| Report::of(&e))
     }
 
     /// The registry's changes are saved first, in one write; then the
     /// markers are written and the databases removed, in order.
-    fn apply(
-        &mut self,
-        pinned: Option<&str>,
-        seen: &Survey,
-        changes: &[Change],
-    ) -> Result<(), Report> {
-        self.apply_changes(pinned, seen, changes)
+    fn apply(&mut self, seen: &Survey, changes: &[Change]) -> Result<(), Report> {
+        self.apply_changes(seen, changes)
             .map_err(|e| Report::of(&e))
     }
 }

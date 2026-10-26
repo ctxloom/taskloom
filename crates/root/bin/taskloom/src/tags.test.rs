@@ -109,6 +109,28 @@ fn test_a_scalar_tag_displaces_its_old_value() {
     );
 }
 
+// One write giving a scalar target two values is refused, on add and on
+// tag alike; the task keeps the value it held.
+#[test]
+fn test_two_values_for_a_scalar_target_in_one_write_are_refused() {
+    let env = Env::new("calm-otter-fox");
+    let two = ["--tag", "triage:level=3", "--tag", "triage:level=1"];
+    let ran = env.run(&[&["add", "Ship it", "--json"][..], &two[..]].concat());
+    assert!(!ran.ok);
+    assert_eq!(code(&ran.stderr), "tasks-application-tag-scalar-conflict");
+    let task = env.seed("Ship it");
+    let harp = task["harp_id"].as_str().unwrap();
+    let ran = env.run(&["tag", harp, "--add", "triage:level=3", "--json"]);
+    assert!(ran.ok, "{}", ran.stderr);
+    let both = ["--add", "triage:level=2", "--add", "triage:level=1"];
+    let ran = env.run(&[&["tag", harp, "--json"][..], &both[..]].concat());
+    assert!(!ran.ok);
+    assert_eq!(code(&ran.stderr), "tasks-application-tag-scalar-conflict");
+    let listed = env.list();
+    assert_eq!(listed.len(), 1, "the refused add wrote nothing");
+    assert_eq!(listed[0]["tags"], serde_json::json!(["triage:level=3"]));
+}
+
 #[test]
 fn test_list_selects_by_a_tag_query_postfix_or_infix() {
     let env = Env::new("calm-otter-fox");

@@ -4,5 +4,6 @@ parents:
   - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/agent-ensemble@branch:main#profiles/coordinator
 bundles:
   - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/unattended
+  - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/tdd
   - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/taskloom
   - ctxloom+local:project#fragments/taskloom-architecture

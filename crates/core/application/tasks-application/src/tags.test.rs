@@ -39,15 +39,27 @@ fn test_a_tag_outside_the_grammar_is_refused_with_why() {
 }
 
 #[test]
-fn test_every_tag_is_parsed_in_order_the_empty_ones_left_out() {
+fn test_every_tag_is_parsed_in_order() {
     assert_eq!(
-        parse_all(&strings(&["b", " ", "a=1"])),
+        parse_all(&strings(&["b", "a=1"])),
         Ok(vec![tag(None, "b", None), tag(None, "a", Some("1"))])
     );
     assert!(matches!(
         parse_all(&strings(&["ok", "not/ok", "a b"])),
         Err(TagRefusal::Unparseable { tag, .. }) if tag == "not/ok"
     ));
+}
+
+// A tag given to a write is a tag given: blank, it is refused, never left
+// out, so `--tag "$UNSET"` cannot write a task without the tag it meant.
+#[test]
+fn test_a_blank_tag_given_is_refused_not_left_out() {
+    for blank in ["", "   "] {
+        assert_eq!(
+            parse_all(&strings(&["b", blank, "a=1"])),
+            Err(TagRefusal::Blank)
+        );
+    }
 }
 
 #[test]
@@ -64,8 +76,9 @@ fn test_a_refusal_renders_its_english() {
 
 // ------------------------------------------------------------ admission
 
-use super::{admit, admit_all, collapse};
+use super::{admit, admit_all, check_scalars, collapse};
 use crate::schema::TagSchema;
+use annals_diagnostic::Diagnostic as _;
 
 fn refused(spelled: &str, schema: &TagSchema) -> Option<TagRefusal> {
     match parse(spelled)? {
@@ -252,8 +265,12 @@ fn test_admitting_every_tag_stops_at_the_first_refused() {
         Err(TagRefusal::NotInEnum { .. })
     ));
     assert_eq!(
-        admit_all(&strings(&["ok", " "]), &triage()),
+        admit_all(&strings(&["ok"]), &triage()),
         Ok(vec![tag(None, "ok", None)])
+    );
+    assert_eq!(
+        admit_all(&strings(&["ok", " "]), &triage()),
+        Err(TagRefusal::Blank)
     );
 }
 
@@ -320,4 +337,44 @@ fn test_an_undeclared_or_bare_target_keeps_every_value() {
 fn test_a_valueless_scalar_tag_displaces_a_valued_one() {
     let (_, displaced) = collapse(&scalar(), &tags(&["triage:type=a"]), tags(&["triage:type"]));
     assert_eq!(displaced, tags(&["triage:type=a"]));
+}
+
+// ------------------------------------------------------------ check_scalars
+
+#[test]
+fn test_two_values_given_one_scalar_target_conflict() {
+    assert_eq!(
+        check_scalars(
+            &scalar(),
+            &tags(&["triage:type=a", "x", "triage:type=b", "triage:type=c"])
+        ),
+        Err(TagRefusal::ScalarConflict {
+            target: "triage:type".to_string(),
+            first: "triage:type=a".to_string(),
+            second: "triage:type=b".to_string(),
+        })
+    );
+}
+
+#[test]
+fn test_one_value_given_twice_however_spelled_is_no_conflict() {
+    let given = tags(&["triage:type=a", "triage:type=\"a\"", "x"]);
+    assert_eq!(check_scalars(&scalar(), &given), Ok(()));
+}
+
+#[test]
+fn test_a_valueless_and_a_valued_scalar_tag_conflict() {
+    let refusal = check_scalars(&scalar(), &tags(&["triage:type", "triage:type=a"]));
+    assert_eq!(
+        refusal.map_err(|r| r.code()),
+        Err("tasks-application-tag-scalar-conflict")
+    );
+}
+
+#[test]
+fn test_an_undeclared_or_bare_target_takes_many_values() {
+    let given = tags(&["area:x=1", "area:x=2", "type=a", "type=b"]);
+    assert_eq!(check_scalars(&scalar(), &given), Ok(()));
+    let given = tags(&["triage:type=a", "triage:type=b"]);
+    assert_eq!(check_scalars(&TagSchema::default(), &given), Ok(()));
 }

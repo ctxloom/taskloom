@@ -31,7 +31,8 @@ pub enum AppError {
     GaveUp { attempts: u32, error: Report },
     /// Every freshly minted task id was already taken.
     HarpsExhausted { attempts: u32 },
-    /// A task the store accepted is not there when read back.
+    /// A task the store accepted is not there when read back: removed
+    /// between the commit and the read-back, so the write did land.
     Vanished { harp_id: String },
     /// A change to an existing task where the work root has no project.
     NoProject,
@@ -39,6 +40,10 @@ pub enum AppError {
     UnknownStatusClass { status: String },
     /// A sort taskloom does not know.
     UnknownSort { sort: String },
+    /// A value given blank (`field` names it, as a request does: `status`,
+    /// `trigger`, `origin_session`, `term`, `tag_query`, `sort`): a value
+    /// given is never read as one left out.
+    Blank { field: &'static str },
     /// Priority could not be derived (`task_priority::PriorityError`): a
     /// formula that does not compile, or a task it cannot score.
     Priority(Report),
@@ -96,6 +101,9 @@ impl fmt::Display for AppError {
             AppError::UnknownSort { sort } => {
                 write!(f, "{sort} is no sort: the only one is priority")
             }
+            AppError::Blank { field } => {
+                write!(f, "the {field} given is blank: give one, or leave it out")
+            }
             AppError::NotFound { harp_ids } => write!(
                 f,
                 "no task holds these harp ids: {} (see `taskloom list`)",
@@ -127,6 +135,7 @@ impl Diagnostic for AppError {
             AppError::NoProject => "tasks-application-no-project",
             AppError::UnknownStatusClass { .. } => "tasks-application-unknown-status-class",
             AppError::UnknownSort { .. } => "tasks-application-unknown-sort",
+            AppError::Blank { .. } => "tasks-application-blank",
             AppError::NotFound { .. } => "tasks-application-not-found",
             AppError::Ambiguous { .. } => "tasks-application-ambiguous",
         }
@@ -154,6 +163,7 @@ impl Diagnostic for AppError {
                 ("classes", crate::read::classes().into()),
             ],
             AppError::UnknownSort { sort } => vec![("sort", sort.as_str().into())],
+            AppError::Blank { field } => vec![("field", (*field).into())],
             AppError::NotFound { harp_ids } => vec![
                 ("harp_ids", quoted(harp_ids).into()),
                 ("count", harp_ids.len().into()),
@@ -192,6 +202,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             harp_id: "swift-amber".to_string(),
         }),
         Box::new(AppError::NoProject),
+        Box::new(crate::DeadLetter {
+            line: "DEAD LETTER (almost certainly a bug): x".to_string(),
+        }),
         Box::new(crate::import::NoJsonlLog {
             project: "jolly-mute-magma".to_string(),
         }),
@@ -201,6 +214,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(AppError::UnknownSort {
             sort: "age".to_string(),
         }),
+        Box::new(AppError::Blank { field: "trigger" }),
         Box::new(AppError::NotFound {
             harp_ids: vec!["swift-amber".to_string(), "calm-otter".to_string()],
         }),

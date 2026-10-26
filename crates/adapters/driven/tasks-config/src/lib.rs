@@ -58,22 +58,27 @@ pub struct TaskloomConfig {
     home: Option<PathBuf>,
     root: Option<PathBuf>,
     env: Vec<(String, String)>,
+    overrides: Vec<String>,
 }
 
 impl TaskloomConfig {
     /// Configuration read from `home`'s and `root`'s config files on `fs`,
-    /// when they are known, and from `env`, the process's environment.
+    /// when they are known, and from `env`, the process's environment, with
+    /// `overrides` (`<path>=<value>`, as `--config-set` gives them)
+    /// applied last: bound once, where the configuration is made.
     pub fn new(
         fs: Arc<dyn Fs>,
         home: Option<PathBuf>,
         root: Option<PathBuf>,
         env: Vec<(String, String)>,
+        overrides: Vec<String>,
     ) -> Self {
         TaskloomConfig {
             fs,
             home,
             root,
             env,
+            overrides,
         }
     }
 
@@ -85,7 +90,7 @@ impl TaskloomConfig {
             .map(|dir| dir.join(DIR).join(FILE))
     }
 
-    fn resolve(&self, overrides: &[String]) -> Result<Vec<String>, ConfigError> {
+    fn resolve(&self) -> Result<Vec<String>, ConfigError> {
         let mut tag_schema = Vec::new();
         for path in self.files() {
             if let Some(list) = read(&*self.fs, &path)?.tag_schema {
@@ -100,7 +105,7 @@ impl TaskloomConfig {
                 tag_schema = list;
             }
         }
-        for entry in overrides {
+        for entry in &self.overrides {
             let (path, value) = entry
                 .split_once('=')
                 .filter(|(path, _)| !path.trim().is_empty())
@@ -117,8 +122,8 @@ impl TaskloomConfig {
 }
 
 impl Configuration for TaskloomConfig {
-    fn tag_schema(&mut self, overrides: &[String]) -> Result<Vec<String>, Report> {
-        self.resolve(overrides).map_err(|e| Report::of(&e))
+    fn tag_schema(&mut self) -> Result<Vec<String>, Report> {
+        self.resolve().map_err(|e| Report::of(&e))
     }
 }
 

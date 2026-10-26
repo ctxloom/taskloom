@@ -1,5 +1,6 @@
 tasks-harp-id-required = a task needs a harp id
 tasks-not-its-stream = task { $harp_id } does not belong in this stream
+tasks-no-root = task { $harp_id } has no stream to belong in: its root cannot be derived ({ $cause })
 tasks-task-exists = task { $harp_id } already exists
 tasks-no-task = there is no such task
 tasks-removed = task { $harp_id } was removed

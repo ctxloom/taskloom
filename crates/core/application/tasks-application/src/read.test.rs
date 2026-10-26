@@ -36,11 +36,11 @@ pub(crate) fn named(id: &str) -> Project {
 
 /// Add a task of `text` in `status` (a trigger given for Deferred).
 pub(crate) fn add(service: &mut Fake, text: &str, status: &str) {
-    let trigger = if status == "Deferred" { "later" } else { "" };
+    let trigger = (status == "Deferred").then(|| "later".to_string());
     let task = NewTask {
         text: text.to_string(),
-        status: status.to_string(),
-        trigger: trigger.to_string(),
+        status: Some(status.to_string()),
+        trigger,
         ..NewTask::default()
     };
     ready(service.add(task)).unwrap();
@@ -123,10 +123,10 @@ fn test_a_class_no_one_knows_is_refused_before_anything_is_read() {
 fn test_a_term_keeps_the_tasks_whose_text_mentions_it_in_any_case() {
     let mut service = service(&["first", "second", "third"]);
     for text in ["Ship the DOCS", "fix docs", "other"] {
-        add(&mut service, text, "");
+        add(&mut service, text, "To Do");
     }
     let query = ListQuery {
-        term: " Docs ".to_string(),
+        term: Some(" Docs ".to_string()),
         ..ListQuery::default()
     };
     assert_eq!(ids(&mut service, query), ["first", "second"]);
@@ -138,7 +138,7 @@ fn test_a_term_keeps_the_tasks_whose_text_mentions_it_in_any_case() {
 fn test_a_search_says_what_the_default_view_hid_of_its_matches() {
     let mut service = with_every_status();
     let query = ListQuery {
-        term: "e".to_string(),
+        term: Some("e".to_string()),
         ..ListQuery::default()
     };
     let listing = ready(service.list(query)).unwrap();
@@ -157,7 +157,7 @@ fn test_a_search_says_what_the_default_view_hid_of_its_matches() {
     let plain = ready(service.list(ListQuery::default())).unwrap();
     assert!(!plain.searched);
     let tagged = ListQuery {
-        tag_query: "x/not".to_string(),
+        tag_query: Some("x/not".to_string()),
         ..ListQuery::default()
     };
     assert!(ready(service.list(tagged)).unwrap().searched);
@@ -205,7 +205,7 @@ fn test_a_limit_keeps_the_first_tasks_and_counts_the_rest() {
 
 fn by_priority() -> ListQuery {
     ListQuery {
-        sort: " priority ".to_string(),
+        sort: Some(" priority ".to_string()),
         ..ListQuery::default()
     }
 }
@@ -255,7 +255,7 @@ fn test_an_unsorted_listing_has_no_priority() {
 fn test_priority_ranks_a_task_against_its_whole_project_not_the_page() {
     let mut service = with_levels();
     let query = ListQuery {
-        term: "low".to_string(),
+        term: Some("low".to_string()),
         ..by_priority()
     };
     let listing = ready(service.list(query)).unwrap();
@@ -278,8 +278,8 @@ fn test_the_limit_takes_the_highest_priorities() {
 #[test]
 fn test_a_ranking_that_means_little_says_so() {
     let mut service = service(&["a", "b"]);
-    add(&mut service, "a", "");
-    add(&mut service, "b", "");
+    add(&mut service, "a", "To Do");
+    add(&mut service, "b", "To Do");
     let listing = ready(service.list(by_priority())).unwrap();
     let warned: Vec<&PriorityWarning> = listing.priority_notes.iter().map(|n| &n.warning).collect();
     assert_eq!(
@@ -325,7 +325,7 @@ fn test_every_project_is_ranked_in_its_own_section() {
 struct Malformed;
 
 impl ports::Configuration for Malformed {
-    fn tag_schema(&mut self, _: &[String]) -> Result<Vec<String>, annals_diagnostic::Report> {
+    fn tag_schema(&mut self) -> Result<Vec<String>, annals_diagnostic::Report> {
         Ok(vec![r#"tagma.priority_fn:"triage:kind"="1 +""#.to_string()])
     }
 }
@@ -345,7 +345,7 @@ fn test_a_formula_that_does_not_compile_refuses_the_sort() {
 fn test_an_unknown_sort_is_refused_before_anything_is_read() {
     let mut service = service(&[]);
     let query = ListQuery {
-        sort: "age".to_string(),
+        sort: Some("age".to_string()),
         ..ListQuery::default()
     };
     assert_eq!(
@@ -355,11 +355,63 @@ fn test_an_unknown_sort_is_refused_before_anything_is_read() {
         }
     );
     assert!(service.identity.pins.is_empty());
-    let blank = ListQuery {
-        sort: " ".to_string(),
-        ..ListQuery::default()
-    };
-    assert!(ready(service.list(blank)).is_ok());
+    assert!(ready(service.list(ListQuery::default())).is_ok(), "no sort");
+}
+
+// A term, tag query or sort given blank is given: refused, never read as
+// none, before anything is read; a listing and a count of tags alike.
+#[test]
+fn test_a_blank_term_tag_query_or_sort_given_is_refused_before_anything_is_read() {
+    let mut service = service(&[]);
+    for blank in ["", "  "] {
+        let given = || Some(blank.to_string());
+        for (query, field) in [
+            (
+                ListQuery {
+                    term: given(),
+                    ..ListQuery::default()
+                },
+                "term",
+            ),
+            (
+                ListQuery {
+                    tag_query: given(),
+                    ..ListQuery::default()
+                },
+                "tag_query",
+            ),
+            (
+                ListQuery {
+                    sort: given(),
+                    ..ListQuery::default()
+                },
+                "sort",
+            ),
+        ] {
+            let error = ready(service.list(query)).unwrap_err();
+            assert_eq!(error, AppError::Blank { field });
+        }
+        for (query, field) in [
+            (
+                ListQuery {
+                    term: given(),
+                    ..ListQuery::default()
+                },
+                "term",
+            ),
+            (
+                ListQuery {
+                    tag_query: given(),
+                    ..ListQuery::default()
+                },
+                "tag_query",
+            ),
+        ] {
+            let error = ready(service.tags(query)).unwrap_err();
+            assert_eq!(error, AppError::Blank { field });
+        }
+    }
+    assert!(service.identity.pins.is_empty(), "no project resolved");
 }
 
 // ------------------------------------------------------------ reach
@@ -375,10 +427,10 @@ fn with_two_projects() -> Fake {
             .insert(id.to_string(), Flaky::default());
     }
     service.identity.bound = Some(named("zulu-proj"));
-    add(&mut service, "in zulu", "");
+    add(&mut service, "in zulu", "To Do");
     service.identity.bound = Some(named("alpha-proj"));
-    add(&mut service, "in alpha", "");
-    add(&mut service, "in alpha too", "");
+    add(&mut service, "in alpha", "To Do");
+    add(&mut service, "in alpha too", "To Do");
     service.identity.bound = None;
     service.stores.absent = true;
     service.identity.every = vec![named("alpha-proj"), named("empty-proj"), named("zulu-proj")];
@@ -461,7 +513,7 @@ fn test_a_tag_query_over_every_project_tells_their_tasks_apart() {
     let mut service = with_two_projects();
     let query = ListQuery {
         global: true,
-        tag_query: "x/not".to_string(),
+        tag_query: Some("x/not".to_string()),
         ..ListQuery::default()
     };
     assert_eq!(ready(service.list(query)).unwrap().rows.len(), 3);
@@ -516,10 +568,10 @@ fn test_show_across_projects_fails_on_an_id_two_hold_naming_them() {
             .insert(id.to_string(), Flaky::default());
     }
     service.identity.bound = Some(named("alpha-proj"));
-    add(&mut service, "in alpha", "");
-    add(&mut service, "in alpha too", "");
+    add(&mut service, "in alpha", "To Do");
+    add(&mut service, "in alpha too", "To Do");
     service.identity.bound = Some(named("zulu-proj"));
-    add(&mut service, "in zulu", "");
+    add(&mut service, "in zulu", "To Do");
     service.identity.every = vec![named("alpha-proj"), named("zulu-proj")];
     let global = ShowQuery {
         global: true,
@@ -653,11 +705,11 @@ fn test_the_statuses_in_use_follow_the_defaults_by_name_each_once() {
 // ------------------------------------------------------------ tags
 
 fn tagged(service: &mut Fake, text: &str, status: &str, tags: &[&str]) {
-    let trigger = if status == "Deferred" { "later" } else { "" };
+    let trigger = (status == "Deferred").then(|| "later".to_string());
     let task = NewTask {
         text: text.to_string(),
-        status: status.to_string(),
-        trigger: trigger.to_string(),
+        status: Some(status.to_string()),
+        trigger,
         tags: tags.iter().map(|t| t.to_string()).collect(),
         ..NewTask::default()
     };
@@ -701,7 +753,7 @@ fn test_the_tags_counted_are_those_of_the_tasks_selected() {
     tagged(&mut service, "other", "Done", &["release", "x"]);
     tagged(&mut service, "ship code", "Done", &["y"]);
     let by_term = ListQuery {
-        term: "SHIP".to_string(),
+        term: Some("SHIP".to_string()),
         ..ListQuery::default()
     };
     assert_eq!(
@@ -717,7 +769,7 @@ fn test_the_tags_counted_are_those_of_the_tasks_selected() {
         [count("release", 0, 1), count("x", 0, 1), count("y", 0, 1)]
     );
     let by_query = ListQuery {
-        tag_query: "x".to_string(),
+        tag_query: Some("x".to_string()),
         ..ListQuery::default()
     };
     assert_eq!(
@@ -731,7 +783,6 @@ fn test_a_tag_the_schema_hides_is_not_counted() {
     let mut service = service(&["first"]);
     tagged(&mut service, "a", "To Do", &["triage:kind=chore", "x"]);
     let query = ListQuery {
-        config_set: vec!["unused".to_string()],
         ..ListQuery::default()
     };
     let mut hiding = service.with_configuration(Hides);
@@ -748,7 +799,7 @@ fn test_a_tag_the_schema_hides_is_not_counted() {
 struct Hides;
 
 impl ports::Configuration for Hides {
-    fn tag_schema(&mut self, _: &[String]) -> Result<Vec<String>, annals_diagnostic::Report> {
+    fn tag_schema(&mut self) -> Result<Vec<String>, annals_diagnostic::Report> {
         Ok(vec![r#"tagma.hide:"triage:*"=true"#.to_string()])
     }
 }
@@ -758,7 +809,7 @@ fn test_a_tags_read_refuses_a_malformed_query_or_class_before_reading() {
     let mut service = service(&[]);
     for query in [
         ListQuery {
-            tag_query: "x/and".to_string(),
+            tag_query: Some("x/and".to_string()),
             ..ListQuery::default()
         },
         statuses(&["@nope"]),
@@ -774,7 +825,7 @@ fn test_a_tags_read_refuses_a_malformed_query_or_class_before_reading() {
 struct Enum;
 
 impl ports::Configuration for Enum {
-    fn tag_schema(&mut self, _: &[String]) -> Result<Vec<String>, annals_diagnostic::Report> {
+    fn tag_schema(&mut self) -> Result<Vec<String>, annals_diagnostic::Report> {
         Ok(vec![r#"tagma.enum:"area:x"="a,b""#.to_string()])
     }
 }

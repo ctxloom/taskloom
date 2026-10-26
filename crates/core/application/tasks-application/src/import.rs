@@ -44,6 +44,7 @@ use tasks::{
     AddTask, EditText, RemovalReason, RemoveTask, Retag, SetStatus, TaskCommand, TaskRejection,
 };
 
+use crate::dead_letter::{DeadLetter, DeadLetters};
 use crate::retry::Backoff;
 use crate::tags::{self, Tag, TagRefusal};
 use crate::{book, cover, registry, retry, text_hash, AppError};
@@ -54,10 +55,13 @@ pub struct ImportRequest {
     pub project: Option<String>,
 }
 
-/// What an import did, project by project.
+/// What an import did, project by project, and the dead letters annals'
+/// kernel wrote while it ran (almost certainly bugs, for the caller to say
+/// loudly).
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct ImportReport {
     pub projects: Vec<ProjectImport>,
+    pub dead_letters: Vec<DeadLetter>,
 }
 
 impl ImportReport {
@@ -214,6 +218,9 @@ pub struct Importer<I, S, D, L> {
     pub jsonl_logs: L,
     pub backoff: Backoff,
     registry: annals::next::Registry,
+    /// The log annals' kernel writes dead letters to, taken into the
+    /// report.
+    pub(crate) dead_letters: DeadLetters,
 }
 
 impl<I, S, D, L> Importer<I, S, D, L> {
@@ -225,6 +232,7 @@ impl<I, S, D, L> Importer<I, S, D, L> {
             jsonl_logs,
             backoff: Backoff::DEFAULT,
             registry: registry(),
+            dead_letters: DeadLetters::default(),
         }
     }
 }
@@ -252,6 +260,7 @@ where
             }
             report.projects.push(project);
         }
+        report.dead_letters = self.dead_letters.take();
         Ok(report)
     }
 }
@@ -326,6 +335,7 @@ where
                 clock: &mut at,
                 delay: &mut self.delay,
                 backoff: self.backoff,
+                dead_letters: &self.dead_letters,
             };
             let book = book(&record.task, command);
             match runner

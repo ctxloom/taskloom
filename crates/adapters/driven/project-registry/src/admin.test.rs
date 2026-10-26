@@ -30,7 +30,7 @@ impl World {
     fn apply(&self, changes: &[Change]) -> Result<(), annals_diagnostic::Report> {
         let mut registry = self.registry(&[]);
         let seen = registry.survey(None).unwrap();
-        registry.apply(None, &seen, changes)
+        registry.apply(&seen, changes)
     }
 }
 
@@ -218,7 +218,6 @@ fn test_a_stale_survey_changes_nothing() {
     let seen = registry.survey(None).unwrap();
     world.write(&world.tree().join(".project-id"), "raced-in\n");
     let refused = registry.apply(
-        None,
         &seen,
         &[Change::Register {
             id: s("planned"),
@@ -280,7 +279,7 @@ fn test_removing_what_is_not_a_database_directory_is_refused() {
     for id in ["link-id", "file-id"] {
         let mut registry = world.registry(&[]);
         let seen = registry.survey(None).unwrap();
-        let refused = registry.apply(None, &seen, &[Change::RemoveDatabase { id: s(id) }]);
+        let refused = registry.apply(&seen, &[Change::RemoveDatabase { id: s(id) }]);
         assert_eq!(
             refused.unwrap_err().code(),
             "project-registry-not-a-database",
@@ -305,13 +304,13 @@ fn test_a_change_is_made_under_the_registry_lock() {
         id: s("a"),
         path: s("/p"),
     }];
-    let refused = registry.apply(None, &seen, &change);
+    let refused = registry.apply(&seen, &change);
     assert_eq!(refused.unwrap_err().code(), "project-registry-lock-timeout");
     assert!(world.index().projects.is_empty());
     drop(held);
     // A change waits as it does in use: a child forked by another thread
     // here (git) can hold the released lock until it execs.
     let mut registry = registry.with_lock_wait(index::LOCK_WAIT);
-    registry.apply(None, &seen, &change).unwrap();
+    registry.apply(&seen, &change).unwrap();
     assert_eq!(world.index().projects.len(), 1);
 }

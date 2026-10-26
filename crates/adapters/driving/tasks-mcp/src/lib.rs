@@ -22,7 +22,8 @@ mod resources;
 mod tools;
 
 use std::future::Future;
-use std::sync::Arc;
+use std::io::{self, Write};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use clap::Subcommand;
 use presentation::Catalog;
@@ -35,9 +36,10 @@ use rmcp::model::{
 use rmcp::service::RequestContext;
 use rmcp::transport::IntoTransport;
 use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceExt};
-use tasks_application::TaskService;
+use tasks_application::{DeadLetter, TaskService};
 
-pub use error::{diagnostic_samples, McpError, McpNotice, EN_US};
+use error::McpNotice;
+pub use error::{diagnostic_samples, McpError, EN_US};
 pub use resources::RESOURCES;
 
 /// The server's instructions to its client, with the reviewed factual
@@ -70,6 +72,17 @@ pub struct Settings {
     pub version: String,
 }
 
+impl Settings {
+    /// The session a task is added in: none where CTXLOOM_SESSION_HARP is
+    /// unset, or set empty, as an empty variable of the environment is
+    /// unset.
+    pub fn session(&self) -> Option<String> {
+        Some(self.session.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    }
+}
+
 /// The server: tools over use cases, each call served by a service
 /// `services` makes for it.
 pub struct TaskTools<F> {
@@ -78,6 +91,9 @@ pub struct TaskTools<F> {
     catalog: Arc<Catalog>,
     tools: Vec<Tool>,
     resources: Vec<Resource>,
+    /// Where what must not go unsaid but is no tool's answer (a dead
+    /// letter) is written: the process's stderr, the server's log.
+    stderr: Arc<Mutex<Box<dyn Write + Send>>>,
 }
 
 impl<F> TaskTools<F> {
@@ -89,6 +105,26 @@ impl<F> TaskTools<F> {
             catalog,
             tools: tools::offered(),
             resources: resources::offered(),
+            stderr: Arc::new(Mutex::new(Box::new(io::stderr()))),
+        }
+    }
+
+    /// The same server, writing what it says on stderr to `stderr`.
+    pub fn with_stderr(self, stderr: impl Write + Send + 'static) -> TaskTools<F> {
+        TaskTools {
+            stderr: Arc::new(Mutex::new(Box::new(stderr))),
+            ..self
+        }
+    }
+
+    /// Say each dead letter annals' kernel wrote on stderr, as the command
+    /// line says it: almost certainly a bug, so never left unsaid. A
+    /// stderr that cannot be written fails no call.
+    fn dead_lettered(&self, letters: &[DeadLetter]) {
+        let mut stderr = self.stderr.lock().unwrap_or_else(PoisonError::into_inner);
+        for letter in letters {
+            let message = self.catalog.message(letter);
+            let _ = writeln!(stderr, "{}: {message}", self.settings.name);
         }
     }
 }
@@ -182,7 +218,9 @@ where
                 })
             }
         };
-        Ok(tools::written(&written.map_err(McpError::App)?))
+        let written = written.map_err(McpError::App)?;
+        self.dead_lettered(&written.dead_letters);
+        Ok(tools::written(&written))
     }
 
     /// `task_list`: the listing, and with `include_summary` the summary of
@@ -218,7 +256,7 @@ where
         match uri {
             resources::TAG_SCHEMA => {
                 let schema = self
-                    .on_its_own(|mut service| async move { service.tag_schema(Vec::new()).await })
+                    .on_its_own(|mut service| async move { service.tag_schema().await })
                     .await?
                     .map_err(McpError::App)?;
                 Ok(resources::schema_text(&schema))

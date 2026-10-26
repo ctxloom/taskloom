@@ -12,16 +12,26 @@ use tasks_application::{
 
 use crate::prune::{apply_command, PruneReport};
 use crate::render::{Added, Counted, Detailed, Linted, Listed, Summed, Tagged, Taxonomy};
-use crate::{notify, output_failed, wrote, CliError, Notice};
+use crate::{dead_lettered, notify, output_failed, wrote, CliError, Notice};
 
 /// What every task command is handed besides its own arguments: the
 /// global flags, the format, the catalog and the session.
 pub(crate) struct Ctx<'a> {
     pub project: Option<String>,
-    pub config_set: Vec<String>,
     pub format: Format,
     pub catalog: &'a Catalog,
     pub session: &'a str,
+}
+
+impl Ctx<'_> {
+    /// The session a task is added in: none where CTXLOOM_SESSION_HARP is
+    /// unset, or set empty, as an empty variable of the environment is
+    /// unset.
+    fn session(&self) -> Option<String> {
+        Some(self.session)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    }
 }
 
 #[derive(Args, Debug)]
@@ -30,11 +40,11 @@ pub struct AddArgs {
     #[arg(required = true, num_args = 1..)]
     text: Vec<String>,
     /// Initial status (default: "To Do").
-    #[arg(long, default_value = "", hide_default_value = true)]
-    status: String,
+    #[arg(long)]
+    status: Option<String>,
     /// Revive condition for a Deferred task (required when --status Deferred).
-    #[arg(long, default_value = "", hide_default_value = true)]
-    trigger: String,
+    #[arg(long)]
+    trigger: Option<String>,
     /// Tag to set at creation (repeatable).
     #[arg(long = "tag")]
     tags: Vec<String>,
@@ -47,14 +57,14 @@ pub(crate) async fn add(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<(), CliError> {
+    let origin_session = ctx.session();
     let task = NewTask {
         project: ctx.project,
         text: args.text.join(" "),
         status: args.status,
         trigger: args.trigger,
         tags: args.tags,
-        origin_session: ctx.session.to_string(),
-        config_set: ctx.config_set,
+        origin_session,
     };
     let written = service.add(task).await.map_err(CliError::App)?;
     wrote(
@@ -75,8 +85,8 @@ pub struct StatusArgs {
     status: String,
     /// Revive condition, when the status is Deferred; a task re-deferred
     /// keeps the one it has.
-    #[arg(long, default_value = "", hide_default_value = true)]
-    trigger: String,
+    #[arg(long)]
+    trigger: Option<String>,
 }
 
 pub(crate) async fn status(
@@ -91,7 +101,6 @@ pub(crate) async fn status(
         harp_id: args.harp_id,
         status: args.status,
         trigger: args.trigger,
-        config_set: ctx.config_set,
     };
     let written = service.set_status(change).await.map_err(CliError::App)?;
     wrote(
@@ -125,7 +134,6 @@ pub(crate) async fn edit(
         project: ctx.project,
         harp_id: args.harp_id,
         text: args.text.join(" "),
-        config_set: ctx.config_set,
     };
     let written = service.edit(edit).await.map_err(CliError::App)?;
     wrote(
@@ -162,7 +170,6 @@ pub(crate) async fn tag(
         harp_id: args.harp_id,
         add: args.add,
         remove: args.remove,
-        config_set: ctx.config_set,
     };
     let written = service.tag(change).await.map_err(CliError::App)?;
     let view = Tagged(&written.task, &written.shown);
@@ -177,8 +184,8 @@ pub struct ListArgs {
     #[arg(long, value_delimiter = ',')]
     status: Vec<String>,
     /// Only tasks whose text holds this, in any case.
-    #[arg(long, default_value = "", hide_default_value = true)]
-    term: String,
+    #[arg(long)]
+    term: Option<String>,
     /// Include the tasks hidden by default: Done, Archived and Deferred.
     #[arg(long)]
     all: bool,
@@ -188,8 +195,8 @@ pub struct ListArgs {
     /// The order: priority, highest first, each project's tasks ranked
     /// against all of its own; the default is the order added (across
     /// projects, by project and then id).
-    #[arg(long, default_value = "", hide_default_value = true)]
-    sort: String,
+    #[arg(long)]
+    sort: Option<String>,
     /// In JSON, each task as its id, status, checked, tags and headline;
     /// text is one line per task already.
     #[arg(long)]
@@ -203,8 +210,8 @@ pub struct ListArgs {
     /// and not release). Operators: and, or, not; atoms [ns:]key[op value]
     /// with op one of = != > >= < <= ~, and * (any) or + (present) for a
     /// namespace, key or value.
-    #[arg(long = "tag-query", default_value = "", hide_default_value = true)]
-    tag_query: String,
+    #[arg(long = "tag-query")]
+    tag_query: Option<String>,
 }
 
 pub(crate) async fn list(
@@ -219,7 +226,6 @@ pub(crate) async fn list(
         statuses: args.status,
         all: args.all,
         tag_query: args.tag_query,
-        config_set: ctx.config_set,
         term: args.term,
         global: args.global,
         limit: args.limit,
@@ -258,7 +264,6 @@ pub(crate) async fn show(
         project: ctx.project,
         global: args.global,
         harp_ids: args.harp_ids,
-        config_set: ctx.config_set,
     };
     let details = service.show(query).await.map_err(CliError::App)?;
     read_in(&details.reach, ctx.catalog, err)
@@ -278,7 +283,6 @@ impl GlobalArgs {
         Scope {
             project: ctx.project,
             global: self.global,
-            config_set: ctx.config_set,
         }
     }
 }
@@ -331,11 +335,11 @@ pub struct TagsArgs {
     status: Vec<String>,
     /// Count only the tasks whose text holds this, in any case (it narrows
     /// the tasks, never the tags' names).
-    #[arg(long, default_value = "", hide_default_value = true)]
-    term: String,
+    #[arg(long)]
+    term: Option<String>,
     /// Count only the tasks this tag query selects (see `list --help`).
-    #[arg(long = "tag-query", default_value = "", hide_default_value = true)]
-    tag_query: String,
+    #[arg(long = "tag-query")]
+    tag_query: Option<String>,
     /// Every project's tags, not just this project's.
     #[arg(long)]
     global: bool,
@@ -352,7 +356,6 @@ pub(crate) async fn tags(
         project: ctx.project,
         statuses: args.status,
         tag_query: args.tag_query,
-        config_set: ctx.config_set,
         term: args.term,
         global: args.global,
         ..ListQuery::default()
@@ -401,8 +404,8 @@ pub struct PruneArgs {
     #[arg(long, value_delimiter = ',', default_values = DEFAULT_PRUNE_STATUSES)]
     status: Vec<String>,
     /// Only tasks matching this tag query (see list --tag-query).
-    #[arg(long = "tag-query", default_value = "", hide_default_value = true)]
-    tag_query: String,
+    #[arg(long = "tag-query")]
+    tag_query: Option<String>,
     /// Remove and purge; without it prune only reports what it would.
     #[arg(long)]
     yes: bool,
@@ -418,20 +421,20 @@ pub(crate) async fn prune(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<(), CliError> {
-    let apply = apply_command(&args.older_than, &args.status, &args.tag_query);
+    let apply = apply_command(&args.older_than, &args.status, args.tag_query.as_deref());
     let request = PruneRequest {
         project: ctx.project,
         statuses: args.status,
         older_than: args.older_than,
         tag_query: args.tag_query,
         apply: args.yes,
-        config_set: ctx.config_set,
     };
     let (format, catalog) = (ctx.format, ctx.catalog);
     let pruning = service.prune(request).await.map_err(CliError::App)?;
     if pruning.project.is_none() {
         notify(&Notice::NothingToPrune, catalog, err).map_err(output_failed)?;
     }
+    dead_lettered(&pruning.dead_letters, catalog, err).map_err(output_failed)?;
     presentation::render(out, format, &PruneReport(&pruning)).map_err(output_failed)?;
     if pruning.applied || pruning.pruned.is_empty() {
         return Ok(());

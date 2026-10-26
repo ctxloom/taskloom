@@ -68,7 +68,7 @@ pub struct ProjectRegistry<N> {
     lock_wait: Duration,
 }
 
-impl<N: Names> ProjectRegistry<N> {
+impl<N> ProjectRegistry<N> {
     pub fn new(fs: Arc<dyn Fs>, env: Environment, names: N) -> Self {
         ProjectRegistry {
             fs,
@@ -178,12 +178,15 @@ impl<N: Names> ProjectRegistry<N> {
         })
     }
 
-    /// The id given explicitly: the pin, else CTXLOOM_PROJECT_ID.
+    /// The id given explicitly: the pin, else CTXLOOM_PROJECT_ID. A pin is
+    /// held to [`id::valid`] whatever it is, so an empty one is refused,
+    /// never read as no pin; an empty CTXLOOM_PROJECT_ID is unset, as an
+    /// empty variable of the environment is.
     pub(crate) fn pinned(
         &self,
         pinned: Option<&str>,
     ) -> Result<Option<(String, IdSource)>, RegistryError> {
-        if let Some(id) = pinned.filter(|p| !p.is_empty()) {
+        if let Some(id) = pinned {
             return id::valid(id, "--project").map(|id| Some((id, IdSource::Flag)));
         }
         match self.env.project_id.as_deref().filter(|p| !p.is_empty()) {
@@ -216,7 +219,10 @@ impl<N: Names> ProjectRegistry<N> {
             .id_for(&*self.fs, root)
             .map(|id| (id.to_string(), IdSource::Registry)))
     }
+}
 
+/// Resolving may bind a new project, minting its id from `names`.
+impl<N: Names> ProjectRegistry<N> {
     /// Bind the work root to a project id under the registry's lock: the
     /// one another process bound while this one waited, else a new one.
     fn bind(&mut self, root: &Path) -> Result<String, RegistryError> {
@@ -233,11 +239,13 @@ impl<N: Names> ProjectRegistry<N> {
         Ok(id)
     }
 
-    /// A project id `index` does not hold.
+    /// A project id neither `index` nor a database holds: an orphan's
+    /// database (no registry entry names it) still holds its id's tasks.
     fn mint(&mut self, index: &index::Index) -> Result<String, RegistryError> {
+        let projects = self.home()?.join(".ctxloom").join("projects");
         for _ in 0..MINT_ATTEMPTS {
             let id = self.names.project_id();
-            if !index.holds(&id) {
+            if !index.holds(&id) && !self.exists(&projects.join(&id)) {
                 return Ok(id);
             }
         }
@@ -246,19 +254,27 @@ impl<N: Names> ProjectRegistry<N> {
         })
     }
 
+    /// The project a call acts on. A pinned one (the pin, else
+    /// CTXLOOM_PROJECT_ID) is resolved first, walking no working
+    /// directory: it is rooted where the registry first holds it, or
+    /// nowhere (an empty root), as [`ProjectIdentity::every_project`]
+    /// roots each project. Otherwise the identity root's, bound to a new
+    /// id on a write that finds none.
     fn resolve(
         &mut self,
         pinned: Option<&str>,
         write: bool,
     ) -> Result<Option<Project>, RegistryError> {
+        if let Some((id, _)) = self.pinned(pinned)? {
+            let index = index::load(&*self.fs, &index::path(self.home()?))?;
+            let root = index.root_of(&*self.fs, &id);
+            return self.project(id, Path::new(&root)).map(Some);
+        }
         let root = self.identity_root()?;
-        let id = match self.pinned(pinned)? {
+        let id = match self.bound(&root, write)? {
             Some((id, _)) => Some(id),
-            None => match self.bound(&root, write)? {
-                Some((id, _)) => Some(id),
-                None if write => Some(self.bind(&root)?),
-                None => None,
-            },
+            None if write => Some(self.bind(&root)?),
+            None => None,
         };
         id.map(|id| self.project(id, &root)).transpose()
     }

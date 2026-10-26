@@ -265,10 +265,67 @@ fn test_a_pinned_id_wins_over_the_environment_and_the_marker() {
     let mut registry = ProjectRegistry::new(world.fs(), env, names(&[]));
     let project = registry.for_write(Some("from-flag")).unwrap();
     assert_eq!(project.id, "from-flag");
-    assert_eq!(project.root, text(&world.tree()));
+    assert_eq!(project.root, "", "registered nowhere: no root");
     assert_eq!(project.store, world.store("from-flag"));
     let read = registry.for_read(Some("from-flag")).unwrap().unwrap();
     assert_eq!(read, project);
+}
+
+// A pinned project's root is the registry's first path for it, as every
+// project's is, never the working directory's: the working directory is
+// another project's, or none.
+#[test]
+fn test_a_pinned_projects_root_is_its_first_registered_path() {
+    let world = World::new();
+    let elsewhere = PathBuf::from("/elsewhere");
+    world.fs.create_dir_all(&elsewhere, Mode::DIR).unwrap();
+    let mut index = index::Index::default();
+    index.register("here-proj-id", &text(&world.tree()));
+    index.register("pinned-proj-id", &text(&elsewhere));
+    index.register("pinned-proj-id", "/second");
+    world.save(&index);
+    let mut env = world.env();
+    env.project_id = Some("pinned-proj-id".to_string());
+    let mut registry = ProjectRegistry::new(world.fs(), env, names(&[]));
+    let read = registry.for_read(None).unwrap().unwrap();
+    assert_eq!(
+        (read.id.as_str(), read.root),
+        ("pinned-proj-id", text(&elsewhere))
+    );
+    let written = registry.for_write(Some("pinned-proj-id")).unwrap();
+    assert_eq!(written.root, text(&elsewhere));
+    assert_eq!(
+        registry.for_read(None).unwrap().unwrap().root,
+        text(&elsewhere)
+    );
+}
+
+// A pinned call walks no working directory: it resolves from one that
+// is gone, where an unpinned call fails.
+#[test]
+fn test_a_pinned_call_resolves_from_a_working_directory_that_is_gone() {
+    let world = World::new();
+    let mut env = world.env();
+    env.cwd = Err("No such file or directory (os error 2)".to_string());
+    let mut registry = ProjectRegistry::new(world.fs(), env.clone(), names(&[]));
+    let read = registry.for_read(Some("pinned-proj-id")).unwrap().unwrap();
+    assert_eq!(
+        (read.id.as_str(), read.root.as_str()),
+        ("pinned-proj-id", "")
+    );
+    let written = registry.for_write(Some("pinned-proj-id")).unwrap();
+    assert_eq!(written.store, world.store("pinned-proj-id"));
+    env.project_id = Some("env-proj-id".to_string());
+    let mut registry = ProjectRegistry::new(world.fs(), env, names(&[]));
+    assert_eq!(registry.for_read(None).unwrap().unwrap().id, "env-proj-id");
+    let error = world_unpinned(&world).for_read(None).unwrap_err();
+    assert_eq!(error.code(), "project-registry-no-cwd");
+}
+
+fn world_unpinned(world: &World) -> ProjectRegistry<Scripted> {
+    let mut env = world.env();
+    env.cwd = Err("gone".to_string());
+    ProjectRegistry::new(world.fs(), env, names(&[]))
 }
 
 #[test]
@@ -279,7 +336,22 @@ fn test_ctxloom_project_id_wins_over_the_marker() {
     env.project_id = Some("from-env".to_string());
     let mut registry = ProjectRegistry::new(world.fs(), env, names(&[]));
     assert_eq!(registry.for_read(None).unwrap().unwrap().id, "from-env");
-    assert_eq!(registry.for_read(Some("")).unwrap().unwrap().id, "from-env");
+}
+
+// A pin given empty is a pin given: refused, never read as no pin, so
+// `--project "$UNSET"` cannot fall through to another project.
+#[test]
+fn test_an_empty_pinned_id_is_refused_not_read_as_unpinned() {
+    let world = World::new();
+    let mut env = world.env();
+    env.project_id = Some("from-env".to_string());
+    let mut registry = ProjectRegistry::new(world.fs(), env, names(&["minted-id"]));
+    let error = registry.for_read(Some("")).unwrap_err();
+    assert_eq!(error.code(), "project-registry-invalid-id");
+    assert!(error.to_string().contains("--project"), "{error}");
+    let error = registry.for_write(Some("")).unwrap_err();
+    assert_eq!(error.code(), "project-registry-invalid-id");
+    assert!(world.index().projects.is_empty(), "nothing bound");
 }
 
 #[test]
@@ -476,6 +548,22 @@ fn test_a_mint_skips_ids_already_registered() {
         .unwrap();
     assert_eq!(project.id, "free-id");
     assert_eq!(world.index().projects.len(), 2);
+}
+
+// An orphan's database (a projects/<id>/ directory no registry entry
+// names) holds that id's tasks: a new tree minted onto it would take them.
+#[test]
+fn test_a_mint_skips_ids_an_orphaned_database_holds() {
+    let world = World::new();
+    world
+        .fs
+        .create_dir_all(&world.home().join(".ctxloom/projects/orphan-id"), Mode::DIR)
+        .unwrap();
+    let project = world
+        .registry(&["orphan-id", "free-id"])
+        .for_write(None)
+        .unwrap();
+    assert_eq!(project.id, "free-id");
 }
 
 #[test]

@@ -12,7 +12,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 name = "agent-configs"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "file-lock",
  "file-system",
  "fluent-syntax",
@@ -83,9 +83,10 @@ dependencies = [
 [[package]]
 name = "annals"
 version = "0.1.0"
+source = "git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67#583256c38fb7b61b8cc6704ff050a17a26999a67"
 dependencies = [
  "angzarr-proto",
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "prost",
  "prost-types",
 ]
@@ -93,6 +94,7 @@ dependencies = [
 [[package]]
 name = "annals-diagnostic"
 version = "0.1.0"
+source = "git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67#583256c38fb7b61b8cc6704ff050a17a26999a67"
 
 [[package]]
 name = "annals-diagnostic"
@@ -102,9 +104,10 @@ source = "git+https://github.com/benjaminabbitt/annals?rev=8a328c8d0fd70a0b43fbf
 [[package]]
 name = "annals-store-sql"
 version = "0.1.0"
+source = "git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67#583256c38fb7b61b8cc6704ff050a17a26999a67"
 dependencies = [
  "annals",
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "prost",
  "sea-query",
  "sea-query-binder",
@@ -528,7 +531,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 name = "file-lock"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "file-system",
  "fluent-syntax",
  "fs4",
@@ -1092,7 +1095,7 @@ name = "jsonl-task-log"
 version = "0.1.0"
 dependencies = [
  "annals",
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "file-system",
  "fluent-syntax",
  "ports",
@@ -1443,7 +1446,7 @@ name = "ports"
 version = "0.1.0"
 dependencies = [
  "annals",
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
 ]
 
 [[package]]
@@ -1474,7 +1477,7 @@ dependencies = [
 name = "presentation"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "fluent-bundle",
  "fluent-syntax",
  "serde",
@@ -1516,7 +1519,7 @@ dependencies = [
 name = "project-application"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "fluent-syntax",
  "ports",
 ]
@@ -1525,7 +1528,7 @@ dependencies = [
 name = "project-cli"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "clap",
  "fluent-syntax",
  "presentation",
@@ -1538,7 +1541,7 @@ dependencies = [
 name = "project-registry"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "file-lock",
  "file-system",
  "fluent-syntax",
@@ -1771,7 +1774,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 name = "registration-application"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "fluent-syntax",
  "ports",
 ]
@@ -1780,7 +1783,7 @@ dependencies = [
 name = "registration-cli"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "clap",
  "fluent-syntax",
  "mutants",
@@ -2416,10 +2419,12 @@ dependencies = [
 [[package]]
 name = "tagma-core"
 version = "0.1.0"
+source = "git+https://github.com/benjaminabbitt/tagma?rev=c5ecbbdfafaf2fba42357fff88875a2b47e2e149#c5ecbbdfafaf2fba42357fff88875a2b47e2e149"
 
 [[package]]
 name = "tagma-proto"
 version = "0.1.0"
+source = "git+https://github.com/benjaminabbitt/tagma?rev=c5ecbbdfafaf2fba42357fff88875a2b47e2e149#c5ecbbdfafaf2fba42357fff88875a2b47e2e149"
 dependencies = [
  "prost",
  "prost-build",
@@ -2439,7 +2444,7 @@ name = "task-priority"
 version = "0.1.0"
 dependencies = [
  "annals",
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "expr-lang",
  "fluent-syntax",
  "mutants",
@@ -2452,7 +2457,7 @@ name = "task-store-sqlite"
 version = "0.1.0"
 dependencies = [
  "annals",
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "annals-store-sql",
  "file-system",
  "fluent-syntax",
@@ -2466,7 +2471,7 @@ version = "0.1.0"
 dependencies = [
  "agent-configs",
  "annals",
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "annals-store-sql",
  "clap",
  "file-lock",
@@ -2503,7 +2508,7 @@ version = "0.1.0"
 dependencies = [
  "angzarr-build",
  "annals",
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "fluent-syntax",
  "mutants",
  "prost",
@@ -2517,7 +2522,7 @@ name = "tasks-application"
 version = "0.1.0"
 dependencies = [
  "annals",
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "fluent-syntax",
  "mutants",
  "ports",
@@ -2532,7 +2537,7 @@ dependencies = [
 name = "tasks-cli"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "clap",
  "fluent-syntax",
  "presentation",
@@ -2546,7 +2551,7 @@ dependencies = [
 name = "tasks-config"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "file-system",
  "fluent-syntax",
  "ports",
@@ -2559,7 +2564,7 @@ name = "tasks-mcp"
 version = "0.1.0"
 dependencies = [
  "annals",
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "clap",
  "fluent-syntax",
  "mutants",
@@ -2599,7 +2604,7 @@ dependencies = [
 name = "tasks-watch"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
  "clap",
  "fluent-syntax",
  "presentation",
