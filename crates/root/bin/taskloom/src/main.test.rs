@@ -365,6 +365,88 @@ fn test_a_task_added_is_listed_in_text_with_its_project() {
     );
 }
 
+// "" is never "not given": a value given empty is refused, in its
+// envelope, and nothing is written or pruned for it; one left out is the
+// default. An empty CTXLOOM_SESSION_HARP or CTXLOOM_PROJECT_ID is unset.
+#[test]
+fn test_a_value_given_empty_is_refused_never_read_as_left_out() {
+    let env = Env::new("empty-harp");
+    let seeded = env.seed("Shipped");
+    let harp = seeded["harp_id"].as_str().unwrap().to_string();
+    let done = env.run(&["status", &harp, "Done", "--json"]);
+    assert!(done.ok, "{}", done.stderr);
+    for (args, code) in [
+        (vec!["add", "x", "--status", ""], "tasks-application-blank"),
+        (
+            vec!["add", "x", "--trigger", " "],
+            "tasks-application-blank",
+        ),
+        (vec!["add", "x", "--tag", ""], "tasks-application-tag-blank"),
+        (
+            vec!["--project", "", "add", "x"],
+            "project-registry-invalid-id",
+        ),
+        (
+            vec!["status", &harp, "Deferred", "--trigger", ""],
+            "tasks-application-blank",
+        ),
+        (
+            vec!["tag", &harp, "--add", "ok", "--remove", ""],
+            "tasks-application-tag-blank",
+        ),
+        (vec!["list", "--term", ""], "tasks-application-blank"),
+        (vec!["list", "--tag-query", ""], "tasks-application-blank"),
+        (vec!["list", "--sort", ""], "tasks-application-blank"),
+        (vec!["tags", "--tag-query", ""], "tasks-application-blank"),
+        (vec!["--project", "", "list"], "project-registry-invalid-id"),
+        (
+            vec![
+                "prune",
+                "--older-than",
+                "2999-01-01",
+                "--tag-query",
+                "",
+                "--yes",
+            ],
+            "tasks-application-blank",
+        ),
+    ] {
+        let mut args = args.clone();
+        args.push("--json");
+        let ran = env.run(&args);
+        assert!(!ran.ok, "{args:?}: {}", ran.stdout);
+        assert_eq!(ran.stdout, "", "{args:?}");
+        let envelope: Value = serde_json::from_str(&ran.stderr).unwrap();
+        assert_eq!(envelope["code"], code, "{args:?}: {envelope}");
+    }
+    let listed = env.run(&["list", "--all", "--json"]).json();
+    assert_eq!(
+        listed.as_array().unwrap().len(),
+        1,
+        "nothing added or pruned"
+    );
+    assert_eq!(listed[0]["status"], "Done", "nothing moved: {listed}");
+    assert_eq!(listed[0]["tags"], serde_json::json!([]), "nothing tagged");
+
+    let unset = [("CTXLOOM_SESSION_HARP", ""), ("CTXLOOM_PROJECT_ID", "")];
+    let added = env.run_with(&["add", "x", "--json"], &unset);
+    assert!(added.ok, "{}", added.stderr);
+    assert_eq!(added.json()["origin_session"], "", "{}", added.stdout);
+    assert!(
+        added.stderr.contains(&*seeded_project(&env)),
+        "{}",
+        added.stderr
+    );
+}
+
+/// The project id the work root is bound to.
+fn seeded_project(env: &Env) -> String {
+    std::fs::read_to_string(env.project.path().join(".project-id"))
+        .unwrap()
+        .trim()
+        .to_string()
+}
+
 #[test]
 fn test_a_list_of_a_project_never_written_creates_nothing() {
     let env = Env::new("tpyo-harp");

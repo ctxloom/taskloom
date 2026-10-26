@@ -352,6 +352,52 @@ fn project_of(env: &Env, dir: &Path, harp: &Value, vars: &[(&str, &str)]) -> Str
         .to_string()
 }
 
+// An argument left out is the default; one given "" is given, and refused
+// as blank, as the command line refuses it: never read as left out.
+#[test]
+fn test_mcp_refuses_an_argument_given_empty_as_the_cli_does() {
+    let env = Env::new("mcp-test-harp");
+    let mut server = Server::start(&env);
+    server.initialize();
+    let added = server.call("task_add", json!({"text": "Ship it"}));
+    assert_eq!(added["task"]["status"], "To Do");
+    let harp = added["task"]["harp_id"].clone();
+    for (tool, arguments, code) in [
+        (
+            "task_add",
+            json!({"text": "x", "status": ""}),
+            "tasks-application-blank",
+        ),
+        (
+            "task_add",
+            json!({"text": "x", "tags": [""]}),
+            "tasks-application-tag-blank",
+        ),
+        (
+            "task_set_status",
+            json!({"harp_id": harp, "status": "Deferred", "trigger": ""}),
+            "tasks-application-blank",
+        ),
+        (
+            "task_list",
+            json!({"tag_query": ""}),
+            "tasks-application-blank",
+        ),
+    ] {
+        let refused = server.ask("tools/call", json!({"name": tool, "arguments": arguments}));
+        let result = &refused["result"];
+        assert_eq!(result["isError"], true, "{refused}");
+        let envelope: Value =
+            serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(envelope["code"], code, "{tool}: {envelope}");
+    }
+    let listing = server.call("task_list", json!({"include_completed": true}));
+    assert_eq!(listing["tasks"].as_array().unwrap().len(), 1, "{listing}");
+    assert_eq!(listing["tasks"][0]["status"], "To Do", "{listing}");
+    let (ok, stderr) = server.finish();
+    assert!(ok, "{stderr}");
+}
+
 // Each call's service is configured as the command line's is: the home's
 // tag schema refuses a tag outside its enum, as a tool error carrying the
 // envelope, and the configured hiding leaves the JSON every tag.

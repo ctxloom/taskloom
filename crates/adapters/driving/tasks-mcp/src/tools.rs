@@ -24,17 +24,21 @@ pub fn offered() -> Vec<Tool> {
     serde_json::from_str(TOOLS).expect("TOOLS is a JSON array of tools")
 }
 
+// A string argument left out (or null) is `None`; one given is `Some`,
+// passed on as given: an explicit "" is never read as one left out, and the
+// use case refuses it as blank, as it refuses the command line's.
+
 /// `task_list`'s arguments.
 #[derive(Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 struct ListArgs {
     statuses: Option<Vec<String>>,
     include_completed: bool,
-    term: String,
-    tag_query: String,
+    term: Option<String>,
+    tag_query: Option<String>,
     include_summary: bool,
     global: bool,
-    sort: String,
+    sort: Option<String>,
     compact: bool,
     limit: i64,
 }
@@ -45,9 +49,9 @@ struct ListArgs {
 struct AddArgs {
     text: String,
     #[serde(default)]
-    status: String,
+    status: Option<String>,
     #[serde(default)]
-    trigger: String,
+    trigger: Option<String>,
     #[serde(default)]
     tags: Option<Vec<String>>,
 }
@@ -59,7 +63,7 @@ struct SetStatusArgs {
     harp_id: String,
     status: String,
     #[serde(default)]
-    trigger: String,
+    trigger: Option<String>,
 }
 
 /// `task_edit`'s arguments.
@@ -140,7 +144,7 @@ pub fn new_task(arguments: Value, settings: &Settings) -> Result<NewTask, McpErr
         status: args.status,
         trigger: args.trigger,
         tags: args.tags.unwrap_or_default(),
-        origin_session: settings.session.clone(),
+        origin_session: settings.session(),
         config_set: Vec::new(),
     })
 }

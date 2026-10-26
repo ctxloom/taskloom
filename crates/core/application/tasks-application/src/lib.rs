@@ -66,19 +66,20 @@ pub use watch::{Changed, Watch, WatchRequest, WatchService};
 /// task already holds it.
 pub const HARP_ATTEMPTS: u32 = 100;
 
-/// A task to add.
+/// A task to add. A value given (`Some`) is never read as one left out:
+/// given blank, it is refused ([`AppError::Blank`]).
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct NewTask {
     /// An explicit project id, overriding resolution.
     pub project: Option<String>,
     pub text: String,
-    /// Empty means To Do.
-    pub status: String,
+    /// `None` means To Do.
+    pub status: Option<String>,
     /// Required when the status is Deferred.
-    pub trigger: String,
+    pub trigger: Option<String>,
     pub tags: Vec<String>,
     /// The session adding it, if one is.
-    pub origin_session: String,
+    pub origin_session: Option<String>,
     /// Configuration overrides, `<path>=<value>` (`--config-set`).
     pub config_set: Vec<String>,
 }
@@ -98,14 +99,15 @@ pub struct TagChange {
     pub config_set: Vec<String>,
 }
 
-/// A task moved to a status. An empty trigger keeps the one it holds;
-/// Deferred needs one, given or held.
+/// A task moved to a status. No trigger (`None`) keeps the one it holds;
+/// one given blank is refused ([`AppError::Blank`]). Deferred needs one,
+/// given or held.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct StatusChange {
     pub project: Option<String>,
     pub harp_id: String,
     pub status: String,
-    pub trigger: String,
+    pub trigger: Option<String>,
     /// Configuration overrides, `<path>=<value>` (`--config-set`).
     pub config_set: Vec<String>,
 }
@@ -145,27 +147,27 @@ pub struct Scope {
 /// Deferred. `all` lists every task; naming statuses (or the classes
 /// `@open` and `@terminal`) lists exactly the tasks in them. A term keeps
 /// those whose text mentions it, case-insensitively, and a tag query those
-/// it selects. `global` reads every project.
+/// it selects. `global` reads every project. A term, tag query or sort
+/// given blank is refused ([`AppError::Blank`]), never read as none.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct ListQuery {
     pub project: Option<String>,
     pub statuses: Vec<String>,
     pub all: bool,
-    /// A tag query, postfix or infix (see [`QUERY_GRAMMAR`]); empty for
-    /// none.
-    pub tag_query: String,
+    /// A tag query, postfix or infix (see [`QUERY_GRAMMAR`]).
+    pub tag_query: Option<String>,
     /// Configuration overrides, `<path>=<value>` (`--config-set`).
     pub config_set: Vec<String>,
-    /// A substring of the text, any case; empty for none.
-    pub term: String,
+    /// A substring of the text, any case.
+    pub term: Option<String>,
     /// Every project's tasks, not the work root's project's.
     pub global: bool,
     /// At most this many tasks, the rest counted as omitted; 0 for no
     /// limit.
     pub limit: usize,
-    /// The order: empty for the listing's own, or [`PRIORITY`], the one
+    /// The order: `None` for the listing's own, or [`PRIORITY`], the one
     /// sort.
-    pub sort: String,
+    pub sort: Option<String>,
 }
 
 /// The sort by derived priority, `--sort priority`.
@@ -364,6 +366,12 @@ where
     G: Configuration + Send,
 {
     async fn add(&mut self, task: NewTask) -> Result<Written, AppError> {
+        // The wire's AddTask carries no absence but an empty string, so
+        // what is left out is spelled so only here, past the refusal of
+        // what is given blank.
+        let status = given(task.status, "status")?.unwrap_or_else(|| tasks::TO_DO.to_string());
+        let trigger = given(task.trigger, "trigger")?.unwrap_or_default();
+        let origin_session = given(task.origin_session, "origin_session")?.unwrap_or_default();
         let schema = self.schema(&task.config_set)?;
         let tags = tags::admit_all(&task.tags, &schema).map_err(|r| refused(&r))?;
         let (tags, _) = tags::collapse(&schema, &[], tags);
@@ -373,10 +381,10 @@ where
         let template = AddTask {
             harp_id: String::new(),
             text: task.text,
-            status: task.status,
-            trigger: task.trigger,
+            status,
+            trigger,
             tags,
-            origin_session: task.origin_session,
+            origin_session,
         };
         tasks::check(&template.clone().into()).map_err(|r| rejected(&r))?;
         let project = self
@@ -455,9 +463,11 @@ where
     }
 
     async fn set_status(&mut self, change: StatusChange) -> Result<Written, AppError> {
+        // SetStatus's empty trigger, the wire's only absence, keeps the
+        // one the task holds.
         let set: TaskCommand = SetStatus {
             status: change.status,
-            trigger: change.trigger,
+            trigger: given(change.trigger, "trigger")?.unwrap_or_default(),
         }
         .into();
         tasks::check(&set).map_err(|r| rejected(&r))?;
@@ -510,6 +520,18 @@ where
 
     async fn tag_schema(&mut self, config_set: Vec<String>) -> Result<TagSchema, AppError> {
         self.schema(&config_set)
+    }
+}
+
+/// `value`, refused when it is given (`Some`) blank: a value given is never
+/// read as one left out. `field` names it in the refusal.
+pub(crate) fn given<T: AsRef<str>>(
+    value: Option<T>,
+    field: &'static str,
+) -> Result<Option<T>, AppError> {
+    match value {
+        Some(v) if v.as_ref().trim().is_empty() => Err(AppError::Blank { field }),
+        value => Ok(value),
     }
 }
 

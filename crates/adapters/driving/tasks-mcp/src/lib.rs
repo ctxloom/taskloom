@@ -70,6 +70,17 @@ pub struct Settings {
     pub version: String,
 }
 
+impl Settings {
+    /// The session a task is added in: none where CTXLOOM_SESSION_HARP is
+    /// unset, or set empty, as an empty variable of the environment is
+    /// unset.
+    pub fn session(&self) -> Option<String> {
+        Some(self.session.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    }
+}
+
 /// The server: tools over use cases, each call served by a service
 /// `services` makes for it.
 pub struct TaskTools<F> {

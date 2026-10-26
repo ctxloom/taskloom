@@ -211,7 +211,22 @@ fn test_ctxloom_project_id_wins_over_the_marker() {
     env.project_id = Some("from-env".to_string());
     let mut registry = ProjectRegistry::new(env, names(&[]));
     assert_eq!(registry.for_read(None).unwrap().unwrap().id, "from-env");
-    assert_eq!(registry.for_read(Some("")).unwrap().unwrap().id, "from-env");
+}
+
+// A pin given empty is a pin given: refused, never read as no pin, so
+// `--project "$UNSET"` cannot fall through to another project.
+#[test]
+fn test_an_empty_pinned_id_is_refused_not_read_as_unpinned() {
+    let world = World::new();
+    let mut env = world.env();
+    env.project_id = Some("from-env".to_string());
+    let mut registry = ProjectRegistry::new(env, names(&["minted-id"]));
+    let error = registry.for_read(Some("")).unwrap_err();
+    assert_eq!(error.code(), "project-registry-invalid-id");
+    assert!(error.to_string().contains("--project"), "{error}");
+    let error = registry.for_write(Some("")).unwrap_err();
+    assert_eq!(error.code(), "project-registry-invalid-id");
+    assert!(world.index().projects.is_empty(), "nothing bound");
 }
 
 #[test]

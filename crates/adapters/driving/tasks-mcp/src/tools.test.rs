@@ -121,12 +121,12 @@ fn test_a_listing_asks_for_everything_its_arguments_name() {
                 project: Some("pinned-proj-id".to_string()),
                 statuses: vec!["To Do".to_string(), "@open".to_string()],
                 all: true,
-                tag_query: "a/b/and".to_string(),
+                tag_query: Some("a/b/and".to_string()),
                 config_set: Vec::new(),
-                term: "ship".to_string(),
+                term: Some("ship".to_string()),
                 global: true,
                 limit: 5,
-                sort: "priority".to_string(),
+                sort: Some("priority".to_string()),
             },
             compact: true,
             summary: true,
@@ -136,6 +136,49 @@ fn test_a_listing_asks_for_everything_its_arguments_name() {
         list_request(json!({"statuses": null}), &settings()).unwrap(),
         ListRequest::default()
     );
+}
+
+// An argument left out, or null, is `None`; one given "" is given, passed
+// on as given for the use case to refuse as blank, never read as left out.
+#[test]
+fn test_a_string_argument_given_empty_is_passed_on_as_given() {
+    let given = Some(String::new());
+    let query = list_request(
+        json!({"term": "", "tag_query": "", "sort": ""}),
+        &settings(),
+    )
+    .unwrap()
+    .query;
+    assert_eq!(
+        (query.term, query.tag_query, query.sort),
+        (given.clone(), given.clone(), given.clone())
+    );
+    let nulls = json!({"term": null, "tag_query": null, "sort": null});
+    assert_eq!(
+        list_request(nulls, &settings()).unwrap(),
+        ListRequest::default()
+    );
+    let task = new_task(
+        json!({"text": "x", "status": "", "trigger": ""}),
+        &settings(),
+    )
+    .unwrap();
+    assert_eq!((task.status, task.trigger), (given.clone(), given.clone()));
+    let bare = new_task(json!({"text": "x", "status": null}), &settings()).unwrap();
+    assert_eq!((bare.status, bare.trigger), (None, None));
+    let change = json!({"harp_id": "h", "status": "Done", "trigger": ""});
+    assert_eq!(status_change(change, &settings()).unwrap().trigger, given);
+}
+
+// CTXLOOM_SESSION_HARP set empty is unset: a task is added in no session.
+#[test]
+fn test_an_add_in_an_empty_session_is_added_in_none() {
+    let settings = Settings {
+        session: String::new(),
+        ..settings()
+    };
+    let task = new_task(json!({"text": "x"}), &settings).unwrap();
+    assert_eq!(task.origin_session, None);
 }
 
 // A limit of 0 or less is no cap.
@@ -173,10 +216,10 @@ fn test_an_add_asks_for_its_task_in_the_servers_session() {
     )
     .unwrap();
     assert_eq!(task.text, "Ship it");
-    assert_eq!(task.status, "Deferred");
-    assert_eq!(task.trigger, "later");
+    assert_eq!(task.status.as_deref(), Some("Deferred"));
+    assert_eq!(task.trigger.as_deref(), Some("later"));
     assert_eq!(task.tags, ["a"]);
-    assert_eq!(task.origin_session, "calm-otter-fox");
+    assert_eq!(task.origin_session.as_deref(), Some("calm-otter-fox"));
     let bare = new_task(json!({"text": "x", "tags": null}), &settings()).unwrap();
     assert!(bare.tags.is_empty());
     assert!(matches!(
@@ -197,7 +240,7 @@ fn test_each_change_asks_for_its_task_by_harp_in_the_pinned_project() {
             project: Some("pinned-proj-id".to_string()),
             harp_id: "swift-amber".to_string(),
             status: "Deferred".to_string(),
-            trigger: "later".to_string(),
+            trigger: Some("later".to_string()),
             config_set: Vec::new(),
         }
     );
@@ -205,7 +248,7 @@ fn test_each_change_asks_for_its_task_by_harp_in_the_pinned_project() {
         status_change(json!({"harp_id": "h", "status": "Done"}), &settings())
             .unwrap()
             .trigger,
-        ""
+        None
     );
     assert_eq!(
         text_edit(json!({"harp_id": "swift-amber", "text": "New"}), &pinned()).unwrap(),

@@ -165,12 +165,15 @@ impl<N: Names> ProjectRegistry<N> {
         })
     }
 
-    /// The id given explicitly: the pin, else CTXLOOM_PROJECT_ID.
+    /// The id given explicitly: the pin, else CTXLOOM_PROJECT_ID. A pin is
+    /// held to [`id::valid`] whatever it is, so an empty one is refused,
+    /// never read as no pin; an empty CTXLOOM_PROJECT_ID is unset, as an
+    /// empty variable of the environment is.
     pub(crate) fn pinned(
         &self,
         pinned: Option<&str>,
     ) -> Result<Option<(String, IdSource)>, RegistryError> {
-        if let Some(id) = pinned.filter(|p| !p.is_empty()) {
+        if let Some(id) = pinned {
             return id::valid(id, "--project").map(|id| Some((id, IdSource::Flag)));
         }
         match self.env.project_id.as_deref().filter(|p| !p.is_empty()) {

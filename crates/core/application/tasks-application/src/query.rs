@@ -74,10 +74,11 @@ impl Diagnostic for QueryError {
 }
 
 /// The ids of `candidates` (`(harp id, tags)`) that `query` selects under
-/// `schema`, or why the query is malformed. An empty query is no query, and
-/// selects every candidate.
+/// `schema`, or why the query is malformed. No query selects every
+/// candidate; a blank one is refused before it gets here
+/// ([`crate::AppError::Blank`]), and tagma judges one that reaches it.
 pub fn select<'a>(
-    query: &str,
+    query: Option<&str>,
     candidates: impl IntoIterator<Item = (&'a str, &'a [Tag])>,
     schema: &TagSchema,
 ) -> Result<BTreeSet<String>, QueryError> {
@@ -101,9 +102,9 @@ pub fn select<'a>(
         index.add_item(id, tags);
         ids.insert(id.to_string());
     }
-    if query.trim().is_empty() {
+    let Some(query) = query else {
         return Ok(ids);
-    }
+    };
     let matched = match index.query_postfix(query) {
         Ok(matched) => matched,
         Err(postfix) => index.query(query).map_err(|infix| QueryError {
@@ -116,7 +117,7 @@ pub fn select<'a>(
 }
 
 /// Refuse `query` if it is malformed, whatever it would be run over.
-pub fn check(query: &str) -> Result<(), QueryError> {
+pub fn check(query: Option<&str>) -> Result<(), QueryError> {
     select(query, [], &TagSchema::default()).map(|_| ())
 }
 
