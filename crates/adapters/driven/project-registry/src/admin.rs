@@ -71,16 +71,11 @@ impl<N: Names> ProjectRegistry<N> {
             .collect()
     }
 
-    fn apply_changes(
-        &self,
-        pinned: Option<&str>,
-        seen: &Survey,
-        changes: &[Change],
-    ) -> Result<(), RegistryError> {
+    fn apply_changes(&self, seen: &Survey, changes: &[Change]) -> Result<(), RegistryError> {
         let projects = self.projects_dir()?;
         let path = projects.join("index.yaml");
         let _locked = index::lock_within(&path, self.lock_wait)?;
-        if self.survey_of(pinned)? != *seen {
+        if self.survey_of(None)? != *seen {
             return Err(RegistryError::Changed);
         }
         let mut registry = index::load(&path)?;
@@ -125,13 +120,8 @@ impl<N: Names> ProjectAdmin for ProjectRegistry<N> {
 
     /// The registry's changes are saved first, in one write; then the
     /// markers are written and the databases removed, in order.
-    fn apply(
-        &mut self,
-        pinned: Option<&str>,
-        seen: &Survey,
-        changes: &[Change],
-    ) -> Result<(), Report> {
-        self.apply_changes(pinned, seen, changes)
+    fn apply(&mut self, seen: &Survey, changes: &[Change]) -> Result<(), Report> {
+        self.apply_changes(seen, changes)
             .map_err(|e| Report::of(&e))
     }
 }

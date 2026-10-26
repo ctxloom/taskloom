@@ -11,6 +11,9 @@ pub enum CliError {
     Project(ProjectError),
     /// The answer could not be written out.
     Output { detail: String },
+    /// `--project` given to `command`, which acts on this directory's
+    /// project and takes no pin: a usage error, never ignored.
+    ProjectNotTaken { command: String },
 }
 
 impl fmt::Display for CliError {
@@ -18,6 +21,10 @@ impl fmt::Display for CliError {
         match self {
             CliError::Project(error) => error.fmt(f),
             CliError::Output { detail } => write!(f, "cannot write the output: {detail}"),
+            CliError::ProjectNotTaken { command } => write!(
+                f,
+                "--project is not taken by project {command}, which acts on this directory's project: only project show takes it"
+            ),
         }
     }
 }
@@ -27,6 +34,7 @@ impl Diagnostic for CliError {
         match self {
             CliError::Project(error) => error.code(),
             CliError::Output { .. } => "project-cli-output",
+            CliError::ProjectNotTaken { .. } => "project-cli-project-not-taken",
         }
     }
 
@@ -34,6 +42,7 @@ impl Diagnostic for CliError {
         match self {
             CliError::Project(error) => error.args(),
             CliError::Output { detail } => vec![("detail", detail.as_str().into())],
+            CliError::ProjectNotTaken { command } => vec![("command", command.as_str().into())],
         }
     }
 }
@@ -48,9 +57,14 @@ pub const EN_US: (&str, &str) = (
 /// One value of every error this crate defines (not the wrapper), for the
 /// catalog test.
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
-    vec![Box::new(CliError::Output {
-        detail: "broken pipe".to_string(),
-    })]
+    vec![
+        Box::new(CliError::Output {
+            detail: "broken pipe".to_string(),
+        }),
+        Box::new(CliError::ProjectNotTaken {
+            command: "heal".to_string(),
+        }),
+    ]
 }
 
 #[cfg(test)]

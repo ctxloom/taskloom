@@ -117,14 +117,10 @@ pub trait ProjectAdmin {
     fn survey(&mut self, pinned: Option<&str>) -> Result<Survey, Report>;
 
     /// Make `changes`, in order, under the registry's lock, if a survey
-    /// taken under it (with `pinned`) is still `seen`; refused, changing
+    /// of the working directory taken under it (no pin: a change is never
+    /// made to a pinned project) is still `seen`; refused, changing
     /// nothing, if anything changed since.
-    fn apply(
-        &mut self,
-        pinned: Option<&str>,
-        seen: &Survey,
-        changes: &[Change],
-    ) -> Result<(), Report>;
+    fn apply(&mut self, seen: &Survey, changes: &[Change]) -> Result<(), Report>;
 }
 
 /// What checking a project's database found.
