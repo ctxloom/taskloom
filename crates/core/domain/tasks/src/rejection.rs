@@ -10,6 +10,9 @@ pub enum TaskRejection {
     HarpIdRequired,
     /// An add whose harp id is not the one its stream's root derives from.
     NotItsStream { harp_id: String },
+    /// An add whose stream root cannot be derived from its harp id:
+    /// `cause` says why.
+    NoRoot { harp_id: String, cause: String },
     /// An add to a stream that already holds a task: the harp id is taken.
     TaskExists { harp_id: String },
     /// A command to a stream holding no task.
@@ -35,6 +38,10 @@ impl fmt::Display for TaskRejection {
             TaskRejection::NotItsStream { harp_id } => {
                 write!(f, "task {harp_id} does not belong in this stream")
             }
+            TaskRejection::NoRoot { harp_id, cause } => write!(
+                f,
+                "task {harp_id} has no stream to belong in: its root cannot be derived ({cause})"
+            ),
             TaskRejection::TaskExists { harp_id } => write!(f, "task {harp_id} already exists"),
             TaskRejection::NoTask => f.write_str("there is no such task"),
             TaskRejection::Removed { harp_id } => write!(f, "task {harp_id} was removed"),
@@ -57,6 +64,7 @@ impl Diagnostic for TaskRejection {
         match self {
             TaskRejection::HarpIdRequired => "tasks-harp-id-required",
             TaskRejection::NotItsStream { .. } => "tasks-not-its-stream",
+            TaskRejection::NoRoot { .. } => "tasks-no-root",
             TaskRejection::TaskExists { .. } => "tasks-task-exists",
             TaskRejection::NoTask => "tasks-no-task",
             TaskRejection::Removed { .. } => "tasks-removed",
@@ -75,6 +83,10 @@ impl Diagnostic for TaskRejection {
             | TaskRejection::Removed { harp_id } => {
                 vec![("harp_id", harp_id.as_str().into())]
             }
+            TaskRejection::NoRoot { harp_id, cause } => vec![
+                ("harp_id", harp_id.as_str().into()),
+                ("cause", cause.as_str().into()),
+            ],
             TaskRejection::StatusReserved { status } => vec![("status", status.as_str().into())],
             _ => Vec::new(),
         }
@@ -91,6 +103,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     vec![
         Box::new(TaskRejection::HarpIdRequired),
         Box::new(TaskRejection::NotItsStream { harp_id: harp_id() }),
+        Box::new(TaskRejection::NoRoot {
+            harp_id: harp_id(),
+            cause: "a domain never contains ':'".to_string(),
+        }),
         Box::new(TaskRejection::TaskExists { harp_id: harp_id() }),
         Box::new(TaskRejection::NoTask),
         Box::new(TaskRejection::Removed { harp_id: harp_id() }),
