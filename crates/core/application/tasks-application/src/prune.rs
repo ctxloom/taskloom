@@ -48,8 +48,8 @@ pub const DEFAULT_PRUNE_STATUSES: [&str; 1] = [DONE];
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct PruneRequest {
     pub project: Option<String>,
-    /// The statuses that qualify a task; at least one, none starting with
-    /// `@`.
+    /// The statuses that qualify a task; at least one, none blank
+    /// ([`AppError::Blank`]) or starting with `@`.
     pub statuses: Vec<String>,
     /// How long ago a qualifying task's status last changed, at the
     /// least: an offset back from now (`30d`, `12w`, `720h`: durations
@@ -428,12 +428,11 @@ impl Selection<'_> {
 /// none claiming the status-class sigil (`@open` and `@terminal` are not
 /// taken yet, as in a list).
 fn statuses(asked: &[String]) -> Result<Vec<String>, AppError> {
-    let statuses: Vec<String> = asked
-        .iter()
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .collect();
+    let statuses: Vec<String> = asked.iter().map(|s| s.trim().to_string()).collect();
+    // A status given blank is refused, never left out of the set.
+    if statuses.iter().any(String::is_empty) {
+        return Err(AppError::Blank { field: "status" });
+    }
     if let Some(class) = statuses.iter().find(|s| s.starts_with(STATUS_CLASS_SIGIL)) {
         return Err(rejected(&TaskRejection::StatusReserved {
             status: class.clone(),

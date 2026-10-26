@@ -170,11 +170,15 @@ pub(crate) struct StatusFilter {
 }
 
 impl StatusFilter {
-    /// The filter `statuses` name, trimmed, blanks dropped; a value
-    /// starting with `@` that names no class is refused.
+    /// The filter `statuses` name, trimmed; a blank one is refused
+    /// ([`AppError::Blank`]), never read as none, as is a value starting
+    /// with `@` that names no class.
     pub fn parse(statuses: &[String]) -> Result<StatusFilter, AppError> {
         let mut filter = StatusFilter::default();
-        for status in statuses.iter().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        for status in statuses.iter().map(|s| s.trim()) {
+            if status.is_empty() {
+                return Err(AppError::Blank { field: "status" });
+            }
             match status {
                 OPEN => filter.open = true,
                 TERMINAL => filter.terminal = true,

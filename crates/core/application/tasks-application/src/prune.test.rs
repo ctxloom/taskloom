@@ -341,7 +341,7 @@ fn test_a_prune_selects_by_each_status_asked_for_trimmed() {
     let mut service = seeded();
     later(&mut service);
     let mut both = request(false);
-    both.statuses = vec![" Archived ".to_string(), "Done".to_string(), String::new()];
+    both.statuses = vec![" Archived ".to_string(), "Done".to_string()];
     let pruning = prune(&mut service, both).unwrap();
     assert_eq!(harps(&pruning), ["done-one", "archived-one", "done-two"]);
     assert_eq!(pruning.statuses, ["Archived", "Done"]);
@@ -363,9 +363,21 @@ fn test_a_tag_query_narrows_the_selection() {
 fn test_a_prune_with_no_status_is_refused() {
     let mut service = seeded();
     let mut none = request(false);
-    none.statuses = vec![" ".to_string()];
+    none.statuses = Vec::new();
     let error = prune(&mut service, none).unwrap_err();
     assert_eq!(error.code(), "tasks-application-prune-no-status");
+}
+
+// A status given blank is given: refused, never left out of the set.
+#[test]
+fn test_a_blank_status_given_to_a_prune_is_refused() {
+    let mut service = seeded();
+    for blank in ["", " "] {
+        let mut request = request(true);
+        request.statuses = vec!["Done".to_string(), blank.to_string()];
+        let error = prune(&mut service, request).unwrap_err();
+        assert_eq!(error, AppError::Blank { field: "status" });
+    }
 }
 
 #[test]

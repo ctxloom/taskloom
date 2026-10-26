@@ -97,7 +97,7 @@ fn test_terminal_is_done_and_archived_and_mixes_with_a_status() {
         ["done", "archived"]
     );
     assert_eq!(
-        ids(&mut service, statuses(&[" In Progress ", "@terminal", ""])),
+        ids(&mut service, statuses(&[" In Progress ", "@terminal"])),
         ["doing", "done", "archived"]
     );
 }
@@ -410,6 +410,25 @@ fn test_a_blank_term_tag_query_or_sort_given_is_refused_before_anything_is_read(
             let error = ready(service.tags(query)).unwrap_err();
             assert_eq!(error, AppError::Blank { field });
         }
+    }
+    assert!(service.identity.pins.is_empty(), "no project resolved");
+}
+
+// A status given blank is given: refused, never read as no status filter
+// (which lists the default statuses), before anything is read. A trailing
+// comma (`--status Done,`) gives one blank too.
+#[test]
+fn test_a_blank_status_given_is_refused_before_anything_is_read() {
+    let mut service = service(&[]);
+    for blank in ["", "  "] {
+        let query = || ListQuery {
+            statuses: vec!["Done".to_string(), blank.to_string()],
+            ..ListQuery::default()
+        };
+        let error = ready(service.list(query())).unwrap_err();
+        assert_eq!(error, AppError::Blank { field: "status" });
+        let error = ready(service.tags(query())).unwrap_err();
+        assert_eq!(error, AppError::Blank { field: "status" });
     }
     assert!(service.identity.pins.is_empty(), "no project resolved");
 }
