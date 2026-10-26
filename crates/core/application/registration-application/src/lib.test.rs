@@ -275,7 +275,7 @@ fn test_a_check_reports_each_configuration_there_is_at_both_scopes() {
         pathless: vec![("beta".to_string(), project())],
         ..Fake::default()
     });
-    let checked = r.check(Path::new("/work"));
+    let checked = r.check(Path::new("/work")).expect("checked");
     assert!(!checked.resolvable);
     let found: Vec<(&str, &str, &Path, &State)> = checked
         .found
@@ -380,4 +380,28 @@ fn test_an_install_that_every_agent_admits_writes_each_after_checking_each() {
         ]
     );
     assert_eq!(installed.outcomes.len(), 2);
+}
+
+#[test]
+fn test_a_project_directory_given_blank_is_refused_before_any_agent_is_asked() {
+    let blank = || Scope::Project(PathBuf::new());
+    let mut r = registrations(Fake {
+        present: vec![("alpha".to_string(), blank())],
+        ..Fake::default()
+    });
+    let refused = r.install(&install(Some("alpha"), blank())).unwrap_err();
+    assert_eq!(refused, RegistrationError::BlankDirectory);
+    assert_eq!(refused.code(), "registration-application-blank-directory");
+    let refused = r
+        .uninstall(&Uninstall {
+            engine: None,
+            scope: blank(),
+        })
+        .unwrap_err();
+    assert_eq!(refused, RegistrationError::BlankDirectory);
+    assert_eq!(
+        r.check(Path::new("")).unwrap_err(),
+        RegistrationError::BlankDirectory
+    );
+    assert!(r.configs.asked.is_empty());
 }

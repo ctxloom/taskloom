@@ -13,6 +13,9 @@ pub enum RegistrationError {
     NoBackends { known: String },
     /// One agent's configuration could not be found, read or written.
     EngineFailed { engine: String, error: Report },
+    /// A project directory given blank (`Scope::Project` of an empty
+    /// path): a directory given is never read as the working directory.
+    BlankDirectory,
 }
 
 impl fmt::Display for RegistrationError {
@@ -26,6 +29,9 @@ impl fmt::Display for RegistrationError {
                 "no agent backends detected; name one with --engine ({known})"
             ),
             RegistrationError::EngineFailed { engine, error } => write!(f, "{engine}: {error}"),
+            RegistrationError::BlankDirectory => {
+                f.write_str("the project directory given is blank: give one, or leave it out")
+            }
         }
     }
 }
@@ -38,6 +44,7 @@ impl Diagnostic for RegistrationError {
             RegistrationError::UnknownEngine { .. } => "registration-application-unknown-engine",
             RegistrationError::NoBackends { .. } => "registration-application-no-backends",
             RegistrationError::EngineFailed { .. } => "registration-application-engine-failed",
+            RegistrationError::BlankDirectory => "registration-application-blank-directory",
         }
     }
 
@@ -52,6 +59,7 @@ impl Diagnostic for RegistrationError {
                 ("engine", engine.as_str().into()),
                 ("error", Arg::nested(error)),
             ],
+            RegistrationError::BlankDirectory => Vec::new(),
         }
     }
 }
@@ -79,6 +87,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
                 known: "claude-code".to_string(),
             }),
         }),
+        Box::new(RegistrationError::BlankDirectory),
     ]
 }
 

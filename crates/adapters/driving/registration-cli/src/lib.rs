@@ -213,7 +213,7 @@ fn answer<A: AgentConfigs>(
             json_only(format, out, &Written::uninstall(&removed))
         }
         Command::Check { dir } => {
-            let checked = registrations.check(&dir);
+            let checked = registrations.check(&dir).map_err(ManageError::App)?;
             let view = Found {
                 checked: &checked,
                 command: &command_name,
