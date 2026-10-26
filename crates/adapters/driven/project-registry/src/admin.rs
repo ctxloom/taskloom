@@ -7,14 +7,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use annals_diagnostic::Report;
-use ports::{Change, Names, Project, ProjectAdmin, Registered, Survey};
+use ports::{Change, Project, ProjectAdmin, Registered, Survey};
 
 use crate::path::canonical;
 use crate::{
     id, index, legacy_marker, marker, read_marker, write_marker, ProjectRegistry, RegistryError,
 };
 
-impl<N: Names> ProjectRegistry<N> {
+impl<N> ProjectRegistry<N> {
     /// The directory projects' databases are kept in.
     fn projects_dir(&self) -> Result<PathBuf, RegistryError> {
         Ok(self.home()?.join(".ctxloom").join("projects"))
@@ -108,7 +108,8 @@ impl<N: Names> ProjectRegistry<N> {
     }
 }
 
-impl<N: Names> ProjectAdmin for ProjectRegistry<N> {
+// No Names bound: surveying and changing the registry never mints an id.
+impl<N> ProjectAdmin for ProjectRegistry<N> {
     fn survey(&mut self, pinned: Option<&str>) -> Result<Survey, Report> {
         self.survey_of(pinned).map_err(|e| Report::of(&e))
     }

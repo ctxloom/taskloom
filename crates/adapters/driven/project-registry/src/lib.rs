@@ -66,7 +66,7 @@ pub struct ProjectRegistry<N> {
     lock_wait: Duration,
 }
 
-impl<N: Names> ProjectRegistry<N> {
+impl<N> ProjectRegistry<N> {
     pub fn new(env: Environment, names: N) -> Self {
         ProjectRegistry {
             env,
@@ -206,7 +206,10 @@ impl<N: Names> ProjectRegistry<N> {
             .id_for(root)
             .map(|id| (id.to_string(), IdSource::Registry)))
     }
+}
 
+/// Resolving may bind a new project, minting its id from `names`.
+impl<N: Names> ProjectRegistry<N> {
     /// Bind the work root to a project id under the registry's lock: the
     /// one another process bound while this one waited, else a new one.
     fn bind(&mut self, root: &Path) -> Result<String, RegistryError> {
