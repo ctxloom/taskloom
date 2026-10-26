@@ -100,9 +100,9 @@ Any store is held to annals' store contract (`annals::store_contract!` or
 and projector tests run through annals' kernel over `InMemoryStore`, as the
 binary runs over SQLite.
 
-tagma (`../../kvtag`) and angzarr-build are local checkouts on their
-`main`, resolving from the primary checkout and from
-`~/workspace/worktrees/<name>`.
+angzarr-build is a local checkout on angzarr-cli's `main`
+(`../../angzarr/angzarr-cli/main`), resolving from the primary checkout and
+from `~/workspace/worktrees/<name>`.
 
 ## Errors are localizable: a code, args, and an en-US message
 

@@ -47,10 +47,9 @@ project-cli = { path = "crates/adapters/driving/project-cli" }
 registration-cli = { path = "crates/adapters/driving/registration-cli" }
 
 # tagma: the tag grammar and query engine (tagma-core) and its Tag message
-# (tagma-proto). Local checkouts while tagma and this workspace change
-# together; each becomes a git dependency pinned by commit once pushed.
-tagma-core = { path = "../../kvtag/crates/tagma-core" }
-tagma-proto = { path = "../../kvtag/crates/tagma-proto" }
+# (tagma-proto), pinned by full commit; bumps are deliberate commits.
+tagma-core = { git = "https://github.com/benjaminabbitt/tagma", rev = "c5ecbbdfafaf2fba42357fff88875a2b47e2e149" }
+tagma-proto = { git = "https://github.com/benjaminabbitt/tagma", rev = "c5ecbbdfafaf2fba42357fff88875a2b47e2e149" }
 
 # Task and project ids: harp's word lists, as Go's harp ports them.
 harp-core = { git = "https://github.com/benjaminabbitt/harp", rev = "21648c9712ab60a84b609e1321201f158203a4bc" }

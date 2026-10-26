@@ -2419,10 +2419,12 @@ dependencies = [
 [[package]]
 name = "tagma-core"
 version = "0.1.0"
+source = "git+https://github.com/benjaminabbitt/tagma?rev=c5ecbbdfafaf2fba42357fff88875a2b47e2e149#c5ecbbdfafaf2fba42357fff88875a2b47e2e149"
 
 [[package]]
 name = "tagma-proto"
 version = "0.1.0"
+source = "git+https://github.com/benjaminabbitt/tagma?rev=c5ecbbdfafaf2fba42357fff88875a2b47e2e149#c5ecbbdfafaf2fba42357fff88875a2b47e2e149"
 dependencies = [
  "prost",
  "prost-build",
