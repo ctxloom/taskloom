@@ -25,6 +25,7 @@ fn task(harp: &str, status: &str, text: &str) -> Task {
 
 fn pruning(applied: bool) -> Pruning {
     Pruning {
+        dead_letters: Vec::new(),
         project: Some(Project {
             id: "jolly-mute-magma".to_string(),
             root: "/work/tree".to_string(),

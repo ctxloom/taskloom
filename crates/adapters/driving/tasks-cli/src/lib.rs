@@ -26,7 +26,7 @@ use std::io::{self, Write};
 use annals_diagnostic::Diagnostic;
 use clap::{Args, Parser, Subcommand};
 use presentation::{Catalog, CatalogError, Format, Render, Source, UnknownFormat};
-use tasks_application::{PruneService, TaskService, Written};
+use tasks_application::{DeadLetter, PruneService, TaskService, Written};
 
 pub use companion::{Asked, VersionJson, LOADOUT};
 pub use error::{diagnostic_samples, CliError, EN_US};
@@ -307,7 +307,19 @@ pub(crate) fn notify(
     writeln!(err, "{PROG}: {}", catalog.message(notice))
 }
 
-/// Name the project on stderr, then render the task.
+/// Say each dead letter annals' kernel wrote on stderr: almost certainly
+/// a bug, so never left unsaid.
+pub(crate) fn dead_lettered(
+    letters: &[DeadLetter],
+    catalog: &Catalog,
+    err: &mut dyn Write,
+) -> io::Result<()> {
+    letters
+        .iter()
+        .try_for_each(|letter| notify(letter, catalog, err))
+}
+
+/// Name the project on stderr, and any dead letter, then render the task.
 pub(crate) fn wrote(
     written: &Written,
     view: &impl Render,
@@ -317,6 +329,7 @@ pub(crate) fn wrote(
     err: &mut dyn Write,
 ) -> Result<(), CliError> {
     notify(&Notice::project(&written.project), catalog, err)
+        .and_then(|()| dead_lettered(&written.dead_letters, catalog, err))
         .and_then(|()| presentation::render(out, format, view))
         .map_err(output_failed)
 }

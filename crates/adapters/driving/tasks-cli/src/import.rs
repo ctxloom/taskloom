@@ -12,7 +12,7 @@ use presentation::{Catalog, Envelope, Format, Render};
 use serde::Serialize;
 use tasks_application::{ImportReport, ImportRequest, ImportService, Lost, ProjectImport};
 
-use crate::{finish, output_failed, render, CliError};
+use crate::{dead_lettered, finish, output_failed, render, CliError};
 
 /// `import`, mounted beside the task commands.
 #[derive(clap::Subcommand, Clone, PartialEq, Eq, Debug)]
@@ -35,7 +35,7 @@ pub async fn run_import<S: ImportService>(
     err: &mut dyn Write,
 ) -> u8 {
     let result = match importer.import(ImportRequest { project }).await {
-        Ok(report) => imported(&report, format, catalog, out),
+        Ok(report) => imported(&report, format, catalog, out, err),
         Err(e) => Err(CliError::App(e)),
     };
     finish(result, format, catalog, err)
@@ -48,7 +48,9 @@ fn imported(
     format: Format,
     catalog: &Catalog,
     out: &mut dyn Write,
+    err: &mut dyn Write,
 ) -> Result<(), CliError> {
+    dead_lettered(&report.dead_letters, catalog, err).map_err(output_failed)?;
     presentation::render(out, format, &Imported { report, catalog }).map_err(output_failed)?;
     if report.complete() {
         return Ok(());

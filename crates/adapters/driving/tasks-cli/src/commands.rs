@@ -12,7 +12,7 @@ use tasks_application::{
 
 use crate::prune::{apply_command, PruneReport};
 use crate::render::{Added, Counted, Detailed, Linted, Listed, Summed, Tagged, Taxonomy};
-use crate::{notify, output_failed, wrote, CliError, Notice};
+use crate::{dead_lettered, notify, output_failed, wrote, CliError, Notice};
 
 /// What every task command is handed besides its own arguments: the
 /// global flags, the format, the catalog and the session.
@@ -444,6 +444,7 @@ pub(crate) async fn prune(
     if pruning.project.is_none() {
         notify(&Notice::NothingToPrune, catalog, err).map_err(output_failed)?;
     }
+    dead_lettered(&pruning.dead_letters, catalog, err).map_err(output_failed)?;
     presentation::render(out, format, &PruneReport(&pruning)).map_err(output_failed)?;
     if pruning.applied || pruning.pruned.is_empty() {
         return Ok(());

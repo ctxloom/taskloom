@@ -911,3 +911,146 @@ fn test_a_project_is_resolved_off_the_servers_thread() {
         );
     });
 }
+
+// ------------------------------------------------------------ dead letters
+
+/// The real service, each write's result carrying one dead letter: annals'
+/// kernel writes one only for what angzarr would dead-letter, which the
+/// tasks domain can be made to produce none of.
+struct Lettered<S>(S);
+
+fn lettered(
+    written: Result<tasks_application::Written, tasks_application::AppError>,
+) -> Result<tasks_application::Written, tasks_application::AppError> {
+    written.map(|mut written| {
+        written.dead_letters = vec![tasks_application::DeadLetter {
+            line: "DEAD LETTER (a bug): x".to_string(),
+        }];
+        written
+    })
+}
+
+impl<S: tasks_application::TaskService + Send> tasks_application::TaskService for Lettered<S> {
+    async fn add(
+        &mut self,
+        task: tasks_application::NewTask,
+    ) -> Result<tasks_application::Written, tasks_application::AppError> {
+        lettered(self.0.add(task).await)
+    }
+    async fn tag(
+        &mut self,
+        change: tasks_application::TagChange,
+    ) -> Result<tasks_application::Written, tasks_application::AppError> {
+        lettered(self.0.tag(change).await)
+    }
+    async fn list(
+        &mut self,
+        query: tasks_application::ListQuery,
+    ) -> Result<tasks_application::Listing, tasks_application::AppError> {
+        self.0.list(query).await
+    }
+    async fn set_status(
+        &mut self,
+        change: tasks_application::StatusChange,
+    ) -> Result<tasks_application::Written, tasks_application::AppError> {
+        lettered(self.0.set_status(change).await)
+    }
+    async fn edit(
+        &mut self,
+        edit: tasks_application::TextEdit,
+    ) -> Result<tasks_application::Written, tasks_application::AppError> {
+        lettered(self.0.edit(edit).await)
+    }
+    async fn show(
+        &mut self,
+        query: tasks_application::ShowQuery,
+    ) -> Result<tasks_application::Details, tasks_application::AppError> {
+        self.0.show(query).await
+    }
+    async fn summary(
+        &mut self,
+        scope: tasks_application::Scope,
+    ) -> Result<tasks_application::Summary, tasks_application::AppError> {
+        self.0.summary(scope).await
+    }
+    async fn statuses(
+        &mut self,
+        scope: tasks_application::Scope,
+    ) -> Result<tasks_application::Statuses, tasks_application::AppError> {
+        self.0.statuses(scope).await
+    }
+    async fn tags(
+        &mut self,
+        query: tasks_application::ListQuery,
+    ) -> Result<tasks_application::Vocabulary, tasks_application::AppError> {
+        self.0.tags(query).await
+    }
+    async fn lint(
+        &mut self,
+        scope: tasks_application::Scope,
+    ) -> Result<tasks_application::LintReport, tasks_application::AppError> {
+        self.0.lint(scope).await
+    }
+    async fn tag_schema(
+        &mut self,
+        config_set: Vec<String>,
+    ) -> Result<tasks_application::TagSchema, tasks_application::AppError> {
+        self.0.tag_schema(config_set).await
+    }
+}
+
+/// Bytes written, shared with the test that reads them.
+#[derive(Clone, Default)]
+struct Captured(Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for Captured {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+// A write's dead letters are said on the server's stderr, and its answer is
+// the task as ever.
+#[test]
+fn test_a_writes_dead_letters_are_said_on_stderr() {
+    run(async {
+        let world: Arc<World> = Arc::default();
+        let stderr = Captured::default();
+        let tools = TaskTools::new(
+            move || Lettered(world.service()),
+            settings(),
+            Arc::new(catalog()),
+        )
+        .with_stderr(stderr.clone());
+        let (client_end, server_end) = tokio::io::duplex(1 << 20);
+        tokio::spawn(tools.serve(server_end));
+        let (from_server, to_server) = tokio::io::split(client_end);
+        let mut client = Client {
+            to_server,
+            from_server: BufReader::new(from_server).lines(),
+            next_id: 0,
+        };
+        client
+            .ask(
+                "initialize",
+                json!({
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "0"},
+                }),
+            )
+            .await;
+        client
+            .send(json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))
+            .await;
+        let result = client.call("task_add", json!({"text": "Ship it"})).await;
+        assert_eq!(structured(&result)["task"]["text"], "Ship it");
+        assert!(!result.to_string().contains("DEAD LETTER"), "{result}");
+        let said = String::from_utf8(stderr.0.lock().unwrap().clone()).unwrap();
+        assert_eq!(said, "taskloom: DEAD LETTER (a bug): x\n");
+    });
+}
