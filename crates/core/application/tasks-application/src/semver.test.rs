@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 
 use tagma_core::TypeComparator;
 
-use super::{Semver, Version};
+use super::{Semver, SemverError, Version};
 
 // SemVer 2.0.0 §11's own chain, each strictly below the next, both ways.
 #[test]
@@ -120,14 +120,64 @@ fn test_identifiers_order_the_same_partially() {
 }
 
 #[test]
-fn test_a_part_that_is_no_number_says_so() {
-    for (bad, why) in [
-        ("a.0.0", "is not a number"),
-        ("1..0", "is not a number"),
-        ("01.0.0", "leading zero"),
-        ("1.0.0-01", "leading zero"),
+fn test_why_a_value_is_no_version_is_typed_and_says_so_in_english() {
+    let part = |p: &str| p.to_string();
+    for (bad, why, english) in [
+        (
+            "1.2",
+            SemverError::NotThreeNumbers {
+                version: part("1.2"),
+            },
+            r#""1.2" is not MAJOR.MINOR.PATCH"#,
+        ),
+        (
+            "a.0.0",
+            SemverError::NotANumber { part: part("a") },
+            r#""a" is not a number"#,
+        ),
+        (
+            "1..0",
+            SemverError::NotANumber { part: part("") },
+            r#""" is not a number"#,
+        ),
+        (
+            "01.0.0",
+            SemverError::LeadingZero { part: part("01") },
+            r#""01" has a leading zero"#,
+        ),
+        (
+            "99999999999999999999.0.0",
+            SemverError::TooLarge {
+                part: part("99999999999999999999"),
+            },
+            r#""99999999999999999999" is too large"#,
+        ),
+        (
+            "1.0.0-01",
+            SemverError::PreReleaseLeadingZero {
+                identifier: part("01"),
+            },
+            r#"pre-release identifier "01" has a leading zero"#,
+        ),
+        (
+            "1.0.0-a..b",
+            SemverError::NotAnIdentifier {
+                of: "pre-release",
+                identifier: part(""),
+            },
+            r#"pre-release identifier "" is not [0-9A-Za-z-]+"#,
+        ),
+        (
+            "1.0.0+a_b",
+            SemverError::NotAnIdentifier {
+                of: "build metadata",
+                identifier: part("a_b"),
+            },
+            r#"build metadata identifier "a_b" is not [0-9A-Za-z-]+"#,
+        ),
     ] {
         let error = Version::parse(bad).unwrap_err();
-        assert!(error.contains(why), "{bad}: {error}");
+        assert_eq!(error, why, "{bad}");
+        assert_eq!(error.to_string(), english, "{bad}");
     }
 }

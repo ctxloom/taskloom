@@ -279,12 +279,12 @@ pub fn admit(tag: &Tag, schema: &TagSchema) -> Result<(), TagRefusal> {
         }
     }
     if schema.type_of(&target) == Some(SEMVER) {
-        if let Err(detail) = Version::parse(value) {
+        if let Err(why) = Version::parse(value) {
             return Err(TagRefusal::NotSemver {
                 tag: spelled(),
                 value: value.clone(),
                 target,
-                detail,
+                detail: why.to_string(),
             });
         }
     }
