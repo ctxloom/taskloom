@@ -126,7 +126,7 @@ fn test_the_database_is_where_the_filesystem_puts_it() {
         .root()
         .join("home/u/.ctxloom/projects/jolly-mute-magma/state.db");
     assert_eq!(home.real(&path), real);
-    let os = Os::new(Path::new("/")).unwrap();
+    let os = Os::new(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
     assert!(os.exists(&real).unwrap(), "under the filesystem's root");
     assert!(
         !os.exists(&path).unwrap(),
