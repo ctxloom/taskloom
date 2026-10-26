@@ -39,7 +39,7 @@ impl ProjectAdmin for Fake {
         Ok(self.survey.clone())
     }
 
-    fn apply(&mut self, _: Option<&str>, _: &Survey, changes: &[Change]) -> Result<(), Report> {
+    fn apply(&mut self, _: &Survey, changes: &[Change]) -> Result<(), Report> {
         self.applied.push(changes.to_vec());
         Ok(())
     }
@@ -447,6 +447,63 @@ fn test_output_that_cannot_be_written_exits_1() {
             } else {
                 assert_eq!(err, "p: cannot write the output: broken pipe\n");
             }
+        }
+    }
+}
+
+// Only `show` takes --project: heal, repoint and orphans act on this
+// directory's project, so a pin given them is refused, naming it, before
+// anything is surveyed or changed, rather than silently ignored.
+#[test]
+fn test_project_is_refused_by_every_command_but_show() {
+    let cases: [(&[&str], &str); 5] = [
+        (&["project", "heal"], "heal"),
+        (&["project", "heal", "--yes"], "heal"),
+        (&["project", "repoint", "t", "--yes"], "repoint"),
+        (&["project", "orphans"], "orphans"),
+        (
+            &["project", "orphans", "remove", "stray", "--yes"],
+            "orphans",
+        ),
+    ];
+    for (args, command) in cases {
+        for json in [false, true] {
+            let mut projects = projects();
+            let settings = Settings {
+                format: format(json),
+                project: Some("pinned-id".to_string()),
+                prog: "taskloom",
+            };
+            let (mut out, mut err) = (Vec::new(), Vec::new());
+            let code = run(
+                parse(args),
+                &settings,
+                &catalog(),
+                &mut projects,
+                &mut out,
+                &mut err,
+            );
+            let err = String::from_utf8(err).unwrap();
+            assert_eq!(code, 1, "{args:?}");
+            assert!(out.is_empty(), "{args:?}");
+            let expected = format!(
+                "--project is not taken by project {command}, which acts on this directory's project: only project show takes it"
+            );
+            if json {
+                let envelope: Value = serde_json::from_str(&err).expect("one JSON document");
+                assert_eq!(
+                    envelope,
+                    json!({
+                        "code": "project-cli-project-not-taken",
+                        "args": {"command": command},
+                        "message": expected,
+                    })
+                );
+            } else {
+                assert_eq!(err, format!("taskloom: {expected}\n"));
+            }
+            assert!(projects.admin().pinned.is_empty(), "nothing surveyed");
+            assert!(projects_applied(&projects).is_empty(), "nothing changed");
         }
     }
 }
