@@ -28,13 +28,12 @@ use clap::{Args, Parser, Subcommand};
 use presentation::{Catalog, CatalogError, Format, Render, Source, UnknownFormat};
 use tasks_application::{DeadLetter, PruneService, TaskService, Written};
 
-pub use companion::{Asked, VersionJson, LOADOUT};
+pub use companion::{Asked, LOADOUT};
 pub use error::{diagnostic_samples, CliError, EN_US};
-pub use import::{run_import, ImportGroup, ImportJson, Imported};
-pub use notice::Notice;
-pub use prune::{apply_command, PruneReport};
-pub use render::{headline, table, Added, CompactJson, Listed, RowJson, Tagged, HEADLINE_WIDTH};
-pub use tasks_presentation::{rfc3339, TaskJson};
+pub use import::{run_import, ImportGroup};
+
+use companion::VersionJson;
+use notice::Notice;
 
 /// The program's name: every diagnostic's prefix.
 pub const PROG: &str = "taskloom";
