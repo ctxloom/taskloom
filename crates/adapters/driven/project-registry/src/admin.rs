@@ -59,12 +59,7 @@ impl<N: Names> ProjectRegistry<N> {
         databases(&projects)?
             .into_iter()
             .map(|id| {
-                let root = registry
-                    .projects
-                    .iter()
-                    .find(|e| e.project_id == id)
-                    .map(|e| canonical(Path::new(&e.path)).display().to_string())
-                    .unwrap_or_default();
+                let root = registry.root_of(&id);
                 let store = projects.join(&id).join("state.db");
                 Ok(Project { id, root, store })
             })

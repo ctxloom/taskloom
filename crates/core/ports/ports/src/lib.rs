@@ -34,6 +34,9 @@ pub struct Project {
     /// The project id ("jolly-mute-magma").
     pub id: String,
     /// The work root the id was resolved for: canonical, symlinks resolved.
+    /// A pinned project's (an explicit id's) is the path the registry
+    /// first holds for it, empty when it holds none: the working directory
+    /// is not walked for one.
     pub root: String,
     /// The project's database.
     pub store: PathBuf,

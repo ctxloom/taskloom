@@ -236,19 +236,27 @@ impl<N: Names> ProjectRegistry<N> {
         })
     }
 
+    /// The project a call acts on. A pinned one (the pin, else
+    /// CTXLOOM_PROJECT_ID) is resolved first, walking no working
+    /// directory: it is rooted where the registry first holds it, or
+    /// nowhere (an empty root), as [`ProjectIdentity::every_project`]
+    /// roots each project. Otherwise the identity root's, bound to a new
+    /// id on a write that finds none.
     fn resolve(
         &mut self,
         pinned: Option<&str>,
         write: bool,
     ) -> Result<Option<Project>, RegistryError> {
+        if let Some((id, _)) = self.pinned(pinned)? {
+            let index = index::load(&index::path(self.home()?))?;
+            let root = index.root_of(&id);
+            return self.project(id, Path::new(&root)).map(Some);
+        }
         let root = self.identity_root()?;
-        let id = match self.pinned(pinned)? {
+        let id = match self.bound(&root, write)? {
             Some((id, _)) => Some(id),
-            None => match self.bound(&root, write)? {
-                Some((id, _)) => Some(id),
-                None if write => Some(self.bind(&root)?),
-                None => None,
-            },
+            None if write => Some(self.bind(&root)?),
+            None => None,
         };
         id.map(|id| self.project(id, &root)).transpose()
     }
