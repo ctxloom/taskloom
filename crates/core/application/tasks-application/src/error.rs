@@ -202,6 +202,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             harp_id: "swift-amber".to_string(),
         }),
         Box::new(AppError::NoProject),
+        Box::new(crate::DeadLetter {
+            line: "DEAD LETTER (almost certainly a bug): x".to_string(),
+        }),
         Box::new(crate::import::NoJsonlLog {
             project: "jolly-mute-magma".to_string(),
         }),

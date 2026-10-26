@@ -31,6 +31,7 @@ tasks-application-tag-not-a-number = the tag { $tag }'s value { $value } is not 
 tasks-application-tag-out-of-range = the tag { $tag }'s value { $value } is outside { $target }'s declared range [{ $min }, { $max }]
 tasks-application-tag-not-semver = the tag { $tag }'s value { $value } is not a SemVer 2.0.0 version, which { $target }'s declared type semver requires: { $detail }
 tasks-application-tag-scalar-conflict = the tags { $first } and { $second } both give { $target } a value, and it takes one: give one of them
+tasks-application-dead-letter = { $line }
 tasks-application-schema-unparseable = tag_schema: { $declaration } is not a tag in tagma's grammar: { $detail }
 tasks-application-schema-no-namespace = tag_schema: { $declaration } has no namespace: expected tagma.<facet>
 tasks-application-schema-not-a-facet = tag_schema: { $declaration }'s namespace { $namespace } is not tagma.<facet> (e.g. tagma.arity)

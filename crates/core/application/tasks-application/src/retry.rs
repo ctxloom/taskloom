@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use annals::next::v1::{CommandBook, Cover, Uuid};
 use annals::next::{
-    AsyncEventStore, AsyncPurge, AsyncStore, AsyncUnitOfWork, Failure, Kernel, MemoryDeadLetters,
+    AsyncEventStore, AsyncPurge, AsyncStore, AsyncUnitOfWork, DeadLetterLog, Failure, Kernel,
     Recovery, Registry, Routes, Sampled, StoreError, Stream,
 };
 use annals_diagnostic::Report;
@@ -67,6 +67,9 @@ pub(crate) struct Runner<'a, C, D> {
     pub clock: &'a mut C,
     pub delay: &'a mut D,
     pub backoff: Backoff,
+    /// Where the kernel writes what it dead-letters: the use case's log,
+    /// whose lines it returns with its result.
+    pub dead_letters: &'a dyn DeadLetterLog,
 }
 
 impl<C: Clock, D: Delay + Jitter> Runner<'_, C, D> {
@@ -117,8 +120,7 @@ impl<C: Clock, D: Delay + Jitter> Runner<'_, C, D> {
         command_id: &Uuid,
         shape: Option<&F>,
     ) -> Result<Option<Outcome>, AppError> {
-        let dead_letters = MemoryDeadLetters::new();
-        let kernel = Kernel::new(self.registry, &dead_letters);
+        let kernel = Kernel::new(self.registry, self.dead_letters);
         let routes = Routes::new();
         let mut failed = 0;
         loop {

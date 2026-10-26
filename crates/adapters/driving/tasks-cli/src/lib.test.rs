@@ -164,6 +164,7 @@ impl PruneService for Fake {
 
 fn written(task: Task) -> Option<Result<Written, AppError>> {
     Some(Ok(Written {
+        dead_letters: Vec::new(),
         shown: tasks_application::Shown::default(),
         project: project(),
         task,
@@ -1608,7 +1609,10 @@ fn imported(lost: usize) -> ProjectImport {
 }
 
 fn report(projects: Vec<ProjectImport>) -> Option<Result<ImportReport, AppError>> {
-    Some(Ok(ImportReport { projects }))
+    Some(Ok(ImportReport {
+        projects,
+        dead_letters: Vec::new(),
+    }))
 }
 
 /// `args` run as the binary runs them: `import` mounted beside the task
@@ -1829,6 +1833,7 @@ fn tag(key: &str) -> tasks_application::Tag {
 
 fn pruning(applied: bool, taken: &[&str]) -> Pruning {
     Pruning {
+        dead_letters: Vec::new(),
         project: Some(project()),
         statuses: vec!["Done".to_string()],
         before: tasks_application::Timestamp {
@@ -2000,4 +2005,63 @@ fn test_a_refused_prune_says_why_and_exits_1() {
         "taskloom: the age soon is neither an offset (30d, 12w, 720h) nor a date (2026-01-01)\n",
         "the catalog's message"
     );
+}
+
+// ------------------------------------------------------------ dead letters
+
+fn dead_letters() -> Vec<tasks_application::DeadLetter> {
+    vec![tasks_application::DeadLetter {
+        line: "DEAD LETTER (a bug): x".to_string(),
+    }]
+}
+
+// A write's dead letters are said on stderr, after the project, in text and
+// JSON alike: stdout is the task as ever.
+#[test]
+fn test_a_writes_dead_letters_are_said_on_stderr() {
+    for terminal in [true, false] {
+        let mut written = written(shapes::task("swift-amber", "To Do"));
+        if let Some(Ok(w)) = &mut written {
+            w.dead_letters = dead_letters();
+        }
+        let mut fake = Fake {
+            written,
+            ..Fake::default()
+        };
+        let ran = run_on(&mut fake, terminal, &["add", "Ship it"]);
+        assert_eq!(ran.code, 0, "{}", ran.err);
+        assert_eq!(
+            ran.err,
+            "taskloom: project /work/tree (jolly-mute-magma)\ntaskloom: DEAD LETTER (a bug): x\n"
+        );
+        assert!(!ran.out.contains("DEAD LETTER"), "{}", ran.out);
+    }
+}
+
+#[test]
+fn test_a_prunes_dead_letters_are_said_on_stderr() {
+    let mut pruning = pruning(false, &[]);
+    pruning.dead_letters = dead_letters();
+    let mut fake = Fake {
+        pruning: Some(Ok(pruning)),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, false, &["prune"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(ran.err, "taskloom: DEAD LETTER (a bug): x\n");
+}
+
+#[test]
+fn test_an_imports_dead_letters_are_said_on_stderr() {
+    let mut report = report(vec![imported(0)]);
+    if let Some(Ok(r)) = &mut report {
+        r.dead_letters = dead_letters();
+    }
+    let mut fake = FakeImporter {
+        report,
+        ..FakeImporter::default()
+    };
+    let ran = import_on(&mut fake, true, &["import"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(ran.err, "taskloom: DEAD LETTER (a bug): x\n");
 }

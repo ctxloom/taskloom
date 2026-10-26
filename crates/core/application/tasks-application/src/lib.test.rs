@@ -578,6 +578,7 @@ fn add_unchecked(service: &mut Configured, tag: &str) {
         clock: &mut service.clock,
         delay: &mut service.delay,
         backoff: service.backoff,
+        dead_letters: &service.dead_letters,
     };
     let book = crate::book("swift-amber", add.into());
     let id = annals::next::v1::Uuid::from_bytes([7; 16]);
@@ -1119,4 +1120,62 @@ fn test_a_task_read_back_as_no_events_is_never_a_blank_task() {
         }
     );
     assert!(listed(&mut service, ListQuery::default()).is_empty());
+}
+
+// ------------------------------------------------------------ dead letters
+
+// annals' kernel writes a dead letter only for what angzarr would
+// dead-letter (an ingest that panicked, a conflict window decide never
+// acknowledged, a policy's malformed book); the tasks domain, with no
+// routes, can be made to produce none. So each test writes one to the log
+// the kernel is handed, as the kernel would during the write.
+fn dead_letter(service: &Fake, line: &str) {
+    annals::next::DeadLetterLog::write(&service.dead_letters, line);
+}
+
+fn letters(lines: &[&str]) -> Vec<crate::DeadLetter> {
+    lines
+        .iter()
+        .map(|line| crate::DeadLetter {
+            line: line.to_string(),
+        })
+        .collect()
+}
+
+// Every write returns the dead letters written while it ran, each once.
+#[test]
+fn test_every_write_returns_the_dead_letters_written_while_it_ran() {
+    let mut service = service(&["swift-amber"]);
+    dead_letter(&service, "DEAD LETTER: add");
+    let written = add(&mut service, new_task("Ship it")).unwrap();
+    assert_eq!(written.dead_letters, letters(&["DEAD LETTER: add"]));
+    dead_letter(&service, "DEAD LETTER: tag");
+    let written = ready(service.tag(change("swift-amber", &["x"], &[]))).unwrap();
+    assert_eq!(written.dead_letters, letters(&["DEAD LETTER: tag"]));
+    dead_letter(&service, "DEAD LETTER: status");
+    let set = StatusChange {
+        harp_id: "swift-amber".to_string(),
+        status: "Done".to_string(),
+        ..StatusChange::default()
+    };
+    let written = ready(service.set_status(set)).unwrap();
+    assert_eq!(written.dead_letters, letters(&["DEAD LETTER: status"]));
+    dead_letter(&service, "DEAD LETTER: edit");
+    let edit = TextEdit {
+        harp_id: "swift-amber".to_string(),
+        text: "Ship it now".to_string(),
+        ..TextEdit::default()
+    };
+    let written = ready(service.edit(edit.clone())).unwrap();
+    assert_eq!(written.dead_letters, letters(&["DEAD LETTER: edit"]));
+    let written = ready(service.edit(edit)).unwrap();
+    assert!(written.dead_letters.is_empty(), "each is returned once");
+}
+
+#[test]
+fn test_a_dead_letter_renders_its_line() {
+    let letter = &letters(&["DEAD LETTER: x"])[0];
+    assert_eq!(letter.code(), "tasks-application-dead-letter");
+    assert_eq!(letter.to_string(), "DEAD LETTER: x");
+    assert_eq!(letter.args().len(), 1);
 }

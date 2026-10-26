@@ -417,6 +417,7 @@ fn test_a_summary_comes_with_the_listing_when_asked_for() {
 #[test]
 fn test_an_added_task_is_answered_with_its_project_and_no_store() {
     let written = Written {
+        dead_letters: Vec::new(),
         project: project(),
         task: task(),
         shown: Shown::default(),
@@ -438,6 +439,7 @@ fn test_a_result_spells_every_tag_canonically_hidden_ones_too() {
     let shown = hiding(&[r#"tagma.hide:"triage:cwe"=true"#]);
     let spelled = json!(["triage:cwe=79", "x=\"y z\"", "a"]);
     let wrote = Written {
+        dead_letters: Vec::new(),
         project: project(),
         task: task.clone(),
         shown: shown.clone(),

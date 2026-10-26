@@ -22,7 +22,8 @@ mod resources;
 mod tools;
 
 use std::future::Future;
-use std::sync::Arc;
+use std::io::{self, Write};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use clap::Subcommand;
 use presentation::Catalog;
@@ -35,7 +36,7 @@ use rmcp::model::{
 use rmcp::service::RequestContext;
 use rmcp::transport::IntoTransport;
 use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceExt};
-use tasks_application::TaskService;
+use tasks_application::{DeadLetter, TaskService};
 
 pub use error::{diagnostic_samples, McpError, McpNotice, EN_US};
 pub use resources::RESOURCES;
@@ -89,6 +90,9 @@ pub struct TaskTools<F> {
     catalog: Arc<Catalog>,
     tools: Vec<Tool>,
     resources: Vec<Resource>,
+    /// Where what must not go unsaid but is no tool's answer (a dead
+    /// letter) is written: the process's stderr, the server's log.
+    stderr: Arc<Mutex<Box<dyn Write + Send>>>,
 }
 
 impl<F> TaskTools<F> {
@@ -100,6 +104,26 @@ impl<F> TaskTools<F> {
             catalog,
             tools: tools::offered(),
             resources: resources::offered(),
+            stderr: Arc::new(Mutex::new(Box::new(io::stderr()))),
+        }
+    }
+
+    /// The same server, writing what it says on stderr to `stderr`.
+    pub fn with_stderr(self, stderr: impl Write + Send + 'static) -> TaskTools<F> {
+        TaskTools {
+            stderr: Arc::new(Mutex::new(Box::new(stderr))),
+            ..self
+        }
+    }
+
+    /// Say each dead letter annals' kernel wrote on stderr, as the command
+    /// line says it: almost certainly a bug, so never left unsaid. A
+    /// stderr that cannot be written fails no call.
+    fn dead_lettered(&self, letters: &[DeadLetter]) {
+        let mut stderr = self.stderr.lock().unwrap_or_else(PoisonError::into_inner);
+        for letter in letters {
+            let message = self.catalog.message(letter);
+            let _ = writeln!(stderr, "{}: {message}", self.settings.name);
         }
     }
 }
@@ -193,7 +217,9 @@ where
                 })
             }
         };
-        Ok(tools::written(&written.map_err(McpError::App)?))
+        let written = written.map_err(McpError::App)?;
+        self.dead_lettered(&written.dead_letters);
+        Ok(tools::written(&written))
     }
 
     /// `task_list`: the listing, and with `include_summary` the summary of

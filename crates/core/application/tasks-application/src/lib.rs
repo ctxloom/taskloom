@@ -9,6 +9,7 @@
 //! store. The ports are the only way out: this crate does no I/O, keeps no
 //! clock and starts no runtime.
 
+mod dead_letter;
 mod error;
 mod import;
 mod lint;
@@ -30,12 +31,14 @@ use annals::next::{
     ids, AsyncReadStore, AsyncReadUnit, Payload, Registry, Rulebook, Stream, Upcaster,
 };
 use annals_diagnostic::Report;
+use dead_letter::DeadLetters;
 use ports::{Clock, CommandIds, Configuration, Delay, Jitter, Names, ProjectIdentity, TaskStores};
 use tasks::{
     AddTask, EditText, Retag, SetStatus, TaskCommand, TaskRejection, TaskState, Tasks, TASK_DOMAIN,
 };
 
 pub use annals::next::Timestamp;
+pub use dead_letter::DeadLetter;
 pub use error::{diagnostic_samples, AppError, CATALOGS, EN_US};
 pub use import::{
     anomaly_key, record_command_id, rfc3339_nano, ImportReport, ImportRequest, ImportService,
@@ -173,13 +176,15 @@ pub struct ListQuery {
 /// The sort by derived priority, `--sort priority`.
 pub const PRIORITY: &str = "priority";
 
-/// A task written, the project it was written in, and which of its tags a
-/// person is shown.
+/// A task written, the project it was written in, which of its tags a
+/// person is shown, and the dead letters annals' kernel wrote while the
+/// write ran (almost certainly bugs, for the caller to say loudly).
 #[derive(Clone, PartialEq, Debug)]
 pub struct Written {
     pub project: Project,
     pub task: Task,
     pub shown: Shown,
+    pub dead_letters: Vec<DeadLetter>,
 }
 
 /// The use cases, as a driving adapter calls them. Their futures are
@@ -232,6 +237,9 @@ pub struct Service<I, S, N, C, D, G = NotConfigured> {
     pub configuration: G,
     pub backoff: Backoff,
     registry: Registry,
+    /// The log annals' kernel writes dead letters to, taken into each
+    /// result.
+    pub(crate) dead_letters: DeadLetters,
 }
 
 /// Configuration, as a service without any has it: nothing configured, so
@@ -258,6 +266,7 @@ impl<I, S, N, C, D> Service<I, S, N, C, D> {
             configuration: NotConfigured,
             backoff: Backoff::DEFAULT,
             registry: registry(),
+            dead_letters: DeadLetters::default(),
         }
     }
 }
@@ -274,6 +283,7 @@ impl<I, S, N, C, D, G> Service<I, S, N, C, D, G> {
             configuration,
             backoff: self.backoff,
             registry: self.registry,
+            dead_letters: self.dead_letters,
         }
     }
 }
@@ -343,6 +353,7 @@ where
             clock: &mut self.clock,
             delay: &mut self.delay,
             backoff: self.backoff,
+            dead_letters: &self.dead_letters,
         };
         match runner.run_shaped(store, &book, &command_id, shape).await? {
             None | Some(retry::Outcome::Committed) => {}
@@ -402,6 +413,7 @@ where
             clock: &mut self.clock,
             delay: &mut self.delay,
             backoff: self.backoff,
+            dead_letters: &self.dead_letters,
         };
         for _ in 0..HARP_ATTEMPTS {
             let harp_id = self.names.task_id();
@@ -425,6 +437,7 @@ where
                         project,
                         task,
                         shown,
+                        dead_letters: self.dead_letters.take(),
                     });
                 }
                 retry::Outcome::Refused(TaskRejection::TaskExists { .. }) => continue,
@@ -469,6 +482,7 @@ where
             project,
             task,
             shown: Shown::of(&schema),
+            dead_letters: self.dead_letters.take(),
         })
     }
 
@@ -488,6 +502,7 @@ where
             project,
             task,
             shown: Shown::of(&schema),
+            dead_letters: self.dead_letters.take(),
         })
     }
 
@@ -501,6 +516,7 @@ where
             project,
             task,
             shown: Shown::of(&schema),
+            dead_letters: self.dead_letters.take(),
         })
     }
 

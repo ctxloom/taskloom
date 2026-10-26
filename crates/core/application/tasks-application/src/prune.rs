@@ -25,6 +25,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::future::Future;
 
+use crate::DeadLetter;
 use annals::next::{AsyncReadStore, Timestamp};
 use annals_diagnostic::{Arg, Diagnostic, Report};
 use ports::{
@@ -128,6 +129,9 @@ pub struct Pruning {
     pub dangling: Vec<Dangling>,
     /// Which of the tasks' tags a person is shown.
     pub shown: Shown,
+    /// The dead letters annals' kernel wrote while the prune ran (almost
+    /// certainly bugs, for the caller to say loudly).
+    pub dead_letters: Vec<DeadLetter>,
 }
 
 /// Why a prune was refused before it read anything.
@@ -231,6 +235,7 @@ where
             tasks_remaining: 0,
             dangling: Vec::new(),
             shown: Shown::of(&schema),
+            dead_letters: Vec::new(),
         };
         // A prune resolves its project as a read does: where there is none,
         // or no store yet, there is nothing to prune, and nothing is minted
@@ -291,6 +296,7 @@ where
             clock: &mut self.clock,
             delay: &mut self.delay,
             backoff: self.backoff,
+            dead_letters: &self.dead_letters,
         };
         for task in selected {
             let Some(events) = take(&mut runner, store, task, &selection, request.apply).await?
@@ -315,6 +321,7 @@ where
             .collect();
         pruning.tasks_remaining = survivors.len();
         pruning.dangling = dangling(&survivors, &gone);
+        pruning.dead_letters = self.dead_letters.take();
         Ok(pruning)
     }
 }
