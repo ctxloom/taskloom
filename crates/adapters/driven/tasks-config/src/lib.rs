@@ -3,7 +3,8 @@
 //!
 //! 1. `~/.taskloom/config.yaml`;
 //! 2. `<root>/.taskloom/config.yaml`, the work root's;
-//! 3. `TASKLOOM_CONFIG_<KEY>` environment variables (`TASKLOOM_CONFIG_TAG_SCHEMA`);
+//! 3. `TASKLOOM_CONFIG_<KEY>` environment variables (`TASKLOOM_CONFIG_TAG_SCHEMA`),
+//!    an empty one unset;
 //! 4. `--config-set <path>=<value>` overrides, in order.
 //!
 //! `tag_schema` is a list, and a layer that sets it replaces the whole list
@@ -81,7 +82,9 @@ impl TaskloomConfig {
             }
         }
         for (name, value) in &self.env {
-            let Some(key) = name.strip_prefix(ENV_PREFIX) else {
+            // An empty variable is unset, as the environment's are
+            // everywhere: no layer, never an empty list.
+            let Some(key) = name.strip_prefix(ENV_PREFIX).filter(|_| !value.is_empty()) else {
                 continue;
             };
             if let Some(list) = set(name, &key.to_ascii_lowercase(), value)? {

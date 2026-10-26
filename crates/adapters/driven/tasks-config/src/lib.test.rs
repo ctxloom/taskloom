@@ -213,3 +213,22 @@ fn test_a_list_splits_on_commas_outside_quotes() {
     let error = schema(&dirs.config(&[]), &[r#"tag_schema=k="a"#]).unwrap_err();
     assert_eq!(error.code(), "tasks-config-unterminated");
 }
+
+// An empty variable of the environment is unset, as everywhere else
+// (CTXLOOM_PROJECT_ID, CTXLOOM_SESSION_HARP): `TASKLOOM_CONFIG_TAG_SCHEMA=`
+// left over in a shell is no layer, never an empty list that drops every
+// declaration the files make (their enums, ranges and scalar targets).
+#[test]
+fn test_an_empty_variable_is_no_layer() {
+    let dirs = Dirs::new(Some(HOME), Some(ROOT));
+    let config = dirs.config(&[("TASKLOOM_CONFIG_TAG_SCHEMA", "")]);
+    assert_eq!(schema(&config, &[]), schema(&dirs.config(&[]), &[]));
+    let config = dirs.config(&[("TASKLOOM_CONFIG_TAGS", "")]);
+    assert_eq!(
+        schema(&config, &[]).map(|s| s.len()),
+        Ok(2),
+        "unset, so naming no key is no refusal"
+    );
+    // An override is given, so its empty list is one.
+    assert_eq!(schema(&dirs.config(&[]), &["tag_schema="]), Ok(Vec::new()));
+}
