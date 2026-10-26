@@ -84,15 +84,22 @@ enum Mounted {
 
 /// The tasks use cases over the real adapters, configured from the work
 /// root's config, as one call or command needs them. `vars` are the
-/// environment's, as the config reads them.
+/// environment's, as the config reads them; `config_set` the global
+/// `--config-set` overrides, applied last.
 fn service(
     env: &Environment,
     vars: Vec<(String, String)>,
+    config_set: Vec<String>,
 ) -> Service<ProjectRegistry<HarpNames>, SqliteStores, HarpNames, System, System, TaskloomConfig> {
     let identity = ProjectRegistry::new(env.clone(), HarpNames);
     // The work root's config, where there is a work root: a command that
     // needs one fails on resolving it, and says why.
-    let config = TaskloomConfig::new(env.home.clone(), identity.work_root().ok(), vars);
+    let config = TaskloomConfig::new(
+        env.home.clone(),
+        identity.work_root().ok(),
+        vars,
+        config_set,
+    );
     Service::new(identity, SqliteStores::default(), HarpNames, System, System)
         .with_configuration(config)
 }
@@ -129,11 +136,12 @@ fn serve_mcp(
     env: Environment,
     settings: tasks_mcp::Settings,
     catalog: presentation::Catalog,
+    config_set: Vec<String>,
 ) -> ExitCode {
     let catalog = Arc::new(catalog);
     let vars = utf8_vars();
     let tools = tasks_mcp::TaskTools::new(
-        move || service(&env, vars.clone()),
+        move || service(&env, vars.clone(), config_set.clone()),
         settings,
         Arc::clone(&catalog),
     );
@@ -317,7 +325,7 @@ fn main() -> ExitCode {
     };
     let group = match command {
         Command::Tasks(command) => {
-            let mut service = service(&env, utf8_vars());
+            let mut service = service(&env, utf8_vars(), globals.config_set.clone());
             return ExitCode::from(runtime.block_on(tasks_cli::run(
                 command,
                 globals,
@@ -335,6 +343,7 @@ fn main() -> ExitCode {
         Err(code) => return ExitCode::from(code),
     };
     let project = globals.project;
+    let config_set = globals.config_set;
     match group {
         Mounted::Import(tasks_cli::ImportGroup::Import) => {
             import(&runtime, &env, project, format, &catalog)
@@ -357,7 +366,7 @@ fn main() -> ExitCode {
                 name: tasks_cli::PROG.to_string(),
                 version: context.version,
             };
-            serve_mcp(runtime, env, settings, catalog)
+            serve_mcp(runtime, env, settings, catalog, config_set)
         }
         Mounted::Watch(tasks_watch::Group::Watch) => {
             let settings = tasks_watch::Settings {
@@ -367,7 +376,7 @@ fn main() -> ExitCode {
             };
             watch(
                 &runtime,
-                &mut service(&env, utf8_vars()),
+                &mut service(&env, utf8_vars(), config_set),
                 &settings,
                 &catalog,
             )

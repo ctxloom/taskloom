@@ -993,9 +993,8 @@ impl<S: tasks_application::TaskService + Send> tasks_application::TaskService fo
     }
     async fn tag_schema(
         &mut self,
-        config_set: Vec<String>,
     ) -> Result<tasks_application::TagSchema, tasks_application::AppError> {
-        self.0.tag_schema(config_set).await
+        self.0.tag_schema().await
     }
 }
 

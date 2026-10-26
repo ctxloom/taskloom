@@ -18,7 +18,6 @@ use crate::{dead_lettered, notify, output_failed, wrote, CliError, Notice};
 /// global flags, the format, the catalog and the session.
 pub(crate) struct Ctx<'a> {
     pub project: Option<String>,
-    pub config_set: Vec<String>,
     pub format: Format,
     pub catalog: &'a Catalog,
     pub session: &'a str,
@@ -66,7 +65,6 @@ pub(crate) async fn add(
         trigger: args.trigger,
         tags: args.tags,
         origin_session,
-        config_set: ctx.config_set,
     };
     let written = service.add(task).await.map_err(CliError::App)?;
     wrote(
@@ -103,7 +101,6 @@ pub(crate) async fn status(
         harp_id: args.harp_id,
         status: args.status,
         trigger: args.trigger,
-        config_set: ctx.config_set,
     };
     let written = service.set_status(change).await.map_err(CliError::App)?;
     wrote(
@@ -137,7 +134,6 @@ pub(crate) async fn edit(
         project: ctx.project,
         harp_id: args.harp_id,
         text: args.text.join(" "),
-        config_set: ctx.config_set,
     };
     let written = service.edit(edit).await.map_err(CliError::App)?;
     wrote(
@@ -174,7 +170,6 @@ pub(crate) async fn tag(
         harp_id: args.harp_id,
         add: args.add,
         remove: args.remove,
-        config_set: ctx.config_set,
     };
     let written = service.tag(change).await.map_err(CliError::App)?;
     let view = Tagged(&written.task, &written.shown);
@@ -231,7 +226,6 @@ pub(crate) async fn list(
         statuses: args.status,
         all: args.all,
         tag_query: args.tag_query,
-        config_set: ctx.config_set,
         term: args.term,
         global: args.global,
         limit: args.limit,
@@ -270,7 +264,6 @@ pub(crate) async fn show(
         project: ctx.project,
         global: args.global,
         harp_ids: args.harp_ids,
-        config_set: ctx.config_set,
     };
     let details = service.show(query).await.map_err(CliError::App)?;
     read_in(&details.reach, ctx.catalog, err)
@@ -290,7 +283,6 @@ impl GlobalArgs {
         Scope {
             project: ctx.project,
             global: self.global,
-            config_set: ctx.config_set,
         }
     }
 }
@@ -364,7 +356,6 @@ pub(crate) async fn tags(
         project: ctx.project,
         statuses: args.status,
         tag_query: args.tag_query,
-        config_set: ctx.config_set,
         term: args.term,
         global: args.global,
         ..ListQuery::default()
@@ -437,7 +428,6 @@ pub(crate) async fn prune(
         older_than: args.older_than,
         tag_query: args.tag_query,
         apply: args.yes,
-        config_set: ctx.config_set,
     };
     let (format, catalog) = (ctx.format, ctx.catalog);
     let pruning = service.prune(request).await.map_err(CliError::App)?;

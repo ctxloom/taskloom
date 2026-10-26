@@ -428,9 +428,11 @@ Where the port differs from Go:
   (Decided 3), as the CLI's `--global` says nothing either. The
   vocabulary resource reads as `tags` does, so outside a work root with
   no project it counts every project and says why in its `warning`;
-  Go's counts nothing there. Neither the tools nor the resources take
-  the launch's `--config-set` (Go's handlers see the launch flags): each
-  call's configuration is the files' and the environment's. A tool
+  Go's counts nothing there. The tools and the resources take the
+  launch's `--config-set`, as Go's handlers see the launch flags: it is
+  bound once, in the configuration the composition root makes
+  (`TaskloomConfig::new`), so each call's configuration is the files',
+  the environment's and the launch's overrides. A tool
   result's text is serde_json's, escaping no HTML (see "Open"); the
   resources' documents escape as Go's do. Go's MCP results happen to
   have their keys sorted; Rust's do too (serde_json's map), though

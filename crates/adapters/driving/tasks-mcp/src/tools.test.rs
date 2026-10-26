@@ -122,7 +122,6 @@ fn test_a_listing_asks_for_everything_its_arguments_name() {
                 statuses: vec!["To Do".to_string(), "@open".to_string()],
                 all: true,
                 tag_query: Some("a/b/and".to_string()),
-                config_set: Vec::new(),
                 term: Some("ship".to_string()),
                 global: true,
                 limit: 5,
@@ -202,7 +201,6 @@ fn test_a_summary_counts_the_projects_the_listing_reached() {
         Scope {
             project: Some("pinned-proj-id".to_string()),
             global: true,
-            config_set: Vec::new(),
         }
     );
     assert!(!request.summary_scope(&Reach::Project(project())).global);
@@ -241,7 +239,6 @@ fn test_each_change_asks_for_its_task_by_harp_in_the_pinned_project() {
             harp_id: "swift-amber".to_string(),
             status: "Deferred".to_string(),
             trigger: Some("later".to_string()),
-            config_set: Vec::new(),
         }
     );
     assert_eq!(
@@ -256,7 +253,6 @@ fn test_each_change_asks_for_its_task_by_harp_in_the_pinned_project() {
             project: Some("pinned-proj-id".to_string()),
             harp_id: "swift-amber".to_string(),
             text: "New".to_string(),
-            config_set: Vec::new(),
         }
     );
     assert_eq!(
@@ -270,7 +266,6 @@ fn test_each_change_asks_for_its_task_by_harp_in_the_pinned_project() {
             harp_id: "swift-amber".to_string(),
             add: vec!["a".to_string()],
             remove: vec!["b".to_string()],
-            config_set: Vec::new(),
         }
     );
     let bare = tag_change(json!({"harp_id": "h", "add": null}), &settings()).unwrap();

@@ -38,6 +38,7 @@ impl Dirs {
             env.iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
+            Vec::new(),
         )
     }
 }
@@ -51,8 +52,13 @@ fn strings(values: &[&str]) -> Vec<String> {
     values.iter().map(|v| v.to_string()).collect()
 }
 
+/// What `config`, made with `overrides`, resolves.
 fn schema(config: &TaskloomConfig, overrides: &[&str]) -> Result<Vec<String>, ConfigError> {
-    config.resolve(&strings(overrides))
+    let config = TaskloomConfig {
+        overrides: strings(overrides),
+        ..config.clone()
+    };
+    config.resolve()
 }
 
 const HOME: &str = "tag_schema:\n  - 'tagma.arity:\"home:x\"=scalar'\n";
@@ -62,7 +68,7 @@ const ROOT: &str = "schema_version: 1\nhoming: home\ntag_schema:\n  - 'tagma.ari
 fn test_nothing_configured_is_no_declaration() {
     let dirs = Dirs::new(None, None);
     assert_eq!(schema(&dirs.config(&[]), &[]), Ok(Vec::new()));
-    let nowhere = TaskloomConfig::new(None, None, Vec::new());
+    let nowhere = TaskloomConfig::new(None, None, Vec::new(), Vec::new());
     assert_eq!(schema(&nowhere, &[]), Ok(Vec::new()));
 }
 
@@ -133,8 +139,20 @@ fn test_the_environment_beats_the_files_and_an_override_beats_it() {
 fn test_through_the_port() {
     let dirs = Dirs::new(None, Some(ROOT));
     let mut config = dirs.config(&[]);
-    assert_eq!(config.tag_schema(&[]).unwrap().len(), 2);
-    let error = config.tag_schema(&strings(&["nonsense"])).unwrap_err();
+    assert_eq!(config.tag_schema().unwrap().len(), 2);
+    let home = Some(dirs.home.path().to_path_buf());
+    let root = Some(dirs.root.path().to_path_buf());
+    let set = strings(&[r#"tag_schema=tagma.arity:"set:x"=scalar"#]);
+    let mut config = TaskloomConfig::new(home.clone(), root.clone(), Vec::new(), set);
+    assert_eq!(
+        config.tag_schema(),
+        Ok(strings(&[r#"tagma.arity:"set:x"=scalar"#])),
+        "the overrides it was made with, applied last"
+    );
+    let nonsense = strings(&["nonsense"]);
+    let error = TaskloomConfig::new(home, root, Vec::new(), nonsense)
+        .tag_schema()
+        .unwrap_err();
     assert_eq!(error.code(), "tasks-config-not-an-override");
 }
 

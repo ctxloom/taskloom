@@ -255,7 +255,7 @@ where
         match uri {
             resources::TAG_SCHEMA => {
                 let schema = self
-                    .on_its_own(|mut service| async move { service.tag_schema(Vec::new()).await })
+                    .on_its_own(|mut service| async move { service.tag_schema().await })
                     .await?
                     .map_err(McpError::App)?;
                 Ok(resources::schema_text(&schema))

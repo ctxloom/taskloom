@@ -83,8 +83,6 @@ pub struct NewTask {
     pub tags: Vec<String>,
     /// The session adding it, if one is.
     pub origin_session: Option<String>,
-    /// Configuration overrides, `<path>=<value>` (`--config-set`).
-    pub config_set: Vec<String>,
 }
 
 /// Tags to add to and remove from a task: the adds first, then the
@@ -98,8 +96,6 @@ pub struct TagChange {
     pub harp_id: String,
     pub add: Vec<String>,
     pub remove: Vec<String>,
-    /// Configuration overrides, `<path>=<value>` (`--config-set`).
-    pub config_set: Vec<String>,
 }
 
 /// A task moved to a status. No trigger (`None`) keeps the one it holds;
@@ -111,8 +107,6 @@ pub struct StatusChange {
     pub harp_id: String,
     pub status: String,
     pub trigger: Option<String>,
-    /// Configuration overrides, `<path>=<value>` (`--config-set`).
-    pub config_set: Vec<String>,
 }
 
 /// A task's text replaced whole; its status and trigger untouched.
@@ -121,8 +115,6 @@ pub struct TextEdit {
     pub project: Option<String>,
     pub harp_id: String,
     pub text: String,
-    /// Configuration overrides, `<path>=<value>` (`--config-set`).
-    pub config_set: Vec<String>,
 }
 
 /// The tasks to show, by id, every one of which must be found: in the
@@ -132,8 +124,6 @@ pub struct ShowQuery {
     pub project: Option<String>,
     pub global: bool,
     pub harp_ids: Vec<String>,
-    /// Configuration overrides, `<path>=<value>` (`--config-set`).
-    pub config_set: Vec<String>,
 }
 
 /// Where a read that takes no filter reads: the work root's project (or
@@ -142,8 +132,6 @@ pub struct ShowQuery {
 pub struct Scope {
     pub project: Option<String>,
     pub global: bool,
-    /// Configuration overrides, `<path>=<value>` (`--config-set`).
-    pub config_set: Vec<String>,
 }
 
 /// Which tasks to list. By default the active ones: neither terminal nor
@@ -159,8 +147,6 @@ pub struct ListQuery {
     pub all: bool,
     /// A tag query, postfix or infix (see [`QUERY_GRAMMAR`]).
     pub tag_query: Option<String>,
-    /// Configuration overrides, `<path>=<value>` (`--config-set`).
-    pub config_set: Vec<String>,
     /// A substring of the text, any case.
     pub term: Option<String>,
     /// Every project's tasks, not the work root's project's.
@@ -208,11 +194,8 @@ pub trait TaskService {
     ) -> impl Future<Output = Result<Vocabulary, AppError>> + Send;
     fn lint(&mut self, scope: Scope) -> impl Future<Output = Result<LintReport, AppError>> + Send;
     /// The tag schema a write is held to: the default one, extended by
-    /// what is configured, `config_set` applied. No project is resolved.
-    fn tag_schema(
-        &mut self,
-        config_set: Vec<String>,
-    ) -> impl Future<Output = Result<TagSchema, AppError>> + Send;
+    /// what is configured. No project is resolved.
+    fn tag_schema(&mut self) -> impl Future<Output = Result<TagSchema, AppError>> + Send;
 }
 
 /// The registry the tasks domain runs under.
@@ -250,7 +233,7 @@ pub struct NotConfigured;
 impl Configuration for NotConfigured {
     // Equivalent: `Ok(vec![])` is the empty list this returns.
     #[cfg_attr(test, mutants::skip)]
-    fn tag_schema(&mut self, _: &[String]) -> Result<Vec<String>, Report> {
+    fn tag_schema(&mut self) -> Result<Vec<String>, Report> {
         Ok(Vec::new())
     }
 }
@@ -289,12 +272,11 @@ impl<I, S, N, C, D, G> Service<I, S, N, C, D, G> {
 }
 
 impl<I, S, N, C, D, G: Configuration> Service<I, S, N, C, D, G> {
-    /// The tag schema: the default one, extended by what is configured,
-    /// `overrides` applied.
-    fn schema(&mut self, overrides: &[String]) -> Result<TagSchema, AppError> {
+    /// The tag schema: the default one, extended by what is configured.
+    fn schema(&mut self) -> Result<TagSchema, AppError> {
         let configured = self
             .configuration
-            .tag_schema(overrides)
+            .tag_schema()
             .map_err(AppError::Configuration)?;
         TagSchema::resolved(&configured).map_err(|e| AppError::Configuration(Report::of(&e)))
     }
@@ -387,7 +369,7 @@ where
         let status = given(task.status, "status")?.unwrap_or_else(|| tasks::TO_DO.to_string());
         let trigger = given(task.trigger, "trigger")?.unwrap_or_default();
         let origin_session = given(task.origin_session, "origin_session")?.unwrap_or_default();
-        let schema = self.schema(&task.config_set)?;
+        let schema = self.schema()?;
         let tags = tags::admit_all(&task.tags, &schema).map_err(|r| refused(&r))?;
         tags::check_scalars(&schema, &tags).map_err(|r| refused(&r))?;
         let (tags, _) = tags::collapse(&schema, &[], tags);
@@ -459,7 +441,7 @@ where
         }
         .into();
         tasks::check(&retag).map_err(|r| rejected(&r))?;
-        let schema = self.schema(&change.config_set)?;
+        let schema = self.schema()?;
         for tag in &add {
             tags::admit(tag, &schema).map_err(|r| refused(&r))?;
         }
@@ -495,7 +477,7 @@ where
         }
         .into();
         tasks::check(&set).map_err(|r| rejected(&r))?;
-        let schema = self.schema(&change.config_set)?;
+        let schema = self.schema()?;
         let project = self.existing(change.project.as_deref()).await?;
         let task = self.commit(&project, &change.harp_id, set).await?;
         Ok(Written {
@@ -509,7 +491,7 @@ where
     async fn edit(&mut self, edit: TextEdit) -> Result<Written, AppError> {
         let command: TaskCommand = EditText { text: edit.text }.into();
         tasks::check(&command).map_err(|r| rejected(&r))?;
-        let schema = self.schema(&edit.config_set)?;
+        let schema = self.schema()?;
         let project = self.existing(edit.project.as_deref()).await?;
         let task = self.commit(&project, &edit.harp_id, command).await?;
         Ok(Written {
@@ -544,8 +526,8 @@ where
         self.linted(scope).await
     }
 
-    async fn tag_schema(&mut self, config_set: Vec<String>) -> Result<TagSchema, AppError> {
-        self.schema(&config_set)
+    async fn tag_schema(&mut self) -> Result<TagSchema, AppError> {
+        self.schema()
     }
 }
 
