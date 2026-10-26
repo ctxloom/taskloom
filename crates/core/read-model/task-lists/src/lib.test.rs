@@ -11,9 +11,7 @@ use annals::next::{
     ids, InMemoryStore, Kernel, MemoryDeadLetters, Payload, ProjectionRoute, Ready, Registry,
     Routes, Rulebook, Sampled, Timestamp, Upcaster,
 };
-use tasks::{
-    AddTask, RemovalReason, RemoveTask, SetStatus, TaskCommand, TaskState, Tasks, DEFERRED,
-};
+use tasks::{AddTask, RemovalReason, RemoveTask, SetStatus, TaskCommand, Tasks};
 
 const FIRST: &str = "swift-amber";
 const SECOND: &str = "calm-otter";
@@ -106,25 +104,17 @@ fn status(status: &str, trigger: &str) -> SetStatus {
 }
 
 fn every_task() -> TaskList {
-    TaskList::new(Box::new(|_| true))
-}
-
-fn not_done() -> TaskList {
-    TaskList::new(Box::new(|t: &TaskState| t.status != "Done"))
-}
-
-fn deferred() -> TaskList {
-    TaskList::new(Box::new(|t: &TaskState| t.status == DEFERRED))
+    TaskList::default()
 }
 
 fn harps(list: &TaskList) -> Vec<&str> {
     list.entries().iter().map(|t| t.harp_id.as_str()).collect()
 }
 
-// ------------------------------------------------------------ membership
+// ------------------------------------------------------------ the list
 
 #[test]
-fn test_a_list_holds_each_live_task_its_membership_admits() {
+fn test_a_list_holds_each_live_task() {
     let mut project = Project::new();
     let mut list = every_task();
     project.run(&mut list, FIRST, add(FIRST, "First"));
@@ -153,37 +143,6 @@ fn test_each_change_to_the_list_takes_the_next_sequence() {
 }
 
 #[test]
-fn test_a_task_leaving_the_membership_is_removed_from_the_list() {
-    let mut project = Project::new();
-    let mut list = not_done();
-    project.run(&mut list, FIRST, add(FIRST, "First"));
-    project.run(&mut list, FIRST, status("Done", ""));
-    assert!(list.entries().is_empty());
-    assert_eq!(
-        list.since(1),
-        Some(
-            &[Delta {
-                sequence: 2,
-                change: Change::Remove {
-                    harp_id: FIRST.to_string()
-                },
-            }][..]
-        )
-    );
-}
-
-#[test]
-fn test_a_task_entering_the_membership_is_added_to_the_list() {
-    let mut project = Project::new();
-    let mut list = deferred();
-    project.run(&mut list, FIRST, add(FIRST, "First"));
-    assert_eq!(list.sequence(), 0, "not deferred: not listed");
-    project.run(&mut list, FIRST, status(DEFERRED, "after the release"));
-    assert_eq!(harps(&list), [FIRST]);
-    assert_eq!(list.sequence(), 1);
-}
-
-#[test]
 fn test_a_removed_task_leaves_the_list() {
     let mut project = Project::new();
     let mut list = every_task();
@@ -197,16 +156,6 @@ fn test_a_removed_task_leaves_the_list() {
     );
     assert!(list.entries().is_empty());
     assert_eq!(list.sequence(), 2);
-}
-
-#[test]
-fn test_a_change_outside_the_membership_takes_no_sequence() {
-    let mut project = Project::new();
-    let mut list = deferred();
-    project.run(&mut list, FIRST, add(FIRST, "First"));
-    project.run(&mut list, FIRST, status("In Progress", ""));
-    assert_eq!(list.sequence(), 0);
-    assert_eq!(list.since(0), Some(&[][..]));
 }
 
 // ------------------------------------------------------------ cursors
@@ -238,12 +187,18 @@ fn test_since_a_cursor_past_the_sequence_is_none() {
 #[test]
 fn test_a_list_caught_up_from_the_store_holds_what_the_live_list_holds() {
     let mut project = Project::new();
-    let mut live = not_done();
+    let mut live = every_task();
     project.run(&mut live, FIRST, add(FIRST, "First"));
     project.run(&mut live, SECOND, add(SECOND, "Second"));
-    project.run(&mut live, FIRST, status("Done", ""));
+    project.run(
+        &mut live,
+        FIRST,
+        RemoveTask {
+            reason: RemovalReason::Removed,
+        },
+    );
 
-    let mut rebuilt = not_done();
+    let mut rebuilt = every_task();
     rebuilt
         .catch_up(&mut project.store, &project.registry)
         .unwrap();
@@ -278,12 +233,18 @@ fn ready<F: std::future::Future>(future: F) -> F::Output {
 #[test]
 fn test_a_list_caught_up_over_the_async_port_holds_what_the_live_list_holds() {
     let mut project = Project::new();
-    let mut live = not_done();
+    let mut live = every_task();
     project.run(&mut live, FIRST, add(FIRST, "First"));
     project.run(&mut live, SECOND, add(SECOND, "Second"));
-    project.run(&mut live, FIRST, status("Done", ""));
+    project.run(
+        &mut live,
+        FIRST,
+        RemoveTask {
+            reason: RemovalReason::Removed,
+        },
+    );
 
-    let mut rebuilt = not_done();
+    let mut rebuilt = every_task();
     let mut store = Ready(std::mem::take(&mut project.store));
     ready(rebuilt.catch_up_async(&mut store, &project.registry)).unwrap();
     assert_eq!(rebuilt.entries(), live.entries());
@@ -432,12 +393,10 @@ fn test_an_async_catch_up_drops_a_task_whose_stream_is_gone() {
 #[test]
 fn test_a_task_the_list_does_not_hold_leaves_no_change_when_its_stream_goes() {
     let mut project = Project::new();
-    let mut list = not_done();
+    let mut list = every_task();
     project.run(&mut list, FIRST, add(FIRST, "First"));
-    project.run(&mut list, FIRST, status("Done", ""));
+    project.run(&mut list, FIRST, pruned());
     assert_eq!(list.sequence(), 2, "in, then out");
-    let mut elsewhere = every_task();
-    project.run(&mut elsewhere, FIRST, pruned());
     annals::next::Purge::purge(&mut project.store, &cover(FIRST)).unwrap();
     list.catch_up(&mut project.store, &project.registry)
         .unwrap();
@@ -629,29 +588,6 @@ fn test_an_async_catch_up_lists_a_task_minted_again_unseen() {
     ready(list.catch_up_async(&mut store, &project.registry)).unwrap();
     assert_eq!(texts(&list), ["Again"]);
     assert_eq!(list.sequence(), 3);
-}
-
-#[test]
-fn test_a_task_minted_again_outside_the_membership_leaves_the_list() {
-    // The old task was listed and the new one is not: the old one goes.
-    let mut project = Project::new();
-    let mut list = deferred();
-    project.run(&mut list, FIRST, add(FIRST, "First"));
-    project.run(&mut list, FIRST, status(DEFERRED, "later"));
-    assert_eq!(harps(&list), [FIRST]);
-    prune_purge_and_mint_again(&mut project, FIRST, "Again");
-    list.catch_up(&mut project.store, &project.registry)
-        .unwrap();
-    assert!(list.entries().is_empty(), "{:?}", list.entries());
-    assert_eq!(
-        list.since(1).unwrap(),
-        [Delta {
-            sequence: 2,
-            change: Change::Remove {
-                harp_id: FIRST.to_string()
-            }
-        }]
-    );
 }
 
 #[test]

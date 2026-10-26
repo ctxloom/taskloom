@@ -330,7 +330,7 @@ async fn live_tasks<S: AsyncReadStore>(
     store: &mut S,
     registry: &annals::next::Registry,
 ) -> Result<(Vec<TaskState>, Vec<TaskState>), AppError> {
-    let mut list = TaskList::new(Box::new(|_| true));
+    let mut list = TaskList::default();
     list.catch_up_async(store, registry)
         .await
         .map_err(|e| AppError::Failed(Report::of(&*e)))?;

@@ -255,10 +255,8 @@ fn project_group(
     settings: &project_cli::Settings,
     catalog: &presentation::Catalog,
 ) -> ExitCode {
-    let mut projects = Projects::new(
-        ProjectRegistry::new(env, HarpNames),
-        SqliteStores::default(),
-    );
+    // Surveying and changing the registry mints nothing: no names.
+    let mut projects = Projects::new(ProjectRegistry::new(env, ()), SqliteStores::default());
     ExitCode::from(project_cli::run(
         group,
         settings,

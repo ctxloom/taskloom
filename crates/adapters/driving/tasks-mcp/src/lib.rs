@@ -38,7 +38,8 @@ use rmcp::transport::IntoTransport;
 use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceExt};
 use tasks_application::{DeadLetter, TaskService};
 
-pub use error::{diagnostic_samples, McpError, McpNotice, EN_US};
+use error::McpNotice;
+pub use error::{diagnostic_samples, McpError, EN_US};
 pub use resources::RESOURCES;
 
 /// The server's instructions to its client, with the reviewed factual

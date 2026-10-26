@@ -315,7 +315,7 @@ where
         let Some(store) = self.stores.open_existing(project).await.map_err(failed)? else {
             return Ok(None);
         };
-        let mut list = TaskList::new(Box::new(|_| true));
+        let mut list = TaskList::default();
         list.catch_up_async(store, &self.registry)
             .await
             .map_err(|e| AppError::Failed(Report::of(&*e)))?;

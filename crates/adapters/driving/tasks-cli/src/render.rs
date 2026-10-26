@@ -11,7 +11,7 @@ use tasks_application::{
     Details, LintReport, Listing, Reach, Row, Shown, StatusInfo, Statuses, Summary, Tag, Task,
     Vocabulary,
 };
-pub use tasks_presentation::{headline, project_label, CompactJson, RowJson, HEADLINE_WIDTH};
+pub(crate) use tasks_presentation::{headline, project_label, CompactJson, RowJson};
 use tasks_presentation::{SummaryJson, TagCountJson, TaskJson};
 
 /// The heading of an answer read across every project.
