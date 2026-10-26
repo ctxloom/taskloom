@@ -108,7 +108,6 @@ impl ListRequest {
         Scope {
             project: self.query.project.clone(),
             global: reach.is_every(),
-            config_set: self.query.config_set.clone(),
         }
     }
 }
@@ -123,7 +122,6 @@ pub fn list_request(arguments: Value, settings: &Settings) -> Result<ListRequest
             statuses: args.statuses.unwrap_or_default(),
             all: args.include_completed,
             tag_query: args.tag_query,
-            config_set: Vec::new(),
             term: args.term,
             global: args.global,
             limit: usize::try_from(args.limit).unwrap_or(0),
@@ -145,7 +143,6 @@ pub fn new_task(arguments: Value, settings: &Settings) -> Result<NewTask, McpErr
         trigger: args.trigger,
         tags: args.tags.unwrap_or_default(),
         origin_session: settings.session(),
-        config_set: Vec::new(),
     })
 }
 
@@ -157,7 +154,6 @@ pub fn status_change(arguments: Value, settings: &Settings) -> Result<StatusChan
         harp_id: args.harp_id,
         status: args.status,
         trigger: args.trigger,
-        config_set: Vec::new(),
     })
 }
 
@@ -168,7 +164,6 @@ pub fn text_edit(arguments: Value, settings: &Settings) -> Result<TextEdit, McpE
         project: settings.project.clone(),
         harp_id: args.harp_id,
         text: args.text,
-        config_set: Vec::new(),
     })
 }
 
@@ -180,7 +175,6 @@ pub fn tag_change(arguments: Value, settings: &Settings) -> Result<TagChange, Mc
         harp_id: args.harp_id,
         add: args.add.unwrap_or_default(),
         remove: args.remove.unwrap_or_default(),
-        config_set: Vec::new(),
     })
 }
 

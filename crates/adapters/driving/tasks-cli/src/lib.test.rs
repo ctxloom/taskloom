@@ -135,7 +135,7 @@ impl TaskService for Fake {
     }
 
     // The command line reads no schema through this; the MCP server does.
-    async fn tag_schema(&mut self, _: Vec<String>) -> Result<TagSchema, AppError> {
+    async fn tag_schema(&mut self) -> Result<TagSchema, AppError> {
         unreachable!("no command reads the tag schema")
     }
 }
@@ -294,7 +294,6 @@ fn test_add_joins_its_words_and_passes_its_flags_and_the_session() {
             trigger: Some("later".to_string()),
             tags: vec!["a".to_string(), "b".to_string()],
             origin_session: Some("cross-proc-harp".to_string()),
-            config_set: vec!["tag_schema=x".to_string(), "homing=home".to_string()],
         }]
     );
     assert_eq!(ran.err, "taskloom: project /work/tree (jolly-mute-magma)\n");
@@ -444,7 +443,6 @@ fn test_tag_passes_its_adds_and_removes_and_answers_with_the_tags() {
             harp_id: "swift-amber".to_string(),
             add: vec!["a".to_string(), "b".to_string()],
             remove: vec!["c".to_string()],
-            config_set: Vec::new(),
         }]
     );
     assert_eq!(ran.err, "taskloom: project /work/tree (jolly-mute-magma)\n");
@@ -511,7 +509,6 @@ fn test_status_passes_its_id_status_and_trigger_and_answers_like_add() {
             harp_id: "swift-amber".to_string(),
             status: "Deferred".to_string(),
             trigger: Some("the release".to_string()),
-            config_set: vec!["tag_schema=x".to_string()],
         }]
     );
     assert_eq!(ran.out, "swift-amber\tDeferred\tShip it\n");
@@ -573,7 +570,6 @@ fn test_edit_joins_its_words_and_answers_like_add() {
             project: Some("p".to_string()),
             harp_id: "swift-amber".to_string(),
             text: "Ship it --now".to_string(),
-            config_set: Vec::new(),
         }]
     );
     assert_eq!(ran.out, "swift-amber\tTo Do\tShip it\n");
@@ -633,7 +629,6 @@ fn test_show_passes_its_ids_and_names_the_project_on_stderr() {
             project: Some("p".to_string()),
             global: true,
             harp_ids: vec!["swift-amber".to_string()],
-            config_set: Vec::new(),
         }]
     );
     assert_eq!(
@@ -828,7 +823,6 @@ fn test_statuses_are_a_line_each_or_gos_array() {
         [Scope {
             project: Some("p".to_string()),
             global: true,
-            config_set: Vec::new(),
         }]
     );
     assert_eq!(
@@ -922,7 +916,6 @@ fn test_tags_passes_its_filters_and_aligns_its_counts() {
             tag_query: Some("x".to_string()),
             term: Some("ship".to_string()),
             global: true,
-            config_set: vec!["tag_schema=x".to_string()],
             ..ListQuery::default()
         }]
     );
@@ -1014,7 +1007,6 @@ fn test_lint_says_each_violation_and_exits_1_for_any() {
         [Scope {
             project: Some("p".to_string()),
             global: true,
-            config_set: vec!["tag_schema=x".to_string()],
         }]
     );
     assert_eq!(
@@ -1161,7 +1153,6 @@ fn test_list_passes_its_filters() {
             ],
             all: true,
             tag_query: Some("urgent/not".to_string()),
-            config_set: Vec::new(),
             term: Some("docs".to_string()),
             global: true,
             limit: 5,
@@ -1876,7 +1867,6 @@ fn test_prune_by_default_reports_done_tasks_older_than_seven_days() {
             older_than: "7d".to_string(),
             tag_query: None,
             apply: false,
-            config_set: Vec::new(),
         }]
     );
     assert_eq!(ran.err, "", "nothing would be taken: nothing to say");
@@ -1921,7 +1911,6 @@ fn test_prune_passes_its_flags() {
             older_than: "30d".to_string(),
             tag_query: Some("release".to_string()),
             apply: true,
-            config_set: vec!["tag_schema=x".to_string()],
         }]
     );
     assert_eq!(ran.err, "", "applied: no report-only notice");

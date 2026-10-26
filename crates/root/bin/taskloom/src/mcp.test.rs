@@ -50,7 +50,13 @@ impl Server {
     /// [`Server::start_in`], with `vars` in its environment too, as
     /// [`Env::run_in`] runs the command line.
     fn start_with(env: &Env, dir: &Path, vars: &[(&str, &str)]) -> Server {
+        Server::start_args(env, dir, vars, &[])
+    }
+
+    /// [`Server::start_with`], `globals` given before `mcp`.
+    fn start_args(env: &Env, dir: &Path, vars: &[(&str, &str)], globals: &[&str]) -> Server {
         let mut child = Command::new(binary())
+            .args(globals)
             .arg("mcp")
             .current_dir(dir)
             .env_clear()
@@ -447,6 +453,32 @@ fn test_mcp_calls_are_served_under_the_configured_tag_schema() {
     let vocabulary: Value =
         serde_json::from_str(&server.read("taskloom://tag-vocabulary")).unwrap();
     assert_eq!(vocabulary["tags"], json!([]), "the hidden tag is left out");
+    let (ok, stderr) = server.finish();
+    assert!(ok, "{stderr}");
+}
+
+// `--config-set` before `mcp` configures every call's service, as it
+// configures a command line's: it is bound once, where the server is made.
+#[test]
+fn test_mcp_calls_are_served_under_the_config_set_given_it() {
+    let env = Env::new("mcp-test-harp");
+    let set = r#"tag_schema=tagma.enum:"team:size"="small,large""#;
+    let mut server = Server::start_args(&env, env.project.path(), &[], &["--config-set", set]);
+    server.initialize();
+    let refused = server.ask(
+        "tools/call",
+        json!({"name": "task_add", "arguments": {"text": "Ship it", "tags": ["team:size=huge"]}}),
+    );
+    let result = &refused["result"];
+    assert_eq!(result["isError"], true, "{refused}");
+    let envelope: Value =
+        serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(envelope["code"], "tasks-application-tag-not-in-enum");
+    let added = server.call(
+        "task_add",
+        json!({"text": "Ship it", "tags": ["team:size=small"]}),
+    );
+    assert_eq!(added["task"]["tags"], json!(["team:size=small"]));
     let (ok, stderr) = server.finish();
     assert!(ok, "{stderr}");
 }

@@ -61,8 +61,6 @@ pub struct PruneRequest {
     pub tag_query: Option<String>,
     /// Remove and purge what is selected; without it, only report.
     pub apply: bool,
-    /// Configuration overrides, `<path>=<value>` (`--config-set`).
-    pub config_set: Vec<String>,
 }
 
 /// One task a prune took, or without `apply` would take.
@@ -221,7 +219,7 @@ where
     async fn prune(&mut self, request: PruneRequest) -> Result<Pruning, AppError> {
         let tag_query = given(request.tag_query.as_deref(), "tag_query")?;
         query::check(tag_query).map_err(|e| AppError::TagQuery(Report::of(&e)))?;
-        let schema = self.schema(&request.config_set)?;
+        let schema = self.schema()?;
         let statuses = statuses(&request.statuses)?;
         let before = cut(&request.older_than, self.clock.now()).map_err(|e| refused(&e))?;
         let mut pruning = Pruning {
