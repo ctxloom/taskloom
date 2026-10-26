@@ -348,6 +348,10 @@ where
             None | Some(retry::Outcome::Committed) => {}
             Some(retry::Outcome::Refused(rejection)) => return Err(rejected(&rejection)),
         }
+        // The read-back is a unit of work of its own, after the commit: a
+        // remove committed between the two makes a change that committed
+        // report failure (Vanished). Accepted: the change did land, and a
+        // retry of it finds no task to change.
         read(store, &self.registry, harp_id)
             .await?
             .ok_or_else(|| AppError::Vanished {
@@ -408,6 +412,10 @@ where
             let book = book(&harp_id, add.into());
             match runner.run(store, &book, &command_id).await? {
                 retry::Outcome::Committed => {
+                    // The read-back is a unit of work of its own, after the
+                    // commit: a remove committed between the two makes an
+                    // add that committed report failure (Vanished), and a
+                    // caller that retries it adds the task again. Accepted.
                     let task = read(store, &self.registry, &harp_id)
                         .await?
                         .ok_or(AppError::Vanished { harp_id })?;
