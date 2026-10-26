@@ -32,7 +32,7 @@ fn row(p: &str, harp_id: &str, status: &str, tags: &[&str], days: i64) -> Row {
             harp_id: harp_id.to_string(),
             text: harp_id.to_string(),
             status: status.to_string(),
-            checked: crate::is_terminal(status),
+            checked: crate::view::is_terminal(status),
             text_hash: text_hash(harp_id),
             trigger: String::new(),
             origin_session: String::new(),

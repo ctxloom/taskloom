@@ -40,34 +40,30 @@ use tasks::{
 pub use annals::next::Timestamp;
 pub use dead_letter::DeadLetter;
 pub use error::{diagnostic_samples, AppError, CATALOGS, EN_US};
-pub use import::{
-    anomaly_key, record_command_id, rfc3339_nano, ImportReport, ImportRequest, ImportService,
-    Importer, Lost, ProjectImport, Why,
-};
-pub use lint::{Finding, LintReport, Violation, SCHEMA_SUBJECT};
+pub use import::{ImportReport, ImportRequest, ImportService, Importer, Lost, ProjectImport, Why};
+pub use lint::{Finding, LintReport, Violation};
 pub use ports::Project;
 pub use priority::{PriorityNote, PriorityWarning};
 pub use prune::{
-    cut, Dangling, PruneRefusal, PruneRequest, PruneService, Pruned, Pruning, Via,
-    DEFAULT_OLDER_THAN, DEFAULT_PRUNE_STATUSES,
+    Dangling, PruneRequest, PruneService, Pruned, Pruning, Via, DEFAULT_OLDER_THAN,
+    DEFAULT_PRUNE_STATUSES,
 };
-pub use query::{QueryError, QUERY_GRAMMAR};
 pub use read::{Details, Hidden, Listing, Reach, Statuses, Summary, TagCount, Vocabulary};
 pub use retry::Backoff;
-pub use schema::{
-    Range, SchemaError, TagSchema, DEFAULT_TAG_SCHEMA, FACETS, FACET_NAMESPACE, SEMVER,
-};
+pub use schema::{Range, TagSchema};
 pub use semver::{Semver, Version};
-pub use tags::{admit, collapse, parse as parse_tag, Tag, TagRefusal, OPERATOR_WORDS};
-pub use view::{
-    is_active, is_terminal, text_hash, Row, Shown, StatusInfo, Task, ARCHIVED, DEFAULT_STATUSES,
-    DONE, IN_PROGRESS, OPEN, STATUS_CLASSES, TERMINAL,
-};
+pub use tags::{parse as parse_tag, Tag};
+pub use view::{text_hash, Row, Shown, StatusInfo, Task};
+
+// Used across the crate's modules by these paths; nothing outside uses them.
+pub(crate) use query::QueryError;
+pub(crate) use tags::TagRefusal;
+pub(crate) use view::DONE;
 pub use watch::{Changed, Watch, WatchRequest, WatchService};
 
 /// How many task ids an add mints before giving up, each refused because a
 /// task already holds it.
-pub const HARP_ATTEMPTS: u32 = 100;
+pub(crate) const HARP_ATTEMPTS: u32 = 100;
 
 /// A task to add. A value given (`Some`) is never read as one left out:
 /// given blank, it is refused ([`AppError::Blank`]).
@@ -160,7 +156,7 @@ pub struct ListQuery {
 }
 
 /// The sort by derived priority, `--sort priority`.
-pub const PRIORITY: &str = "priority";
+pub(crate) const PRIORITY: &str = "priority";
 
 /// A task written, the project it was written in, which of its tags a
 /// person is shown, and the dead letters annals' kernel wrote while the
