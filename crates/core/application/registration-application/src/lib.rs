@@ -196,9 +196,27 @@ impl<A: AgentConfigs> Registrations<A> {
     }
 
     /// Write `server` (or its removal) into each of `engines`'
-    /// configurations at `scope`, in order, stopping at the first that
-    /// fails.
+    /// configurations at `scope`, in order. Every one is first rewritten
+    /// without writing, so one that refuses (a foreign entry, a file that
+    /// is not JSON) or cannot be found fails the call before any is
+    /// written; `dry_run` stops there.
     fn rewrite(
+        &mut self,
+        engines: &[String],
+        scope: &Scope,
+        server: Option<&McpServer>,
+        dry_run: bool,
+    ) -> Result<Vec<Outcome>, RegistrationError> {
+        let checked = self.rewrite_each(engines, scope, server, true)?;
+        if dry_run {
+            return Ok(checked);
+        }
+        self.rewrite_each(engines, scope, server, false)
+    }
+
+    /// One pass of [`Registrations::rewrite`], stopping at the first
+    /// configuration that fails.
+    fn rewrite_each(
         &mut self,
         engines: &[String],
         scope: &Scope,

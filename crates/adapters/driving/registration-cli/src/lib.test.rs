@@ -125,7 +125,7 @@ fn test_an_install_says_what_go_says_and_writes_nothing_on_stdout() {
         format!("{WARNING}taskloom: registered MCP server for claude-code\n  config: /home/.claude.json\n")
     );
     assert_eq!(r.configs.scopes, [Scope::User]);
-    assert_eq!(r.configs.dry_runs, [false]);
+    assert_eq!(r.configs.dry_runs, [true, false], "checked, then written");
 
     let mut r = fake(Fake {
         present: true,
