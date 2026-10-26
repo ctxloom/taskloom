@@ -508,18 +508,49 @@ fn test_a_scalar_value_set_by_another_since_is_displaced_too() {
     assert_eq!(spelled(&written.task.tags), ["triage:level=1", "x"]);
 }
 
+// Two values for one scalar target in one add are refused, as a rule of
+// the add, before a project is resolved: neither is the one meant more than
+// the other. One value given twice is one value.
 #[test]
-fn test_an_add_keeps_the_last_of_several_scalar_values() {
+fn test_an_add_giving_a_scalar_target_two_values_is_refused_and_writes_nothing() {
     let mut service = service(&["swift-amber"]);
-    let written = add(
+    let error = add(
         &mut service,
         tagged(&["triage:level=3", "area:x=1", "area:x=2", "triage:level=2"]),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), "tasks-application-tag-scalar-conflict");
+    assert!(error.to_string().contains("triage:level=2"), "{error}");
+    assert!(service.identity.pins.is_empty(), "no project resolved");
+    assert!(service.stores.opened.is_empty());
+    let written = add(
+        &mut service,
+        tagged(&[
+            "triage:level=3",
+            "area:x=1",
+            "area:x=2",
+            "triage:level=\"3\"",
+        ]),
     )
     .unwrap();
     assert_eq!(
         spelled(&written.task.tags),
-        ["area:x=1", "area:x=2", "triage:level=2"]
+        ["area:x=1", "area:x=2", "triage:level=3"]
     );
+}
+
+// The same holds for one retag: two values for one scalar target are
+// refused before anything is read, and the task keeps what it holds.
+#[test]
+fn test_a_tag_giving_a_scalar_target_two_values_is_refused_and_changes_nothing() {
+    let mut service = service(&["swift-amber"]);
+    add(&mut service, tagged(&["triage:level=3"])).unwrap();
+    let pins = service.identity.pins.len();
+    let given = change("swift-amber", &["triage:level=1", "triage:level=2"], &[]);
+    let error = ready(service.tag(given)).unwrap_err();
+    assert_eq!(error.code(), "tasks-application-tag-scalar-conflict");
+    assert_eq!(service.identity.pins.len(), pins, "no project resolved");
+    assert_eq!(command_ids(&mut service, "swift-amber").len(), 1);
 }
 
 #[test]

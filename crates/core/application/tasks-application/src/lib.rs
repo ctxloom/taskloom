@@ -378,6 +378,7 @@ where
         let origin_session = given(task.origin_session, "origin_session")?.unwrap_or_default();
         let schema = self.schema(&task.config_set)?;
         let tags = tags::admit_all(&task.tags, &schema).map_err(|r| refused(&r))?;
+        tags::check_scalars(&schema, &tags).map_err(|r| refused(&r))?;
         let (tags, _) = tags::collapse(&schema, &[], tags);
         // Each attempt mints its own harp; everything else is this, held to
         // the domain's rules now, before a project is bound or a store
@@ -449,6 +450,7 @@ where
         for tag in &add {
             tags::admit(tag, &schema).map_err(|r| refused(&r))?;
         }
+        tags::check_scalars(&schema, &add).map_err(|r| refused(&r))?;
         let project = self.existing(change.project.as_deref()).await?;
         // A scalar target's new value displaces the one the task holds:
         // resolved here, against the task as the retag's own unit of work
