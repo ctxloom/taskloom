@@ -8,7 +8,7 @@ use annals_diagnostic::Diagnostic;
 use file_system::{Fs, Mode, Perms, Rooted};
 use ports::Configuration;
 
-use super::{split, ConfigError, TaskloomConfig};
+use super::{ConfigError, TaskloomConfig};
 
 /// A home (`/home/u`) and a work root (`/tree`), each with a config file
 /// holding `home` and `root` when given.
@@ -237,20 +237,32 @@ fn test_an_override_or_variable_naming_no_key_is_refused() {
     assert_eq!(known, Ok(Vec::new()));
 }
 
+/// What `split` makes of `value`, given by `--config-set`.
+fn split(value: &str) -> Result<Vec<String>, ConfigError> {
+    super::split("--config-set", value)
+}
+
 #[test]
 fn test_a_list_splits_on_commas_outside_quotes() {
-    assert_eq!(split("a, b,,c "), Some(strings(&["a", "b", "c"])));
+    assert_eq!(split("a, b,c "), Ok(strings(&["a", "b", "c"])));
     assert_eq!(
         split(r#"k="a,b",x:"y,z"=1"#),
-        Some(strings(&[r#"k="a,b""#, r#"x:"y,z"=1"#]))
+        Ok(strings(&[r#"k="a,b""#, r#"x:"y,z"=1"#]))
     );
     assert_eq!(
         split(r#"k="a\",b",c"#),
-        Some(strings(&[r#"k="a\",b""#, "c"])),
+        Ok(strings(&[r#"k="a\",b""#, "c"])),
         "an escaped quote does not close"
     );
-    assert_eq!(split(""), Some(Vec::new()));
-    assert_eq!(split(r#"k="a,b"#), None);
+    assert_eq!(split(""), Ok(Vec::new()));
+    assert_eq!(split("  "), Ok(Vec::new()), "no item, so none blank");
+    assert_eq!(
+        split(r#"k="a,b"#),
+        Err(ConfigError::Unterminated {
+            source: "--config-set".to_string(),
+            value: r#"k="a,b"#.to_string(),
+        })
+    );
     let dirs = Dirs::new(None, None);
     let error = schema(&dirs.config(&[]), &[r#"tag_schema=k="a"#]).unwrap_err();
     assert_eq!(error.code(), "tasks-config-unterminated");
@@ -273,4 +285,37 @@ fn test_an_empty_variable_is_no_layer() {
     );
     // An override is given, so its empty list is one.
     assert_eq!(schema(&dirs.config(&[]), &["tag_schema="]), Ok(Vec::new()));
+}
+
+// A blank item is refused, never dropped: `a,,b`, a trailing comma or
+// `"$A,$B"` with B unset is a list given wrong, and dropping the item would
+// quietly lose the declaration the caller meant to give.
+#[test]
+fn test_a_blank_item_in_a_list_is_refused() {
+    for value in ["a,,b", "a,", ",a", "a, ,b", ",", " , "] {
+        assert_eq!(
+            split(value),
+            Err(ConfigError::BlankItem {
+                source: "--config-set".to_string(),
+                value: value.to_string(),
+            }),
+            "{value:?}"
+        );
+    }
+    assert_eq!(
+        split(r#"k=",",a"#),
+        Ok(strings(&[r#"k=",""#, "a"])),
+        "a quoted comma"
+    );
+    let dirs = Dirs::new(Some(HOME), None);
+    let error = schema(&dirs.config(&[]), &["tag_schema=a,"]).unwrap_err();
+    assert_eq!(error.code(), "tasks-config-blank-item");
+    let config = dirs.config(&[("TASKLOOM_CONFIG_TAG_SCHEMA", "a,")]);
+    assert_eq!(
+        schema(&config, &[]),
+        Err(ConfigError::BlankItem {
+            source: "TASKLOOM_CONFIG_TAG_SCHEMA".to_string(),
+            value: "a,".to_string(),
+        })
+    );
 }

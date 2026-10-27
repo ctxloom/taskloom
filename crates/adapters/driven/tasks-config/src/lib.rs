@@ -11,8 +11,9 @@
 //! below it: lists are never merged. An environment variable or override
 //! gives the list comma-separated; a comma inside a double-quoted span does
 //! not split, so an enum declaration's members (`tagma.enum:"k:x"="a,b"`)
-//! stay one declaration. A missing file is no layer; a file that cannot be
-//! read, is not YAML, names a key taskloom does not know or is a newer
+//! stay one declaration. A blank item (`a,,b`, a trailing comma) is
+//! refused, never dropped; an empty value is an empty list. A missing file
+//! is no layer; a file that cannot be read, is not YAML, names a key taskloom does not know or is a newer
 //! `schema_version` is refused, as is an environment variable or override
 //! naming no key. Files are read through the [`Fs`] it is given. `homing` (repo homing is dropped) and `schema_version`
 //! are known and ignored. Nothing is written: there is no older version to
@@ -163,12 +164,7 @@ fn read(fs: &dyn Fs, path: &Path) -> Result<File, ConfigError> {
 /// list when it sets it, `None` for another known key.
 fn set(source: &str, key: &str, value: &str) -> Result<Option<Vec<String>>, ConfigError> {
     match key {
-        "tag_schema" => split(value)
-            .map(Some)
-            .ok_or_else(|| ConfigError::Unterminated {
-                source: source.to_string(),
-                value: value.to_string(),
-            }),
+        "tag_schema" => split(source, value).map(Some),
         "homing" | "schema_version" => Ok(None),
         _ => Err(ConfigError::UnknownKey {
             source: source.to_string(),
@@ -177,10 +173,18 @@ fn set(source: &str, key: &str, value: &str) -> Result<Option<Vec<String>>, Conf
     }
 }
 
-/// `value`'s comma-separated items, trimmed, the empty ones dropped; a
+/// `value`'s comma-separated items, trimmed, as `source` gives them; a
 /// comma inside a double-quoted span (where `\` escapes the next
-/// character) does not split. `None` when a quote is never closed.
-fn split(value: &str) -> Option<Vec<String>> {
+/// character) does not split. A value of nothing but blanks is no items;
+/// otherwise a blank item is refused, never dropped, as is a quote never
+/// closed.
+fn split(source: &str, value: &str) -> Result<Vec<String>, ConfigError> {
+    let refused = |error: fn(String, String) -> ConfigError| {
+        Err(error(source.to_string(), value.to_string()))
+    };
+    if value.trim().is_empty() {
+        return Ok(Vec::new());
+    }
     let mut items = Vec::new();
     let mut item = String::new();
     let (mut quoted, mut escaped) = (false, false);
@@ -198,16 +202,14 @@ fn split(value: &str) -> Option<Vec<String>> {
         item.push(c);
     }
     if quoted {
-        return None;
+        return refused(|source, value| ConfigError::Unterminated { source, value });
     }
     items.push(item);
-    Some(
-        items
-            .into_iter()
-            .map(|i| i.trim().to_string())
-            .filter(|i| !i.is_empty())
-            .collect(),
-    )
+    let items: Vec<String> = items.into_iter().map(|i| i.trim().to_string()).collect();
+    if items.iter().any(String::is_empty) {
+        return refused(|source, value| ConfigError::BlankItem { source, value });
+    }
+    Ok(items)
 }
 
 #[cfg(test)]

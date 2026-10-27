@@ -21,6 +21,8 @@ fn test_each_error_renders_its_english_fallback() {
             "TASKLOOM_CONFIG_TAGS sets tags, which is no config key taskloom knows (known: homing, schema_version, tag_schema)".to_string(),
             "--config-set tag_schema: expected <path>=<value>".to_string(),
             "--config-set: \"a,b has an unterminated quote".to_string(),
+            "TASKLOOM_CONFIG_TAG_SCHEMA: a,,b has a blank item: give one, or leave it out"
+                .to_string(),
         ]
     );
 }

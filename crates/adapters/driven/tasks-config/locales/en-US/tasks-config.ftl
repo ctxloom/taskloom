@@ -4,3 +4,4 @@ tasks-config-newer = { $path } is schema_version { $version }, newer than the { 
 tasks-config-unknown-key = { $source } sets { $key }, which is no config key taskloom knows (known: { $known })
 tasks-config-not-an-override = --config-set { $entry }: expected <path>=<value>
 tasks-config-unterminated = { $source }: { $value } has an unterminated quote
+tasks-config-blank-item = { $source }: { $value } has a blank item: give one, or leave it out
