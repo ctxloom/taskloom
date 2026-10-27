@@ -32,7 +32,7 @@ the architecture; there is no other table of crates.
 - `core/application`: command and query handlers.
 - `adapters/driven`: port implementations (stores, clock, git).
 - `adapters/platform`: libraries adapters build on (the `file-system`
-  seam); they implement no port.
+  seam, and `file-lock`'s advisory locks over it); they implement no port.
 - `adapters/driving`: CLI, MCP, gRPC: translation only.
 - `root/bin`: binaries, the composition root.
 
@@ -48,6 +48,15 @@ clippy reads the nearest `clippy.toml`. A crate's own `clippy.toml` would
 replace it, so none has one. It repeats the root `clippy.toml`'s settings,
 and `just lint` refuses to run if they disagree.
 
+All file I/O goes through the `file-system` seam: an `Arc<dyn Fs>`, the
+real `Os` in the binary, a temp-rooted `Rooted` in tests (`Rooted::temp`;
+where a real process must see the files, an `Os` under a directory a
+`Rooted` owns). SQLite and lock files take their path from it
+(`Fs::real_path`, `Fs::open`), so a test's databases are sandboxed too.
+The root `clippy.toml` disallows `std::fs`, `Path`'s filesystem methods
+and `tempfile` everywhere else, tests included; only the seam crate
+allows them.
+
 ## Architecture: hexagonal around CQRS/ES (checked in review)
 
 Dependencies point inward; a review refuses a change that breaks these:
@@ -60,8 +69,9 @@ Dependencies point inward; a review refuses a change that breaks these:
   `task-priority` evaluates the tag schema's priority formulas with
   expr-lang (the Rust port of the language Go's taskloom evaluates them
   in), which is computation and nothing else.
-- A platform crate depends on nothing else in the workspace; a driven
-  adapter may depend on it (that is not one adapter depending on another).
+- A platform crate depends on no other workspace crate but another
+  platform crate (`file-lock` on `file-system`); a driven adapter may
+  depend on one (that is not one adapter depending on another).
 - A driven adapter sees only ports (and wire types), never a use case. A
   driving adapter sees only the application layer, never a domain's
   internals. Adapters never depend on each other, with one exception:
@@ -100,9 +110,9 @@ Any store is held to annals' store contract (`annals::store_contract!` or
 and projector tests run through annals' kernel over `InMemoryStore`, as the
 binary runs over SQLite.
 
-The path dependencies are local checkouts on their `main` (Cargo.toml says
-where): annals at `../../annals`, tagma at `../../kvtag`, both resolving
-from the primary checkout and from `~/workspace/worktrees/<name>`.
+angzarr-build is a local checkout on angzarr-cli's `main`
+(`../../angzarr/angzarr-cli/main`), resolving from the primary checkout and
+from `~/workspace/worktrees/<name>`.
 
 ## Errors are localizable: a code, args, and an en-US message
 

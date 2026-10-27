@@ -3,9 +3,12 @@
 
 use std::path::{Component, Path, PathBuf};
 
-/// `path` with its symlinks resolved, when it exists; else [`clean`]ed.
-pub fn canonical(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| clean(path))
+use file_system::Fs;
+
+/// `path` with its symlinks resolved on `fs`, when it exists; else
+/// [`clean`]ed.
+pub fn canonical(fs: &dyn Fs, path: &Path) -> PathBuf {
+    fs.canonicalize(path).unwrap_or_else(|_| clean(path))
 }
 
 /// `path` cleaned lexically: no `.`, no empty or trailing separator, and

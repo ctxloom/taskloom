@@ -12,7 +12,6 @@ use std::process::{Command, Output};
 use std::sync::OnceLock;
 
 use serde_json::Value;
-use tempfile::TempDir;
 
 /// The `taskloom` binary, built once per test run.
 fn binary() -> &'static Path {
@@ -47,10 +46,104 @@ fn binary() -> &'static Path {
     })
 }
 
+/// The real filesystem, through the seam: where the binary's processes
+/// run, for what a test lays out for them and reads back. Every path a
+/// test gives it is absolute; its working directory is this crate's.
+pub(crate) fn os() -> std::sync::Arc<dyn file_system::Fs> {
+    std::sync::Arc::new(file_system::Os::new(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap())
+}
+
+/// A new temporary directory on the real filesystem, for a process the
+/// tests run to work in (git and the binary write real paths), removed
+/// with everything in it when dropped. A `Rooted` owns it.
+pub(crate) struct Temp(file_system::Rooted);
+
+impl Temp {
+    pub(crate) fn new() -> Temp {
+        Temp(file_system::Rooted::temp().unwrap())
+    }
+
+    /// The directory, canonical.
+    pub(crate) fn path(&self) -> &Path {
+        self.0.root()
+    }
+}
+
+/// What the tests do on the real filesystem, through the seam ([`os`]),
+/// in the shapes `std::fs` gave them.
+pub(crate) mod disk {
+    use std::io;
+    use std::path::{Path, PathBuf};
+
+    use file_system::{Mode, Open, Perms};
+
+    use super::os;
+
+    pub(crate) fn read(path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
+        os().read(path.as_ref())
+    }
+
+    pub(crate) fn read_to_string(path: impl AsRef<Path>) -> io::Result<String> {
+        os().read_to_string(path.as_ref())
+    }
+
+    /// The file at `path` replaced by `bytes`, its mode kept (0644 when
+    /// new); its directory must exist.
+    pub(crate) fn write(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::Result<()> {
+        os().write_atomic(path.as_ref(), bytes.as_ref(), Perms::KeepOr(Mode::FILE))
+    }
+
+    /// `from`'s bytes written at `to`.
+    pub(crate) fn copy(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<()> {
+        write(to, read(from)?)
+    }
+
+    pub(crate) fn create_dir_all(path: impl AsRef<Path>) -> io::Result<()> {
+        os().create_dir_all(path.as_ref(), Mode::DIR)
+    }
+
+    pub(crate) fn remove_file(path: impl AsRef<Path>) -> io::Result<()> {
+        os().remove_file(path.as_ref())
+    }
+
+    pub(crate) fn remove_dir_all(path: impl AsRef<Path>) -> io::Result<()> {
+        os().remove_dir_all(path.as_ref())
+    }
+
+    pub(crate) fn rename(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<()> {
+        os().rename(from.as_ref(), to.as_ref())
+    }
+
+    pub(crate) fn canonicalize(path: impl AsRef<Path>) -> io::Result<PathBuf> {
+        os().canonicalize(path.as_ref())
+    }
+
+    /// The paths of the directory's entries, sorted.
+    pub(crate) fn read_dir(path: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
+        let dir = path.as_ref();
+        Ok(os()
+            .read_dir(dir)?
+            .into_iter()
+            .map(|entry| dir.join(entry.name))
+            .collect())
+    }
+
+    /// The file, open to read.
+    pub(crate) fn open(path: impl AsRef<Path>) -> io::Result<std::fs::File> {
+        os().open(path.as_ref(), Open::Read)
+    }
+
+    /// Whether anything is at `path`, links followed; as `Path::exists`,
+    /// what cannot be looked at (a path through a file) is not.
+    pub(crate) fn exists(path: impl AsRef<Path>) -> bool {
+        os().exists(path.as_ref()).unwrap_or(false)
+    }
+}
+
 /// An isolated home and project directory.
 struct Env {
-    home: TempDir,
-    project: TempDir,
+    home: Temp,
+    project: Temp,
     session: &'static str,
 }
 
@@ -82,8 +175,8 @@ impl Env {
     /// real `add` before any concurrency.
     fn new(session: &'static str) -> Env {
         Env {
-            home: tempfile::tempdir().unwrap(),
-            project: tempfile::tempdir().unwrap(),
+            home: Temp::new(),
+            project: Temp::new(),
             session,
         }
     }
@@ -132,7 +225,7 @@ impl Env {
     /// The registry's entries, as `project_id` lines.
     fn registered(&self) -> Vec<String> {
         let index = self.home.path().join(".ctxloom/projects/index.yaml");
-        std::fs::read_to_string(index)
+        disk::read_to_string(index)
             .expect("the registry")
             .lines()
             .filter(|l| {
@@ -147,10 +240,11 @@ impl Env {
     /// The project stores under the home: one, or identities forked.
     fn stores(&self) -> Vec<PathBuf> {
         let projects = self.home.path().join(".ctxloom/projects");
-        let mut stores: Vec<PathBuf> = std::fs::read_dir(projects)
+        let mut stores: Vec<PathBuf> = disk::read_dir(projects)
             .expect("the projects directory")
-            .filter_map(|e| Some(e.ok()?.path().join("state.db")))
-            .filter(|p| p.exists())
+            .into_iter()
+            .map(|dir| dir.join("state.db"))
+            .filter(|p| disk::exists(p))
             .collect();
         stores.sort();
         stores
@@ -357,7 +451,7 @@ fn test_a_task_added_is_listed_in_text_with_its_project() {
         created.starts_with("20"),
         "recorded at the clock's time: {created}"
     );
-    let marker = std::fs::read_to_string(env.project.path().join(".project-id")).unwrap();
+    let marker = disk::read_to_string(env.project.path().join(".project-id")).unwrap();
     assert_eq!(
         marker.trim().split('-').count(),
         3,
@@ -441,7 +535,7 @@ fn test_a_value_given_empty_is_refused_never_read_as_left_out() {
 
 /// The project id the work root is bound to.
 fn seeded_project(env: &Env) -> String {
-    std::fs::read_to_string(env.project.path().join(".project-id"))
+    disk::read_to_string(env.project.path().join(".project-id"))
         .unwrap()
         .trim()
         .to_string()
@@ -454,10 +548,10 @@ fn test_a_list_of_a_project_never_written_creates_nothing() {
     assert!(listed.ok, "{}", listed.stderr);
     assert_eq!(listed.json(), serde_json::json!([]));
     assert!(
-        !env.home.path().join(".ctxloom").exists(),
+        !disk::exists(env.home.path().join(".ctxloom")),
         "no registry, no project directory, no database"
     );
-    assert!(!env.project.path().join(".project-id").exists());
+    assert!(!disk::exists(env.project.path().join(".project-id")));
 }
 
 #[test]
@@ -470,21 +564,17 @@ fn test_a_tag_where_there_is_no_project_fails_and_binds_none() {
         "{}",
         tagged.stderr
     );
-    assert!(!env.home.path().join(".ctxloom").exists());
-    assert!(!env.project.path().join(".project-id").exists());
+    assert!(!disk::exists(env.home.path().join(".ctxloom")));
+    assert!(!disk::exists(env.project.path().join(".project-id")));
 }
 
 #[test]
 fn test_a_read_spans_every_project_when_asked_or_outside_any_work_root() {
     let env = Env::new("global-harp");
     env.seed("in the first");
-    let (repo, stray, empty_repo) = (
-        tempfile::tempdir().unwrap(),
-        tempfile::tempdir().unwrap(),
-        tempfile::tempdir().unwrap(),
-    );
+    let (repo, stray, empty_repo) = (Temp::new(), Temp::new(), Temp::new());
     for dir in [&repo, &empty_repo] {
-        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        disk::create_dir_all(dir.path().join(".git")).unwrap();
     }
     let added = env.run_in(repo.path(), &["add", "in the repo", "--json"], &[]);
     assert!(added.ok, "{}", added.stderr);
@@ -525,8 +615,8 @@ fn test_a_read_spans_every_project_when_asked_or_outside_any_work_root() {
         "{}",
         in_repo.stderr
     );
-    assert!(!stray.path().join(".project-id").exists());
-    assert!(!empty_repo.path().join(".project-id").exists());
+    assert!(!disk::exists(stray.path().join(".project-id")));
+    assert!(!disk::exists(empty_repo.path().join(".project-id")));
 }
 
 #[test]
@@ -625,8 +715,8 @@ fn test_in_json_each_command_writes_one_document_and_errors_an_envelope() {
     assert_eq!(one_document(&usage.stderr)["code"], "tasks-cli-usage");
 
     let logs = env.home.path().join(".ctxloom/tasks");
-    std::fs::create_dir_all(&logs).unwrap();
-    std::fs::write(
+    disk::create_dir_all(&logs).unwrap();
+    disk::write(
         logs.join("jolly-mute-magma.jsonl"),
         "{\"op\":\"add\",\"task\":\"brisk-heron\",\"text\":\"Go's\",\"ts\":\"2026-03-01T10:01:00Z\"}\n",
     )

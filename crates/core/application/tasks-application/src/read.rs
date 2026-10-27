@@ -319,7 +319,7 @@ where
         let Some(store) = self.stores.open_existing(project).await.map_err(failed)? else {
             return Ok(None);
         };
-        let mut list = TaskList::new(Box::new(|_| true));
+        let mut list = TaskList::default();
         list.catch_up_async(store, &self.registry)
             .await
             .map_err(|e| AppError::Failed(Report::of(&*e)))?;
@@ -391,7 +391,7 @@ where
         let tag_query = given(query.tag_query.as_deref(), "tag_query")?;
         query::check(tag_query).map_err(|e| AppError::TagQuery(Report::of(&e)))?;
         let filter = StatusFilter::parse(&query.statuses)?;
-        let schema = self.schema(&query.config_set)?;
+        let schema = self.schema()?;
         let scan = self.scan(query.project.as_deref(), query.global).await?;
         let rows = matching(scan.rows, &filter, term, tag_query, &schema)?;
         let shown = Shown::of(&schema);
@@ -416,7 +416,7 @@ where
 
     /// Every task `scope` reaches, and the schema, linted.
     pub(crate) async fn linted(&mut self, scope: crate::Scope) -> Result<LintReport, AppError> {
-        let schema = self.schema(&scope.config_set)?;
+        let schema = self.schema()?;
         let scan = self.scan(scope.project.as_deref(), scope.global).await?;
         let (violations, checked_targets) = lint::lint(&scan.rows, &schema);
         Ok(LintReport {
@@ -428,7 +428,7 @@ where
 
     /// The tasks `query` names, every one of them found once.
     pub(crate) async fn details(&mut self, query: crate::ShowQuery) -> Result<Details, AppError> {
-        let schema = self.schema(&query.config_set)?;
+        let schema = self.schema()?;
         let scan = self.scan(query.project.as_deref(), query.global).await?;
         let (mut rows, mut missing, mut held) = (Vec::new(), Vec::new(), Vec::new());
         for id in &query.harp_ids {
@@ -471,7 +471,7 @@ where
             }
         };
         let filter = StatusFilter::parse(&query.statuses)?;
-        let schema = self.schema(&query.config_set)?;
+        let schema = self.schema()?;
         let scan = self.scan(query.project.as_deref(), query.global).await?;
         // Each project's whole population is ranked, not the page the
         // filters leave.

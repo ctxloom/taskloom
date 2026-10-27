@@ -15,6 +15,7 @@ fn test_each_error_renders_its_english_fallback() {
         english,
         [
             "cannot create the store's directory /home/u/.ctxloom/projects/jolly-mute-magma: permission denied",
+            "cannot find where the store /home/u/.ctxloom/projects/jolly-mute-magma/state.db is on disk: not an absolute path: C:state.db",
             "cannot start a runtime to check the store: too many open files",
         ]
     );
@@ -23,6 +24,14 @@ fn test_each_error_renders_its_english_fallback() {
 #[test]
 fn test_each_error_gives_its_args_values() {
     let error = StoreOpenError::CreateDir {
+        path: "p".to_string(),
+        detail: "d".to_string(),
+    };
+    assert!(
+        matches!(&error.args()[..], [("path", Arg::Str(p)), ("detail", Arg::Str(d))] if p == "p" && d == "d"),
+        "{error:?}"
+    );
+    let error = StoreOpenError::Unplaced {
         path: "p".to_string(),
         detail: "d".to_string(),
     };

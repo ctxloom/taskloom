@@ -5,7 +5,8 @@
 //! the reason. Only what a write adds is checked; a tag already held, or
 //! one being removed, never is.
 //!
-//! A scalar target's values collapse before the retag is sent
+//! One write gives a scalar target one value at most ([`check_scalars`]),
+//! and the value it gives displaces the one held before the retag is sent
 //! ([`collapse`]): decide never reads the schema.
 
 use std::collections::BTreeMap;
@@ -64,6 +65,13 @@ pub enum TagRefusal {
         target: String,
         detail: String,
     },
+    /// Two values for one scalar target in one write: `first` and
+    /// `second`, the first two given, neither more the one meant.
+    ScalarConflict {
+        target: String,
+        first: String,
+        second: String,
+    },
 }
 
 impl fmt::Display for TagRefusal {
@@ -119,6 +127,14 @@ impl fmt::Display for TagRefusal {
                 f,
                 "the tag {tag}'s value {value} is not a SemVer 2.0.0 version, which {target}'s declared type semver requires: {detail}"
             ),
+            TagRefusal::ScalarConflict {
+                target,
+                first,
+                second,
+            } => write!(
+                f,
+                "the tags {first} and {second} both give {target} a value, and it takes one: give one of them"
+            ),
         }
     }
 }
@@ -134,6 +150,7 @@ impl Diagnostic for TagRefusal {
             TagRefusal::NotANumber { .. } => "tasks-application-tag-not-a-number",
             TagRefusal::OutOfRange { .. } => "tasks-application-tag-out-of-range",
             TagRefusal::NotSemver { .. } => "tasks-application-tag-not-semver",
+            TagRefusal::ScalarConflict { .. } => "tasks-application-tag-scalar-conflict",
         }
     }
 
@@ -187,6 +204,15 @@ impl Diagnostic for TagRefusal {
                 ("value", s(value)),
                 ("target", s(target)),
                 ("detail", s(detail)),
+            ],
+            TagRefusal::ScalarConflict {
+                target,
+                first,
+                second,
+            } => vec![
+                ("target", s(target)),
+                ("first", s(first)),
+                ("second", s(second)),
             ],
         }
     }
@@ -301,10 +327,39 @@ pub fn admit_all(spelled: &[String], schema: &TagSchema) -> Result<Vec<Tag>, Tag
     Ok(tags)
 }
 
+/// Whether `add`, the tags one write gives, gives each scalar target of
+/// `schema` one value at most (the same value given twice, however spelled,
+/// is one); refused at the first target given a second.
+pub fn check_scalars(schema: &TagSchema, add: &[Tag]) -> Result<(), TagRefusal> {
+    let mut first: BTreeMap<String, &Tag> = BTreeMap::new();
+    for tag in add.iter().filter(|tag| tag.namespace.is_some()) {
+        let target = tag.target();
+        if !schema.is_scalar(&target) {
+            continue;
+        }
+        match first.get(&target) {
+            Some(held) if held.value != tag.value => {
+                return Err(TagRefusal::ScalarConflict {
+                    first: held.to_string(),
+                    second: tag.to_string(),
+                    target,
+                })
+            }
+            Some(_) => {}
+            None => {
+                first.insert(target, tag);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// `add`, with every value of a scalar target but its last dropped, and the
 /// tags of `held` that a surviving scalar value displaces: a different
 /// value of the same target. A scalar target is always namespaced, so a
-/// tag with no namespace is never collapsed.
+/// tag with no namespace is never collapsed. A write refuses two
+/// different values first ([`check_scalars`]), so what it collapses is one
+/// value given more than once.
 pub fn collapse(schema: &TagSchema, held: &[Tag], add: Vec<Tag>) -> (Vec<Tag>, Vec<Tag>) {
     let scalar = |tag: &Tag| {
         let target = tag.target();
@@ -377,6 +432,11 @@ pub(crate) fn samples() -> Vec<TagRefusal> {
             value: x(),
             target: x(),
             detail: x(),
+        },
+        TagRefusal::ScalarConflict {
+            target: x(),
+            first: x(),
+            second: x(),
         },
     ]
 }

@@ -791,3 +791,18 @@ fn test_a_blank_tag_query_given_is_refused_not_read_as_none() {
     }
     assert_eq!(listed(&mut service).len(), 4, "nothing pruned");
 }
+
+// A prune returns the dead letters written while it ran (the kernel writes
+// them; here the test writes one to the log it is handed, as the tasks
+// domain can be made to produce none), each once.
+#[test]
+fn test_a_prune_returns_the_dead_letters_written_while_it_ran() {
+    let mut service = seeded();
+    later(&mut service);
+    annals::next::DeadLetterLog::write(&service.dead_letters, "DEAD LETTER: prune");
+    let pruning = prune(&mut service, request(true)).unwrap();
+    let line = "DEAD LETTER: prune".to_string();
+    assert_eq!(pruning.dead_letters, [crate::DeadLetter { line }]);
+    let pruning = prune(&mut service, request(true)).unwrap();
+    assert!(pruning.dead_letters.is_empty(), "each is returned once");
+}

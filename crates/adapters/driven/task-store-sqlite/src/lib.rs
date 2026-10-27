@@ -13,6 +13,11 @@
 //! ([`WatchedStores`]), paired with which opening of the store answered
 //! it, since tokens compare only from one connection.
 //!
+//! The database's path is the caller's, on the [`Fs`] the stores are
+//! given: its directory is made through the seam, and SQLite opens the
+//! file where the seam says it is on disk ([`Fs::real_path`]), so a
+//! re-rooted filesystem holds the database (and its write-ahead log) too.
+//!
 //! [`StoreCheck`] checks a project's database whole (SQLite's `PRAGMA
 //! integrity_check`, through annals-store-sql), opened afresh and
 //! read-only: damage is reported as the store's diagnostic, never
@@ -21,18 +26,20 @@
 mod error;
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use annals::next::{AsyncWatch, StoreError};
 use annals_diagnostic::Report;
 use annals_store_sql::sqlite::SqliteStore;
 use annals_store_sql::Integrity;
+use file_system::{Fs, Mode};
 use ports::{Checked, HeldToken, Project, StoreCheck, TaskStores, WatchedStores};
 
 pub use error::{diagnostic_samples, StoreOpenError, EN_US};
 
 /// The SQLite store of the project last asked for, held until another is.
-#[derive(Default)]
 pub struct SqliteStores {
+    fs: Arc<dyn Fs>,
     held: Option<Held>,
     /// How many stores have been opened: the last one's handle.
     opened: u64,
@@ -49,6 +56,15 @@ struct Held {
 }
 
 impl SqliteStores {
+    /// The stores on `fs`, none opened yet.
+    pub fn new(fs: Arc<dyn Fs>) -> Self {
+        SqliteStores {
+            fs,
+            held: None,
+            opened: 0,
+        }
+    }
+
     /// `store`, just opened, held for `path` under a handle of its own.
     fn hold(&mut self, path: &Path, writable: bool, store: SqliteStore) -> Held {
         self.opened += 1;
@@ -66,10 +82,13 @@ impl SqliteStores {
         let held = self.held.take().filter(|held| held.path == project.store);
         let held = match held {
             Some(held) => held,
-            None => match SqliteStore::open_existing(&project.store).await? {
-                Some(store) => self.hold(&project.store, false, store),
-                None => return Ok(None),
-            },
+            None => {
+                let path = real(&*self.fs, &project.store).map_err(unavailable)?;
+                match SqliteStore::open_existing(&path).await? {
+                    Some(store) => self.hold(&project.store, false, store),
+                    None => return Ok(None),
+                }
+            }
         };
         Ok(Some(self.held.insert(held)))
     }
@@ -86,8 +105,9 @@ impl TaskStores for SqliteStores {
         let held = match held {
             Some(held) => held,
             None => {
-                create_parent(&project.store).map_err(unavailable)?;
-                let store = SqliteStore::open(&project.store).await?;
+                create_parent(&*self.fs, &project.store).map_err(unavailable)?;
+                let path = real(&*self.fs, &project.store).map_err(unavailable)?;
+                let store = SqliteStore::open(&path).await?;
                 self.hold(&project.store, true, store)
             }
         };
@@ -128,6 +148,7 @@ impl StoreCheck for SqliteStores {
     /// thread of its own, since the port is synchronous and its caller may
     /// be on a runtime already (the binary's).
     fn check(&mut self, store: &Path) -> Result<Checked, Report> {
+        let store = &real(&*self.fs, store).map_err(|e| Report::of(&e))?;
         std::thread::scope(|scope| {
             let checking = scope.spawn(|| {
                 let runtime = tokio::runtime::Builder::new_current_thread()
@@ -158,15 +179,25 @@ async fn check(path: &Path) -> Result<Checked, StoreError> {
     })
 }
 
-/// Make the directory the database at `path` goes in.
-fn create_parent(path: &Path) -> Result<(), StoreOpenError> {
+/// Where the database at `path` is on disk, for SQLite to open.
+fn real(fs: &dyn Fs, path: &Path) -> Result<PathBuf, StoreOpenError> {
+    fs.real_path(path).map_err(|e| StoreOpenError::Unplaced {
+        path: path.display().to_string(),
+        detail: e.to_string(),
+    })
+}
+
+/// Make the directory the database at `path` goes in, on `fs`.
+fn create_parent(fs: &dyn Fs, path: &Path) -> Result<(), StoreOpenError> {
     let Some(dir) = path.parent() else {
         return Ok(());
     };
-    std::fs::create_dir_all(dir).map_err(|e| StoreOpenError::CreateDir {
-        path: dir.display().to_string(),
-        detail: e.to_string(),
-    })
+    // As std's create_dir_all makes them: 0777 before the umask.
+    fs.create_dir_all(dir, Mode::from_bits(0o777))
+        .map_err(|e| StoreOpenError::CreateDir {
+            path: dir.display().to_string(),
+            detail: e.to_string(),
+        })
 }
 
 fn unavailable(error: StoreOpenError) -> StoreError {

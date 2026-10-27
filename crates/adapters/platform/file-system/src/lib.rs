@@ -18,6 +18,13 @@
 //!   its root, except through [`Fs::real_path`], which exists for what
 //!   must open a path itself (SQLite, advisory locks).
 
+// The workspace's clippy.toml forbids file I/O outside this crate: every
+// other crate reaches the filesystem through an `Fs`.
+#![allow(
+    clippy::disallowed_methods,
+    reason = "this crate is the file-system seam: the one place std::fs and tempfile are called"
+)]
+
 mod os;
 mod real;
 mod rooted;
@@ -165,6 +172,12 @@ pub trait Fs: Send + Sync + std::fmt::Debug {
     /// Whether anything is at `path`, links followed (a dangling link is
     /// `false`); an error is a failure to find out, never "absent".
     fn exists(&self, path: &Path) -> io::Result<bool>;
+
+    /// `path` as the caller names it from the top: joined to the working
+    /// directory when relative, `.` and `..` resolved textually (none
+    /// above the top). Nothing is looked up, so a link stays as spelled:
+    /// for what names a path rather than opens it (a lock's name).
+    fn absolute(&self, path: &Path) -> io::Result<PathBuf>;
 
     /// `path` with every link and `.`/`..` resolved, as the caller names
     /// it.

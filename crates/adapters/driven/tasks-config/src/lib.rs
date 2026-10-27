@@ -14,17 +14,18 @@
 //! stay one declaration. A missing file is no layer; a file that cannot be
 //! read, is not YAML, names a key taskloom does not know or is a newer
 //! `schema_version` is refused, as is an environment variable or override
-//! naming no key. `homing` (repo homing is dropped) and `schema_version`
+//! naming no key. Files are read through the [`Fs`] it is given. `homing` (repo homing is dropped) and `schema_version`
 //! are known and ignored. Nothing is written: there is no older version to
 //! upgrade from.
 
 mod error;
 
-use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use annals_diagnostic::Report;
+use file_system::Fs;
 use ports::Configuration;
 use serde::Deserialize;
 
@@ -51,19 +52,35 @@ struct File {
     tag_schema: Option<Vec<String>>,
 }
 
-/// Taskloom's configuration over the filesystem and the environment.
-#[derive(Clone, PartialEq, Eq, Debug, Default)]
+/// Taskloom's configuration over a filesystem and the environment.
+#[derive(Clone, Debug)]
 pub struct TaskloomConfig {
+    fs: Arc<dyn Fs>,
     home: Option<PathBuf>,
     root: Option<PathBuf>,
     env: Vec<(String, String)>,
+    overrides: Vec<String>,
 }
 
 impl TaskloomConfig {
-    /// Configuration read from `home`'s and `root`'s config files, when
-    /// they are known, and from `env`, the process's environment.
-    pub fn new(home: Option<PathBuf>, root: Option<PathBuf>, env: Vec<(String, String)>) -> Self {
-        TaskloomConfig { home, root, env }
+    /// Configuration read from `home`'s and `root`'s config files on `fs`,
+    /// when they are known, and from `env`, the process's environment, with
+    /// `overrides` (`<path>=<value>`, as `--config-set` gives them)
+    /// applied last: bound once, where the configuration is made.
+    pub fn new(
+        fs: Arc<dyn Fs>,
+        home: Option<PathBuf>,
+        root: Option<PathBuf>,
+        env: Vec<(String, String)>,
+        overrides: Vec<String>,
+    ) -> Self {
+        TaskloomConfig {
+            fs,
+            home,
+            root,
+            env,
+            overrides,
+        }
     }
 
     fn files(&self) -> impl Iterator<Item = PathBuf> + '_ {
@@ -74,10 +91,10 @@ impl TaskloomConfig {
             .map(|dir| dir.join(DIR).join(FILE))
     }
 
-    fn resolve(&self, overrides: &[String]) -> Result<Vec<String>, ConfigError> {
+    fn resolve(&self) -> Result<Vec<String>, ConfigError> {
         let mut tag_schema = Vec::new();
         for path in self.files() {
-            if let Some(list) = read(&path)?.tag_schema {
+            if let Some(list) = read(&*self.fs, &path)?.tag_schema {
                 tag_schema = list;
             }
         }
@@ -91,7 +108,7 @@ impl TaskloomConfig {
                 tag_schema = list;
             }
         }
-        for entry in overrides {
+        for entry in &self.overrides {
             let (path, value) = entry
                 .split_once('=')
                 .filter(|(path, _)| !path.trim().is_empty())
@@ -108,15 +125,15 @@ impl TaskloomConfig {
 }
 
 impl Configuration for TaskloomConfig {
-    fn tag_schema(&mut self, overrides: &[String]) -> Result<Vec<String>, Report> {
-        self.resolve(overrides).map_err(|e| Report::of(&e))
+    fn tag_schema(&mut self) -> Result<Vec<String>, Report> {
+        self.resolve().map_err(|e| Report::of(&e))
     }
 }
 
-/// The config file at `path`; no keys when there is none.
-fn read(path: &Path) -> Result<File, ConfigError> {
+/// The config file at `path` on `fs`; no keys when there is none.
+fn read(fs: &dyn Fs, path: &Path) -> Result<File, ConfigError> {
     let shown = || path.display().to_string();
-    let text = match fs::read_to_string(path) {
+    let text = match fs.read_to_string(path) {
         Ok(text) => text,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(File::default()),
         Err(e) => {

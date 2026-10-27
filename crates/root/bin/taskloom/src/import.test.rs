@@ -10,7 +10,6 @@
 //! never touches a real one.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -19,25 +18,23 @@ use ports::{Project, TaskStores};
 use serde_json::Value;
 use task_store_sqlite::SqliteStores;
 use tasks::{TaskState, Tasks};
-use tempfile::TempDir;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use super::{binary, Ran};
+use super::{binary, disk, Ran, Temp};
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures")
 }
 
 /// A temporary home holding a copy of every log in `logs`.
-fn home_with(logs: &Path) -> TempDir {
-    let home = TempDir::new().unwrap();
+fn home_with(logs: &Path) -> Temp {
+    let home = Temp::new();
     let tasks = home.path().join(".ctxloom/tasks");
-    fs::create_dir_all(&tasks).unwrap();
-    for entry in fs::read_dir(logs).unwrap() {
-        let path = entry.unwrap().path();
+    disk::create_dir_all(&tasks).unwrap();
+    for path in disk::read_dir(logs).unwrap() {
         if path.extension().is_some_and(|e| e == "jsonl") {
-            fs::copy(&path, tasks.join(path.file_name().unwrap())).unwrap();
+            disk::copy(&path, tasks.join(path.file_name().unwrap())).unwrap();
         }
     }
     home
@@ -46,7 +43,7 @@ fn home_with(logs: &Path) -> TempDir {
 /// `taskloom import --json` in `home`, from a directory that is no
 /// project.
 fn import(home: &Path) -> (Ran, Value) {
-    let cwd = TempDir::new().unwrap();
+    let cwd = Temp::new();
     let output = Command::new(binary())
         .args(["import", "--json"])
         .current_dir(cwd.path())
@@ -66,7 +63,7 @@ fn rust_tasks(home: &Path, project: &str) -> Option<BTreeMap<String, TaskState>>
         .build()
         .unwrap();
     runtime.block_on(async {
-        let mut stores = SqliteStores::default();
+        let mut stores = SqliteStores::new(super::os());
         let project = Project {
             id: project.to_string(),
             root: String::new(),
@@ -278,7 +275,7 @@ fn assert_idempotent(home: &Path, first: &Value) {
 #[test]
 fn test_the_import_agrees_with_gos_fold_of_every_fixture() {
     let go: Value =
-        serde_json::from_str(&fs::read_to_string(fixtures().join("go-fold.json")).unwrap())
+        serde_json::from_str(&disk::read_to_string(fixtures().join("go-fold.json")).unwrap())
             .unwrap();
     let home = home_with(&fixtures().join("jsonl-logs"));
     let (ran, report) = import(home.path());
@@ -382,7 +379,7 @@ fn test_the_import_agrees_with_gos_fold_of_every_fixture() {
     assert_eq!(failed("malformed"), "jsonl-task-log-malformed");
     assert_eq!(failed("unknown-op"), "jsonl-task-log-unknown-op");
     assert!(
-        !home.path().join(".ctxloom/projects/index.yaml").exists(),
+        !disk::exists(home.path().join(".ctxloom/projects/index.yaml")),
         "an import binds no directory to a project"
     );
 
@@ -398,7 +395,7 @@ fn test_the_import_agrees_with_gos_fold_of_real_logs() {
     let logs =
         PathBuf::from(std::env::var_os("TASKLOOM_IMPORT_LOGS").expect("TASKLOOM_IMPORT_LOGS"));
     let fold = PathBuf::from(std::env::var_os("TASKLOOM_GO_FOLD").expect("TASKLOOM_GO_FOLD"));
-    let go: Value = serde_json::from_str(&fs::read_to_string(fold).unwrap()).unwrap();
+    let go: Value = serde_json::from_str(&disk::read_to_string(fold).unwrap()).unwrap();
     let home = home_with(&logs);
     let (ran, report) = import(home.path());
     let compared = check(&go, home.path(), &report);

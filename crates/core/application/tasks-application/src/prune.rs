@@ -25,6 +25,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::future::Future;
 
+use crate::DeadLetter;
 use annals::next::{AsyncReadStore, Timestamp};
 use annals_diagnostic::{Arg, Diagnostic, Report};
 use ports::{
@@ -60,8 +61,6 @@ pub struct PruneRequest {
     pub tag_query: Option<String>,
     /// Remove and purge what is selected; without it, only report.
     pub apply: bool,
-    /// Configuration overrides, `<path>=<value>` (`--config-set`).
-    pub config_set: Vec<String>,
 }
 
 /// One task a prune took, or without `apply` would take.
@@ -128,6 +127,9 @@ pub struct Pruning {
     pub dangling: Vec<Dangling>,
     /// Which of the tasks' tags a person is shown.
     pub shown: Shown,
+    /// The dead letters annals' kernel wrote while the prune ran (almost
+    /// certainly bugs, for the caller to say loudly).
+    pub dead_letters: Vec<DeadLetter>,
 }
 
 /// Why a prune was refused before it read anything.
@@ -217,7 +219,7 @@ where
     async fn prune(&mut self, request: PruneRequest) -> Result<Pruning, AppError> {
         let tag_query = given(request.tag_query.as_deref(), "tag_query")?;
         query::check(tag_query).map_err(|e| AppError::TagQuery(Report::of(&e)))?;
-        let schema = self.schema(&request.config_set)?;
+        let schema = self.schema()?;
         let statuses = statuses(&request.statuses)?;
         let before = cut(&request.older_than, self.clock.now()).map_err(|e| refused(&e))?;
         let mut pruning = Pruning {
@@ -231,6 +233,7 @@ where
             tasks_remaining: 0,
             dangling: Vec::new(),
             shown: Shown::of(&schema),
+            dead_letters: Vec::new(),
         };
         // A prune resolves its project as a read does: where there is none,
         // or no store yet, there is nothing to prune, and nothing is minted
@@ -291,6 +294,7 @@ where
             clock: &mut self.clock,
             delay: &mut self.delay,
             backoff: self.backoff,
+            dead_letters: &self.dead_letters,
         };
         for task in selected {
             let Some(events) = take(&mut runner, store, task, &selection, request.apply).await?
@@ -315,6 +319,7 @@ where
             .collect();
         pruning.tasks_remaining = survivors.len();
         pruning.dangling = dangling(&survivors, &gone);
+        pruning.dead_letters = self.dead_letters.take();
         Ok(pruning)
     }
 }
@@ -325,7 +330,7 @@ async fn live_tasks<S: AsyncReadStore>(
     store: &mut S,
     registry: &annals::next::Registry,
 ) -> Result<(Vec<TaskState>, Vec<TaskState>), AppError> {
-    let mut list = TaskList::new(Box::new(|_| true));
+    let mut list = TaskList::default();
     list.catch_up_async(store, registry)
         .await
         .map_err(|e| AppError::Failed(Report::of(&*e)))?;

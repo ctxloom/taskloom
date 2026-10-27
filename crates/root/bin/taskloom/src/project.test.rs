@@ -2,38 +2,36 @@
 //! finding and correcting a directory bound to the wrong project, so its
 //! tasks no longer seem lost.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use ports::TaskStores;
 use serde_json::Value;
 use task_store_sqlite::SqliteStores;
-use tempfile::TempDir;
 
-use super::{binary, Ran};
+use super::{binary, disk, Ran, Temp};
 
 #[path = "../../../../adapters/driven/task-store-sqlite/src/damage.test.rs"]
 mod damage;
 
 /// A temporary home, and trees made in a temporary directory beside it.
 struct World {
-    home: TempDir,
-    trees: TempDir,
+    home: Temp,
+    trees: Temp,
 }
 
 impl World {
     fn new() -> World {
         World {
-            home: tempfile::tempdir().unwrap(),
-            trees: tempfile::tempdir().unwrap(),
+            home: Temp::new(),
+            trees: Temp::new(),
         }
     }
 
     /// A new directory named `name`, canonical.
     fn tree(&self, name: &str) -> PathBuf {
-        let dir = fs::canonicalize(self.trees.path()).unwrap().join(name);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = disk::canonicalize(self.trees.path()).unwrap().join(name);
+        disk::create_dir_all(&dir).unwrap();
         dir
     }
 
@@ -100,7 +98,7 @@ fn test_a_second_clone_with_the_committed_marker_shares_the_project_by_design() 
     let first = world.tree("first");
     let second = world.tree("second");
     let id = world.add(&first, "the first clone's task");
-    fs::copy(first.join(".project-id"), second.join(".project-id")).unwrap();
+    disk::copy(first.join(".project-id"), second.join(".project-id")).unwrap();
 
     // Before any heal, the second clone already reads and writes the store.
     assert_eq!(world.texts(&second), ["the first clone's task"]);
@@ -176,7 +174,7 @@ fn test_a_tree_that_forked_is_repointed_and_its_own_database_orphaned_then_remov
     assert_eq!(made["previous"], forked.as_str());
     assert_eq!(world.texts(&copy), ["the original's task"], "found again");
     assert_eq!(
-        fs::read_to_string(copy.join(".project-id")).unwrap(),
+        disk::read_to_string(copy.join(".project-id")).unwrap(),
         format!("{kept}\n")
     );
 
@@ -191,11 +189,11 @@ fn test_a_tree_that_forked_is_repointed_and_its_own_database_orphaned_then_remov
     assert!(!not_orphaned.ok, "a live database is refused");
     let reported = world.json(&copy, &["project", "orphans", "remove", &forked]);
     assert_eq!(reported["applied"], false);
-    assert!(world.database(&forked).exists(), "only reported");
+    assert!(disk::exists(world.database(&forked)), "only reported");
     let removed = world.json(&copy, &["project", "orphans", "remove", &forked, "--yes"]);
     assert_eq!(removed["applied"], true);
-    assert!(!world.database(&forked).exists());
-    assert!(world.database(&kept).join("state.db").exists());
+    assert!(!disk::exists(world.database(&forked)));
+    assert!(disk::exists(world.database(&kept).join("state.db")));
     assert_eq!(world.texts(&original), ["the original's task"]);
     assert_eq!(
         world.json(&copy, &["project", "orphans"]),
@@ -208,7 +206,7 @@ fn test_a_lost_marker_is_shown_and_healed_from_the_registry() {
     let world = World::new();
     let tree = world.tree("tree");
     let id = world.add(&tree, "a task");
-    fs::remove_file(tree.join(".project-id")).unwrap();
+    disk::remove_file(tree.join(".project-id")).unwrap();
 
     let shown = world.json(&tree, &["project", "show"]);
     assert_eq!(shown["source"], "registry");
@@ -221,12 +219,12 @@ fn test_a_lost_marker_is_shown_and_healed_from_the_registry() {
 
     let would = world.json(&tree, &["project", "heal"]);
     assert_eq!(would["changes"][0]["kind"], "write-marker");
-    assert!(!tree.join(".project-id").exists(), "only reported");
+    assert!(!disk::exists(tree.join(".project-id")), "only reported");
     let text = world.run(&tree, &["project", "heal", "--yes", "--format", "text"]);
     assert!(text.ok, "{}", text.stderr);
     assert!(text.stdout.starts_with("Changed:\n"), "{}", text.stdout);
     assert_eq!(
-        fs::read_to_string(tree.join(".project-id")).unwrap(),
+        disk::read_to_string(tree.join(".project-id")).unwrap(),
         format!("{id}\n")
     );
     let healed = world.json(&tree, &["project", "show"]);
@@ -258,7 +256,9 @@ fn test_a_linked_worktree_shares_its_primary_checkouts_tasks() {
     };
     git(&primary, &["init", "-q"]);
     git(&primary, &["commit", "-q", "--allow-empty", "-m", "first"]);
-    let linked = fs::canonicalize(world.trees.path()).unwrap().join("linked");
+    let linked = disk::canonicalize(world.trees.path())
+        .unwrap()
+        .join("linked");
     git(
         &primary,
         &[
@@ -273,7 +273,7 @@ fn test_a_linked_worktree_shares_its_primary_checkouts_tasks() {
 
     let id = world.add(&linked.join("."), "added in the worktree");
     assert!(
-        !linked.join(".project-id").exists(),
+        !disk::exists(linked.join(".project-id")),
         "nothing to merge back"
     );
     assert_eq!(world.texts(&primary), ["added in the worktree"]);
@@ -301,11 +301,7 @@ fn test_every_project_command_answers_as_text_too() {
         );
     }
     assert!(
-        !world
-            .home
-            .path()
-            .join(".ctxloom/projects/index.yaml")
-            .exists(),
+        !disk::exists(world.home.path().join(".ctxloom/projects/index.yaml")),
         "a read binds nothing"
     );
 }
@@ -320,7 +316,7 @@ fn settled(path: &Path) {
         root: "/".to_string(),
         store: path.to_path_buf(),
     };
-    let mut stores = SqliteStores::default();
+    let mut stores = SqliteStores::new(super::os());
     tokio::runtime::Builder::new_current_thread()
         .enable_time()
         .build()
@@ -331,7 +327,7 @@ fn settled(path: &Path) {
     let mut wal = path.as_os_str().to_owned();
     wal.push("-wal");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while Path::new(&wal).exists() {
+    while disk::exists(Path::new(&wal)) {
         assert!(
             std::time::Instant::now() < deadline,
             "the database's log is still beside it"
@@ -349,15 +345,19 @@ fn test_heal_reports_a_damaged_database_from_the_catalog_and_leaves_it_damaged()
     settled(&database);
     // Damaged in a copy, then put in the database's place.
     let copy = world.trees.path().join("copy.db");
-    fs::write(
+    disk::write(
         &copy,
-        damage::damaged(&fs::read(&database).unwrap(), "events_by_command", |page| {
-            *page.last_mut().unwrap() ^= 1;
-        }),
+        damage::damaged(
+            &disk::read(&database).unwrap(),
+            "events_by_command",
+            |page| {
+                *page.last_mut().unwrap() ^= 1;
+            },
+        ),
     )
     .unwrap();
-    fs::rename(&copy, &database).unwrap();
-    let before = fs::read(&database).unwrap();
+    disk::rename(&copy, &database).unwrap();
+    let before = disk::read(&database).unwrap();
 
     let found = world.json(&tree, &["project", "heal", "--yes"]);
     assert_eq!(found["changes"], Value::Array(vec![]), "nothing to repair");
@@ -394,7 +394,7 @@ fn test_heal_reports_a_damaged_database_from_the_catalog_and_leaves_it_damaged()
         "{}",
         text.stdout
     );
-    assert_eq!(fs::read(&database).unwrap(), before, "never repaired");
+    assert_eq!(disk::read(&database).unwrap(), before, "never repaired");
 }
 
 #[test]
@@ -413,8 +413,11 @@ fn test_heal_of_a_project_with_no_database_is_no_damage_and_creates_none() {
     let world = World::new();
     let tree = world.tree("tree");
     let id = world.add(&tree, "a task");
-    fs::remove_dir_all(world.database(&id)).unwrap();
+    disk::remove_dir_all(world.database(&id)).unwrap();
     let healed = world.json(&tree, &["project", "heal", "--yes"]);
     assert_eq!(healed["unresolved"], Value::Array(vec![]));
-    assert!(!world.database(&id).exists(), "the check created nothing");
+    assert!(
+        !disk::exists(world.database(&id)),
+        "the check created nothing"
+    );
 }

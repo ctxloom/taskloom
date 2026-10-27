@@ -11,6 +11,7 @@ publish.workspace = true
 annals.workspace = true
 annals-diagnostic.workspace = true
 annals-store-sql.workspace = true
+file-system.workspace = true
 ports.workspace = true
 # A runtime of the check's own: StoreCheck is synchronous, as the project
 # commands are, and its caller may be on a runtime already.
@@ -18,7 +19,6 @@ tokio.workspace = true
 
 [dev-dependencies]
 fluent-syntax.workspace = true
-tempfile.workspace = true
 
 [lints]
 workspace = true

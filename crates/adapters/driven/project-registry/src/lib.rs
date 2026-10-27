@@ -30,11 +30,12 @@ mod index;
 mod path;
 mod worktree;
 
-use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use annals_diagnostic::Report;
+use file_system::Fs;
 use ports::{IdSource, Names, Project, ProjectIdentity};
 
 pub use error::{diagnostic_samples, RegistryError, EN_US};
@@ -58,17 +59,19 @@ pub struct Environment {
     pub project_id: Option<String>,
 }
 
-/// Project identity over the filesystem, minting ids from `names`.
+/// Project identity over the filesystem `fs`, minting ids from `names`.
 pub struct ProjectRegistry<N> {
+    fs: Arc<dyn Fs>,
     env: Environment,
     names: N,
     /// How long a change waits for the registry's lock.
     lock_wait: Duration,
 }
 
-impl<N: Names> ProjectRegistry<N> {
-    pub fn new(env: Environment, names: N) -> Self {
+impl<N> ProjectRegistry<N> {
+    pub fn new(fs: Arc<dyn Fs>, env: Environment, names: N) -> Self {
         ProjectRegistry {
+            fs,
             env,
             names,
             lock_wait: index::LOCK_WAIT,
@@ -91,16 +94,26 @@ impl<N: Names> ProjectRegistry<N> {
     pub fn work_root(&self) -> Result<PathBuf, RegistryError> {
         if let Some(root) = self.env.root.as_ref().filter(|r| !r.as_os_str().is_empty()) {
             if root.is_absolute() {
-                return Ok(path::canonical(root));
+                return Ok(self.canonical(root));
             }
-            return Ok(path::canonical(&self.cwd()?.join(root)));
+            return Ok(self.canonical(&self.cwd()?.join(root)));
         }
         let cwd = self.cwd()?;
         let root = cwd
             .ancestors()
-            .find(|dir| dir.join(".git").exists())
+            .find(|dir| self.exists(&dir.join(".git")))
             .unwrap_or(cwd);
-        Ok(path::canonical(root))
+        Ok(self.canonical(root))
+    }
+
+    /// `path`, canonical on the registry's filesystem.
+    pub(crate) fn canonical(&self, path: &Path) -> PathBuf {
+        path::canonical(&*self.fs, path)
+    }
+
+    /// Whether anything is at `path`; what cannot be looked at is not.
+    fn exists(&self, path: &Path) -> bool {
+        self.fs.exists(path).unwrap_or(false)
     }
 
     /// The working directory, canonical, if neither CTXLOOM_ROOT nor a
@@ -115,10 +128,10 @@ impl<N: Names> ProjectRegistry<N> {
             return Ok(None);
         }
         let cwd = self.cwd()?;
-        if cwd.ancestors().any(|dir| dir.join(".git").exists()) {
+        if cwd.ancestors().any(|dir| self.exists(&dir.join(".git"))) {
             return Ok(None);
         }
-        Ok(Some(path::canonical(cwd).display().to_string()))
+        Ok(Some(self.canonical(cwd).display().to_string()))
     }
 
     fn cwd(&self) -> Result<&Path, RegistryError> {
@@ -144,10 +157,10 @@ impl<N: Names> ProjectRegistry<N> {
     /// checkout's project and writes no marker of its own.
     pub fn identity_root(&self) -> Result<PathBuf, RegistryError> {
         let root = self.work_root()?;
-        if has_marker(&root) {
+        if self.exists(&marker(&root)) || self.exists(&legacy_marker(&root)) {
             return Ok(root);
         }
-        Ok(worktree::primary_checkout(&root)?.unwrap_or(root))
+        Ok(worktree::primary_checkout(&*self.fs, &root)?.unwrap_or(root))
     }
 
     /// The project `id` names, resolved for `root`.
@@ -191,43 +204,48 @@ impl<N: Names> ProjectRegistry<N> {
         root: &Path,
         adopt: bool,
     ) -> Result<Option<(String, IdSource)>, RegistryError> {
-        if let Some(id) = read_marker(&marker(root))? {
+        if let Some(id) = read_marker(&*self.fs, &marker(root))? {
             return Ok(Some((id, IdSource::Marker)));
         }
-        if let Some(id) = read_marker(&legacy_marker(root))? {
+        if let Some(id) = read_marker(&*self.fs, &legacy_marker(root))? {
             if adopt {
-                write_marker(root, &id)?;
+                write_marker(&*self.fs, root, &id)?;
             }
             return Ok(Some((id, IdSource::LegacyMarker)));
         }
         let home = self.home()?;
-        let index = index::load(&index::path(home))?;
+        let index = index::load(&*self.fs, &index::path(home))?;
         Ok(index
-            .id_for(root)
+            .id_for(&*self.fs, root)
             .map(|id| (id.to_string(), IdSource::Registry)))
     }
+}
 
+/// Resolving may bind a new project, minting its id from `names`.
+impl<N: Names> ProjectRegistry<N> {
     /// Bind the work root to a project id under the registry's lock: the
     /// one another process bound while this one waited, else a new one.
     fn bind(&mut self, root: &Path) -> Result<String, RegistryError> {
         let path = index::path(self.home()?);
-        let _locked = index::lock_within(&path, self.lock_wait)?;
+        let _locked = index::lock_within(&*self.fs, &path, self.lock_wait)?;
         if let Some((id, _)) = self.bound(root, true)? {
             return Ok(id);
         }
-        let mut index = index::load(&path)?;
+        let mut index = index::load(&*self.fs, &path)?;
         let id = self.mint(&index)?;
         index.register(&id, &root.display().to_string());
-        index::save(&path, &index)?;
-        write_marker(root, &id)?;
+        index::save(&*self.fs, &path, &index)?;
+        write_marker(&*self.fs, root, &id)?;
         Ok(id)
     }
 
-    /// A project id `index` does not hold.
+    /// A project id neither `index` nor a database holds: an orphan's
+    /// database (no registry entry names it) still holds its id's tasks.
     fn mint(&mut self, index: &index::Index) -> Result<String, RegistryError> {
+        let projects = self.home()?.join(".ctxloom").join("projects");
         for _ in 0..MINT_ATTEMPTS {
             let id = self.names.project_id();
-            if !index.holds(&id) {
+            if !index.holds(&id) && !self.exists(&projects.join(&id)) {
                 return Ok(id);
             }
         }
@@ -236,19 +254,27 @@ impl<N: Names> ProjectRegistry<N> {
         })
     }
 
+    /// The project a call acts on. A pinned one (the pin, else
+    /// CTXLOOM_PROJECT_ID) is resolved first, walking no working
+    /// directory: it is rooted where the registry first holds it, or
+    /// nowhere (an empty root), as [`ProjectIdentity::every_project`]
+    /// roots each project. Otherwise the identity root's, bound to a new
+    /// id on a write that finds none.
     fn resolve(
         &mut self,
         pinned: Option<&str>,
         write: bool,
     ) -> Result<Option<Project>, RegistryError> {
+        if let Some((id, _)) = self.pinned(pinned)? {
+            let index = index::load(&*self.fs, &index::path(self.home()?))?;
+            let root = index.root_of(&*self.fs, &id);
+            return self.project(id, Path::new(&root)).map(Some);
+        }
         let root = self.identity_root()?;
-        let id = match self.pinned(pinned)? {
+        let id = match self.bound(&root, write)? {
             Some((id, _)) => Some(id),
-            None => match self.bound(&root, write)? {
-                Some((id, _)) => Some(id),
-                None if write => Some(self.bind(&root)?),
-                None => None,
-            },
+            None if write => Some(self.bind(&root)?),
+            None => None,
         };
         id.map(|id| self.project(id, &root)).transpose()
     }
@@ -286,15 +312,9 @@ pub(crate) fn legacy_marker(root: &Path) -> PathBuf {
     root.join(".ctxloom").join("project-id")
 }
 
-/// Whether `root` holds a marker, either one, blank or not: a marker is
-/// the tree's own say in its identity.
-fn has_marker(root: &Path) -> bool {
-    marker(root).exists() || legacy_marker(root).exists()
-}
-
 /// The id a marker at `path` holds; none if it is absent or blank.
-pub(crate) fn read_marker(path: &Path) -> Result<Option<String>, RegistryError> {
-    let text = match fs::read_to_string(path) {
+pub(crate) fn read_marker(fs: &dyn Fs, path: &Path) -> Result<Option<String>, RegistryError> {
+    let text = match fs.read_to_string(path) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(RegistryError::io(path, e)),
@@ -305,8 +325,8 @@ pub(crate) fn read_marker(path: &Path) -> Result<Option<String>, RegistryError> 
     }
 }
 
-pub(crate) fn write_marker(root: &Path, id: &str) -> Result<(), RegistryError> {
-    index::write_atomically(&marker(root), format!("{id}\n").as_bytes())
+pub(crate) fn write_marker(fs: &dyn Fs, root: &Path, id: &str) -> Result<(), RegistryError> {
+    index::write_atomically(fs, &marker(root), format!("{id}\n").as_bytes())
 }
 
 #[cfg(test)]

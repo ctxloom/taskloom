@@ -1,13 +1,17 @@
-//! Opening a project's store over a real filesystem, on a tokio runtime as
-//! the binary runs it, and checking a database for damage.
+//! Opening a project's store on a filesystem of the test's own
+//! (`Rooted::temp`, which SQLite reaches through the seam's real path), on
+//! a tokio runtime as the binary runs it, and checking a database for
+//! damage.
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use annals::next::v1::event_meta::Causation;
 use annals::next::v1::{Cover, EventMeta, EventPage, Uuid};
 use annals::next::{Any, AsyncEventStore};
 use annals_diagnostic::Diagnostic;
+use file_system::{Fs, Mode, Os, Perms, Rooted};
 use ports::{Checked, Project, StoreCheck, TaskStores, WatchedStores};
 
 use annals_store_sql::sqlite::SqliteStore;
@@ -51,54 +55,133 @@ fn store_in(dir: &Path, id: &str) -> PathBuf {
     dir.join(".ctxloom/projects").join(id).join("state.db")
 }
 
+/// A home, `/home/u`, on a filesystem of its own.
+struct Home {
+    rooted: Arc<Rooted>,
+    path: PathBuf,
+}
+
+impl Home {
+    fn new() -> Home {
+        let home = Home {
+            rooted: Arc::new(Rooted::temp().unwrap()),
+            path: PathBuf::from("/home/u"),
+        };
+        home.mkdir(&home.path);
+        home
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn fs(&self) -> Arc<dyn Fs> {
+        Arc::clone(&self.rooted) as Arc<dyn Fs>
+    }
+
+    /// The stores on the home's filesystem.
+    fn stores(&self) -> SqliteStores {
+        SqliteStores::new(self.fs())
+    }
+
+    fn exists(&self, path: &Path) -> bool {
+        self.rooted.exists(path).unwrap()
+    }
+
+    fn mkdir(&self, path: &Path) {
+        self.rooted.create_dir_all(path, Mode::DIR).unwrap();
+    }
+
+    fn write(&self, path: &Path, bytes: &[u8]) {
+        self.rooted
+            .write_atomic(path, bytes, Perms::Exact(Mode::FILE))
+            .unwrap();
+    }
+
+    fn read(&self, path: &Path) -> Vec<u8> {
+        self.rooted.read(path).unwrap()
+    }
+
+    fn remove(&self, path: &Path) {
+        self.rooted.remove_file(path).unwrap();
+    }
+
+    /// Where SQLite finds `path`.
+    fn real(&self, path: &Path) -> PathBuf {
+        self.rooted.real_path(path).unwrap()
+    }
+}
+
 #[test]
-fn test_opening_creates_the_directory_and_a_migrated_database() {
-    let home = tempfile::tempdir().unwrap();
+fn test_the_database_is_where_the_filesystem_puts_it() {
+    let home = Home::new();
     let path = store_in(home.path(), "jolly-mute-magma");
-    let mut stores = SqliteStores::default();
+    let mut stores = home.stores();
     assert!(block_on(answers(
         &mut stores,
         &project("jolly-mute-magma", path.clone())
     )));
-    assert!(path.exists(), "the database is on disk");
+    let real = home
+        .rooted
+        .root()
+        .join("home/u/.ctxloom/projects/jolly-mute-magma/state.db");
+    assert_eq!(home.real(&path), real);
+    let os = Os::new(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+    assert!(os.exists(&real).unwrap(), "under the filesystem's root");
+    assert!(
+        !os.exists(&path).unwrap(),
+        "never at the caller's path on the real filesystem"
+    );
+}
+
+#[test]
+fn test_opening_creates_the_directory_and_a_migrated_database() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    let mut stores = home.stores();
+    assert!(block_on(answers(
+        &mut stores,
+        &project("jolly-mute-magma", path.clone())
+    )));
+    assert!(home.exists(&path), "the database is on disk");
 }
 
 #[test]
 fn test_the_store_is_opened_once_and_held_for_its_project() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     let path = store_in(home.path(), "jolly-mute-magma");
     let project = project("jolly-mute-magma", path.clone());
-    let mut stores = SqliteStores::default();
+    let mut stores = home.stores();
     block_on(async {
         assert!(answers(&mut stores, &project).await);
-        std::fs::remove_file(&path).unwrap();
+        home.remove(&path);
         assert!(answers(&mut stores, &project).await);
     });
-    assert!(!path.exists(), "the held store, not a new file");
+    assert!(!home.exists(&path), "the held store, not a new file");
 }
 
 #[test]
 fn test_another_project_opens_its_own_store() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     let (first, second) = (
         store_in(home.path(), "jolly-mute-magma"),
         store_in(home.path(), "high-tight-gulf"),
     );
-    let mut stores = SqliteStores::default();
+    let mut stores = home.stores();
     block_on(async {
         assert!(answers(&mut stores, &project("jolly-mute-magma", first.clone())).await);
         assert!(answers(&mut stores, &project("high-tight-gulf", second.clone())).await);
     });
-    assert!(first.exists() && second.exists());
+    assert!(home.exists(&first) && home.exists(&second));
 }
 
 #[test]
 fn test_a_directory_that_cannot_be_made_fails_naming_it() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     let blocker = home.path().join("projects");
-    std::fs::write(&blocker, "a file where the directory goes").unwrap();
+    home.write(&blocker, b"a file where the directory goes");
     let path = blocker.join("jolly-mute-magma").join("state.db");
-    let mut stores = SqliteStores::default();
+    let mut stores = home.stores();
     let error = block_on(stores.open(&project("jolly-mute-magma", path)))
         .map(drop)
         .unwrap_err();
@@ -114,11 +197,11 @@ fn test_a_directory_that_cannot_be_made_fails_naming_it() {
 
 #[test]
 fn test_a_database_that_does_not_open_fails_with_the_stores_error() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     // A directory where the database file goes.
     let path = home.path().join("state.db");
-    std::fs::create_dir(&path).unwrap();
-    let mut stores = SqliteStores::default();
+    home.mkdir(&path);
+    let mut stores = home.stores();
     let error = block_on(stores.open(&project("jolly-mute-magma", path)))
         .map(drop)
         .unwrap_err();
@@ -131,25 +214,125 @@ fn test_a_database_that_does_not_open_fails_with_the_stores_error() {
 #[test]
 fn test_the_openers_futures_are_send_so_a_server_can_spawn_them() {
     fn is_send<T: Send>(_: &T) {}
+    let home = Home::new();
     let path = PathBuf::from("/nowhere/state.db");
     let project = project("jolly-mute-magma", path.clone());
-    let mut stores = SqliteStores::default();
+    let mut stores = home.stores();
     is_send(&stores.open(&project));
     is_send(&stores.open_existing(&project));
     is_send(&SqliteStore::open(&path));
+}
+
+/// A filesystem that cannot say where anything is on disk (as a real path
+/// a Windows prefix leaves relative cannot be), and is otherwise `Rooted`.
+#[derive(Debug)]
+struct Unplaceable(Rooted);
+
+impl Fs for Unplaceable {
+    fn read(&self, path: &Path) -> std::io::Result<Vec<u8>> {
+        self.0.read(path)
+    }
+    fn read_to_string(&self, path: &Path) -> std::io::Result<String> {
+        self.0.read_to_string(path)
+    }
+    fn write_atomic(&self, path: &Path, bytes: &[u8], perms: Perms) -> std::io::Result<()> {
+        self.0.write_atomic(path, bytes, perms)
+    }
+    fn open(&self, path: &Path, how: file_system::Open) -> std::io::Result<std::fs::File> {
+        self.0.open(path, how)
+    }
+    fn create_dir_all(&self, path: &Path, mode: Mode) -> std::io::Result<()> {
+        self.0.create_dir_all(path, mode)
+    }
+    fn remove_file(&self, path: &Path) -> std::io::Result<()> {
+        self.0.remove_file(path)
+    }
+    fn remove_dir_all(&self, path: &Path) -> std::io::Result<()> {
+        self.0.remove_dir_all(path)
+    }
+    fn rename(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+        self.0.rename(from, to)
+    }
+    fn set_permissions(&self, path: &Path, mode: Mode) -> std::io::Result<()> {
+        self.0.set_permissions(path, mode)
+    }
+    fn read_dir(&self, path: &Path) -> std::io::Result<Vec<file_system::Entry>> {
+        self.0.read_dir(path)
+    }
+    fn metadata(&self, path: &Path) -> std::io::Result<file_system::Meta> {
+        self.0.metadata(path)
+    }
+    fn symlink_metadata(&self, path: &Path) -> std::io::Result<file_system::Meta> {
+        self.0.symlink_metadata(path)
+    }
+    fn exists(&self, path: &Path) -> std::io::Result<bool> {
+        self.0.exists(path)
+    }
+    fn absolute(&self, path: &Path) -> std::io::Result<PathBuf> {
+        self.0.absolute(path)
+    }
+    fn canonicalize(&self, path: &Path) -> std::io::Result<PathBuf> {
+        self.0.canonicalize(path)
+    }
+    fn symlink_dir(&self, target: &Path, link: &Path) -> std::io::Result<()> {
+        self.0.symlink_dir(target, link)
+    }
+    fn read_link(&self, link: &Path) -> std::io::Result<PathBuf> {
+        self.0.read_link(link)
+    }
+    fn make_temp_dir(&self, parent: &Path, prefix: &str) -> std::io::Result<PathBuf> {
+        self.0.make_temp_dir(parent, prefix)
+    }
+    fn real_path(&self, _: &Path) -> std::io::Result<PathBuf> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "no place on disk",
+        ))
+    }
+    fn same_file(&self, file: &std::fs::File, path: &Path) -> std::io::Result<bool> {
+        self.0.same_file(file, path)
+    }
+}
+
+#[test]
+fn test_a_store_the_filesystem_cannot_place_is_refused_naming_it() {
+    let mut stores = SqliteStores::new(Arc::new(Unplaceable(Rooted::temp().unwrap())));
+    let path = PathBuf::from("/home/u/state.db");
+    let project = project("jolly-mute-magma", path.clone());
+    let unplaced = |error: annals::next::StoreError| {
+        let annals::next::StoreError::Unavailable(report) = &error else {
+            panic!("unavailable: {error:?}");
+        };
+        assert_eq!(report.code(), "task-store-sqlite-unplaced");
+        assert!(report.to_string().contains("/home/u/state.db"), "{report}");
+        assert!(report.to_string().contains("no place on disk"), "{report}");
+    };
+    unplaced(block_on(stores.open(&project)).map(drop).unwrap_err());
+    unplaced(
+        block_on(stores.open_existing(&project))
+            .map(drop)
+            .unwrap_err(),
+    );
+    unplaced(
+        block_on(stores.change_token(&project))
+            .map(drop)
+            .unwrap_err(),
+    );
+    let checked = stores.check(&path).unwrap_err();
+    assert_eq!(checked.code(), "task-store-sqlite-unplaced");
 }
 
 // ------------------------------------------------------------ reads
 
 #[test]
 fn test_reading_a_project_with_no_database_finds_none_and_creates_nothing() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     let path = store_in(home.path(), "tpyo");
-    let mut stores = SqliteStores::default();
+    let mut stores = home.stores();
     let found = block_on(stores.open_existing(&project("tpyo", path))).unwrap();
     assert!(found.is_none());
     assert!(
-        !home.path().join(".ctxloom").exists(),
+        !home.exists(&home.path().join(".ctxloom")),
         "no directory, no file"
     );
     assert!(stores.held.is_none());
@@ -157,12 +340,12 @@ fn test_reading_a_project_with_no_database_finds_none_and_creates_nothing() {
 
 #[test]
 fn test_reading_an_existing_database_opens_it_read_only() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     let path = store_in(home.path(), "jolly-mute-magma");
     let project = project("jolly-mute-magma", path);
     block_on(async {
-        SqliteStores::default().open(&project).await.unwrap();
-        let mut stores = SqliteStores::default();
+        home.stores().open(&project).await.unwrap();
+        let mut stores = home.stores();
         let store = stores
             .open_existing(&project)
             .await
@@ -175,13 +358,13 @@ fn test_reading_an_existing_database_opens_it_read_only() {
 
 #[test]
 fn test_a_store_held_to_write_serves_a_read() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     let path = store_in(home.path(), "jolly-mute-magma");
     let project = project("jolly-mute-magma", path.clone());
-    let mut stores = SqliteStores::default();
+    let mut stores = home.stores();
     block_on(async {
         stores.open(&project).await.unwrap();
-        std::fs::remove_file(&path).unwrap();
+        home.remove(&path);
         let found = stores.open_existing(&project).await.unwrap();
         assert!(found.is_some(), "the held store, though the file is gone");
     });
@@ -190,12 +373,12 @@ fn test_a_store_held_to_write_serves_a_read() {
 
 #[test]
 fn test_a_store_held_to_read_is_opened_again_to_write() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     let path = store_in(home.path(), "jolly-mute-magma");
     let project = project("jolly-mute-magma", path);
-    let mut stores = SqliteStores::default();
+    let mut stores = home.stores();
     block_on(async {
-        SqliteStores::default().open(&project).await.unwrap();
+        home.stores().open(&project).await.unwrap();
         stores
             .open_existing(&project)
             .await
@@ -208,8 +391,8 @@ fn test_a_store_held_to_read_is_opened_again_to_write() {
 
 #[test]
 fn test_reading_another_project_does_not_serve_the_held_one() {
-    let home = tempfile::tempdir().unwrap();
-    let mut stores = SqliteStores::default();
+    let home = Home::new();
+    let mut stores = home.stores();
     block_on(async {
         let first = project(
             "jolly-mute-magma",
@@ -230,10 +413,10 @@ const OLDER: &[u8] = include_bytes!("../testdata/older.db");
 fn test_reading_a_database_not_yet_migrated_is_refused_and_leaves_it_unmigrated() {
     // A read never migrates: only a write does. A file holding something
     // committed is no file a writer is making, so it is refused at once.
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     let path = home.path().join("state.db");
-    std::fs::write(&path, OLDER).unwrap();
-    let mut stores = SqliteStores::default();
+    home.write(&path, OLDER);
+    let mut stores = home.stores();
     let error = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
         .map(|found| found.is_some())
         .unwrap_err();
@@ -242,19 +425,19 @@ fn test_reading_a_database_not_yet_migrated_is_refused_and_leaves_it_unmigrated(
     };
     assert_eq!(report.code(), "annals-store-sql-unmigrated");
     assert!(stores.held.is_none());
-    assert_eq!(std::fs::read(&path).unwrap(), OLDER, "the file as it was");
+    assert_eq!(home.read(&path), OLDER, "the file as it was");
     assert!(
-        !home.path().join("state.db-wal").exists(),
+        !home.exists(&home.path().join("state.db-wal")),
         "not moved into WAL"
     );
 }
 
 #[test]
 fn test_a_database_that_cannot_be_read_fails_a_read() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     let path = home.path().join("state.db");
-    std::fs::write(&path, "not a database").unwrap();
-    let mut stores = SqliteStores::default();
+    home.write(&path, b"not a database");
+    let mut stores = home.stores();
     let error = block_on(stores.open_existing(&project("jolly-mute-magma", path)))
         .map(|found| found.is_some())
         .unwrap_err();
@@ -268,14 +451,14 @@ fn test_a_database_that_cannot_be_read_fails_a_read() {
 fn test_a_read_that_fails_fails_with_the_read_only_opens_error() {
     // A directory where the database goes: the read-only open fails, and
     // its error is passed through as it is.
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     let path = home.path().join("state.db");
-    std::fs::create_dir(&path).unwrap();
-    let mut stores = SqliteStores::default();
+    home.mkdir(&path);
+    let mut stores = home.stores();
     let error = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
         .map(|found| found.is_some())
         .unwrap_err();
-    let read_only = block_on(SqliteStore::open_existing(&path))
+    let read_only = block_on(SqliteStore::open_existing(&home.real(&path)))
         .map(|found| found.is_some())
         .unwrap_err();
     assert_eq!(error.to_string(), read_only.to_string());
@@ -294,24 +477,24 @@ fn stream(n: u8) -> Cover {
 
 #[test]
 fn test_a_token_where_there_is_no_database_is_none_and_creates_nothing() {
-    let home = tempfile::tempdir().unwrap();
-    let mut stores = SqliteStores::default();
+    let home = Home::new();
+    let mut stores = home.stores();
     let project = project("tpyo", store_in(home.path(), "tpyo"));
     let token = block_on(stores.change_token(&project)).unwrap();
     assert_eq!(token, None);
-    assert!(!home.path().join(".ctxloom").exists(), "nothing made");
+    assert!(!home.exists(&home.path().join(".ctxloom")), "nothing made");
     assert!(stores.held.is_none());
 }
 
 #[test]
 fn test_a_token_holds_until_another_handle_commits_and_then_holds_again() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     let project = project(
         "jolly-mute-magma",
         store_in(home.path(), "jolly-mute-magma"),
     );
-    let mut writer = SqliteStores::default();
-    let mut watcher = SqliteStores::default();
+    let mut writer = home.stores();
+    let mut watcher = home.stores();
     block_on(async {
         writer.open(&project).await.unwrap();
         let first = watcher
@@ -335,18 +518,18 @@ fn test_a_token_holds_until_another_handle_commits_and_then_holds_again() {
 
 #[test]
 fn test_a_token_is_read_through_the_store_the_next_read_is_through() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     let path = store_in(home.path(), "jolly-mute-magma");
     let project = project("jolly-mute-magma", path.clone());
-    let mut stores = SqliteStores::default();
+    let mut stores = home.stores();
     block_on(async {
-        SqliteStores::default().open(&project).await.unwrap();
+        home.stores().open(&project).await.unwrap();
         stores
             .change_token(&project)
             .await
             .unwrap()
             .expect("a store");
-        std::fs::remove_file(&path).unwrap();
+        home.remove(&path);
         let held = stores.open_existing(&project).await.unwrap();
         assert!(
             held.is_some(),
@@ -357,14 +540,14 @@ fn test_a_token_is_read_through_the_store_the_next_read_is_through() {
 
 #[test]
 fn test_a_store_opened_again_answers_a_token_of_another_handle() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     let project = project(
         "jolly-mute-magma",
         store_in(home.path(), "jolly-mute-magma"),
     );
-    let mut stores = SqliteStores::default();
+    let mut stores = home.stores();
     block_on(async {
-        SqliteStores::default().open(&project).await.unwrap();
+        home.stores().open(&project).await.unwrap();
         let read = stores.change_token(&project).await.unwrap().unwrap();
         // Opened again to write: a new connection, counting afresh.
         stores.open(&project).await.unwrap();
@@ -379,8 +562,9 @@ fn test_a_store_opened_again_answers_a_token_of_another_handle() {
 #[test]
 fn test_the_token_future_is_send_so_a_server_can_spawn_it() {
     fn is_send<T: Send>(_: &T) {}
+    let home = Home::new();
     let project = project("jolly-mute-magma", PathBuf::from("/nowhere/state.db"));
-    let mut stores = SqliteStores::default();
+    let mut stores = home.stores();
     is_send(&stores.change_token(&project));
 }
 
@@ -410,13 +594,13 @@ fn event(sequence: u64, command: u8) -> EventPage {
 /// last connection's close checkpoints the log into the file and removes
 /// it: that removal is waited for, up to a deadline, as the sign the file
 /// is whole.
-fn written(path: &Path) {
+fn written(home: &Home, path: &Path) {
     let stream = Cover {
         domain: "tasks".to_string(),
         root: Some(Uuid::from_bytes([1; 16])),
         edition: None,
     };
-    let mut stores = SqliteStores::default();
+    let mut stores = home.stores();
     block_on(async {
         let store = stores
             .open(&project("p", path.to_path_buf()))
@@ -431,7 +615,7 @@ fn written(path: &Path) {
     let mut wal = path.as_os_str().to_owned();
     wal.push("-wal");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while std::path::Path::new(&wal).exists() {
+    while home.exists(Path::new(&wal)) {
         assert!(
             std::time::Instant::now() < deadline,
             "the store's connection never closed: its log is still beside the file"
@@ -442,39 +626,39 @@ fn written(path: &Path) {
 
 /// A copy of the database at `path`, at `copy`, its command index's root
 /// page changed by `tamper`.
-fn damaged_copy(path: &Path, copy: &Path, tamper: impl FnOnce(&mut [u8])) {
-    let file = damage::damaged(&std::fs::read(path).unwrap(), "events_by_command", tamper);
-    std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
-    std::fs::write(copy, file).unwrap();
+fn damaged_copy(home: &Home, path: &Path, copy: &Path, tamper: impl FnOnce(&mut [u8])) {
+    let file = damage::damaged(&home.read(path), "events_by_command", tamper);
+    home.mkdir(copy.parent().unwrap());
+    home.write(copy, &file);
 }
 
 #[test]
 fn test_a_sound_database_checks_intact() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     let path = store_in(home.path(), "p");
-    written(&path);
-    assert_eq!(SqliteStores::default().check(&path), Ok(Checked::Intact));
+    written(&home, &path);
+    assert_eq!(home.stores().check(&path), Ok(Checked::Intact));
 }
 
 #[test]
 fn test_the_check_runs_from_inside_a_runtime_as_the_binary_calls_it() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     let path = store_in(home.path(), "p");
-    written(&path);
-    let checked = block_on(async { SqliteStores::default().check(&path) });
+    written(&home, &path);
+    let checked = block_on(async { home.stores().check(&path) });
     assert_eq!(checked, Ok(Checked::Intact));
 }
 
 #[test]
 fn test_a_damaged_copy_is_reported_as_the_stores_damage_and_left_as_it_was() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     let (path, copy) = (store_in(home.path(), "p"), store_in(home.path(), "copy"));
-    written(&path);
+    written(&home, &path);
     // The page's last byte is the last entry's last key byte: the page
     // still reads, and the entry no longer matches its row.
-    damaged_copy(&path, &copy, |page| *page.last_mut().unwrap() ^= 1);
-    let before = std::fs::read(&copy).unwrap();
-    let Ok(Checked::Damaged(damage)) = SqliteStores::default().check(&copy) else {
+    damaged_copy(&home, &path, &copy, |page| *page.last_mut().unwrap() ^= 1);
+    let before = home.read(&copy);
+    let Ok(Checked::Damaged(damage)) = home.stores().check(&copy) else {
         panic!("the damage went unseen");
     };
     assert_eq!(damage.code(), "annals-store-sql-damaged");
@@ -487,9 +671,9 @@ fn test_a_damaged_copy_is_reported_as_the_stores_damage_and_left_as_it_was() {
         matches!(first, Some(annals_diagnostic::Arg::Str(p)) if p.contains("events_by_command")),
         "{args:?}"
     );
-    assert_eq!(std::fs::read(&copy).unwrap(), before, "never repaired");
+    assert_eq!(home.read(&copy), before, "never repaired");
     assert_eq!(
-        SqliteStores::default().check(&path),
+        home.stores().check(&path),
         Ok(Checked::Intact),
         "the original is sound"
     );
@@ -497,11 +681,11 @@ fn test_a_damaged_copy_is_reported_as_the_stores_damage_and_left_as_it_was() {
 
 #[test]
 fn test_a_page_beyond_reading_is_damage_not_a_failure_to_check() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     let (path, copy) = (store_in(home.path(), "p"), store_in(home.path(), "copy"));
-    written(&path);
-    damaged_copy(&path, &copy, |page| page.fill(0xff));
-    let Ok(Checked::Damaged(damage)) = SqliteStores::default().check(&copy) else {
+    written(&home, &path);
+    damaged_copy(&home, &path, &copy, |page| page.fill(0xff));
+    let Ok(Checked::Damaged(damage)) = home.stores().check(&copy) else {
         panic!("the damage went unseen");
     };
     assert_eq!(damage.code(), "annals-store-sql-damaged");
@@ -509,19 +693,22 @@ fn test_a_page_beyond_reading_is_damage_not_a_failure_to_check() {
 
 #[test]
 fn test_no_database_is_absent_not_damage_and_creates_nothing() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     let path = store_in(home.path(), "p");
-    assert_eq!(SqliteStores::default().check(&path), Ok(Checked::Absent));
-    assert!(!home.path().join(".ctxloom").exists(), "nothing created");
+    assert_eq!(home.stores().check(&path), Ok(Checked::Absent));
+    assert!(
+        !home.exists(&home.path().join(".ctxloom")),
+        "nothing created"
+    );
 }
 
 #[test]
 fn test_a_check_that_cannot_run_fails_with_the_stores_error() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     // A directory where the database file goes.
     let path = home.path().join("state.db");
-    std::fs::create_dir(&path).unwrap();
-    let failed = SqliteStores::default().check(&path).unwrap_err();
+    home.mkdir(&path);
+    let failed = home.stores().check(&path).unwrap_err();
     assert_eq!(failed.code(), "annals-next-store-unavailable");
     let cause = failed.args().into_iter().find(|(name, _)| *name == "error");
     assert!(
@@ -537,14 +724,14 @@ fn test_the_store_purges_a_stream_in_a_unit_of_work_as_a_prune_needs() {
     use annals::next::{AsyncPurge, AsyncUnitOfWork};
     use ports::PurgingStore;
 
-    let home = tempfile::tempdir().unwrap();
+    let home = Home::new();
     let project = project("p", store_in(home.path(), "p"));
     let stream = Cover {
         domain: "tasks".to_string(),
         root: Some(Uuid::from_bytes([1; 16])),
         edition: None,
     };
-    let mut stores = SqliteStores::default();
+    let mut stores = home.stores();
     block_on(async {
         let store = stores.open(&project).await.unwrap();
         store

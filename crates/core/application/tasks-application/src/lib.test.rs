@@ -110,7 +110,6 @@ fn test_an_add_mints_a_harp_and_answers_with_the_task_and_its_project() {
         trigger: None,
         tags: vec!["b".to_string(), "a".to_string()],
         origin_session: Some("calm-otter-fox".to_string()),
-        config_set: Vec::new(),
     };
     let written = add(&mut service, task).unwrap();
     assert_eq!(written.project, project());
@@ -222,10 +221,7 @@ fn test_an_add_given_a_blank_status_trigger_or_session_is_refused_before_anythin
             assert_eq!(error, AppError::Blank { field });
         }
     }
-    assert!(
-        service.configuration.asked.is_empty(),
-        "no configuration read"
-    );
+    assert!(service.configuration.asked == 0, "no configuration read");
     assert!(service.identity.pins.is_empty(), "no project resolved");
     assert_eq!(service.names.minted, 0, "no harp minted");
 }
@@ -280,7 +276,6 @@ fn change(harp: &str, add: &[&str], remove: &[&str]) -> TagChange {
         harp_id: harp.to_string(),
         add: add.iter().map(|s| s.to_string()).collect(),
         remove: remove.iter().map(|s| s.to_string()).collect(),
-        config_set: Vec::new(),
     }
 }
 
@@ -346,16 +341,16 @@ fn test_a_tag_spelled_another_way_is_the_same_tag() {
 
 // ------------------------------------------------------------ schema
 
-/// What the configuration answers, and the overrides it was asked with.
+/// What the configuration answers, and how often it was asked.
 #[derive(Default)]
 struct FakeConfiguration {
     declarations: Vec<String>,
-    asked: Vec<Vec<String>>,
+    asked: usize,
 }
 
 impl ports::Configuration for FakeConfiguration {
-    fn tag_schema(&mut self, overrides: &[String]) -> Result<Vec<String>, Report> {
-        self.asked.push(overrides.to_vec());
+    fn tag_schema(&mut self) -> Result<Vec<String>, Report> {
+        self.asked += 1;
         if self.declarations.iter().any(|d| d == "unreadable") {
             return Err(Report::new("x-config", "the config cannot be read"));
         }
@@ -369,7 +364,7 @@ type Configured =
 fn configured(declarations: &[&str]) -> Configured {
     service(&["swift-amber"]).with_configuration(FakeConfiguration {
         declarations: declarations.iter().map(|d| d.to_string()).collect(),
-        asked: Vec::new(),
+        asked: 0,
     })
 }
 
@@ -402,16 +397,9 @@ fn test_a_configured_declaration_extends_the_default_schema() {
         r#"tagma.range:"triage:level"="1,9""#,
         r#"tagma.enum:"area:x"="a""#,
     ]);
-    let task = NewTask {
-        config_set: vec!["tag_schema=x".to_string()],
-        ..tagged(&["triage:level=9"])
-    };
-    let written = ready(service.add(task)).unwrap();
+    let written = ready(service.add(tagged(&["triage:level=9"]))).unwrap();
     assert_eq!(spelled(&written.task.tags), ["triage:level=9"]);
-    assert_eq!(
-        service.configuration.asked,
-        [vec!["tag_schema=x".to_string()]]
-    );
+    assert_eq!(service.configuration.asked, 1);
     let error = ready(service.add(tagged(&["area:x=b"]))).unwrap_err();
     assert_eq!(error.code(), "tasks-application-tag-not-in-enum");
     let error = ready(service.add(tagged(&["triage:kind=sparkles"]))).unwrap_err();
@@ -437,22 +425,21 @@ fn test_a_malformed_or_unreadable_configuration_refuses_every_write() {
 }
 
 // The tag schema a write is held to, as a reader asks for it: the default
-// extended by what is configured, the overrides passed on; and refused as
-// a write is, where the configuration is.
+// extended by what is configured; and refused as a write is, where the
+// configuration is.
 #[test]
 fn test_the_tag_schema_is_the_one_a_write_is_held_to() {
     let mut service = configured(&[r#"tagma.range:"triage:level"="1,9""#]);
-    let overrides = vec!["tag_schema=x".to_string()];
-    let schema = ready(service.tag_schema(overrides.clone())).unwrap();
+    let schema = ready(service.tag_schema()).unwrap();
     assert_eq!(
         schema.range_of("triage:level"),
         Some(crate::Range { min: 1.0, max: 9.0 })
     );
     assert!(schema.is_scalar("triage:kind"), "the default still holds");
-    assert_eq!(service.configuration.asked, [overrides]);
+    assert_eq!(service.configuration.asked, 1);
     assert!(service.identity.pins.is_empty(), "no project is resolved");
     let mut service = configured(&["tagma.arty:x=1"]);
-    let error = ready(service.tag_schema(Vec::new())).unwrap_err();
+    let error = ready(service.tag_schema()).unwrap_err();
     assert_eq!(error.code(), "tasks-application-schema-unknown-facet");
 }
 
@@ -508,18 +495,49 @@ fn test_a_scalar_value_set_by_another_since_is_displaced_too() {
     assert_eq!(spelled(&written.task.tags), ["triage:level=1", "x"]);
 }
 
+// Two values for one scalar target in one add are refused, as a rule of
+// the add, before a project is resolved: neither is the one meant more than
+// the other. One value given twice is one value.
 #[test]
-fn test_an_add_keeps_the_last_of_several_scalar_values() {
+fn test_an_add_giving_a_scalar_target_two_values_is_refused_and_writes_nothing() {
     let mut service = service(&["swift-amber"]);
-    let written = add(
+    let error = add(
         &mut service,
         tagged(&["triage:level=3", "area:x=1", "area:x=2", "triage:level=2"]),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), "tasks-application-tag-scalar-conflict");
+    assert!(error.to_string().contains("triage:level=2"), "{error}");
+    assert!(service.identity.pins.is_empty(), "no project resolved");
+    assert!(service.stores.opened.is_empty());
+    let written = add(
+        &mut service,
+        tagged(&[
+            "triage:level=3",
+            "area:x=1",
+            "area:x=2",
+            "triage:level=\"3\"",
+        ]),
     )
     .unwrap();
     assert_eq!(
         spelled(&written.task.tags),
-        ["area:x=1", "area:x=2", "triage:level=2"]
+        ["area:x=1", "area:x=2", "triage:level=3"]
     );
+}
+
+// The same holds for one retag: two values for one scalar target are
+// refused before anything is read, and the task keeps what it holds.
+#[test]
+fn test_a_tag_giving_a_scalar_target_two_values_is_refused_and_changes_nothing() {
+    let mut service = service(&["swift-amber"]);
+    add(&mut service, tagged(&["triage:level=3"])).unwrap();
+    let pins = service.identity.pins.len();
+    let given = change("swift-amber", &["triage:level=1", "triage:level=2"], &[]);
+    let error = ready(service.tag(given)).unwrap_err();
+    assert_eq!(error.code(), "tasks-application-tag-scalar-conflict");
+    assert_eq!(service.identity.pins.len(), pins, "no project resolved");
+    assert_eq!(command_ids(&mut service, "swift-amber").len(), 1);
 }
 
 #[test]
@@ -547,6 +565,7 @@ fn add_unchecked(service: &mut Configured, tag: &str) {
         clock: &mut service.clock,
         delay: &mut service.delay,
         backoff: service.backoff,
+        dead_letters: &service.dead_letters,
     };
     let book = crate::book("swift-amber", add.into());
     let id = annals::next::v1::Uuid::from_bytes([7; 16]);
@@ -592,10 +611,7 @@ fn test_a_tag_with_nothing_to_add_or_remove_is_refused_before_anything_is_read()
         let error = ready(service.tag(change("swift-amber", add, remove))).unwrap_err();
         assert_eq!(error.code(), "tasks-application-tag-blank");
     }
-    assert!(
-        service.configuration.asked.is_empty(),
-        "no configuration read"
-    );
+    assert!(service.configuration.asked == 0, "no configuration read");
     assert!(service.identity.pins.is_empty(), "no project resolved");
     let error = ready(service.tag(change("swift-amber", &[], &[" x "]))).unwrap_err();
     assert_eq!(error.code(), "x-config", "one tag is something to do");
@@ -688,7 +704,6 @@ fn moved(harp: &str, status: &str, trigger: Option<&str>) -> StatusChange {
         harp_id: harp.to_string(),
         status: status.to_string(),
         trigger: trigger.map(str::to_string),
-        config_set: Vec::new(),
     }
 }
 
@@ -731,10 +746,7 @@ fn test_a_status_change_given_a_blank_trigger_is_refused_before_anything_is_read
         let error = ready(service.set_status(change)).unwrap_err();
         assert_eq!(error, AppError::Blank { field: "trigger" });
     }
-    assert!(
-        service.configuration.asked.is_empty(),
-        "no configuration read"
-    );
+    assert!(service.configuration.asked == 0, "no configuration read");
     assert!(service.identity.pins.is_empty(), "no project resolved");
 }
 
@@ -778,10 +790,7 @@ fn test_a_status_change_or_edit_the_domain_refuses_alone_resolves_nothing() {
     }
     let error = ready(service.edit(edited("swift-amber", " "))).unwrap_err();
     assert_eq!(error.code(), "tasks-text-required");
-    assert!(
-        service.configuration.asked.is_empty(),
-        "no configuration read"
-    );
+    assert!(service.configuration.asked == 0, "no configuration read");
     assert!(service.identity.pins.is_empty(), "no project resolved");
     assert!(service.stores.opened.is_empty() && service.stores.looked.is_empty());
 }
@@ -811,7 +820,6 @@ fn edited(harp: &str, text: &str) -> TextEdit {
         project: Some("pinned-id".to_string()),
         harp_id: harp.to_string(),
         text: text.to_string(),
-        config_set: Vec::new(),
     }
 }
 
@@ -1088,4 +1096,62 @@ fn test_a_task_read_back_as_no_events_is_never_a_blank_task() {
         }
     );
     assert!(listed(&mut service, ListQuery::default()).is_empty());
+}
+
+// ------------------------------------------------------------ dead letters
+
+// annals' kernel writes a dead letter only for what angzarr would
+// dead-letter (an ingest that panicked, a conflict window decide never
+// acknowledged, a policy's malformed book); the tasks domain, with no
+// routes, can be made to produce none. So each test writes one to the log
+// the kernel is handed, as the kernel would during the write.
+fn dead_letter(service: &Fake, line: &str) {
+    annals::next::DeadLetterLog::write(&service.dead_letters, line);
+}
+
+fn letters(lines: &[&str]) -> Vec<crate::DeadLetter> {
+    lines
+        .iter()
+        .map(|line| crate::DeadLetter {
+            line: line.to_string(),
+        })
+        .collect()
+}
+
+// Every write returns the dead letters written while it ran, each once.
+#[test]
+fn test_every_write_returns_the_dead_letters_written_while_it_ran() {
+    let mut service = service(&["swift-amber"]);
+    dead_letter(&service, "DEAD LETTER: add");
+    let written = add(&mut service, new_task("Ship it")).unwrap();
+    assert_eq!(written.dead_letters, letters(&["DEAD LETTER: add"]));
+    dead_letter(&service, "DEAD LETTER: tag");
+    let written = ready(service.tag(change("swift-amber", &["x"], &[]))).unwrap();
+    assert_eq!(written.dead_letters, letters(&["DEAD LETTER: tag"]));
+    dead_letter(&service, "DEAD LETTER: status");
+    let set = StatusChange {
+        harp_id: "swift-amber".to_string(),
+        status: "Done".to_string(),
+        ..StatusChange::default()
+    };
+    let written = ready(service.set_status(set)).unwrap();
+    assert_eq!(written.dead_letters, letters(&["DEAD LETTER: status"]));
+    dead_letter(&service, "DEAD LETTER: edit");
+    let edit = TextEdit {
+        harp_id: "swift-amber".to_string(),
+        text: "Ship it now".to_string(),
+        ..TextEdit::default()
+    };
+    let written = ready(service.edit(edit.clone())).unwrap();
+    assert_eq!(written.dead_letters, letters(&["DEAD LETTER: edit"]));
+    let written = ready(service.edit(edit)).unwrap();
+    assert!(written.dead_letters.is_empty(), "each is returned once");
+}
+
+#[test]
+fn test_a_dead_letter_renders_its_line() {
+    let letter = &letters(&["DEAD LETTER: x"])[0];
+    assert_eq!(letter.code(), "tasks-application-dead-letter");
+    assert_eq!(letter.to_string(), "DEAD LETTER: x");
+    assert_eq!(letter.args().len(), 1);
 }

@@ -31,7 +31,8 @@ pub enum AppError {
     GaveUp { attempts: u32, error: Report },
     /// Every freshly minted task id was already taken.
     HarpsExhausted { attempts: u32 },
-    /// A task the store accepted is not there when read back.
+    /// A task the store accepted is not there when read back: removed
+    /// between the commit and the read-back, so the write did land.
     Vanished { harp_id: String },
     /// A change to an existing task where the work root has no project.
     NoProject,
@@ -201,6 +202,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             harp_id: "swift-amber".to_string(),
         }),
         Box::new(AppError::NoProject),
+        Box::new(crate::DeadLetter {
+            line: "DEAD LETTER (almost certainly a bug): x".to_string(),
+        }),
         Box::new(crate::import::NoJsonlLog {
             project: "jolly-mute-magma".to_string(),
         }),

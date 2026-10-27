@@ -325,7 +325,7 @@ fn test_every_project_is_ranked_in_its_own_section() {
 struct Malformed;
 
 impl ports::Configuration for Malformed {
-    fn tag_schema(&mut self, _: &[String]) -> Result<Vec<String>, annals_diagnostic::Report> {
+    fn tag_schema(&mut self) -> Result<Vec<String>, annals_diagnostic::Report> {
         Ok(vec![r#"tagma.priority_fn:"triage:kind"="1 +""#.to_string()])
     }
 }
@@ -802,7 +802,6 @@ fn test_a_tag_the_schema_hides_is_not_counted() {
     let mut service = service(&["first"]);
     tagged(&mut service, "a", "To Do", &["triage:kind=chore", "x"]);
     let query = ListQuery {
-        config_set: vec!["unused".to_string()],
         ..ListQuery::default()
     };
     let mut hiding = service.with_configuration(Hides);
@@ -819,7 +818,7 @@ fn test_a_tag_the_schema_hides_is_not_counted() {
 struct Hides;
 
 impl ports::Configuration for Hides {
-    fn tag_schema(&mut self, _: &[String]) -> Result<Vec<String>, annals_diagnostic::Report> {
+    fn tag_schema(&mut self) -> Result<Vec<String>, annals_diagnostic::Report> {
         Ok(vec![r#"tagma.hide:"triage:*"=true"#.to_string()])
     }
 }
@@ -845,7 +844,7 @@ fn test_a_tags_read_refuses_a_malformed_query_or_class_before_reading() {
 struct Enum;
 
 impl ports::Configuration for Enum {
-    fn tag_schema(&mut self, _: &[String]) -> Result<Vec<String>, annals_diagnostic::Report> {
+    fn tag_schema(&mut self) -> Result<Vec<String>, annals_diagnostic::Report> {
         Ok(vec![r#"tagma.enum:"area:x"="a,b""#.to_string()])
     }
 }

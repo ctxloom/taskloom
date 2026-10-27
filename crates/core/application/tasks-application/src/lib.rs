@@ -9,6 +9,7 @@
 //! store. The ports are the only way out: this crate does no I/O, keeps no
 //! clock and starts no runtime.
 
+mod dead_letter;
 mod error;
 mod import;
 mod lint;
@@ -30,41 +31,39 @@ use annals::next::{
     ids, AsyncReadStore, AsyncReadUnit, Payload, Registry, Rulebook, Stream, Upcaster,
 };
 use annals_diagnostic::Report;
+use dead_letter::DeadLetters;
 use ports::{Clock, CommandIds, Configuration, Delay, Jitter, Names, ProjectIdentity, TaskStores};
 use tasks::{
     AddTask, EditText, Retag, SetStatus, TaskCommand, TaskRejection, TaskState, Tasks, TASK_DOMAIN,
 };
 
 pub use annals::next::Timestamp;
+pub use dead_letter::DeadLetter;
 pub use error::{diagnostic_samples, AppError, CATALOGS, EN_US};
-pub use import::{
-    anomaly_key, record_command_id, rfc3339_nano, ImportReport, ImportRequest, ImportService,
-    Importer, Lost, ProjectImport, Why,
-};
-pub use lint::{Finding, LintReport, Violation, SCHEMA_SUBJECT};
+pub use import::{ImportReport, ImportRequest, ImportService, Importer, Lost, ProjectImport, Why};
+pub use lint::{Finding, LintReport, Violation};
 pub use ports::Project;
 pub use priority::{PriorityNote, PriorityWarning};
 pub use prune::{
-    cut, Dangling, PruneRefusal, PruneRequest, PruneService, Pruned, Pruning, Via,
-    DEFAULT_OLDER_THAN, DEFAULT_PRUNE_STATUSES,
+    Dangling, PruneRequest, PruneService, Pruned, Pruning, Via, DEFAULT_OLDER_THAN,
+    DEFAULT_PRUNE_STATUSES,
 };
-pub use query::{QueryError, QUERY_GRAMMAR};
 pub use read::{Details, Hidden, Listing, Reach, Statuses, Summary, TagCount, Vocabulary};
 pub use retry::Backoff;
-pub use schema::{
-    Range, SchemaError, TagSchema, DEFAULT_TAG_SCHEMA, FACETS, FACET_NAMESPACE, SEMVER,
-};
+pub use schema::{Range, TagSchema};
 pub use semver::{Semver, Version};
-pub use tags::{admit, collapse, parse as parse_tag, Tag, TagRefusal, OPERATOR_WORDS};
-pub use view::{
-    is_active, is_terminal, text_hash, Row, Shown, StatusInfo, Task, ARCHIVED, DEFAULT_STATUSES,
-    DONE, IN_PROGRESS, OPEN, STATUS_CLASSES, TERMINAL,
-};
+pub use tags::{parse as parse_tag, Tag};
+pub use view::{text_hash, Row, Shown, StatusInfo, Task};
+
+// Used across the crate's modules by these paths; nothing outside uses them.
+pub(crate) use query::QueryError;
+pub(crate) use tags::TagRefusal;
+pub(crate) use view::DONE;
 pub use watch::{Changed, Watch, WatchRequest, WatchService};
 
 /// How many task ids an add mints before giving up, each refused because a
 /// task already holds it.
-pub const HARP_ATTEMPTS: u32 = 100;
+pub(crate) const HARP_ATTEMPTS: u32 = 100;
 
 /// A task to add. A value given (`Some`) is never read as one left out:
 /// given blank, it is refused ([`AppError::Blank`]).
@@ -80,8 +79,6 @@ pub struct NewTask {
     pub tags: Vec<String>,
     /// The session adding it, if one is.
     pub origin_session: Option<String>,
-    /// Configuration overrides, `<path>=<value>` (`--config-set`).
-    pub config_set: Vec<String>,
 }
 
 /// Tags to add to and remove from a task: the adds first, then the
@@ -95,8 +92,6 @@ pub struct TagChange {
     pub harp_id: String,
     pub add: Vec<String>,
     pub remove: Vec<String>,
-    /// Configuration overrides, `<path>=<value>` (`--config-set`).
-    pub config_set: Vec<String>,
 }
 
 /// A task moved to a status. No trigger (`None`) keeps the one it holds;
@@ -108,8 +103,6 @@ pub struct StatusChange {
     pub harp_id: String,
     pub status: String,
     pub trigger: Option<String>,
-    /// Configuration overrides, `<path>=<value>` (`--config-set`).
-    pub config_set: Vec<String>,
 }
 
 /// A task's text replaced whole; its status and trigger untouched.
@@ -118,8 +111,6 @@ pub struct TextEdit {
     pub project: Option<String>,
     pub harp_id: String,
     pub text: String,
-    /// Configuration overrides, `<path>=<value>` (`--config-set`).
-    pub config_set: Vec<String>,
 }
 
 /// The tasks to show, by id, every one of which must be found: in the
@@ -129,8 +120,6 @@ pub struct ShowQuery {
     pub project: Option<String>,
     pub global: bool,
     pub harp_ids: Vec<String>,
-    /// Configuration overrides, `<path>=<value>` (`--config-set`).
-    pub config_set: Vec<String>,
 }
 
 /// Where a read that takes no filter reads: the work root's project (or
@@ -139,8 +128,6 @@ pub struct ShowQuery {
 pub struct Scope {
     pub project: Option<String>,
     pub global: bool,
-    /// Configuration overrides, `<path>=<value>` (`--config-set`).
-    pub config_set: Vec<String>,
 }
 
 /// Which tasks to list. By default the active ones: neither terminal nor
@@ -156,8 +143,6 @@ pub struct ListQuery {
     pub all: bool,
     /// A tag query, postfix or infix (see [`QUERY_GRAMMAR`]).
     pub tag_query: Option<String>,
-    /// Configuration overrides, `<path>=<value>` (`--config-set`).
-    pub config_set: Vec<String>,
     /// A substring of the text, any case.
     pub term: Option<String>,
     /// Every project's tasks, not the work root's project's.
@@ -171,15 +156,17 @@ pub struct ListQuery {
 }
 
 /// The sort by derived priority, `--sort priority`.
-pub const PRIORITY: &str = "priority";
+pub(crate) const PRIORITY: &str = "priority";
 
-/// A task written, the project it was written in, and which of its tags a
-/// person is shown.
+/// A task written, the project it was written in, which of its tags a
+/// person is shown, and the dead letters annals' kernel wrote while the
+/// write ran (almost certainly bugs, for the caller to say loudly).
 #[derive(Clone, PartialEq, Debug)]
 pub struct Written {
     pub project: Project,
     pub task: Task,
     pub shown: Shown,
+    pub dead_letters: Vec<DeadLetter>,
 }
 
 /// The use cases, as a driving adapter calls them. Their futures are
@@ -203,11 +190,8 @@ pub trait TaskService {
     ) -> impl Future<Output = Result<Vocabulary, AppError>> + Send;
     fn lint(&mut self, scope: Scope) -> impl Future<Output = Result<LintReport, AppError>> + Send;
     /// The tag schema a write is held to: the default one, extended by
-    /// what is configured, `config_set` applied. No project is resolved.
-    fn tag_schema(
-        &mut self,
-        config_set: Vec<String>,
-    ) -> impl Future<Output = Result<TagSchema, AppError>> + Send;
+    /// what is configured. No project is resolved.
+    fn tag_schema(&mut self) -> impl Future<Output = Result<TagSchema, AppError>> + Send;
 }
 
 /// The registry the tasks domain runs under.
@@ -232,6 +216,9 @@ pub struct Service<I, S, N, C, D, G = NotConfigured> {
     pub configuration: G,
     pub backoff: Backoff,
     registry: Registry,
+    /// The log annals' kernel writes dead letters to, taken into each
+    /// result.
+    pub(crate) dead_letters: DeadLetters,
 }
 
 /// Configuration, as a service without any has it: nothing configured, so
@@ -242,7 +229,7 @@ pub struct NotConfigured;
 impl Configuration for NotConfigured {
     // Equivalent: `Ok(vec![])` is the empty list this returns.
     #[cfg_attr(test, mutants::skip)]
-    fn tag_schema(&mut self, _: &[String]) -> Result<Vec<String>, Report> {
+    fn tag_schema(&mut self) -> Result<Vec<String>, Report> {
         Ok(Vec::new())
     }
 }
@@ -258,6 +245,7 @@ impl<I, S, N, C, D> Service<I, S, N, C, D> {
             configuration: NotConfigured,
             backoff: Backoff::DEFAULT,
             registry: registry(),
+            dead_letters: DeadLetters::default(),
         }
     }
 }
@@ -274,17 +262,17 @@ impl<I, S, N, C, D, G> Service<I, S, N, C, D, G> {
             configuration,
             backoff: self.backoff,
             registry: self.registry,
+            dead_letters: self.dead_letters,
         }
     }
 }
 
 impl<I, S, N, C, D, G: Configuration> Service<I, S, N, C, D, G> {
-    /// The tag schema: the default one, extended by what is configured,
-    /// `overrides` applied.
-    fn schema(&mut self, overrides: &[String]) -> Result<TagSchema, AppError> {
+    /// The tag schema: the default one, extended by what is configured.
+    fn schema(&mut self) -> Result<TagSchema, AppError> {
         let configured = self
             .configuration
-            .tag_schema(overrides)
+            .tag_schema()
             .map_err(AppError::Configuration)?;
         TagSchema::resolved(&configured).map_err(|e| AppError::Configuration(Report::of(&e)))
     }
@@ -343,11 +331,16 @@ where
             clock: &mut self.clock,
             delay: &mut self.delay,
             backoff: self.backoff,
+            dead_letters: &self.dead_letters,
         };
         match runner.run_shaped(store, &book, &command_id, shape).await? {
             None | Some(retry::Outcome::Committed) => {}
             Some(retry::Outcome::Refused(rejection)) => return Err(rejected(&rejection)),
         }
+        // The read-back is a unit of work of its own, after the commit: a
+        // remove committed between the two makes a change that committed
+        // report failure (Vanished). Accepted: the change did land, and a
+        // retry of it finds no task to change.
         read(store, &self.registry, harp_id)
             .await?
             .ok_or_else(|| AppError::Vanished {
@@ -372,8 +365,9 @@ where
         let status = given(task.status, "status")?.unwrap_or_else(|| tasks::TO_DO.to_string());
         let trigger = given(task.trigger, "trigger")?.unwrap_or_default();
         let origin_session = given(task.origin_session, "origin_session")?.unwrap_or_default();
-        let schema = self.schema(&task.config_set)?;
+        let schema = self.schema()?;
         let tags = tags::admit_all(&task.tags, &schema).map_err(|r| refused(&r))?;
+        tags::check_scalars(&schema, &tags).map_err(|r| refused(&r))?;
         let (tags, _) = tags::collapse(&schema, &[], tags);
         // Each attempt mints its own harp; everything else is this, held to
         // the domain's rules now, before a project is bound or a store
@@ -397,6 +391,7 @@ where
             clock: &mut self.clock,
             delay: &mut self.delay,
             backoff: self.backoff,
+            dead_letters: &self.dead_letters,
         };
         for _ in 0..HARP_ATTEMPTS {
             let harp_id = self.names.task_id();
@@ -408,6 +403,10 @@ where
             let book = book(&harp_id, add.into());
             match runner.run(store, &book, &command_id).await? {
                 retry::Outcome::Committed => {
+                    // The read-back is a unit of work of its own, after the
+                    // commit: a remove committed between the two makes an
+                    // add that committed report failure (Vanished), and a
+                    // caller that retries it adds the task again. Accepted.
                     let task = read(store, &self.registry, &harp_id)
                         .await?
                         .ok_or(AppError::Vanished { harp_id })?;
@@ -416,6 +415,7 @@ where
                         project,
                         task,
                         shown,
+                        dead_letters: self.dead_letters.take(),
                     });
                 }
                 retry::Outcome::Refused(TaskRejection::TaskExists { .. }) => continue,
@@ -437,10 +437,11 @@ where
         }
         .into();
         tasks::check(&retag).map_err(|r| rejected(&r))?;
-        let schema = self.schema(&change.config_set)?;
+        let schema = self.schema()?;
         for tag in &add {
             tags::admit(tag, &schema).map_err(|r| refused(&r))?;
         }
+        tags::check_scalars(&schema, &add).map_err(|r| refused(&r))?;
         let project = self.existing(change.project.as_deref()).await?;
         // A scalar target's new value displaces the one the task holds:
         // resolved here, against the task as the retag's own unit of work
@@ -459,6 +460,7 @@ where
             project,
             task,
             shown: Shown::of(&schema),
+            dead_letters: self.dead_letters.take(),
         })
     }
 
@@ -471,26 +473,28 @@ where
         }
         .into();
         tasks::check(&set).map_err(|r| rejected(&r))?;
-        let schema = self.schema(&change.config_set)?;
+        let schema = self.schema()?;
         let project = self.existing(change.project.as_deref()).await?;
         let task = self.commit(&project, &change.harp_id, set).await?;
         Ok(Written {
             project,
             task,
             shown: Shown::of(&schema),
+            dead_letters: self.dead_letters.take(),
         })
     }
 
     async fn edit(&mut self, edit: TextEdit) -> Result<Written, AppError> {
         let command: TaskCommand = EditText { text: edit.text }.into();
         tasks::check(&command).map_err(|r| rejected(&r))?;
-        let schema = self.schema(&edit.config_set)?;
+        let schema = self.schema()?;
         let project = self.existing(edit.project.as_deref()).await?;
         let task = self.commit(&project, &edit.harp_id, command).await?;
         Ok(Written {
             project,
             task,
             shown: Shown::of(&schema),
+            dead_letters: self.dead_letters.take(),
         })
     }
 
@@ -518,8 +522,8 @@ where
         self.linted(scope).await
     }
 
-    async fn tag_schema(&mut self, config_set: Vec<String>) -> Result<TagSchema, AppError> {
-        self.schema(&config_set)
+    async fn tag_schema(&mut self) -> Result<TagSchema, AppError> {
+        self.schema()
     }
 }
 

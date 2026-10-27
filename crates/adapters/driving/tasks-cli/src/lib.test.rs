@@ -135,7 +135,7 @@ impl TaskService for Fake {
     }
 
     // The command line reads no schema through this; the MCP server does.
-    async fn tag_schema(&mut self, _: Vec<String>) -> Result<TagSchema, AppError> {
+    async fn tag_schema(&mut self) -> Result<TagSchema, AppError> {
         unreachable!("no command reads the tag schema")
     }
 }
@@ -164,6 +164,7 @@ impl PruneService for Fake {
 
 fn written(task: Task) -> Option<Result<Written, AppError>> {
     Some(Ok(Written {
+        dead_letters: Vec::new(),
         shown: tasks_application::Shown::default(),
         project: project(),
         task,
@@ -293,7 +294,6 @@ fn test_add_joins_its_words_and_passes_its_flags_and_the_session() {
             trigger: Some("later".to_string()),
             tags: vec!["a".to_string(), "b".to_string()],
             origin_session: Some("cross-proc-harp".to_string()),
-            config_set: vec!["tag_schema=x".to_string(), "homing=home".to_string()],
         }]
     );
     assert_eq!(ran.err, "taskloom: project /work/tree (jolly-mute-magma)\n");
@@ -443,7 +443,6 @@ fn test_tag_passes_its_adds_and_removes_and_answers_with_the_tags() {
             harp_id: "swift-amber".to_string(),
             add: vec!["a".to_string(), "b".to_string()],
             remove: vec!["c".to_string()],
-            config_set: Vec::new(),
         }]
     );
     assert_eq!(ran.err, "taskloom: project /work/tree (jolly-mute-magma)\n");
@@ -510,7 +509,6 @@ fn test_status_passes_its_id_status_and_trigger_and_answers_like_add() {
             harp_id: "swift-amber".to_string(),
             status: "Deferred".to_string(),
             trigger: Some("the release".to_string()),
-            config_set: vec!["tag_schema=x".to_string()],
         }]
     );
     assert_eq!(ran.out, "swift-amber\tDeferred\tShip it\n");
@@ -572,7 +570,6 @@ fn test_edit_joins_its_words_and_answers_like_add() {
             project: Some("p".to_string()),
             harp_id: "swift-amber".to_string(),
             text: "Ship it --now".to_string(),
-            config_set: Vec::new(),
         }]
     );
     assert_eq!(ran.out, "swift-amber\tTo Do\tShip it\n");
@@ -632,7 +629,6 @@ fn test_show_passes_its_ids_and_names_the_project_on_stderr() {
             project: Some("p".to_string()),
             global: true,
             harp_ids: vec!["swift-amber".to_string()],
-            config_set: Vec::new(),
         }]
     );
     assert_eq!(
@@ -827,7 +823,6 @@ fn test_statuses_are_a_line_each_or_gos_array() {
         [Scope {
             project: Some("p".to_string()),
             global: true,
-            config_set: Vec::new(),
         }]
     );
     assert_eq!(
@@ -921,7 +916,6 @@ fn test_tags_passes_its_filters_and_aligns_its_counts() {
             tag_query: Some("x".to_string()),
             term: Some("ship".to_string()),
             global: true,
-            config_set: vec!["tag_schema=x".to_string()],
             ..ListQuery::default()
         }]
     );
@@ -1013,7 +1007,6 @@ fn test_lint_says_each_violation_and_exits_1_for_any() {
         [Scope {
             project: Some("p".to_string()),
             global: true,
-            config_set: vec!["tag_schema=x".to_string()],
         }]
     );
     assert_eq!(
@@ -1160,7 +1153,6 @@ fn test_list_passes_its_filters() {
             ],
             all: true,
             tag_query: Some("urgent/not".to_string()),
-            config_set: Vec::new(),
             term: Some("docs".to_string()),
             global: true,
             limit: 5,
@@ -1608,7 +1600,10 @@ fn imported(lost: usize) -> ProjectImport {
 }
 
 fn report(projects: Vec<ProjectImport>) -> Option<Result<ImportReport, AppError>> {
-    Some(Ok(ImportReport { projects }))
+    Some(Ok(ImportReport {
+        projects,
+        dead_letters: Vec::new(),
+    }))
 }
 
 /// `args` run as the binary runs them: `import` mounted beside the task
@@ -1829,6 +1824,7 @@ fn tag(key: &str) -> tasks_application::Tag {
 
 fn pruning(applied: bool, taken: &[&str]) -> Pruning {
     Pruning {
+        dead_letters: Vec::new(),
         project: Some(project()),
         statuses: vec!["Done".to_string()],
         before: tasks_application::Timestamp {
@@ -1871,7 +1867,6 @@ fn test_prune_by_default_reports_done_tasks_older_than_seven_days() {
             older_than: "7d".to_string(),
             tag_query: None,
             apply: false,
-            config_set: Vec::new(),
         }]
     );
     assert_eq!(ran.err, "", "nothing would be taken: nothing to say");
@@ -1916,7 +1911,6 @@ fn test_prune_passes_its_flags() {
             older_than: "30d".to_string(),
             tag_query: Some("release".to_string()),
             apply: true,
-            config_set: vec!["tag_schema=x".to_string()],
         }]
     );
     assert_eq!(ran.err, "", "applied: no report-only notice");
@@ -2000,4 +1994,63 @@ fn test_a_refused_prune_says_why_and_exits_1() {
         "taskloom: the age soon is neither an offset (30d, 12w, 720h) nor a date (2026-01-01)\n",
         "the catalog's message"
     );
+}
+
+// ------------------------------------------------------------ dead letters
+
+fn dead_letters() -> Vec<tasks_application::DeadLetter> {
+    vec![tasks_application::DeadLetter {
+        line: "DEAD LETTER (a bug): x".to_string(),
+    }]
+}
+
+// A write's dead letters are said on stderr, after the project, in text and
+// JSON alike: stdout is the task as ever.
+#[test]
+fn test_a_writes_dead_letters_are_said_on_stderr() {
+    for terminal in [true, false] {
+        let mut written = written(shapes::task("swift-amber", "To Do"));
+        if let Some(Ok(w)) = &mut written {
+            w.dead_letters = dead_letters();
+        }
+        let mut fake = Fake {
+            written,
+            ..Fake::default()
+        };
+        let ran = run_on(&mut fake, terminal, &["add", "Ship it"]);
+        assert_eq!(ran.code, 0, "{}", ran.err);
+        assert_eq!(
+            ran.err,
+            "taskloom: project /work/tree (jolly-mute-magma)\ntaskloom: DEAD LETTER (a bug): x\n"
+        );
+        assert!(!ran.out.contains("DEAD LETTER"), "{}", ran.out);
+    }
+}
+
+#[test]
+fn test_a_prunes_dead_letters_are_said_on_stderr() {
+    let mut pruning = pruning(false, &[]);
+    pruning.dead_letters = dead_letters();
+    let mut fake = Fake {
+        pruning: Some(Ok(pruning)),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, false, &["prune"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(ran.err, "taskloom: DEAD LETTER (a bug): x\n");
+}
+
+#[test]
+fn test_an_imports_dead_letters_are_said_on_stderr() {
+    let mut report = report(vec![imported(0)]);
+    if let Some(Ok(r)) = &mut report {
+        r.dead_letters = dead_letters();
+    }
+    let mut fake = FakeImporter {
+        report,
+        ..FakeImporter::default()
+    };
+    let ran = import_on(&mut fake, true, &["import"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(ran.err, "taskloom: DEAD LETTER (a bug): x\n");
 }

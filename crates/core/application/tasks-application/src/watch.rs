@@ -52,7 +52,7 @@ impl Watch {
     pub fn of(project: Project) -> Watch {
         Watch {
             project,
-            list: TaskList::new(Box::new(|_| true)),
+            list: TaskList::default(),
             cursor: 0,
             token: None,
         }

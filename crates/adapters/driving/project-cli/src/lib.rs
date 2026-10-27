@@ -8,7 +8,8 @@
 //! global flags (the format, the pinned project), and hands the group,
 //! those and its catalog (with this crate's [`EN_US`], the use cases' and
 //! the store's, whose damage `heal` reports) to [`run`]. Exit 0, or 1 with the error on stderr: its catalog message
-//! in text, its envelope in JSON.
+//! in text, its envelope in JSON. Only `show` takes the pinned project;
+//! the others act on this directory's and refuse one.
 
 mod error;
 mod render;
@@ -20,10 +21,7 @@ use presentation::{Catalog, Format};
 use project_application::{ProjectAdmin, Projects, StoreCheck};
 
 pub use error::{diagnostic_samples, CliError, EN_US};
-pub use render::{
-    change_line, problem_line, ChangeJson, EntryJson, OrphanJson, Orphans, PlanJson, Planned,
-    ProblemJson, Show, ShowJson,
-};
+use render::{Orphans, Planned, Show};
 
 /// The group, mounted as `project`.
 #[derive(Subcommand, Debug, PartialEq, Eq)]
@@ -92,7 +90,8 @@ pub enum OrphansAction {
 pub struct Settings {
     /// Text, or JSON (one document).
     pub format: Format,
-    /// `--project`: the id `show` reports, overriding the directory's.
+    /// `--project`: the id `show` reports, overriding the directory's;
+    /// every other command refuses it.
     pub project: Option<String>,
     /// The program's name: every diagnostic's prefix.
     pub prog: &'static str,
@@ -139,6 +138,17 @@ fn answer<A: ProjectAdmin, C: StoreCheck>(
     projects: &mut Projects<A, C>,
     out: &mut dyn Write,
 ) -> Result<(), CliError> {
+    let unpinned = match &command {
+        ProjectCommand::Show => None,
+        ProjectCommand::Heal { .. } => Some("heal"),
+        ProjectCommand::Repoint { .. } => Some("repoint"),
+        ProjectCommand::Orphans { .. } => Some("orphans"),
+    };
+    if let (Some(command), Some(_)) = (unpinned, &settings.project) {
+        return Err(CliError::ProjectNotTaken {
+            command: command.to_string(),
+        });
+    }
     let wrote = match command {
         ProjectCommand::Show => {
             let shown = projects

@@ -51,8 +51,9 @@ build:
 
 # Clippy, warnings denied, including the core's purity rules
 # (crates/core/clippy.toml): lefthook's `clippy` step. Clippy reads only the
-# nearest clippy.toml, so the core's repeats the root's nesting threshold;
-# refuse to lint if they differ.
+# nearest clippy.toml, so the core's repeats the root's nesting threshold
+# and every method the root's disallows (the file I/O the file-system seam
+# holds); refuse to lint if they differ.
 [no-exit-message]
 lint:
     #!/usr/bin/env bash
@@ -61,6 +62,12 @@ lint:
     core=$(grep '^excessive-nesting-threshold' {{TOP}}/crates/core/clippy.toml)
     if [ "$root" != "$core" ]; then
         echo "FAIL lint: clippy.toml ($root) and crates/core/clippy.toml ($core) disagree on nesting" >&2
+        exit 1
+    fi
+    paths() { grep -o 'path = "[^"]*"' "$1" | sort -u; }
+    missing=$(comm -23 <(paths {{TOP}}/clippy.toml) <(paths {{TOP}}/crates/core/clippy.toml) | tr '\n' ' ')
+    if [ -n "$missing" ]; then
+        echo "FAIL lint: crates/core/clippy.toml does not disallow what clippy.toml does: $missing" >&2
         exit 1
     fi
     terse=(-q --message-format=short)

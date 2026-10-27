@@ -34,6 +34,9 @@ pub struct Project {
     /// The project id ("jolly-mute-magma").
     pub id: String,
     /// The work root the id was resolved for: canonical, symlinks resolved.
+    /// A pinned project's (an explicit id's) is the path the registry
+    /// first holds for it, empty when it holds none: the working directory
+    /// is not walked for one.
     pub root: String,
     /// The project's database.
     pub store: PathBuf,
@@ -192,10 +195,9 @@ pub trait Jitter {
 pub trait Configuration {
     /// The tag schema's declarations as configured (the default schema's
     /// are not among them): every layer read, a higher one's list
-    /// replacing a lower one's, and `overrides` (`<path>=<value>`, as
-    /// `--config-set` gives them) applied last. Empty when no layer sets
-    /// one.
-    fn tag_schema(&mut self, overrides: &[String]) -> Result<Vec<String>, Report>;
+    /// replacing a lower one's, the overrides the configuration was made
+    /// with (`--config-set`'s) last. Empty when no layer sets one.
+    fn tag_schema(&mut self) -> Result<Vec<String>, Report>;
 }
 
 /// One record of a JSONL task log, `~/.ctxloom/tasks/<project-id>.jsonl`:
