@@ -21,6 +21,8 @@
 
 mod error;
 
+use std::ffi::OsString;
+use std::fmt;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -58,34 +60,57 @@ struct File {
 pub struct TaskloomConfig {
     fs: Arc<dyn Fs>,
     home: Option<PathBuf>,
-    root: Option<PathBuf>,
-    env: Vec<(String, String)>,
+    root: FindRoot,
+    env: Vec<(OsString, OsString)>,
     overrides: Vec<String>,
+}
+
+/// Where the work root is, asked each time the configuration is read.
+#[derive(Clone)]
+struct FindRoot(Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>);
+
+impl fmt::Debug for FindRoot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("FindRoot")
+    }
 }
 
 impl TaskloomConfig {
     /// Configuration read from `home`'s and `root`'s config files on `fs`,
-    /// when they are known, and from `env`, the process's environment, with
+    /// when they are known, and from `env`, the process's environment as
+    /// given (a variable whose name or value is not UTF-8 is skipped), with
     /// `overrides` (`<path>=<value>`, as `--config-set` gives them)
     /// applied last: bound once, where the configuration is made.
     pub fn new(
         fs: Arc<dyn Fs>,
         home: Option<PathBuf>,
         root: Option<PathBuf>,
-        env: Vec<(String, String)>,
+        env: Vec<(OsString, OsString)>,
+        overrides: Vec<String>,
+    ) -> Self {
+        TaskloomConfig::finding_root(fs, home, move || root.clone(), env, overrides)
+    }
+
+    /// [`TaskloomConfig::new`], the work root found by `root` each time the
+    /// configuration is read, and not before: making it does no I/O.
+    pub fn finding_root(
+        fs: Arc<dyn Fs>,
+        home: Option<PathBuf>,
+        root: impl Fn() -> Option<PathBuf> + Send + Sync + 'static,
+        env: Vec<(OsString, OsString)>,
         overrides: Vec<String>,
     ) -> Self {
         TaskloomConfig {
             fs,
             home,
-            root,
+            root: FindRoot(Arc::new(root)),
             env,
             overrides,
         }
     }
 
-    fn files(&self) -> impl Iterator<Item = PathBuf> + '_ {
-        [&self.home, &self.root]
+    fn files(&self) -> impl Iterator<Item = PathBuf> {
+        [self.home.clone(), (self.root.0)()]
             .into_iter()
             .flatten()
             .filter(|dir| !dir.as_os_str().is_empty())
@@ -100,6 +125,11 @@ impl TaskloomConfig {
             }
         }
         for (name, value) in &self.env {
+            // Configuration reads only UTF-8: any other variable is
+            // skipped, not refused.
+            let (Some(name), Some(value)) = (name.to_str(), value.to_str()) else {
+                continue;
+            };
             // An empty variable is unset, as the environment's are
             // everywhere: no layer, never an empty list.
             let Some(key) = name.strip_prefix(ENV_PREFIX).filter(|_| !value.is_empty()) else {

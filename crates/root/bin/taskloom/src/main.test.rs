@@ -568,33 +568,36 @@ fn test_a_tag_where_there_is_no_project_fails_and_binds_none() {
     assert!(!disk::exists(env.project.path().join(".project-id")));
 }
 
+/// Run `taskloom args` with HOME `home`, in a working directory that is
+/// gone: the shell enters a directory and removes it, so the binary starts
+/// where nothing is.
+#[cfg(unix)]
+fn run_where_the_working_directory_is_gone(env: &Env, home: &Path, args: &[&str]) -> Ran {
+    let gone = env.project.path().join("gone");
+    disk::create_dir_all(&gone).unwrap();
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(r#"cd "$1" && rmdir "$1" && shift && exec "$@""#)
+        .arg("sh")
+        .arg(&gone)
+        .arg(binary())
+        .args(args)
+        .env_clear()
+        .env("HOME", home)
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .output()
+        .expect("sh runs");
+    Ran::of(output)
+}
+
 // A working directory that is gone fails only the commands that need it,
-// with the catalogued error, and nothing is resolved against `/` in its
-// place: `version` and `loadout` run, `list` is refused.
+// with the catalogued error: `version` and `loadout` run, `list` is
+// refused.
 #[cfg(unix)]
 #[test]
 fn test_a_deleted_working_directory_fails_only_the_commands_that_need_it() {
     let env = Env::new("gone-cwd-harp");
-    let gone = env.project.path().join("gone");
-    disk::create_dir_all(&gone).unwrap();
-    // The shell enters the directory and removes it, so the binary starts
-    // in a working directory that no longer exists.
-    let run = |args: &[&str]| {
-        let output = Command::new("sh")
-            .arg("-c")
-            .arg(r#"cd "$1" && rmdir "$1" && shift && exec "$@""#)
-            .arg("sh")
-            .arg(&gone)
-            .arg(binary())
-            .args(args)
-            .env_clear()
-            .env("HOME", env.home.path())
-            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
-            .output()
-            .expect("sh runs");
-        disk::create_dir_all(&gone).unwrap();
-        Ran::of(output)
-    };
+    let run = |args: &[&str]| run_where_the_working_directory_is_gone(&env, env.home.path(), args);
     let version = run(&["version"]);
     assert!(version.ok, "{}", version.stderr);
     let loadout = run(&["loadout", "--format", "yaml"]);
@@ -605,6 +608,33 @@ fn test_a_deleted_working_directory_fails_only_the_commands_that_need_it() {
         list.stderr.contains("the working directory cannot be read"),
         "{}",
         list.stderr
+    );
+}
+
+// With the working directory gone, a relative path is resolved against
+// nothing, never against `/`: a relative HOME's store is refused for the
+// working directory, not made (or refused) at `/<home>`.
+#[cfg(unix)]
+#[test]
+fn test_a_relative_path_is_never_resolved_against_the_top_when_the_cwd_is_gone() {
+    let env = Env::new("gone-cwd-harp");
+    let home = Path::new("taskloom-relative-home");
+    let added = run_where_the_working_directory_is_gone(
+        &env,
+        home,
+        &["add", "Ship it", "--project", "jolly-mute-magma"],
+    );
+    assert!(!added.ok, "{}", added.stdout);
+    assert!(
+        added.stderr.contains(
+            "cannot create the store's directory taskloom-relative-home/.ctxloom/projects/jolly-mute-magma: the working directory cannot be read"
+        ),
+        "{}",
+        added.stderr
+    );
+    assert!(
+        !disk::exists(Path::new("/").join(home)),
+        "nothing made at the top"
     );
 }
 

@@ -57,7 +57,7 @@ impl Dirs {
     /// The wiring in `dir`, under the home, on the test's filesystem, and
     /// nothing else.
     fn builder_in(&self, dir: &str) -> Builder {
-        Builder::new(dir).home(HOME).fs(self.fs_in(dir))
+        Builder::on(self.fs_in(dir)).home(HOME)
     }
 
     /// The wiring in the project directory.
@@ -393,7 +393,7 @@ fn test_building_the_tasks_use_cases_touches_no_file() {
         Rooted::new(dirs.owner.root(), Path::new(PROJECT)).unwrap(),
     ));
     let fs: Arc<dyn Fs> = Arc::clone(&recording) as Arc<dyn Fs>;
-    let taskloom = Builder::new(PROJECT).home(HOME).fs(fs).build().unwrap();
+    let taskloom = Builder::on(fs).home(HOME).build().unwrap();
     let _tasks = taskloom.tasks();
     assert_eq!(recording.calls(), Vec::<String>::new());
 }
@@ -468,11 +468,7 @@ fn test_registrations_resolve_the_server_on_the_path_given() {
 fn test_the_filesystem_given_is_the_one_the_wiring_holds() {
     let dirs = Dirs::new();
     let given = dirs.fs_in(PROJECT);
-    let taskloom = Builder::new(PROJECT)
-        .home(HOME)
-        .fs(Arc::clone(&given))
-        .build()
-        .unwrap();
+    let taskloom = Builder::on(Arc::clone(&given)).home(HOME).build().unwrap();
     assert!(Arc::ptr_eq(taskloom.fs(), &given));
     assert!(
         Arc::ptr_eq(taskloom.clone().fs(), &given),
@@ -518,9 +514,8 @@ fn test_an_unreadable_working_directory_fails_only_what_needs_it() {
     );
     let gone = io::Error::from_raw_os_error(2);
     let fs: Arc<dyn Fs> = Arc::new(Rooted::without_cwd(dirs.owner.root(), gone).unwrap());
-    let taskloom = Builder::new(PROJECT)
+    let taskloom = Builder::on(fs)
         .home(HOME)
-        .fs(fs)
         .build()
         .expect("built with no working directory");
     taskloom
@@ -641,4 +636,54 @@ fn test_a_frontend_adds_its_own_messages_to_the_catalog() {
     for sample in &samples {
         assert!(with_cli.render(&**sample).is_ok(), "{}", sample.code());
     }
+}
+
+// CTXLOOM_ROOT, given to the builder, is the work root: its config is the
+// one read, wherever the working directory is.
+#[test]
+fn test_a_root_given_is_the_work_root_the_configuration_reads() {
+    let dirs = Dirs::new();
+    dirs.write(
+        "/project/.taskloom/config.yaml",
+        b"tag_schema:\n  - 'tagma.range:\"triage:level\"=\"1,9\"'\n",
+        Mode::FILE,
+    );
+    dirs.owner
+        .create_dir_all(Path::new("/elsewhere"), Mode::DIR)
+        .unwrap();
+    assert!(
+        add_level_seven(&dirs.builder_in("/elsewhere").build().unwrap()).is_err(),
+        "elsewhere's work root has no config"
+    );
+    let rooted = dirs.builder_in("/elsewhere").root(PROJECT).build().unwrap();
+    assert!(add_level_seven(&rooted).is_ok());
+}
+
+// What the process gives: HOME, CTXLOOM_ROOT and CTXLOOM_PROJECT_ID from
+// its variables, which are kept as given; and a working directory that
+// cannot be read is a filesystem that says so, not a refusal.
+#[test]
+fn test_the_process_is_read_from_its_variables_and_working_directory() {
+    let vars: Vec<(OsString, OsString)> = vec![
+        ("HOME".into(), "/h".into()),
+        ("CTXLOOM_ROOT".into(), "/r".into()),
+        ("CTXLOOM_PROJECT_ID".into(), "jolly-mute-magma".into()),
+        ("PATH".into(), "/bin".into()),
+    ];
+    let builder = Builder::from_env(Ok(PathBuf::from(PROJECT)), vars.clone());
+    assert_eq!(builder.home, Some(PathBuf::from("/h")));
+    assert_eq!(builder.root, Some(PathBuf::from("/r")));
+    assert_eq!(builder.project_id.as_deref(), Some("jolly-mute-magma"));
+    assert_eq!(builder.vars, vars);
+    let taskloom = builder.build().unwrap();
+    assert_eq!(taskloom.fs().cwd(), Ok(Path::new(PROJECT)));
+    let gone = Builder::from_env(Err(io::Error::from_raw_os_error(2)), Vec::new())
+        .build()
+        .unwrap();
+    assert_eq!(
+        gone.fs().cwd(),
+        Err(CwdError {
+            reason: "No such file or directory (os error 2)".to_string()
+        })
+    );
 }

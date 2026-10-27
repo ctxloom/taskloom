@@ -12,6 +12,7 @@
 //! or SIGTERM (never at a closed stdin); `manage` registers `taskloom mcp`
 //! in the agents' configurations under HOME. It holds no logic of its own.
 
+use std::ffi::OsString;
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -91,7 +92,7 @@ enum Mounted {
 fn service(
     fs: &Arc<dyn Fs>,
     env: &Environment,
-    vars: Vec<(String, String)>,
+    vars: Vec<(OsString, OsString)>,
     config_set: Vec<String>,
 ) -> Service<ProjectRegistry<HarpNames>, SqliteStores, HarpNames, System, System, TaskloomConfig> {
     let identity = ProjectRegistry::new(Arc::clone(fs), env.clone(), HarpNames);
@@ -151,7 +152,7 @@ fn serve_mcp(
     config_set: Vec<String>,
 ) -> ExitCode {
     let catalog = Arc::new(catalog);
-    let vars = utf8_vars();
+    let vars = vars();
     let tools = tasks_mcp::TaskTools::new(
         move || service(&fs, &env, vars.clone(), config_set.clone()),
         settings,
@@ -343,7 +344,7 @@ fn main() -> ExitCode {
     };
     let group = match command {
         Command::Tasks(command) => {
-            let mut service = service(&fs, &env, utf8_vars(), globals.config_set.clone());
+            let mut service = service(&fs, &env, vars(), globals.config_set.clone());
             return ExitCode::from(runtime.block_on(tasks_cli::run(
                 command,
                 globals,
@@ -394,7 +395,7 @@ fn main() -> ExitCode {
             };
             watch(
                 &runtime,
-                &mut service(&fs, &env, utf8_vars(), config_set),
+                &mut service(&fs, &env, vars(), config_set),
                 &settings,
                 &catalog,
             )
@@ -420,13 +421,10 @@ fn filesystem() -> Option<Arc<dyn Fs>> {
     }
 }
 
-/// The environment's variables whose names and values are UTF-8. Any other
-/// is dropped without a word: configuration reads only UTF-8, so a
-/// non-UTF-8 `TASKLOOM_CONFIG_*` override is ignored, not refused.
-fn utf8_vars() -> Vec<(String, String)> {
-    std::env::vars_os()
-        .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
-        .collect()
+/// The environment's variables, as the process has them: configuration
+/// reads the UTF-8 ones, skipping any other without a word.
+fn vars() -> Vec<(OsString, OsString)> {
+    std::env::vars_os().collect()
 }
 
 #[cfg(test)]

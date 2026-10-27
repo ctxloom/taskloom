@@ -25,11 +25,12 @@
 mod error;
 
 use std::ffi::OsString;
+use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use agent_configs::AgentConfigFiles;
-use file_system::Fs;
+use file_system::{Fs, Os};
 use harp_names::HarpNames;
 use jsonl_task_log::JsonlTaskLogDir;
 use project_registry::{Environment, ProjectRegistry};
@@ -70,8 +71,21 @@ pub type Registrations = registration_application::Registrations<AgentConfigFile
 pub fn catalog(
     frontends: &[presentation::Source],
 ) -> Result<presentation::Catalog, presentation::CatalogError> {
-    let _ = frontends;
-    todo!("EN_US, annals, annals-store-sql, the use cases' and every adapter's, then frontends")
+    let mut sources = vec![EN_US, annals::EN_US, annals_store_sql::EN_US];
+    sources.extend(tasks_application::CATALOGS);
+    sources.extend([
+        project_application::EN_US,
+        registration_application::EN_US,
+        agent_configs::EN_US,
+        file_lock::EN_US,
+        file_system::EN_US,
+        project_registry::EN_US,
+        task_store_sqlite::EN_US,
+        jsonl_task_log::EN_US,
+        tasks_config::EN_US,
+    ]);
+    sources.extend_from_slice(frontends);
+    presentation::Catalog::en_us(&sources)
 }
 
 /// The wiring: what the default adapters read from the process, the
@@ -85,8 +99,8 @@ pub struct Taskloom {
     /// HOME, CTXLOOM_ROOT and CTXLOOM_PROJECT_ID, as the registry reads
     /// them.
     env: Environment,
-    /// The environment's variables as given: the configuration's layer
-    /// (its UTF-8 ones), and PATH, read without loss.
+    /// The environment's variables as given: the configuration's layer,
+    /// and PATH, read without loss.
     vars: Vec<(OsString, OsString)>,
     /// The `--config-set` overrides, applied last.
     config_set: Vec<String>,
@@ -105,14 +119,32 @@ impl Taskloom {
     }
 
     /// The tasks use cases, configured from the work root's config (where
-    /// there is a work root), the home's, the UTF-8 variables (any other
-    /// is skipped, not refused) and the overrides. Building them does no
-    /// I/O: no project is resolved and no work root searched for until a
-    /// call needs one, so a command that needs neither (`version`,
-    /// `loadout`) touches nothing, and runs with no working directory.
+    /// there is a work root), the home's, the variables (the configuration
+    /// reads the UTF-8 ones) and the overrides. Building them does no
+    /// I/O: no project is resolved and no work root sought until a call
+    /// needs one, so a command that needs neither (`version`, `loadout`)
+    /// touches nothing, and runs with no working directory.
     pub fn tasks(&self) -> Tasks {
-        let _ = (&self.env, &self.vars, &self.config_set);
-        todo!("Service::new(registry, SqliteStores, HarpNames, System, System).with_configuration, the work root resolved lazily")
+        // The work root is sought when the configuration is read, by a
+        // registry that mints nothing; with none (no working directory),
+        // the home's config alone, and the call that resolves a project
+        // says why.
+        let finder = self.registry(());
+        let config = TaskloomConfig::finding_root(
+            Arc::clone(&self.fs),
+            self.env.home.clone(),
+            move || finder.work_root().ok(),
+            self.vars.clone(),
+            self.config_set.clone(),
+        );
+        tasks_application::Service::new(
+            self.registry(HarpNames),
+            SqliteStores::new(Arc::clone(&self.fs)),
+            HarpNames,
+            System,
+            System,
+        )
+        .with_configuration(config)
     }
 
     /// A maker of [`Taskloom::tasks`], for a server that serves each call
@@ -126,12 +158,20 @@ impl Taskloom {
     /// The importer over the JSONL task logs under HOME
     /// (`~/.ctxloom/tasks`), into the stores [`Taskloom::tasks`] reads.
     pub fn importer(&self) -> Import {
-        todo!("Importer::new(registry, SqliteStores, System, JsonlTaskLogDir::in_home)")
+        tasks_application::Importer::new(
+            self.registry(HarpNames),
+            SqliteStores::new(Arc::clone(&self.fs)),
+            System,
+            JsonlTaskLogDir::in_home(Arc::clone(&self.fs), self.env.home.as_deref()),
+        )
     }
 
     /// The project use cases.
     pub fn projects(&self) -> Projects {
-        todo!("Projects::new(ProjectRegistry::new(fs, env, ()), SqliteStores)")
+        project_application::Projects::new(
+            self.registry(()),
+            SqliteStores::new(Arc::clone(&self.fs)),
+        )
     }
 
     /// The registration of `taskloom mcp` in the agents' configurations
@@ -139,20 +179,33 @@ impl Taskloom {
     /// given, as given (none there, none resolved: the process's is never
     /// read).
     pub fn registrations(&self) -> Registrations {
-        todo!(
-            "Registrations::taskloom(AgentConfigFiles {{ fs, home, path: PATH from vars, waits }})"
-        )
+        let path = self
+            .vars
+            .iter()
+            .find(|(name, _)| name == "PATH")
+            .map(|(_, value)| value.clone());
+        registration_application::Registrations::taskloom(AgentConfigFiles {
+            fs: Arc::clone(&self.fs),
+            home: self.env.home.clone(),
+            path,
+            waits: file_lock::Waits::DEFAULT,
+        })
+    }
+
+    /// The project registry over the wiring's filesystem and environment,
+    /// minting ids from `names`.
+    fn registry<N>(&self, names: N) -> ProjectRegistry<N> {
+        ProjectRegistry::new(Arc::clone(&self.fs), self.env.clone(), names)
     }
 }
 
 /// What [`Taskloom`] is built from. Nothing is read from the process but
 /// by [`Builder::from_process`]; each setter overrides one thing.
 ///
-/// The working directory has one holder, the filesystem: the builder
-/// asks it of the filesystem ([`Fs::cwd`]) and keeps no copy. Given to
-/// [`Builder::new`], it is only what the real filesystem is made over
-/// (`Os::new(cwd)`); a filesystem given to [`Builder::fs`] brings its own,
-/// in its place, so the two cannot disagree.
+/// The working directory has one holder, the filesystem: on the real one
+/// ([`Builder::new`]) it is the directory that filesystem is made over;
+/// on one given ([`Builder::on`]) it is that filesystem's own
+/// ([`Fs::cwd`]). The builder keeps no copy, so the two cannot disagree.
 #[derive(Clone, Debug)]
 pub struct Builder {
     /// The filesystem, or the working directory to make the real one over.
@@ -166,10 +219,6 @@ pub struct Builder {
 
 /// Where a [`Builder`]'s filesystem comes from.
 #[derive(Clone, Debug)]
-#[expect(
-    dead_code,
-    reason = "read by build(), a stub until the red proposal is reviewed"
-)]
 enum Ground {
     /// The real filesystem, over this working directory (refused at
     /// [`Builder::build`] unless absolute).
@@ -183,8 +232,19 @@ impl Builder {
     /// and nothing else: no home, no work root or project pinned, no
     /// variables (so no PATH), no overrides.
     pub fn new(cwd: impl Into<PathBuf>) -> Builder {
+        Builder::over(Ground::Cwd(cwd.into()))
+    }
+
+    /// Wiring on the filesystem `fs`, in its working directory
+    /// ([`Fs::cwd`], or none), and nothing else: no home, no work root or
+    /// project pinned, no variables (so no PATH), no overrides.
+    pub fn on(fs: Arc<dyn Fs>) -> Builder {
+        Builder::over(Ground::Fs(fs))
+    }
+
+    fn over(ground: Ground) -> Builder {
         Builder {
-            ground: Ground::Cwd(cwd.into()),
+            ground,
             home: None,
             root: None,
             project_id: None,
@@ -198,67 +258,95 @@ impl Builder {
     /// cannot be read: no fallback, and only what needs it fails), HOME,
     /// CTXLOOM_ROOT, CTXLOOM_PROJECT_ID, and the variables as given.
     pub fn from_process() -> Builder {
-        todo!("Os over std::env::current_dir(), or Os::without_cwd; the process's variables, read once")
+        Builder::from_env(std::env::current_dir(), std::env::vars_os().collect())
+    }
+
+    /// Wiring as a process with the working directory `cwd` (or why it
+    /// cannot be read) and the variables `vars` would give it: what
+    /// [`Builder::from_process`] reads, assembled.
+    fn from_env(cwd: io::Result<PathBuf>, vars: Vec<(OsString, OsString)>) -> Builder {
+        let ground = match cwd {
+            Ok(cwd) => Ground::Cwd(cwd),
+            Err(why) => Ground::Fs(Arc::new(Os::without_cwd(why))),
+        };
+        let var = |name: &str| {
+            vars.iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, value)| value.clone())
+        };
+        Builder {
+            home: var("HOME").map(PathBuf::from),
+            root: var("CTXLOOM_ROOT").map(PathBuf::from),
+            project_id: var("CTXLOOM_PROJECT_ID").and_then(|id| id.into_string().ok()),
+            ..Builder::over(ground)
+        }
+        .vars(vars)
     }
 
     /// HOME: where the registry, the stores, the home's config and the
     /// JSONL task logs are.
     pub fn home(self, home: impl Into<PathBuf>) -> Builder {
-        let _ = home;
-        todo!()
+        Builder {
+            home: Some(home.into()),
+            ..self
+        }
     }
 
     /// CTXLOOM_ROOT: the work root, overriding the search for `.git`.
     pub fn root(self, root: impl Into<PathBuf>) -> Builder {
-        let _ = root;
-        todo!()
+        Builder {
+            root: Some(root.into()),
+            ..self
+        }
     }
 
     /// CTXLOOM_PROJECT_ID: the project, overriding the work root's (a
     /// request's own `project` still wins).
     pub fn project_id(self, id: impl Into<String>) -> Builder {
-        let _ = id;
-        todo!()
+        Builder {
+            project_id: Some(id.into()),
+            ..self
+        }
     }
 
     /// The environment's variables as given, replacing any given before:
     /// the configuration's layer (`TASKLOOM_CONFIG_<KEY>`, read where it
     /// is UTF-8), and PATH, where a registration's command is looked for.
     pub fn vars(self, vars: Vec<(OsString, OsString)>) -> Builder {
-        let _ = vars;
-        todo!()
+        Builder { vars, ..self }
     }
 
     /// The `--config-set` overrides (`<path>=<value>`), applied after
     /// every other layer, replacing any given before: bound once, here.
     pub fn config_set(self, overrides: Vec<String>) -> Builder {
-        let _ = overrides;
-        todo!()
+        Builder {
+            config_set: overrides,
+            ..self
+        }
     }
 
-    /// The filesystem every adapter goes through, in place of the real
-    /// one; its working directory ([`Fs::cwd`]) replaces any given to
-    /// [`Builder::new`].
-    pub fn fs(self, fs: Arc<dyn Fs>) -> Builder {
-        let _ = Ground::Fs(fs);
-        todo!()
-    }
-
-    /// The wiring. With no filesystem given, the real one over the
-    /// working directory given, refused ([`BuildError::RelativeCwd`])
-    /// unless that is absolute. A filesystem with no working directory is
-    /// not refused: resolving a project or a relative path fails then, in
-    /// the call that needs it.
+    /// The wiring. On the real filesystem ([`Builder::new`]), refused
+    /// ([`BuildError::RelativeCwd`]) unless the working directory given is
+    /// absolute. A filesystem with no working directory is not refused:
+    /// resolving a project or a relative path fails then, in the call
+    /// that needs it.
     pub fn build(self) -> Result<Taskloom, BuildError> {
-        let _ = (
-            self.ground,
-            self.home,
-            self.root,
-            self.project_id,
-            self.vars,
-            self.config_set,
-        );
-        todo!("file_system::Os::new(cwd) unless an fs was given")
+        let fs: Arc<dyn Fs> = match self.ground {
+            Ground::Cwd(cwd) => Arc::new(Os::new(&cwd).map_err(|_| BuildError::RelativeCwd {
+                cwd: cwd.display().to_string(),
+            })?),
+            Ground::Fs(fs) => fs,
+        };
+        Ok(Taskloom {
+            fs,
+            env: Environment {
+                home: self.home,
+                root: self.root,
+                project_id: self.project_id,
+            },
+            vars: self.vars,
+            config_set: self.config_set,
+        })
     }
 }
 

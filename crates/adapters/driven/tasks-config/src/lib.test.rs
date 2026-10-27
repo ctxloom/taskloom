@@ -1,7 +1,9 @@
 //! The layers, over a home and a work root on a filesystem of the test's
 //! own (`Rooted::temp`): never a real one.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use annals_diagnostic::Diagnostic;
@@ -39,9 +41,7 @@ impl Dirs {
             Arc::clone(&self.fs),
             Some(self.home.clone()),
             Some(self.root.clone()),
-            env.iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
+            env.iter().map(|(k, v)| (k.into(), v.into())).collect(),
             Vec::new(),
         )
     }
@@ -318,4 +318,65 @@ fn test_a_blank_item_in_a_list_is_refused() {
             value: "a,".to_string(),
         })
     );
+}
+
+// The environment is given as the process has it; a variable whose name or
+// value is not UTF-8 is skipped where the configuration reads it, never
+// refused, and the rest still read.
+#[cfg(unix)]
+#[test]
+fn test_a_variable_that_is_not_utf8_is_skipped() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let dirs = Dirs::new(Some(HOME), None);
+    let set: (OsString, OsString) = (
+        "TASKLOOM_CONFIG_TAG_SCHEMA".into(),
+        r#"tagma.arity:"env:x"=scalar"#.into(),
+    );
+    for odd in [
+        (
+            OsString::from_vec(b"TASKLOOM_CONFIG_\xff".to_vec()),
+            OsString::from("x"),
+        ),
+        (
+            OsString::from("TASKLOOM_CONFIG_TAG_SCHEMA"),
+            OsString::from_vec(b"\xff".to_vec()),
+        ),
+    ] {
+        let config = TaskloomConfig::new(
+            Arc::clone(&dirs.fs),
+            Some(dirs.home.clone()),
+            None,
+            vec![set.clone(), odd],
+            Vec::new(),
+        );
+        assert_eq!(
+            schema(&config, &[]),
+            Ok(strings(&[r#"tagma.arity:"env:x"=scalar"#]))
+        );
+    }
+}
+
+// The work root may be found only when the configuration is read: making
+// it walks nothing, so a command that reads no configuration does no I/O.
+#[test]
+fn test_a_work_root_found_on_reading_is_not_sought_until_then() {
+    let dirs = Dirs::new(None, Some(ROOT));
+    let sought = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&sought);
+    let root = dirs.root.clone();
+    let mut config = TaskloomConfig::finding_root(
+        Arc::clone(&dirs.fs),
+        None,
+        move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Some(root.clone())
+        },
+        Vec::new(),
+        Vec::new(),
+    );
+    assert_eq!(sought.load(Ordering::SeqCst), 0, "made: nothing sought");
+    assert!(format!("{config:?}").contains("FindRoot"), "{config:?}");
+    assert_eq!(config.tag_schema().unwrap().len(), 2, "the root's list");
+    assert_eq!(sought.load(Ordering::SeqCst), 1);
 }
