@@ -124,7 +124,7 @@ fn test_a_survey_in_a_linked_worktree_is_rooted_at_its_primary_checkout() {
     let repo = git::Repo::new();
     let linked = repo.worktree("linked");
     world.write(&repo.root().join(".project-id"), "primary-id\n");
-    let survey = ProjectRegistry::new(world.fs(), world.env_in(&linked), names(&[]))
+    let survey = ProjectRegistry::new(world.fs_in(&linked), world.env(), names(&[]))
         .survey(None)
         .unwrap();
     assert_eq!(survey.work_root, text(&linked));

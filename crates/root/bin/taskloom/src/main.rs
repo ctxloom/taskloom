@@ -13,7 +13,7 @@
 //! in the agents' configurations under HOME. It holds no logic of its own.
 
 use std::io::{self, IsTerminal};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
@@ -41,6 +41,7 @@ fn catalog() -> Result<presentation::Catalog, presentation::CatalogError> {
         registration_application::EN_US,
         agent_configs::EN_US,
         file_lock::EN_US,
+        file_system::EN_US,
         project_registry::EN_US,
         task_store_sqlite::EN_US,
         jsonl_task_log::EN_US,
@@ -332,13 +333,11 @@ fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(code) => return ExitCode::from(code),
     };
-    let cwd = std::env::current_dir().map_err(|e| e.to_string());
-    let Some(fs) = filesystem(&cwd) else {
+    let Some(fs) = filesystem() else {
         return ExitCode::FAILURE;
     };
     let env = Environment {
         home: std::env::var_os("HOME").map(PathBuf::from),
-        cwd,
         root: std::env::var_os("CTXLOOM_ROOT").map(PathBuf::from),
         project_id: std::env::var("CTXLOOM_PROJECT_ID").ok(),
     };
@@ -404,16 +403,20 @@ fn main() -> ExitCode {
 }
 
 /// The one filesystem every adapter is given, relative paths resolved
-/// against `cwd`, the working directory `main` read once. With none
-/// readable (it was deleted), the top: the registry refuses on the working
-/// directory's own error before it names a relative path.
-fn filesystem(cwd: &Result<PathBuf, String>) -> Option<Arc<dyn Fs>> {
-    match Os::new(cwd.as_deref().unwrap_or(Path::new("/"))) {
-        Ok(fs) => Some(Arc::new(fs)),
-        Err(e) => {
-            eprintln!("{}: {e}", tasks_cli::PROG);
-            None
-        }
+/// against the working directory the process has; with none readable (it
+/// was deleted), a filesystem that says so: a command that resolves the
+/// working directory, or a relative path, fails with that error, and one
+/// that needs neither runs.
+fn filesystem() -> Option<Arc<dyn Fs>> {
+    match std::env::current_dir() {
+        Ok(cwd) => match Os::new(&cwd) {
+            Ok(fs) => Some(Arc::new(fs)),
+            Err(e) => {
+                eprintln!("{}: {e}", tasks_cli::PROG);
+                None
+            }
+        },
+        Err(why) => Some(Arc::new(Os::without_cwd(why))),
     }
 }
 

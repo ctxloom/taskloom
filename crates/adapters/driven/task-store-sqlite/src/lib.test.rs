@@ -229,6 +229,9 @@ fn test_the_openers_futures_are_send_so_a_server_can_spawn_them() {
 struct Unplaceable(Rooted);
 
 impl Fs for Unplaceable {
+    fn cwd(&self) -> Result<&Path, file_system::CwdError> {
+        self.0.cwd()
+    }
     fn read(&self, path: &Path) -> std::io::Result<Vec<u8>> {
         self.0.read(path)
     }

@@ -543,6 +543,8 @@ dependencies = [
 name = "file-system"
 version = "0.1.0"
 dependencies = [
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "fluent-syntax",
  "junction",
  "mutants",
  "same-file",

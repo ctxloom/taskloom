@@ -40,9 +40,15 @@ pub(crate) fn names(ids: &[&str]) -> Scripted {
 
 /// A home and a work tree, apart, on a filesystem.
 pub(crate) struct World {
+    /// The world's filesystem, working in the tree.
     pub(crate) fs: Arc<dyn Fs>,
     home: PathBuf,
     tree: PathBuf,
+    /// The directory everything is under: the root of a world of its own,
+    /// the top of a real one.
+    top: PathBuf,
+    /// Whether the world is on the real filesystem.
+    real: bool,
     /// The temporary directory a real world is in, removed with it.
     _temp: Option<Rooted>,
 }
@@ -50,8 +56,9 @@ pub(crate) struct World {
 impl World {
     /// A world on a filesystem of its own: `/home/u` and `/tree`.
     pub(crate) fn new() -> World {
-        let fs: Arc<dyn Fs> = Arc::new(Rooted::temp().unwrap());
-        World::made(fs, Path::new("/"), None)
+        let rooted = Rooted::temp_with_cwd(&Path::new("/").join("tree")).unwrap();
+        let top = rooted.root().to_path_buf();
+        World::made(Arc::new(rooted), Path::new("/"), top, false, None)
     }
 
     /// A world on the real filesystem, under a temporary directory: for
@@ -59,11 +66,18 @@ impl World {
     pub(crate) fn real() -> World {
         let temp = Rooted::temp().unwrap();
         let top = temp.root().to_path_buf();
-        World::made(Arc::new(Os::new(&top).unwrap()), &top, Some(temp))
+        let fs = Arc::new(Os::new(&top.join("tree")).unwrap());
+        World::made(fs, &top, top.clone(), true, Some(temp))
     }
 
-    fn made(fs: Arc<dyn Fs>, top: &Path, temp: Option<Rooted>) -> World {
-        let (home, tree) = (top.join("home/u"), top.join("tree"));
+    fn made(
+        fs: Arc<dyn Fs>,
+        caller: &Path,
+        top: PathBuf,
+        real: bool,
+        temp: Option<Rooted>,
+    ) -> World {
+        let (home, tree) = (caller.join("home/u"), caller.join("tree"));
         for dir in [&home, &tree] {
             fs.create_dir_all(dir, Mode::DIR).unwrap();
         }
@@ -71,6 +85,8 @@ impl World {
             fs,
             home,
             tree,
+            top,
+            real,
             _temp: temp,
         }
     }
@@ -89,10 +105,28 @@ impl World {
         Arc::clone(&self.fs)
     }
 
+    /// The world's filesystem, working in `cwd` instead.
+    pub(crate) fn fs_in(&self, cwd: &Path) -> Arc<dyn Fs> {
+        if self.real {
+            Arc::new(Os::new(cwd).unwrap())
+        } else {
+            Arc::new(Rooted::new(&self.top, cwd).unwrap())
+        }
+    }
+
+    /// The world's filesystem with no working directory: it was deleted.
+    pub(crate) fn fs_without_cwd(&self) -> Arc<dyn Fs> {
+        let gone = std::io::Error::from_raw_os_error(2);
+        if self.real {
+            Arc::new(Os::without_cwd(gone))
+        } else {
+            Arc::new(Rooted::without_cwd(&self.top, gone).unwrap())
+        }
+    }
+
     pub(crate) fn env(&self) -> Environment {
         Environment {
             home: Some(self.home()),
-            cwd: Ok(self.tree()),
             root: None,
             project_id: None,
         }
@@ -177,9 +211,8 @@ fn test_the_work_root_is_the_nearest_ancestor_holding_git() {
     world.mkdir(&deep);
     world.mkdir(&world.tree().join("a/.git"));
     let mut env = world.env();
-    env.cwd = Ok(deep);
     env.root = Some(PathBuf::new());
-    let registry = ProjectRegistry::new(world.fs(), env, names(&[]));
+    let registry = ProjectRegistry::new(world.fs_in(&deep), env, names(&[]));
     assert_eq!(
         registry.work_root().unwrap(),
         world.tree().join("a"),
@@ -191,9 +224,8 @@ fn test_the_work_root_is_the_nearest_ancestor_holding_git() {
 fn test_a_linked_worktrees_git_file_marks_its_root() {
     let world = World::new();
     world.write(&world.tree().join(".git"), "gitdir: /elsewhere\n");
-    let mut env = world.env();
-    env.cwd = Ok(world.tree().join("sub"));
-    let registry = ProjectRegistry::new(world.fs(), env, names(&[]));
+    let env = world.env();
+    let registry = ProjectRegistry::new(world.fs_in(&world.tree().join("sub")), env, names(&[]));
     assert_eq!(registry.work_root().unwrap(), world.tree());
 }
 
@@ -239,14 +271,17 @@ fn test_a_relative_ctxloom_root_is_under_the_working_directory() {
 fn test_a_working_directory_that_cannot_be_read_is_an_error() {
     let world = World::new();
     let mut env = world.env();
-    env.cwd = Err("No such file or directory (os error 2)".to_string());
-    let mut registry = ProjectRegistry::new(world.fs(), env.clone(), names(&["fresh-new-id"]));
+    let mut registry = ProjectRegistry::new(
+        world.fs_without_cwd(),
+        env.clone(),
+        names(&["fresh-new-id"]),
+    );
     let error = registry.for_write(None).unwrap_err();
     assert_eq!(error.code(), "project-registry-no-cwd");
     assert!(error.to_string().contains("os error 2"), "{error}");
     assert_eq!(registry.names.minted, 0);
     env.root = Some(world.tree());
-    let registry = ProjectRegistry::new(world.fs(), env, names(&[]));
+    let registry = ProjectRegistry::new(world.fs_without_cwd(), env, names(&[]));
     assert_eq!(
         registry.work_root().unwrap(),
         world.tree(),
@@ -306,8 +341,7 @@ fn test_a_pinned_projects_root_is_its_first_registered_path() {
 fn test_a_pinned_call_resolves_from_a_working_directory_that_is_gone() {
     let world = World::new();
     let mut env = world.env();
-    env.cwd = Err("No such file or directory (os error 2)".to_string());
-    let mut registry = ProjectRegistry::new(world.fs(), env.clone(), names(&[]));
+    let mut registry = ProjectRegistry::new(world.fs_without_cwd(), env.clone(), names(&[]));
     let read = registry.for_read(Some("pinned-proj-id")).unwrap().unwrap();
     assert_eq!(
         (read.id.as_str(), read.root.as_deref()),
@@ -316,16 +350,15 @@ fn test_a_pinned_call_resolves_from_a_working_directory_that_is_gone() {
     let written = registry.for_write(Some("pinned-proj-id")).unwrap();
     assert_eq!(written.store, world.store("pinned-proj-id"));
     env.project_id = Some("env-proj-id".to_string());
-    let mut registry = ProjectRegistry::new(world.fs(), env, names(&[]));
+    let mut registry = ProjectRegistry::new(world.fs_without_cwd(), env, names(&[]));
     assert_eq!(registry.for_read(None).unwrap().unwrap().id, "env-proj-id");
     let error = world_unpinned(&world).for_read(None).unwrap_err();
     assert_eq!(error.code(), "project-registry-no-cwd");
 }
 
 fn world_unpinned(world: &World) -> ProjectRegistry<Scripted> {
-    let mut env = world.env();
-    env.cwd = Err("gone".to_string());
-    ProjectRegistry::new(world.fs(), env, names(&[]))
+    let env = world.env();
+    ProjectRegistry::new(world.fs_without_cwd(), env, names(&[]))
 }
 
 #[test]
@@ -725,16 +758,6 @@ pub(crate) mod git {
     }
 }
 
-impl World {
-    /// The world, working in `cwd`.
-    pub(crate) fn env_in(&self, cwd: &Path) -> Environment {
-        Environment {
-            cwd: Ok(cwd.to_path_buf()),
-            ..self.env()
-        }
-    }
-}
-
 #[test]
 fn test_a_linked_worktree_reads_its_primary_checkouts_project() {
     let world = World::real();
@@ -742,7 +765,7 @@ fn test_a_linked_worktree_reads_its_primary_checkouts_project() {
     let linked = repo.worktree("linked");
     world.write(&repo.root().join(".project-id"), "jolly-mute-magma\n");
     let mut registry =
-        ProjectRegistry::new(world.fs(), world.env_in(&linked.join(".")), names(&[]));
+        ProjectRegistry::new(world.fs_in(&linked.join(".")), world.env(), names(&[]));
     let project = registry.for_read(None).unwrap().unwrap();
     assert_eq!(project.id, "jolly-mute-magma");
     assert_eq!(
@@ -766,7 +789,7 @@ fn test_a_linked_worktree_finds_its_primary_checkouts_registry_entry() {
     index.register("high-tight-gulf", &text(&repo.root()));
     index.register("own-old-id", &text(&linked));
     world.save(&index);
-    let project = ProjectRegistry::new(world.fs(), world.env_in(&linked), names(&[]))
+    let project = ProjectRegistry::new(world.fs_in(&linked), world.env(), names(&[]))
         .for_read(None)
         .unwrap()
         .unwrap();
@@ -781,7 +804,7 @@ fn test_a_write_in_a_new_worktree_binds_the_primary_checkout_and_marks_only_it()
     let world = World::real();
     let repo = git::Repo::new();
     let linked = repo.worktree("linked");
-    let project = ProjectRegistry::new(world.fs(), world.env_in(&linked), names(&["fresh-new-id"]))
+    let project = ProjectRegistry::new(world.fs_in(&linked), world.env(), names(&["fresh-new-id"]))
         .for_write(None)
         .unwrap();
     assert_eq!(project.id, "fresh-new-id");
@@ -798,7 +821,7 @@ fn test_a_write_in_a_new_worktree_binds_the_primary_checkout_and_marks_only_it()
         Some("fresh-new-id")
     );
     assert_eq!(world.index().id_for(&*world.fs, &linked), None);
-    let primary = ProjectRegistry::new(world.fs(), world.env_in(&repo.root()), names(&[]))
+    let primary = ProjectRegistry::new(world.fs_in(&repo.root()), world.env(), names(&[]))
         .for_read(None)
         .unwrap()
         .unwrap();
@@ -812,7 +835,7 @@ fn test_a_linked_worktree_with_its_own_marker_keeps_its_own_project() {
     let linked = repo.worktree("linked");
     world.write(&repo.root().join(".project-id"), "jolly-mute-magma\n");
     world.write(&linked.join(".project-id"), "its-own-id\n");
-    let project = ProjectRegistry::new(world.fs(), world.env_in(&linked), names(&[]))
+    let project = ProjectRegistry::new(world.fs_in(&linked), world.env(), names(&[]))
         .for_read(None)
         .unwrap()
         .unwrap();
@@ -828,7 +851,7 @@ fn test_a_linked_worktree_with_gos_older_marker_keeps_its_own_project() {
     world.write(&repo.root().join(".project-id"), "jolly-mute-magma\n");
     world.mkdir(&linked.join(".ctxloom"));
     world.write(&linked.join(".ctxloom/project-id"), "go-minted-id\n");
-    let project = ProjectRegistry::new(world.fs(), world.env_in(&linked), names(&[]))
+    let project = ProjectRegistry::new(world.fs_in(&linked), world.env(), names(&[]))
         .for_write(None)
         .unwrap();
     assert_eq!(project.id, "go-minted-id");
@@ -913,18 +936,16 @@ fn test_a_directory_in_a_git_repository_or_under_ctxloom_root_is_not_rootless() 
     world.mkdir(&world.tree().join(".git"));
     let deep = world.tree().join("a");
     world.mkdir(&deep);
-    let mut env = world.env();
-    env.cwd = Ok(deep);
-    let mut registry = ProjectRegistry::new(world.fs(), env, names(&[]));
+    let env = world.env();
+    let mut registry = ProjectRegistry::new(world.fs_in(&deep), env, names(&[]));
     assert_eq!(registry.rootless_directory().unwrap(), None);
 }
 
 #[test]
 fn test_rootlessness_with_no_working_directory_fails() {
     let world = World::new();
-    let mut env = world.env();
-    env.cwd = Err("gone".to_string());
-    let error = ProjectRegistry::new(world.fs(), env, names(&[]))
+    let env = world.env();
+    let error = ProjectRegistry::new(world.fs_without_cwd(), env, names(&[]))
         .rootless_directory()
         .unwrap_err();
     assert_eq!(error.code(), "project-registry-no-cwd");

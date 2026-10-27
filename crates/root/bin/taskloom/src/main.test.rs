@@ -568,6 +568,46 @@ fn test_a_tag_where_there_is_no_project_fails_and_binds_none() {
     assert!(!disk::exists(env.project.path().join(".project-id")));
 }
 
+// A working directory that is gone fails only the commands that need it,
+// with the catalogued error, and nothing is resolved against `/` in its
+// place: `version` and `loadout` run, `list` is refused.
+#[cfg(unix)]
+#[test]
+fn test_a_deleted_working_directory_fails_only_the_commands_that_need_it() {
+    let env = Env::new("gone-cwd-harp");
+    let gone = env.project.path().join("gone");
+    disk::create_dir_all(&gone).unwrap();
+    // The shell enters the directory and removes it, so the binary starts
+    // in a working directory that no longer exists.
+    let run = |args: &[&str]| {
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(r#"cd "$1" && rmdir "$1" && shift && exec "$@""#)
+            .arg("sh")
+            .arg(&gone)
+            .arg(binary())
+            .args(args)
+            .env_clear()
+            .env("HOME", env.home.path())
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .output()
+            .expect("sh runs");
+        disk::create_dir_all(&gone).unwrap();
+        Ran::of(output)
+    };
+    let version = run(&["version"]);
+    assert!(version.ok, "{}", version.stderr);
+    let loadout = run(&["loadout", "--format", "yaml"]);
+    assert!(loadout.ok, "{}", loadout.stderr);
+    let list = run(&["list"]);
+    assert!(!list.ok, "{}", list.stdout);
+    assert!(
+        list.stderr.contains("the working directory cannot be read"),
+        "{}",
+        list.stderr
+    );
+}
+
 #[test]
 fn test_a_read_spans_every_project_when_asked_or_outside_any_work_root() {
     let env = Env::new("global-harp");
@@ -628,6 +668,7 @@ fn test_every_diagnostic_of_every_crate_renders_from_the_binarys_catalog() {
         tasks::diagnostic_samples(),
         tasks_application::diagnostic_samples(),
         task_priority::diagnostic_samples(),
+        file_system::diagnostic_samples(),
         project_registry::diagnostic_samples(),
         task_store_sqlite::diagnostic_samples(),
         tasks_cli::diagnostic_samples(),

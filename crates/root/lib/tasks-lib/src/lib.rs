@@ -3,10 +3,11 @@
 //! now, gRPC next) and ctxloom (by git dependency) all build from, so no
 //! frontend wires an adapter of its own.
 //!
-//! [`Taskloom`] holds what the wiring reads from the process (HOME, the
-//! working directory, CTXLOOM_ROOT, CTXLOOM_PROJECT_ID and the
-//! environment's variables, PATH among them), the `--config-set`
-//! overrides bound once here, and the one [`Fs`] every adapter is given.
+//! [`Taskloom`] holds what the wiring reads from the process (HOME,
+//! CTXLOOM_ROOT, CTXLOOM_PROJECT_ID and the environment's variables as
+//! given, PATH among them), the `--config-set` overrides bound once here,
+//! and the one [`Fs`] every adapter is given, which holds the working
+//! directory (or why there is none: then only what needs it fails).
 //! It builds each use case only when asked, and building one does no I/O:
 //! [`Taskloom::tasks`] for a command, [`Taskloom::services`] for a server
 //! that makes one per call, [`Taskloom::importer`] for `import` alone (no
@@ -23,6 +24,7 @@
 
 mod error;
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -77,12 +79,15 @@ pub fn catalog(
 /// through. Cheap to clone; a clone shares the filesystem.
 #[derive(Clone, Debug)]
 pub struct Taskloom {
+    /// The filesystem, and with it the working directory ([`Fs::cwd`]):
+    /// its only holder.
     fs: Arc<dyn Fs>,
-    /// HOME, the working directory (the wiring's only copy of it),
-    /// CTXLOOM_ROOT and CTXLOOM_PROJECT_ID, as the registry reads them.
+    /// HOME, CTXLOOM_ROOT and CTXLOOM_PROJECT_ID, as the registry reads
+    /// them.
     env: Environment,
-    /// The environment's variables: the configuration's layer, and PATH.
-    vars: Vec<(String, String)>,
+    /// The environment's variables as given: the configuration's layer
+    /// (its UTF-8 ones), and PATH, read without loss.
+    vars: Vec<(OsString, OsString)>,
     /// The `--config-set` overrides, applied last.
     config_set: Vec<String>,
 }
@@ -100,10 +105,11 @@ impl Taskloom {
     }
 
     /// The tasks use cases, configured from the work root's config (where
-    /// there is a work root), the home's, the variables and the
-    /// overrides. Building them does no I/O: no project is resolved and
-    /// no work root searched for until a call needs one, so a command
-    /// that needs neither (`version`, `loadout`) touches nothing.
+    /// there is a work root), the home's, the UTF-8 variables (any other
+    /// is skipped, not refused) and the overrides. Building them does no
+    /// I/O: no project is resolved and no work root searched for until a
+    /// call needs one, so a command that needs neither (`version`,
+    /// `loadout`) touches nothing, and runs with no working directory.
     pub fn tasks(&self) -> Tasks {
         let _ = (&self.env, &self.vars, &self.config_set);
         todo!("Service::new(registry, SqliteStores, HarpNames, System, System).with_configuration, the work root resolved lazily")
@@ -130,7 +136,8 @@ impl Taskloom {
 
     /// The registration of `taskloom mcp` in the agents' configurations
     /// under HOME, its command resolved on the PATH among the variables
-    /// given (none there, none resolved: the process's is never read).
+    /// given, as given (none there, none resolved: the process's is never
+    /// read).
     pub fn registrations(&self) -> Registrations {
         todo!(
             "Registrations::taskloom(AgentConfigFiles {{ fs, home, path: PATH from vars, waits }})"
@@ -141,52 +148,57 @@ impl Taskloom {
 /// What [`Taskloom`] is built from. Nothing is read from the process but
 /// by [`Builder::from_process`]; each setter overrides one thing.
 ///
-/// The working directory has one holder. It is given once, to
-/// [`Builder::new`] (or read by [`Builder::from_process`]); with no
-/// filesystem given, the real one is made over it (`Os::new(cwd)`), and
-/// the wiring keeps it only where the registry's [`Environment`] needs
-/// it.
-///
-/// Interim rule, until the seam can say what a filesystem's working
-/// directory is (`Fs::cwd()`, with the OS crate): a filesystem given to
-/// [`Builder::fs`] must be one whose working directory is the builder's,
-/// made over that same path (`Os::new(cwd)`, `Rooted::new(root, cwd)`).
-/// Nothing checks it. Once the seam can answer, the working directory is
-/// asked of the filesystem given, and the two cannot disagree.
+/// The working directory has one holder, the filesystem: the builder
+/// asks it of the filesystem ([`Fs::cwd`]) and keeps no copy. Given to
+/// [`Builder::new`], it is only what the real filesystem is made over
+/// (`Os::new(cwd)`); a filesystem given to [`Builder::fs`] brings its own,
+/// in its place, so the two cannot disagree.
 #[derive(Clone, Debug)]
 pub struct Builder {
-    /// The working directory, or why the process's could not be read
-    /// (refused at [`Builder::build`]).
-    cwd: Result<PathBuf, String>,
+    /// The filesystem, or the working directory to make the real one over.
+    ground: Ground,
     home: Option<PathBuf>,
     root: Option<PathBuf>,
     project_id: Option<String>,
-    vars: Vec<(String, String)>,
+    vars: Vec<(OsString, OsString)>,
     config_set: Vec<String>,
-    fs: Option<Arc<dyn Fs>>,
+}
+
+/// Where a [`Builder`]'s filesystem comes from.
+#[derive(Clone, Debug)]
+#[expect(
+    dead_code,
+    reason = "read by build(), a stub until the red proposal is reviewed"
+)]
+enum Ground {
+    /// The real filesystem, over this working directory (refused at
+    /// [`Builder::build`] unless absolute).
+    Cwd(PathBuf),
+    /// This filesystem, its working directory its own.
+    Fs(Arc<dyn Fs>),
 }
 
 impl Builder {
-    /// Wiring for the working directory `cwd`, and nothing else: no home,
-    /// no work root or project pinned, no variables (so no PATH), no
-    /// overrides, and the real filesystem over `cwd`.
+    /// Wiring on the real filesystem over the working directory `cwd`,
+    /// and nothing else: no home, no work root or project pinned, no
+    /// variables (so no PATH), no overrides.
     pub fn new(cwd: impl Into<PathBuf>) -> Builder {
-        Builder::at(Ok(cwd.into()))
+        Builder {
+            ground: Ground::Cwd(cwd.into()),
+            home: None,
+            root: None,
+            project_id: None,
+            vars: Vec::new(),
+            config_set: Vec::new(),
+        }
     }
 
-    /// Wiring for the working directory `cwd`, or why the process's could
-    /// not be read: what [`Builder::from_process`] starts from.
-    pub(crate) fn at(cwd: Result<PathBuf, String>) -> Builder {
-        let _ = cwd;
-        todo!()
-    }
-
-    /// Wiring as the process gives it, as the binary runs: HOME, the
-    /// working directory (or why it cannot be read, which
-    /// [`Builder::build`] refuses), CTXLOOM_ROOT, CTXLOOM_PROJECT_ID, and
-    /// the variables whose names and values are UTF-8, PATH among them.
+    /// Wiring as the process gives it, as the binary runs: the real
+    /// filesystem over the working directory (`Os::without_cwd` when it
+    /// cannot be read: no fallback, and only what needs it fails), HOME,
+    /// CTXLOOM_ROOT, CTXLOOM_PROJECT_ID, and the variables as given.
     pub fn from_process() -> Builder {
-        todo!("Builder::at(std::env::current_dir()), then the process's variables, read once")
+        todo!("Os over std::env::current_dir(), or Os::without_cwd; the process's variables, read once")
     }
 
     /// HOME: where the registry, the stores, the home's config and the
@@ -209,10 +221,10 @@ impl Builder {
         todo!()
     }
 
-    /// The environment's variables, replacing any given before: the
-    /// configuration's layer (`TASKLOOM_CONFIG_<KEY>`), and PATH, where a
-    /// registration's command is looked for.
-    pub fn vars(self, vars: Vec<(String, String)>) -> Builder {
+    /// The environment's variables as given, replacing any given before:
+    /// the configuration's layer (`TASKLOOM_CONFIG_<KEY>`, read where it
+    /// is UTF-8), and PATH, where a registration's command is looked for.
+    pub fn vars(self, vars: Vec<(OsString, OsString)>) -> Builder {
         let _ = vars;
         todo!()
     }
@@ -225,26 +237,26 @@ impl Builder {
     }
 
     /// The filesystem every adapter goes through, in place of the real
-    /// one over the working directory. It must work in the builder's
-    /// working directory (the interim rule on [`Builder`]).
+    /// one; its working directory ([`Fs::cwd`]) replaces any given to
+    /// [`Builder::new`].
     pub fn fs(self, fs: Arc<dyn Fs>) -> Builder {
-        let _ = fs;
+        let _ = Ground::Fs(fs);
         todo!()
     }
 
-    /// The wiring. Refused when the working directory could not be read
-    /// ([`BuildError::NoWorkingDirectory`]) or is not absolute
-    /// ([`BuildError::RelativeCwd`]); with no filesystem given, the real
-    /// one, relative paths resolved against it.
+    /// The wiring. With no filesystem given, the real one over the
+    /// working directory given, refused ([`BuildError::RelativeCwd`])
+    /// unless that is absolute. A filesystem with no working directory is
+    /// not refused: resolving a project or a relative path fails then, in
+    /// the call that needs it.
     pub fn build(self) -> Result<Taskloom, BuildError> {
         let _ = (
-            self.cwd,
+            self.ground,
             self.home,
             self.root,
             self.project_id,
             self.vars,
             self.config_set,
-            self.fs,
         );
         todo!("file_system::Os::new(cwd) unless an fs was given")
     }

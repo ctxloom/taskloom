@@ -3,6 +3,7 @@
 //! futures) and ctxloom build the use cases from it, over a home and
 //! project on a filesystem of the test's own (`Rooted`), never a real one.
 
+use std::ffi::OsString;
 use std::fs::File;
 use std::future::Future;
 use std::io;
@@ -10,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use annals_diagnostic::Diagnostic;
-use file_system::{Entry, Meta, Mode, Open, Perms, Rooted};
+use file_system::{CwdError, Entry, Meta, Mode, Open, Perms, Rooted};
 use tasks_application::{
     Changed, ImportRequest, ImportService, ListQuery, NewTask, PruneService, Reach, TaskService,
     WatchRequest, WatchService,
@@ -107,6 +108,12 @@ impl Recording {
 }
 
 impl Fs for Recording {
+    // Not recorded: it asks the OS nothing, and is what the filesystem was
+    // made with.
+    fn cwd(&self) -> Result<&Path, CwdError> {
+        self.inner.cwd()
+    }
+
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
         self.record("read", path);
         self.inner.read(path)
@@ -349,8 +356,8 @@ fn test_the_configuration_reads_the_variables_given() {
     let wide = dirs
         .builder_in(PROJECT)
         .vars(vec![(
-            "TASKLOOM_CONFIG_TAG_SCHEMA".to_string(),
-            r#"tagma.range:"triage:level"="1,9""#.to_string(),
+            "TASKLOOM_CONFIG_TAG_SCHEMA".into(),
+            r#"tagma.range:"triage:level"="1,9""#.into(),
         )])
         .build()
         .unwrap();
@@ -435,7 +442,7 @@ fn test_registrations_resolve_the_server_on_the_path_given() {
     dirs.write("/bin/taskloom", b"#!/bin/sh\n", Mode::from_bits(0o755));
     let on_path = dirs
         .builder_in(PROJECT)
-        .vars(vec![("PATH".to_string(), "/bin".to_string())])
+        .vars(vec![("PATH".into(), "/bin".into())])
         .build()
         .unwrap();
     assert!(
@@ -492,24 +499,101 @@ fn test_a_relative_working_directory_is_refused_as_a_catalogued_diagnostic() {
     );
 }
 
-// A working directory the process cannot read (it was deleted) is refused
-// as a catalogued diagnostic, with no fallback to the top: what
-// `from_process` builds from.
+// A working directory that cannot be read (it was deleted) fails only
+// what needs it: the wiring is built, `manage` and `import` run, and
+// resolving the working directory's project is refused with the
+// catalogued error. The filesystem holds that it has none.
 #[test]
-fn test_an_unreadable_working_directory_is_refused_as_a_catalogued_diagnostic() {
-    let reason = "No such file or directory (os error 2)";
-    let refused = Builder::at(Err(reason.to_string())).build().unwrap_err();
-    assert_eq!(
-        refused,
-        BuildError::NoWorkingDirectory {
-            reason: reason.to_string()
-        }
+fn test_an_unreadable_working_directory_fails_only_what_needs_it() {
+    let dirs = Dirs::new();
+    dirs.write(
+        "/home/u/.ctxloom/tasks/jolly-mute-magma.jsonl",
+        concat!(
+            r#"{"op":"add","task":"brisk-heron","text":"Write the tour","status":"To Do","#,
+            r#""session":"calm-otter","ts":"2026-03-01T10:00:00.123456789Z"}"#,
+            "\n"
+        )
+        .as_bytes(),
+        Mode::FILE,
     );
-    assert_eq!(refused.code(), "tasks-lib-no-working-directory");
+    let gone = io::Error::from_raw_os_error(2);
+    let fs: Arc<dyn Fs> = Arc::new(Rooted::without_cwd(dirs.owner.root(), gone).unwrap());
+    let taskloom = Builder::new(PROJECT)
+        .home(HOME)
+        .fs(fs)
+        .build()
+        .expect("built with no working directory");
+    taskloom
+        .registrations()
+        .check(Path::new(PROJECT))
+        .expect("manage needs no working directory");
+    let report = block_on(taskloom.importer().import(ImportRequest::default())).unwrap();
+    assert!(report.complete(), "{report:?}");
+    let refused = block_on(taskloom.tasks().list(ListQuery::default())).unwrap_err();
+    assert_eq!(refused.code(), "project-registry-no-cwd");
     assert_eq!(
         catalog(&[]).unwrap().render(&refused).unwrap(),
-        "cannot read the working directory: No such file or directory (os error 2)"
+        "the working directory cannot be read: No such file or directory (os error 2)"
     );
+}
+
+// The variables are taken as given: PATH is read without loss, though it
+// is not UTF-8.
+#[cfg(unix)]
+#[test]
+fn test_a_path_that_is_not_utf8_is_read_without_loss() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let dirs = Dirs::new();
+    let bin = OsString::from_vec(b"/b\xffn".to_vec());
+    let server = PathBuf::from(&bin).join("taskloom");
+    dirs.owner
+        .create_dir_all(Path::new(&bin), Mode::DIR)
+        .unwrap();
+    dirs.owner
+        .write_atomic(
+            &server,
+            b"#!/bin/sh\n",
+            Perms::Exact(Mode::from_bits(0o755)),
+        )
+        .unwrap();
+    let on_path = dirs
+        .builder_in(PROJECT)
+        .vars(vec![("PATH".into(), bin)])
+        .build()
+        .unwrap();
+    assert!(
+        on_path
+            .registrations()
+            .check(Path::new(PROJECT))
+            .unwrap()
+            .resolvable
+    );
+}
+
+// The configuration reads the UTF-8 variables; one that is not is
+// skipped, not refused, and the rest still read.
+#[cfg(unix)]
+#[test]
+fn test_the_configuration_skips_a_variable_that_is_not_utf8() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let dirs = Dirs::new();
+    let wide = dirs
+        .builder_in(PROJECT)
+        .vars(vec![
+            (
+                "TASKLOOM_CONFIG_NOT_UTF8".into(),
+                OsString::from_vec(b"\xff".to_vec()),
+            ),
+            (
+                "TASKLOOM_CONFIG_TAG_SCHEMA".into(),
+                r#"tagma.range:"triage:level"="1,9""#.into(),
+            ),
+        ])
+        .build()
+        .unwrap();
+    assert!(add_level_seven(&wide).is_ok());
 }
 
 /// Every diagnostic the wiring can raise: its own, annals', the use
@@ -528,6 +612,7 @@ fn wired_samples() -> Vec<Box<dyn Diagnostic>> {
         tasks_config::diagnostic_samples(),
         agent_configs::diagnostic_samples(),
         file_lock::diagnostic_samples(),
+        file_system::diagnostic_samples(),
     ]
     .into_iter()
     .flatten()

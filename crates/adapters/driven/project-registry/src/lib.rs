@@ -45,14 +45,13 @@ pub use index::LOCK_WAIT;
 /// registered.
 pub const MINT_ATTEMPTS: u32 = 100;
 
-/// What resolution reads from the process: its environment and where it
-/// runs.
+/// What resolution reads from the process's environment. Where it runs
+/// is the filesystem's working directory ([`Fs::cwd`]), asked of the
+/// filesystem the registry is given, so the two cannot disagree.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Environment {
     /// HOME.
     pub home: Option<PathBuf>,
-    /// The working directory, or why it cannot be read (it was deleted).
-    pub cwd: Result<PathBuf, String>,
     /// CTXLOOM_ROOT: the work root, overriding the search for `.git`.
     pub root: Option<PathBuf>,
     /// CTXLOOM_PROJECT_ID: the project, overriding the work root's.
@@ -134,13 +133,11 @@ impl<N> ProjectRegistry<N> {
         Ok(Some(self.canonical(cwd).display().to_string()))
     }
 
+    /// The filesystem's working directory, or why it has none.
     fn cwd(&self) -> Result<&Path, RegistryError> {
-        self.env
-            .cwd
-            .as_deref()
-            .map_err(|detail| RegistryError::NoWorkingDirectory {
-                detail: detail.clone(),
-            })
+        self.fs
+            .cwd()
+            .map_err(|e| RegistryError::NoWorkingDirectory { detail: e.reason })
     }
 
     pub(crate) fn home(&self) -> Result<&Path, RegistryError> {

@@ -3,8 +3,6 @@
 //! reads of each stream. The interleaving is forced: the list's store
 //! runs the other process as soon as its `covers` has answered.
 
-use std::path::PathBuf;
-
 use annals::next::v1::{Cover, EventPage, Snapshot, Uuid};
 use annals::next::{AsyncEventStore, AsyncReadStore, AsyncReadUnit, AsyncStore, Slice, StoreError};
 use annals_store_sql::sqlite::{SqliteRead, SqliteStore, SqliteUnit};
@@ -167,7 +165,6 @@ fn test_a_list_reads_one_moment_though_another_process_writes_and_purges_meanwhi
     });
     let environment = Environment {
         home: Some(env.home.path().to_path_buf()),
-        cwd: Ok(PathBuf::from(env.project.path())),
         root: None,
         project_id: None,
     };

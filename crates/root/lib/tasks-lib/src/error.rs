@@ -9,10 +9,6 @@ pub enum BuildError {
     /// The working directory given is not absolute, so the real
     /// filesystem has nothing to resolve relative paths against.
     RelativeCwd { cwd: String },
-    /// The process's working directory could not be read (it was
-    /// deleted, or is not searchable): there is nothing to resolve
-    /// relative paths against, and no fallback is assumed.
-    NoWorkingDirectory { reason: String },
 }
 
 impl fmt::Display for BuildError {
@@ -20,9 +16,6 @@ impl fmt::Display for BuildError {
         match self {
             BuildError::RelativeCwd { cwd } => {
                 write!(f, "the working directory is not an absolute path: {cwd}")
-            }
-            BuildError::NoWorkingDirectory { reason } => {
-                write!(f, "cannot read the working directory: {reason}")
             }
         }
     }
@@ -34,14 +27,12 @@ impl Diagnostic for BuildError {
     fn code(&self) -> &'static str {
         match self {
             BuildError::RelativeCwd { .. } => "tasks-lib-relative-cwd",
-            BuildError::NoWorkingDirectory { .. } => "tasks-lib-no-working-directory",
         }
     }
 
     fn args(&self) -> Vec<(&'static str, Arg)> {
         match self {
             BuildError::RelativeCwd { cwd } => vec![("cwd", cwd.as_str().into())],
-            BuildError::NoWorkingDirectory { reason } => vec![("reason", reason.as_str().into())],
         }
     }
 }
@@ -52,14 +43,9 @@ pub const EN_US: (&str, &str) = ("tasks-lib", include_str!("../locales/en-US/tas
 
 /// One value of every error, for the catalog test.
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
-    vec![
-        Box::new(BuildError::RelativeCwd {
-            cwd: "work/taskloom".to_string(),
-        }),
-        Box::new(BuildError::NoWorkingDirectory {
-            reason: "No such file or directory (os error 2)".to_string(),
-        }),
-    ]
+    vec![Box::new(BuildError::RelativeCwd {
+        cwd: "work/taskloom".to_string(),
+    })]
 }
 
 #[cfg(test)]
