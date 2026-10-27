@@ -3,14 +3,17 @@
 //! conflict window decide never acknowledged, a policy's malformed book.
 //! Each almost certainly marks a bug, and one can precede a retry that
 //! then succeeds, so a use case returns the lines written while it ran as
-//! [`DeadLetter`]s beside its result, for its driving adapter to say
-//! loudly. The application does no I/O: it writes them nowhere itself.
+//! [`DeadLetter`]s beside its result, or on its error when it fails
+//! ([`AppError::dead_letters`]), for its driving adapter to say loudly.
+//! The application does no I/O: it writes them nowhere itself.
 
 use std::fmt;
 use std::sync::{Mutex, PoisonError};
 
 use annals::next::DeadLetterLog;
 use annals_diagnostic::{Arg, Diagnostic};
+
+use crate::AppError;
 
 /// One line annals' kernel dead-lettered, as it wrote it (starting with
 /// annals' `DEAD_LETTER_PREFIX`).
@@ -48,6 +51,13 @@ impl DeadLetters {
             .into_iter()
             .map(|line| DeadLetter { line })
             .collect()
+    }
+
+    /// `result`, its error carrying every line written since the last
+    /// take ([`AppError::DeadLettered`]): a failure is said with them, as
+    /// a success is.
+    pub(crate) fn onto<T>(&self, result: Result<T, AppError>) -> Result<T, AppError> {
+        result.map_err(|error| error.with_dead_letters(self.take()))
     }
 }
 

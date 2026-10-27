@@ -927,20 +927,27 @@ fn test_a_project_is_resolved_off_the_servers_thread() {
 
 // ------------------------------------------------------------ dead letters
 
-/// The real service, each write's result carrying one dead letter: annals'
-/// kernel writes one only for what angzarr would dead-letter, which the
-/// tasks domain can be made to produce none of.
+/// The real service, each write's result, or its error, carrying one dead
+/// letter: annals' kernel writes one only for what angzarr would
+/// dead-letter, which the tasks domain can be made to produce none of.
 struct Lettered<S>(S);
 
 fn lettered(
     written: Result<tasks_application::Written, tasks_application::AppError>,
 ) -> Result<tasks_application::Written, tasks_application::AppError> {
-    written.map(|mut written| {
-        written.dead_letters = vec![tasks_application::DeadLetter {
-            line: "DEAD LETTER (a bug): x".to_string(),
-        }];
-        written
-    })
+    let dead_letters = vec![tasks_application::DeadLetter {
+        line: "DEAD LETTER (a bug): x".to_string(),
+    }];
+    match written {
+        Ok(mut written) => {
+            written.dead_letters = dead_letters;
+            Ok(written)
+        }
+        Err(error) => Err(tasks_application::AppError::DeadLettered {
+            error: Box::new(error),
+            dead_letters,
+        }),
+    }
 }
 
 impl<S: tasks_application::TaskService + Send> tasks_application::TaskService for Lettered<S> {
@@ -1025,43 +1032,67 @@ impl std::io::Write for Captured {
     }
 }
 
+/// A client of the server over the real service, every write's result or
+/// error carrying a dead letter ([`Lettered`]), and what it says on stderr.
+async fn lettered_client() -> (Client, Captured) {
+    let world: Arc<World> = Arc::default();
+    let stderr = Captured::default();
+    let tools = TaskTools::new(
+        move || Lettered(world.service()),
+        settings(),
+        Arc::new(catalog()),
+    )
+    .with_stderr(stderr.clone());
+    let (client_end, server_end) = tokio::io::duplex(1 << 20);
+    tokio::spawn(tools.serve(server_end));
+    let (from_server, to_server) = tokio::io::split(client_end);
+    let mut client = Client {
+        to_server,
+        from_server: BufReader::new(from_server).lines(),
+        next_id: 0,
+    };
+    client
+        .ask(
+            "initialize",
+            json!({
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "0"},
+            }),
+        )
+        .await;
+    client
+        .send(json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))
+        .await;
+    (client, stderr)
+}
+
 // A write's dead letters are said on the server's stderr, and its answer is
 // the task as ever.
 #[test]
 fn test_a_writes_dead_letters_are_said_on_stderr() {
     run(async {
-        let world: Arc<World> = Arc::default();
-        let stderr = Captured::default();
-        let tools = TaskTools::new(
-            move || Lettered(world.service()),
-            settings(),
-            Arc::new(catalog()),
-        )
-        .with_stderr(stderr.clone());
-        let (client_end, server_end) = tokio::io::duplex(1 << 20);
-        tokio::spawn(tools.serve(server_end));
-        let (from_server, to_server) = tokio::io::split(client_end);
-        let mut client = Client {
-            to_server,
-            from_server: BufReader::new(from_server).lines(),
-            next_id: 0,
-        };
-        client
-            .ask(
-                "initialize",
-                json!({
-                    "protocolVersion": "2025-06-18",
-                    "capabilities": {},
-                    "clientInfo": {"name": "test", "version": "0"},
-                }),
-            )
-            .await;
-        client
-            .send(json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))
-            .await;
+        let (mut client, stderr) = lettered_client().await;
         let result = client.call("task_add", json!({"text": "Ship it"})).await;
         assert_eq!(structured(&result)["task"]["text"], "Ship it");
         assert!(!result.to_string().contains("DEAD LETTER"), "{result}");
+        let said = String::from_utf8(stderr.0.lock().unwrap().clone()).unwrap();
+        assert_eq!(said, "taskloom: DEAD LETTER (a bug): x\n");
+    });
+}
+
+// A failed write's dead letters are said on the server's stderr too, and its
+// answer is the failure's envelope as ever.
+#[test]
+fn test_a_failed_writes_dead_letters_are_said_on_stderr() {
+    run(async {
+        let (mut client, stderr) = lettered_client().await;
+        let refused = client
+            .call("task_edit", json!({"harp_id": "no-such-harp", "text": "x"}))
+            .await;
+        let code = &envelope(&refused)["code"];
+        assert_eq!(code, "tasks-application-no-project", "{refused}");
+        assert!(!refused.to_string().contains("DEAD LETTER"), "{refused}");
         let said = String::from_utf8(stderr.0.lock().unwrap().clone()).unwrap();
         assert_eq!(said, "taskloom: DEAD LETTER (a bug): x\n");
     });

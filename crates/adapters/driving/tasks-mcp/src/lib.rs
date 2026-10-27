@@ -218,7 +218,11 @@ where
                 })
             }
         };
-        let written = written.map_err(McpError::App)?;
+        // A write's dead letters are said whether it succeeded or not.
+        let written = written.map_err(|error| {
+            self.dead_lettered(error.dead_letters());
+            McpError::App(error)
+        })?;
         self.dead_lettered(&written.dead_letters);
         Ok(tools::written(&written))
     }

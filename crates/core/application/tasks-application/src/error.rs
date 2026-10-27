@@ -4,11 +4,14 @@ use std::fmt;
 
 use annals_diagnostic::{Arg, Diagnostic, Report};
 
+use crate::DeadLetter;
+
 /// Why a use case did not complete. A wrapper of another error
 /// ([`AppError::Rejected`], [`AppError::TagRefused`], [`AppError::Failed`],
 /// [`AppError::Identity`], [`AppError::Configuration`],
-/// [`AppError::TagQuery`], [`AppError::Prune`], [`AppError::Priority`]) is
-/// that error's diagnostic: its code, args and English.
+/// [`AppError::TagQuery`], [`AppError::Prune`], [`AppError::Priority`],
+/// [`AppError::DeadLettered`]) is that error's diagnostic: its code, args
+/// and English.
 #[derive(Clone, PartialEq, Debug)]
 pub enum AppError {
     /// The domain refused the command: tell the person.
@@ -52,6 +55,36 @@ pub enum AppError {
     /// Ids held in more than one project, read across projects: each with
     /// the projects holding it.
     Ambiguous { held: Vec<(String, Vec<String>)> },
+    /// `error`, from a write during which annals' kernel dead-lettered
+    /// `dead_letters` (never none): `error`'s diagnostic, its code, args
+    /// and English, with the lines beside it for the driving adapter to
+    /// say.
+    DeadLettered {
+        error: Box<AppError>,
+        dead_letters: Vec<DeadLetter>,
+    },
+}
+
+impl AppError {
+    /// The dead letters annals' kernel wrote while the use case that
+    /// failed with this ran: none for most.
+    pub fn dead_letters(&self) -> &[DeadLetter] {
+        match self {
+            AppError::DeadLettered { dead_letters, .. } => dead_letters,
+            _ => &[],
+        }
+    }
+
+    /// This error, carrying `dead_letters` when there are any.
+    pub(crate) fn with_dead_letters(self, dead_letters: Vec<DeadLetter>) -> AppError {
+        match dead_letters.is_empty() {
+            true => self,
+            false => AppError::DeadLettered {
+                error: Box::new(self),
+                dead_letters,
+            },
+        }
+    }
 }
 
 /// Each of `ids`, quoted, comma-separated.
@@ -81,6 +114,7 @@ impl fmt::Display for AppError {
             | AppError::TagQuery(cause)
             | AppError::Prune(cause)
             | AppError::Priority(cause) => cause.fmt(f),
+            AppError::DeadLettered { error, .. } => error.fmt(f),
             AppError::GaveUp { attempts, error } => {
                 write!(f, "gave up after {attempts} attempts: {error}")
             }
@@ -129,6 +163,7 @@ impl Diagnostic for AppError {
             | AppError::TagQuery(cause)
             | AppError::Prune(cause)
             | AppError::Priority(cause) => cause.code(),
+            AppError::DeadLettered { error, .. } => error.code(),
             AppError::GaveUp { .. } => "tasks-application-gave-up",
             AppError::HarpsExhausted { .. } => "tasks-application-harps-exhausted",
             AppError::Vanished { .. } => "tasks-application-vanished",
@@ -151,6 +186,7 @@ impl Diagnostic for AppError {
             | AppError::TagQuery(cause)
             | AppError::Prune(cause)
             | AppError::Priority(cause) => cause.args(),
+            AppError::DeadLettered { error, .. } => error.args(),
             AppError::GaveUp { attempts, error } => vec![
                 ("attempts", (*attempts).into()),
                 ("error", Arg::nested(error)),

@@ -217,6 +217,23 @@ where
     G: Configuration + Send,
 {
     async fn prune(&mut self, request: PruneRequest) -> Result<Pruning, AppError> {
+        let pruning = self.pruning(request).await;
+        self.dead_letters.onto(pruning)
+    }
+}
+
+/// The prune, its failure carrying the dead letters written while it ran
+/// ([`PruneService`] wraps them).
+impl<I, S, N, C, D, G> Service<I, S, N, C, D, G>
+where
+    I: ProjectIdentity,
+    S: TaskStores,
+    S::Store: PurgingStore,
+    C: Clock + CommandIds,
+    D: Delay + Jitter,
+    G: Configuration,
+{
+    async fn pruning(&mut self, request: PruneRequest) -> Result<Pruning, AppError> {
         let tag_query = given(request.tag_query.as_deref(), "tag_query")?;
         query::check(tag_query).map_err(|e| AppError::TagQuery(Report::of(&e)))?;
         let schema = self.schema()?;

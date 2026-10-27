@@ -2067,6 +2067,34 @@ fn test_a_writes_dead_letters_are_said_on_stderr() {
     }
 }
 
+// A failed write's dead letters are said on stderr before its error, in
+// text and JSON alike; the JSON error envelope is the failure's as ever.
+#[test]
+fn test_a_failed_writes_dead_letters_are_said_on_stderr_before_its_error() {
+    let failed = AppError::DeadLettered {
+        error: Box::new(AppError::NoProject),
+        dead_letters: dead_letters(),
+    };
+    for (terminal, error) in [
+        (
+            true,
+            "taskloom: there is no project here yet, so no task to change\n",
+        ),
+        (false, "\"code\": \"tasks-application-no-project\""),
+    ] {
+        let mut fake = Fake {
+            written: Some(Err(failed.clone())),
+            ..Fake::default()
+        };
+        let ran = run_on(&mut fake, terminal, &["edit", "swift-amber", "x"]);
+        assert_eq!(ran.code, 1);
+        let (letter, rest) = ran.err.split_once('\n').unwrap();
+        assert_eq!(letter, "taskloom: DEAD LETTER (a bug): x");
+        assert!(rest.contains(error), "{}", ran.err);
+        assert!(!rest.contains("DEAD LETTER"), "{}", ran.err);
+    }
+}
+
 #[test]
 fn test_a_prunes_dead_letters_are_said_on_stderr() {
     let mut pruning = pruning(false, &[]);

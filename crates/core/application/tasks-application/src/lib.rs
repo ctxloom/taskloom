@@ -218,7 +218,7 @@ pub struct Service<I, S, N, C, D, G = NotConfigured> {
     pub backoff: Backoff,
     registry: Registry,
     /// The log annals' kernel writes dead letters to, taken into each
-    /// result.
+    /// result, or a write's error.
     pub(crate) dead_letters: DeadLetters,
 }
 
@@ -350,16 +350,18 @@ where
     }
 }
 
-impl<I, S, N, C, D, G> TaskService for Service<I, S, N, C, D, G>
+/// The writes, each failure carrying the dead letters written while it
+/// ran ([`TaskService`] wraps them).
+impl<I, S, N, C, D, G> Service<I, S, N, C, D, G>
 where
-    I: ProjectIdentity + Send,
-    S: TaskStores + Send,
-    N: Names + Send,
-    C: Clock + CommandIds + Send,
-    D: Delay + Jitter + Send,
-    G: Configuration + Send,
+    I: ProjectIdentity,
+    S: TaskStores,
+    N: Names,
+    C: Clock + CommandIds,
+    D: Delay + Jitter,
+    G: Configuration,
 {
-    async fn add(&mut self, task: NewTask) -> Result<Written, AppError> {
+    async fn adding(&mut self, task: NewTask) -> Result<Written, AppError> {
         // The wire's AddTask carries no absence but an empty string, so
         // what is left out is spelled so only here, past the refusal of
         // what is given blank.
@@ -428,7 +430,7 @@ where
         })
     }
 
-    async fn tag(&mut self, change: TagChange) -> Result<Written, AppError> {
+    async fn tagging(&mut self, change: TagChange) -> Result<Written, AppError> {
         // Nothing to add or remove is refused before anything is read.
         let add = tags::parse_all(&change.add).map_err(|r| refused(&r))?;
         let remove = tags::parse_all(&change.remove).map_err(|r| refused(&r))?;
@@ -465,7 +467,7 @@ where
         })
     }
 
-    async fn set_status(&mut self, change: StatusChange) -> Result<Written, AppError> {
+    async fn setting_status(&mut self, change: StatusChange) -> Result<Written, AppError> {
         // SetStatus's empty trigger, the wire's only absence, keeps the
         // one the task holds.
         let set: TaskCommand = SetStatus {
@@ -485,7 +487,7 @@ where
         })
     }
 
-    async fn edit(&mut self, edit: TextEdit) -> Result<Written, AppError> {
+    async fn editing(&mut self, edit: TextEdit) -> Result<Written, AppError> {
         let command: TaskCommand = EditText { text: edit.text }.into();
         tasks::check(&command).map_err(|r| rejected(&r))?;
         let schema = self.schema()?;
@@ -497,6 +499,36 @@ where
             shown: Shown::of(&schema),
             dead_letters: self.dead_letters.take(),
         })
+    }
+}
+
+impl<I, S, N, C, D, G> TaskService for Service<I, S, N, C, D, G>
+where
+    I: ProjectIdentity + Send,
+    S: TaskStores + Send,
+    N: Names + Send,
+    C: Clock + CommandIds + Send,
+    D: Delay + Jitter + Send,
+    G: Configuration + Send,
+{
+    async fn add(&mut self, task: NewTask) -> Result<Written, AppError> {
+        let written = self.adding(task).await;
+        self.dead_letters.onto(written)
+    }
+
+    async fn tag(&mut self, change: TagChange) -> Result<Written, AppError> {
+        let written = self.tagging(change).await;
+        self.dead_letters.onto(written)
+    }
+
+    async fn set_status(&mut self, change: StatusChange) -> Result<Written, AppError> {
+        let written = self.setting_status(change).await;
+        self.dead_letters.onto(written)
+    }
+
+    async fn edit(&mut self, edit: TextEdit) -> Result<Written, AppError> {
+        let written = self.editing(edit).await;
+        self.dead_letters.onto(written)
     }
 
     async fn list(&mut self, query: ListQuery) -> Result<Listing, AppError> {

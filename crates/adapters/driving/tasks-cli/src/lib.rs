@@ -265,7 +265,8 @@ pub async fn run<S: TaskService + PruneService>(
     finish(result, format, catalog, err)
 }
 
-/// The exit code of `result`, its error reported in `format`.
+/// The exit code of `result`, its error reported in `format`, after any
+/// dead letters the use case that failed carries.
 pub(crate) fn finish(
     result: Result<(), CliError>,
     format: Format,
@@ -275,6 +276,10 @@ pub(crate) fn finish(
     match result {
         Ok(()) => 0,
         Err(error) => {
+            // A failed use case's dead letters are said before its error.
+            if let CliError::App(failed) = &error {
+                let _ = dead_lettered(failed.dead_letters(), catalog, err);
+            }
             let _ = report(&error, format, catalog, err);
             1
         }

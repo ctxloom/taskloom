@@ -806,3 +806,21 @@ fn test_a_prune_returns_the_dead_letters_written_while_it_ran() {
     let pruning = prune(&mut service, request(true)).unwrap();
     assert!(pruning.dead_letters.is_empty(), "each is returned once");
 }
+
+// A prune that fails carries the dead letters written while it ran on its
+// error, each once.
+#[test]
+fn test_a_failed_prune_carries_the_dead_letters_written_while_it_ran() {
+    let mut service = seeded();
+    annals::next::DeadLetterLog::write(&service.dead_letters, "DEAD LETTER: prune");
+    let refused = PruneRequest {
+        older_than: "soon".to_string(),
+        ..request(true)
+    };
+    let error = prune(&mut service, refused.clone()).unwrap_err();
+    let line = "DEAD LETTER: prune".to_string();
+    assert_eq!(error.dead_letters(), [crate::DeadLetter { line }]);
+    assert_eq!(error.code(), "tasks-application-prune-age-unreadable");
+    let error = prune(&mut service, refused).unwrap_err();
+    assert!(error.dead_letters().is_empty(), "each is carried once");
+}

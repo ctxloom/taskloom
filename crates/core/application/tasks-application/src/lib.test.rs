@@ -1148,6 +1148,62 @@ fn test_every_write_returns_the_dead_letters_written_while_it_ran() {
     assert!(written.dead_letters.is_empty(), "each is returned once");
 }
 
+// A write that fails carries the dead letters written while it ran on its
+// error, each once; the error's diagnostic is the failure's own.
+#[test]
+fn test_every_failed_write_carries_the_dead_letters_written_while_it_ran() {
+    let mut service = service(&["swift-amber", "calm-otter"]);
+    add(&mut service, new_task("Ship it")).unwrap();
+    let missing = || StatusChange {
+        harp_id: "no-such-harp".to_string(),
+        status: "Done".to_string(),
+        ..StatusChange::default()
+    };
+    let edit = TextEdit {
+        harp_id: "no-such-harp".to_string(),
+        text: "x".to_string(),
+        ..TextEdit::default()
+    };
+    let failures: [(&str, Result<Written, AppError>); 4] = [
+        ("add", {
+            dead_letter(&service, "DEAD LETTER: add");
+            add(&mut service, new_task(""))
+        }),
+        ("tag", {
+            dead_letter(&service, "DEAD LETTER: tag");
+            ready(service.tag(change("no-such-harp", &["x"], &[])))
+        }),
+        ("status", {
+            dead_letter(&service, "DEAD LETTER: status");
+            ready(service.set_status(missing()))
+        }),
+        ("edit", {
+            dead_letter(&service, "DEAD LETTER: edit");
+            ready(service.edit(edit))
+        }),
+    ];
+    for (write, failed) in failures {
+        let error = failed.unwrap_err();
+        let line = format!("DEAD LETTER: {write}");
+        assert_eq!(error.dead_letters(), letters(&[&line]), "{write}");
+        let AppError::DeadLettered { error: cause, .. } = &error else {
+            panic!("{write}: {error:?}");
+        };
+        assert_eq!(error.code(), cause.code(), "{write}");
+        assert_eq!(
+            format!("{:?}", error.args()),
+            format!("{:?}", cause.args()),
+            "{write}"
+        );
+        assert_eq!(error.to_string(), cause.to_string(), "{write}");
+    }
+    let error = ready(service.set_status(missing())).unwrap_err();
+    assert_eq!(error.code(), "tasks-no-task");
+    assert!(error.dead_letters().is_empty(), "each once");
+    let written = add(&mut service, new_task("Ship more")).unwrap();
+    assert!(written.dead_letters.is_empty(), "each once");
+}
+
 #[test]
 fn test_a_dead_letter_renders_its_line() {
     let letter = &letters(&["DEAD LETTER: x"])[0];
