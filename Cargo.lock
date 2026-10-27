@@ -12,7 +12,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 name = "agent-configs"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "file-lock",
  "file-system",
  "fluent-syntax",
@@ -83,10 +83,10 @@ dependencies = [
 [[package]]
 name = "annals"
 version = "0.1.0"
-source = "git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67#583256c38fb7b61b8cc6704ff050a17a26999a67"
+source = "git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35#ed00923e915c7fc9b832eba30d32115168ab7c35"
 dependencies = [
  "angzarr-proto",
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "prost",
  "prost-types",
 ]
@@ -94,20 +94,20 @@ dependencies = [
 [[package]]
 name = "annals-diagnostic"
 version = "0.1.0"
-source = "git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67#583256c38fb7b61b8cc6704ff050a17a26999a67"
+source = "git+https://github.com/benjaminabbitt/annals?rev=8a328c8d0fd70a0b43fbfb428250e946ebd273c4#8a328c8d0fd70a0b43fbfb428250e946ebd273c4"
 
 [[package]]
 name = "annals-diagnostic"
 version = "0.1.0"
-source = "git+https://github.com/benjaminabbitt/annals?rev=8a328c8d0fd70a0b43fbfb428250e946ebd273c4#8a328c8d0fd70a0b43fbfb428250e946ebd273c4"
+source = "git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35#ed00923e915c7fc9b832eba30d32115168ab7c35"
 
 [[package]]
 name = "annals-store-sql"
 version = "0.1.0"
-source = "git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67#583256c38fb7b61b8cc6704ff050a17a26999a67"
+source = "git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35#ed00923e915c7fc9b832eba30d32115168ab7c35"
 dependencies = [
  "annals",
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "prost",
  "sea-query",
  "sea-query-binder",
@@ -531,7 +531,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 name = "file-lock"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "file-system",
  "fluent-syntax",
  "fs4",
@@ -543,7 +543,7 @@ dependencies = [
 name = "file-system"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "fluent-syntax",
  "junction",
  "mutants",
@@ -1097,7 +1097,7 @@ name = "jsonl-task-log"
 version = "0.1.0"
 dependencies = [
  "annals",
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "file-system",
  "fluent-syntax",
  "ports",
@@ -1448,7 +1448,7 @@ name = "ports"
 version = "0.1.0"
 dependencies = [
  "annals",
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
 ]
 
 [[package]]
@@ -1479,7 +1479,7 @@ dependencies = [
 name = "presentation"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "fluent-bundle",
  "fluent-syntax",
  "serde",
@@ -1521,7 +1521,7 @@ dependencies = [
 name = "project-application"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "fluent-syntax",
  "ports",
 ]
@@ -1530,7 +1530,7 @@ dependencies = [
 name = "project-cli"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "clap",
  "fluent-syntax",
  "presentation",
@@ -1543,7 +1543,7 @@ dependencies = [
 name = "project-registry"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "file-lock",
  "file-system",
  "fluent-syntax",
@@ -1776,7 +1776,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 name = "registration-application"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "fluent-syntax",
  "ports",
 ]
@@ -1785,7 +1785,7 @@ dependencies = [
 name = "registration-cli"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "clap",
  "fluent-syntax",
  "mutants",
@@ -2446,7 +2446,7 @@ name = "task-priority"
 version = "0.1.0"
 dependencies = [
  "annals",
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "expr-lang",
  "fluent-syntax",
  "mutants",
@@ -2459,7 +2459,7 @@ name = "task-store-sqlite"
 version = "0.1.0"
 dependencies = [
  "annals",
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "annals-store-sql",
  "file-system",
  "fluent-syntax",
@@ -2473,7 +2473,7 @@ version = "0.1.0"
 dependencies = [
  "agent-configs",
  "annals",
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "annals-store-sql",
  "clap",
  "file-lock",
@@ -2511,7 +2511,7 @@ version = "0.1.0"
 dependencies = [
  "angzarr-build",
  "annals",
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "fluent-syntax",
  "mutants",
  "prost",
@@ -2525,7 +2525,7 @@ name = "tasks-application"
 version = "0.1.0"
 dependencies = [
  "annals",
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "fluent-syntax",
  "mutants",
  "ports",
@@ -2540,7 +2540,7 @@ dependencies = [
 name = "tasks-cli"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "clap",
  "fluent-syntax",
  "presentation",
@@ -2554,7 +2554,7 @@ dependencies = [
 name = "tasks-config"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "file-system",
  "fluent-syntax",
  "ports",
@@ -2568,7 +2568,7 @@ version = "0.1.0"
 dependencies = [
  "agent-configs",
  "annals",
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "annals-store-sql",
  "file-lock",
  "file-system",
@@ -2592,7 +2592,7 @@ name = "tasks-mcp"
 version = "0.1.0"
 dependencies = [
  "annals",
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "clap",
  "fluent-syntax",
  "mutants",
@@ -2632,7 +2632,7 @@ dependencies = [
 name = "tasks-watch"
 version = "0.1.0"
 dependencies = [
- "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=583256c38fb7b61b8cc6704ff050a17a26999a67)",
+ "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "clap",
  "fluent-syntax",
  "presentation",
