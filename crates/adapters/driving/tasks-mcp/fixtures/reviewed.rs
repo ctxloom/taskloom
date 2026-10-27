@@ -33,6 +33,12 @@ pub const INSTRUCTIONS: &[(&str, &str)] = &[
         "only these tools / the CLI dedup to current state.",
         "only these tools / the CLI dedup to current state.\nOmit optional arguments you don't mean to set. An explicit empty string is a value, and is refused as blank.",
     ),
+    // 9. A failed write's tool error carries the dead letters written while
+    // it ran, after its envelope.
+    (
+        "and is refused as blank.",
+        "and is refused as blank.\nA failed write's tool error may add, after its JSON envelope, a text block of DEAD LETTER lines: each almost certainly marks a bug in taskloom, so show them to the user.",
+    ),
 ];
 
 pub const TOOLS: &[(&str, &str)] = &[

@@ -326,7 +326,8 @@ where
     }
 
     /// The tool's result; its error, a tool error carrying the
-    /// diagnostic's envelope. An unknown tool is a protocol error.
+    /// diagnostic's envelope, then any dead letters the failed write
+    /// carries. An unknown tool is a protocol error.
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
@@ -338,10 +339,7 @@ where
             Err(error @ McpError::UnknownTool { .. }) => {
                 return Err(self.protocol_error(&error, ErrorData::invalid_params));
             }
-            Err(error) => CallToolResult::error(vec![ContentBlock::text(envelope_text(
-                &self.catalog,
-                &error,
-            ))]),
+            Err(error) => CallToolResult::error(tool_error(&self.catalog, &error)),
         };
         Ok(result.into())
     }
@@ -386,6 +384,21 @@ where
     ) -> Result<(), ErrorData> {
         Ok(())
     }
+}
+
+/// A tool error's content: `error`'s envelope, then, when the write that
+/// failed carries dead letters, one text block of them, a line each, so
+/// the agent that called sees them (they are said on stderr too).
+fn tool_error(catalog: &Catalog, error: &McpError) -> Vec<ContentBlock> {
+    let mut content = vec![ContentBlock::text(envelope_text(catalog, error))];
+    if let McpError::App(failed) = error {
+        let letters = failed.dead_letters();
+        if !letters.is_empty() {
+            let lines: Vec<String> = letters.iter().map(|l| catalog.message(l)).collect();
+            content.push(ContentBlock::text(lines.join("\n")));
+        }
+    }
+    content
 }
 
 /// `error`'s envelope, as one line of JSON.

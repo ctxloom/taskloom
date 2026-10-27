@@ -927,8 +927,8 @@ fn test_a_project_is_resolved_off_the_servers_thread() {
 
 // ------------------------------------------------------------ dead letters
 
-/// The real service, each write's result, or its error, carrying one dead
-/// letter: annals' kernel writes one only for what angzarr would
+/// The real service, each write's result carrying one dead letter, or its
+/// error two: annals' kernel writes one only for what angzarr would
 /// dead-letter, which the tasks domain can be made to produce none of.
 struct Lettered<S>(S);
 
@@ -945,7 +945,13 @@ fn lettered(
         }
         Err(error) => Err(tasks_application::AppError::DeadLettered {
             error: Box::new(error),
-            dead_letters,
+            dead_letters: [
+                dead_letters,
+                vec![tasks_application::DeadLetter {
+                    line: "DEAD LETTER (a bug): y".to_string(),
+                }],
+            ]
+            .concat(),
         }),
     }
 }
@@ -1081,19 +1087,44 @@ fn test_a_writes_dead_letters_are_said_on_stderr() {
     });
 }
 
-// A failed write's dead letters are said on the server's stderr too, and its
-// answer is the failure's envelope as ever.
+// A failed write's dead letters are said on the server's stderr too, and in
+// its tool error, after the failure's envelope (unchanged), so the agent that
+// called sees them: one text block, a line each.
 #[test]
-fn test_a_failed_writes_dead_letters_are_said_on_stderr() {
+fn test_a_failed_writes_dead_letters_are_said_in_its_tool_error_and_on_stderr() {
     run(async {
         let (mut client, stderr) = lettered_client().await;
         let refused = client
             .call("task_edit", json!({"harp_id": "no-such-harp", "text": "x"}))
             .await;
-        let code = &envelope(&refused)["code"];
-        assert_eq!(code, "tasks-application-no-project", "{refused}");
-        assert!(!refused.to_string().contains("DEAD LETTER"), "{refused}");
+        let envelope = envelope(&refused);
+        assert_eq!(
+            envelope["code"], "tasks-application-no-project",
+            "{refused}"
+        );
+        assert!(!envelope.to_string().contains("DEAD LETTER"), "{refused}");
+        let content = refused["content"].as_array().unwrap();
+        assert_eq!(content.len(), 2, "{refused}");
+        assert_eq!(content[1]["type"], "text", "{refused}");
+        let lines = "DEAD LETTER (a bug): x\nDEAD LETTER (a bug): y";
+        assert_eq!(content[1]["text"], lines, "{refused}");
         let said = String::from_utf8(stderr.0.lock().unwrap().clone()).unwrap();
-        assert_eq!(said, "taskloom: DEAD LETTER (a bug): x\n");
+        assert_eq!(
+            said,
+            "taskloom: DEAD LETTER (a bug): x\ntaskloom: DEAD LETTER (a bug): y\n"
+        );
+    });
+}
+
+// A failure with no dead letters is its envelope alone.
+#[test]
+fn test_a_failure_with_no_dead_letters_is_its_envelope_alone() {
+    run(async {
+        let (mut client, _) = connect(Arc::default(), settings()).await;
+        let refused = client
+            .call("task_edit", json!({"harp_id": "no-such-harp", "text": "x"}))
+            .await;
+        assert_eq!(envelope(&refused)["code"], "tasks-application-no-project");
+        assert_eq!(refused["content"].as_array().unwrap().len(), 1, "{refused}");
     });
 }
