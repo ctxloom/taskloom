@@ -2498,6 +2498,7 @@ dependencies = [
  "tasks-application",
  "tasks-cli",
  "tasks-config",
+ "tasks-lib",
  "tasks-mcp",
  "tasks-watch",
  "time",

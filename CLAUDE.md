@@ -129,10 +129,11 @@ Each crate with diagnostics exports its embedded en-US catalog as `EN_US`
 (its name and its `.ftl`). The composition root assembles the binary's
 catalog from every crate's `EN_US` (presentation's `Catalog`), and the
 driving adapters render with it: a diagnostic's catalog message in text,
-its `{code, args, message}` envelope in JSON. A new crate's `EN_US` joins
-the binary's catalog list (`catalog()` in its `main.rs`, beside annals'
-and annals-store-sql's), and its samples the binary's every-diagnostic
-catalog test.
+its `{code, args, message}` envelope in JSON. A new core, driven or
+platform crate's `EN_US` joins tasks-lib's `catalog()` (beside annals'
+and annals-store-sql's), and its samples tasks-lib's and the binary's
+every-diagnostic catalog tests; a driving adapter's joins the frontends
+the binary hands that `catalog()` (`catalog()` in its `main.rs`).
 
 ## Use `just`
 

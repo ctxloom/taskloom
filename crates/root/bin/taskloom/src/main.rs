@@ -1,52 +1,30 @@
 //! taskloom: per-project task tracking. The composition root: it parses the
 //! command line (the global flags, the task commands, and `import`, the
-//! `project` group, `mcp`, `watch` and `manage` mounted beside them), then
-//! builds only what the command parsed uses: the tasks use cases over their
-//! adapters (the project registry, harp names, the SQLite task store, the
-//! system's clock, ids, timer and randomness, and taskloom's
-//! configuration) for the task commands and `watch`, and for nothing else.
-//! `import` alone reads the JSONL task logs, through an importer built for
-//! it. The `project` group runs over the registry and the SQLite store's
-//! integrity check; `mcp` serves the task tools over stdio, each call on a
-//! service of its own; `watch` streams the project's changes until SIGINT
-//! or SIGTERM (never at a closed stdin); `manage` registers `taskloom mcp`
-//! in the agents' configurations under HOME. It holds no logic of its own.
+//! `project` group, `mcp`, `watch` and `manage` mounted beside them),
+//! builds the wiring from the process (tasks-lib's `Taskloom`, the
+//! `--config-set` overrides bound there), and hands the frontend the
+//! command parsed only the use case it runs: the tasks use cases for the
+//! task commands and `watch`; the importer, the only reader of the JSONL
+//! task logs, for `import`; the project use cases for the `project`
+//! group; a maker of tasks use cases for `mcp`, which serves each call on
+//! a service of its own; and the registrations for `manage`. `watch`
+//! streams the project's changes until SIGINT or SIGTERM (never at a
+//! closed stdin). It holds no logic of its own, and wires no adapter.
 
-use std::ffi::OsString;
 use std::io::{self, IsTerminal};
-use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use file_system::{Fs, Os};
-use harp_names::HarpNames;
-use jsonl_task_log::JsonlTaskLogDir;
-use project_application::Projects;
-use project_registry::{Environment, ProjectRegistry};
-use system::System;
-use task_store_sqlite::SqliteStores;
-use tasks_application::{Importer, Service};
 use tasks_cli::Context;
-use tasks_config::TaskloomConfig;
+use tasks_lib::Taskloom;
 
-/// Every crate's en-US catalog the binary's diagnostics come from: annals'
-/// crates the binary links (annals-diagnostic defines no codes), then its
-/// own.
+/// The binary's en-US catalog: every diagnostic the wiring can raise
+/// (tasks-lib's), then each frontend's own.
 fn catalog() -> Result<presentation::Catalog, presentation::CatalogError> {
-    tasks_cli::catalog(&[
-        annals::EN_US,
-        annals_store_sql::EN_US,
+    tasks_lib::catalog(&[
+        tasks_cli::EN_US,
         project_cli::EN_US,
-        project_application::EN_US,
         registration_cli::EN_US,
-        registration_application::EN_US,
-        agent_configs::EN_US,
-        file_lock::EN_US,
-        file_system::EN_US,
-        project_registry::EN_US,
-        task_store_sqlite::EN_US,
-        jsonl_task_log::EN_US,
-        tasks_config::EN_US,
         tasks_mcp::EN_US,
         tasks_watch::EN_US,
     ])
@@ -85,52 +63,16 @@ enum Mounted {
     Manage(registration_cli::Group),
 }
 
-/// The tasks use cases over the real adapters, configured from the work
-/// root's config, as one call or command needs them. `vars` are the
-/// environment's, as the config reads them; `config_set` the global
-/// `--config-set` overrides, applied last.
-fn service(
-    fs: &Arc<dyn Fs>,
-    env: &Environment,
-    vars: Vec<(OsString, OsString)>,
-    config_set: Vec<String>,
-) -> Service<ProjectRegistry<HarpNames>, SqliteStores, HarpNames, System, System, TaskloomConfig> {
-    let identity = ProjectRegistry::new(Arc::clone(fs), env.clone(), HarpNames);
-    // The work root's config, where there is a work root: a command that
-    // needs one fails on resolving it, and says why.
-    let config = TaskloomConfig::new(
-        Arc::clone(fs),
-        env.home.clone(),
-        identity.work_root().ok(),
-        vars,
-        config_set,
-    );
-    Service::new(
-        identity,
-        SqliteStores::new(Arc::clone(fs)),
-        HarpNames,
-        System,
-        System,
-    )
-    .with_configuration(config)
-}
-
-/// `taskloom import`: the JSONL task logs under `env`'s home imported into
+/// `taskloom import`: the JSONL task logs under the home imported into
 /// each project's store, by an importer built for this command alone.
 fn import(
     runtime: &tokio::runtime::Runtime,
-    fs: &Arc<dyn Fs>,
-    env: &Environment,
+    taskloom: &Taskloom,
     project: Option<String>,
     format: presentation::Format,
     catalog: &presentation::Catalog,
 ) -> ExitCode {
-    let mut importer = Importer::new(
-        ProjectRegistry::new(Arc::clone(fs), env.clone(), HarpNames),
-        SqliteStores::new(Arc::clone(fs)),
-        System,
-        JsonlTaskLogDir::in_home(Arc::clone(fs), env.home.as_deref()),
-    );
+    let mut importer = taskloom.importer();
     ExitCode::from(runtime.block_on(tasks_cli::run_import(
         project,
         format,
@@ -145,19 +87,12 @@ fn import(
 /// away, each call on a service of its own.
 fn serve_mcp(
     runtime: tokio::runtime::Runtime,
-    fs: Arc<dyn Fs>,
-    env: Environment,
+    taskloom: &Taskloom,
     settings: tasks_mcp::Settings,
     catalog: presentation::Catalog,
-    config_set: Vec<String>,
 ) -> ExitCode {
     let catalog = Arc::new(catalog);
-    let vars = vars();
-    let tools = tasks_mcp::TaskTools::new(
-        move || service(&fs, &env, vars.clone(), config_set.clone()),
-        settings,
-        Arc::clone(&catalog),
-    );
+    let tools = tasks_mcp::TaskTools::new(taskloom.services(), settings, Arc::clone(&catalog));
     let served = runtime.block_on(tools.serve_stdio());
     // Nothing is left to wait for: a stdin read still blocked is
     // abandoned, not joined.
@@ -232,12 +167,11 @@ fn watch<W: tasks_application::WatchService>(
 }
 
 /// `taskloom manage`: `taskloom mcp` registered in the agents'
-/// configurations under `home`.
+/// configurations under the home.
 fn manage(
-    fs: Arc<dyn Fs>,
+    taskloom: &Taskloom,
     words: Vec<String>,
     format: presentation::Format,
-    home: Option<PathBuf>,
     catalog: &presentation::Catalog,
 ) -> ExitCode {
     let settings = registration_cli::Settings {
@@ -245,13 +179,7 @@ fn manage(
         stdout_is_terminal: io::stdout().is_terminal(),
         prog: tasks_cli::PROG,
     };
-    let configs = agent_configs::AgentConfigFiles {
-        fs,
-        home,
-        path: std::env::var_os("PATH"),
-        waits: file_lock::Waits::DEFAULT,
-    };
-    let mut registrations = registration_application::Registrations::taskloom(configs);
+    let mut registrations = taskloom.registrations();
     ExitCode::from(registration_cli::run(
         words,
         &settings,
@@ -265,17 +193,12 @@ fn manage(
 /// The `project` group, over the project registry and the SQLite store's
 /// integrity check.
 fn project_group(
-    fs: Arc<dyn Fs>,
-    env: Environment,
+    taskloom: &Taskloom,
     group: project_cli::Group,
     settings: &project_cli::Settings,
     catalog: &presentation::Catalog,
 ) -> ExitCode {
-    // Surveying and changing the registry mints nothing: no names.
-    let mut projects = Projects::new(
-        ProjectRegistry::new(Arc::clone(&fs), env, ()),
-        SqliteStores::new(fs),
-    );
+    let mut projects = taskloom.projects();
     ExitCode::from(project_cli::run(
         group,
         settings,
@@ -334,17 +257,22 @@ fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(code) => return ExitCode::from(code),
     };
-    let Some(fs) = filesystem() else {
-        return ExitCode::FAILURE;
-    };
-    let env = Environment {
-        home: std::env::var_os("HOME").map(PathBuf::from),
-        root: std::env::var_os("CTXLOOM_ROOT").map(PathBuf::from),
-        project_id: std::env::var("CTXLOOM_PROJECT_ID").ok(),
+    // The working directory, HOME, CTXLOOM_ROOT, CTXLOOM_PROJECT_ID and
+    // the variables, read once; an unreadable working directory fails
+    // only the commands that need it.
+    let built = tasks_lib::Builder::from_process()
+        .config_set(globals.config_set.clone())
+        .build();
+    let taskloom = match built {
+        Ok(taskloom) => taskloom,
+        Err(e) => {
+            eprintln!("{}: {}", tasks_cli::PROG, catalog.message(&e));
+            return ExitCode::FAILURE;
+        }
     };
     let group = match command {
         Command::Tasks(command) => {
-            let mut service = service(&fs, &env, vars(), globals.config_set.clone());
+            let mut service = taskloom.tasks();
             return ExitCode::from(runtime.block_on(tasks_cli::run(
                 command,
                 globals,
@@ -362,10 +290,9 @@ fn main() -> ExitCode {
         Err(code) => return ExitCode::from(code),
     };
     let project = globals.project;
-    let config_set = globals.config_set;
     match group {
         Mounted::Import(tasks_cli::ImportGroup::Import) => {
-            import(&runtime, &fs, &env, project, format, &catalog)
+            import(&runtime, &taskloom, project, format, &catalog)
         }
         Mounted::Project(group) => {
             let settings = project_cli::Settings {
@@ -373,10 +300,10 @@ fn main() -> ExitCode {
                 project,
                 prog: tasks_cli::PROG,
             };
-            project_group(fs, env, group, &settings, &catalog)
+            project_group(&taskloom, group, &settings, &catalog)
         }
         Mounted::Manage(registration_cli::Group::Manage { words }) => {
-            manage(fs, words, format, env.home, &catalog)
+            manage(&taskloom, words, format, &catalog)
         }
         Mounted::Mcp(tasks_mcp::Group::Mcp) => {
             let settings = tasks_mcp::Settings {
@@ -385,7 +312,7 @@ fn main() -> ExitCode {
                 name: tasks_cli::PROG.to_string(),
                 version: context.version,
             };
-            serve_mcp(runtime, fs, env, settings, catalog, config_set)
+            serve_mcp(runtime, &taskloom, settings, catalog)
         }
         Mounted::Watch(tasks_watch::Group::Watch) => {
             let settings = tasks_watch::Settings {
@@ -393,38 +320,9 @@ fn main() -> ExitCode {
                 project,
                 prog: tasks_cli::PROG,
             };
-            watch(
-                &runtime,
-                &mut service(&fs, &env, vars(), config_set),
-                &settings,
-                &catalog,
-            )
+            watch(&runtime, &mut taskloom.tasks(), &settings, &catalog)
         }
     }
-}
-
-/// The one filesystem every adapter is given, relative paths resolved
-/// against the working directory the process has; with none readable (it
-/// was deleted), a filesystem that says so: a command that resolves the
-/// working directory, or a relative path, fails with that error, and one
-/// that needs neither runs.
-fn filesystem() -> Option<Arc<dyn Fs>> {
-    match std::env::current_dir() {
-        Ok(cwd) => match Os::new(&cwd) {
-            Ok(fs) => Some(Arc::new(fs)),
-            Err(e) => {
-                eprintln!("{}: {e}", tasks_cli::PROG);
-                None
-            }
-        },
-        Err(why) => Some(Arc::new(Os::without_cwd(why))),
-    }
-}
-
-/// The environment's variables, as the process has them: configuration
-/// reads the UTF-8 ones, skipping any other without a word.
-fn vars() -> Vec<(OsString, OsString)> {
-    std::env::vars_os().collect()
 }
 
 #[cfg(test)]
