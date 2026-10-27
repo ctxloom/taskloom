@@ -185,7 +185,7 @@ fn test_a_limit_keeps_the_first_tasks_and_counts_the_rest() {
     let mut service = with_every_status();
     let query = ListQuery {
         all: true,
-        limit: 4,
+        limit: Some(4),
         ..ListQuery::default()
     };
     let listing = ready(service.list(query)).unwrap();
@@ -193,12 +193,26 @@ fn test_a_limit_keeps_the_first_tasks_and_counts_the_rest() {
     assert_eq!(shown, ["to-do", "doing", "deferred", "done"]);
     assert_eq!(listing.omitted, 2);
     let roomy = ListQuery {
-        limit: 9,
+        limit: Some(9),
         ..ListQuery::default()
     };
     assert_eq!(ready(service.list(roomy)).unwrap().omitted, 0);
     let none = ready(service.list(ListQuery::default())).unwrap();
-    assert_eq!((none.rows.len(), none.omitted), (3, 0), "0 is no limit");
+    assert_eq!((none.rows.len(), none.omitted), (3, 0), "none is no limit");
+}
+
+// A limit of 0 is given blank: refused, never read as no limit.
+#[test]
+fn test_a_limit_of_zero_is_refused_as_blank() {
+    let mut service = with_every_status();
+    let query = ListQuery {
+        limit: Some(0),
+        ..ListQuery::default()
+    };
+    assert_eq!(
+        ready(service.list(query)).unwrap_err(),
+        AppError::Blank { field: "limit" }
+    );
 }
 
 // ------------------------------------------------------------ sort
@@ -267,7 +281,7 @@ fn test_priority_ranks_a_task_against_its_whole_project_not_the_page() {
 fn test_the_limit_takes_the_highest_priorities() {
     let mut service = with_levels();
     let query = ListQuery {
-        limit: 1,
+        limit: Some(1),
         ..by_priority()
     };
     let listing = ready(service.list(query)).unwrap();

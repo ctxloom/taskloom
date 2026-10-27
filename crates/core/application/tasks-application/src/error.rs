@@ -41,8 +41,8 @@ pub enum AppError {
     /// A sort taskloom does not know.
     UnknownSort { sort: String },
     /// A value given blank (`field` names it, as a request does: `status`,
-    /// `trigger`, `origin_session`, `term`, `tag_query`, `sort`): a value
-    /// given is never read as one left out.
+    /// `trigger`, `origin_session`, `term`, `tag_query`, `sort`, or
+    /// `limit`, given as 0): a value given is never read as one left out.
     Blank { field: &'static str },
     /// Priority could not be derived (`task_priority::PriorityError`): a
     /// formula that does not compile, or a task it cannot score.

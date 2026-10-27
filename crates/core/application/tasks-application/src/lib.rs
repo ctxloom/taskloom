@@ -134,8 +134,9 @@ pub struct Scope {
 /// Deferred. `all` lists every task; naming statuses (or the classes
 /// `@open` and `@terminal`) lists exactly the tasks in them. A term keeps
 /// those whose text mentions it, case-insensitively, and a tag query those
-/// it selects. `global` reads every project. A term, tag query or sort
-/// given blank is refused ([`AppError::Blank`]), never read as none.
+/// it selects. `global` reads every project. A term, tag query, sort or
+/// limit given blank (a limit of 0) is refused ([`AppError::Blank`]),
+/// never read as none.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct ListQuery {
     pub project: Option<String>,
@@ -147,9 +148,9 @@ pub struct ListQuery {
     pub term: Option<String>,
     /// Every project's tasks, not the work root's project's.
     pub global: bool,
-    /// At most this many tasks, the rest counted as omitted; 0 for no
-    /// limit.
-    pub limit: usize,
+    /// At most this many tasks, the rest counted as omitted; `None` for
+    /// no limit. A limit of 0 is given blank, and refused.
+    pub limit: Option<usize>,
     /// The order: `None` for the listing's own, or [`PRIORITY`], the one
     /// sort.
     pub sort: Option<String>,

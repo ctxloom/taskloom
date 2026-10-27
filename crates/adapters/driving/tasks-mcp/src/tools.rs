@@ -40,7 +40,7 @@ struct ListArgs {
     global: bool,
     sort: Option<String>,
     compact: bool,
-    limit: i64,
+    limit: Option<usize>,
 }
 
 /// `task_add`'s arguments.
@@ -112,8 +112,8 @@ impl ListRequest {
     }
 }
 
-/// The listing `task_list`'s `arguments` ask for. A limit of 0 or less
-/// is none.
+/// The listing `task_list`'s `arguments` ask for. A limit left out is
+/// none; one given is passed on, 0 included, for the use case to refuse.
 pub fn list_request(arguments: Value, settings: &Settings) -> Result<ListRequest, McpError> {
     let args: ListArgs = self::arguments(TASK_LIST, arguments)?;
     Ok(ListRequest {
@@ -124,7 +124,7 @@ pub fn list_request(arguments: Value, settings: &Settings) -> Result<ListRequest
             tag_query: args.tag_query,
             term: args.term,
             global: args.global,
-            limit: usize::try_from(args.limit).unwrap_or(0),
+            limit: args.limit,
             sort: args.sort,
         },
         compact: args.compact,

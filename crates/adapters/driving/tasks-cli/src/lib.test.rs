@@ -1176,7 +1176,7 @@ fn test_list_passes_its_filters() {
             tag_query: Some("urgent/not".to_string()),
             term: Some("docs".to_string()),
             global: true,
-            limit: 5,
+            limit: Some(5),
             sort: Some("priority".to_string()),
         }]
     );
@@ -1212,6 +1212,25 @@ fn test_list_tags_and_prune_pass_a_filter_given_empty_on_as_given() {
     assert_eq!(fake.counts[0].tag_query, given);
     run_on(&mut fake, true, &["prune", "--tag-query", "", "--yes"]);
     assert_eq!(fake.prunes[0].tag_query, given);
+}
+
+// A limit of 0 is given: passed on as given, for the use case to refuse as
+// blank, never read as no limit (which is the limit left out); the help
+// says so.
+#[test]
+fn test_list_passes_a_limit_of_zero_on_as_given() {
+    let mut fake = Fake {
+        listing: listing(Vec::new()),
+        ..Fake::default()
+    };
+    run_on(&mut fake, true, &["list", "--limit", "0"]);
+    assert_eq!(fake.listed[0].limit, Some(0));
+    let help = run_on(&mut Fake::default(), true, &["list", "--help"]);
+    assert!(
+        help.out.contains("leave it out for no limit; 0 is refused"),
+        "{}",
+        help.out
+    );
 }
 
 #[test]

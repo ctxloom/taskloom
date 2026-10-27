@@ -470,6 +470,9 @@ where
                 })
             }
         };
+        if query.limit == Some(0) {
+            return Err(AppError::Blank { field: "limit" });
+        }
         let filter = StatusFilter::parse(&query.statuses)?;
         let schema = self.schema()?;
         let scan = self.scan(query.project.as_deref(), query.global).await?;
@@ -520,8 +523,8 @@ where
             });
         }
         let omitted = match query.limit {
-            0 => 0,
-            limit => {
+            None => 0,
+            Some(limit) => {
                 let omitted = rows.len().saturating_sub(limit);
                 rows.truncate(limit);
                 omitted

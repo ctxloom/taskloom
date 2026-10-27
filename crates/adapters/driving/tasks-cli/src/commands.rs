@@ -201,10 +201,10 @@ pub struct ListArgs {
     /// text is one line per task already.
     #[arg(long)]
     compact: bool,
-    /// At most this many tasks (0: no limit); how many more there were is
-    /// said on stderr.
-    #[arg(long, default_value_t = 0)]
-    limit: usize,
+    /// At most this many tasks (leave it out for no limit; 0 is refused);
+    /// how many more there were is said on stderr.
+    #[arg(long)]
+    limit: Option<usize>,
     /// Only the tasks this tag query selects: postfix, tags first and the
     /// operator after (urgent/release/and, urgent/not), or infix (urgent
     /// and not release). Operators: and, or, not; atoms [ns:]key[op value]

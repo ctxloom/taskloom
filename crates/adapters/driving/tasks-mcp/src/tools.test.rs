@@ -124,7 +124,7 @@ fn test_a_listing_asks_for_everything_its_arguments_name() {
                 tag_query: Some("a/b/and".to_string()),
                 term: Some("ship".to_string()),
                 global: true,
-                limit: 5,
+                limit: Some(5),
                 sort: Some("priority".to_string()),
             },
             compact: true,
@@ -180,13 +180,21 @@ fn test_an_add_in_an_empty_session_is_added_in_none() {
     assert_eq!(task.origin_session, None);
 }
 
-// A limit of 0 or less is no cap.
+// A limit left out (or null) is no cap; one given is passed on as given,
+// 0 included, for the use case to refuse as blank. A negative limit is no
+// count of tasks, and is refused here.
 #[test]
-fn test_a_limit_of_zero_or_less_is_none() {
-    for limit in [0, -3] {
-        let request = list_request(json!({ "limit": limit }), &settings()).unwrap();
-        assert_eq!(request.query.limit, 0, "{limit}");
+fn test_a_limit_left_out_is_none_and_one_given_is_passed_on() {
+    for arguments in [json!({}), json!({ "limit": null })] {
+        let request = list_request(arguments.clone(), &settings()).unwrap();
+        assert_eq!(request.query.limit, None, "{arguments}");
     }
+    let request = list_request(json!({ "limit": 0 }), &settings()).unwrap();
+    assert_eq!(request.query.limit, Some(0));
+    assert!(matches!(
+        list_request(json!({ "limit": -3 }), &settings()),
+        Err(McpError::Arguments { tool, .. }) if tool == "task_list"
+    ));
 }
 
 #[test]

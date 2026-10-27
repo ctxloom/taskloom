@@ -679,6 +679,19 @@ fn test_a_listing_is_compact_and_limited_when_asked() {
     });
 }
 
+// A limit of 0 is refused as blank, never read as no cap.
+#[test]
+fn test_a_listing_limited_to_zero_is_refused_as_blank() {
+    run(async {
+        let (mut client, _) = connect(bound(), settings()).await;
+        seeded(&mut client).await;
+        let refused = client.call("task_list", json!({"limit": 0})).await;
+        let envelope = envelope(&refused);
+        assert_eq!(envelope["code"], "tasks-application-blank", "{refused}");
+        assert_eq!(envelope["args"]["field"], "limit", "{refused}");
+    });
+}
+
 // The summary counts every task wherever the listing read, whatever it
 // filtered.
 #[test]
