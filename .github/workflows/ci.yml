@@ -1,0 +1,137 @@
+# The gates, on every push and pull request: on Linux every gate the
+# justfile has (the shared gates' fmt-check, lint-deps and test, and this
+# repository's build, lint, lint-os and check-windows); on Windows, natively,
+# build and test (decision 5: the platform crates' Windows implementors run,
+# not only compile).
+#
+# The checkout mirrors a developer's: taskloom at ctxloom/taskloom, so its
+# relative paths resolve inside the workspace: angzarr-build (Cargo.toml,
+# ../../angzarr/angzarr-cli/main) and the shared gates (justfile, gates_dir
+# ../../gates).
+#
+# Every action is pinned to a commit, its release in the comment; every tool
+# to a version.
+
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  # The shared gates repository (owner/name) and the commit of it the
+  # justfile's gates are imported from. It has no GitHub remote yet: until
+  # it does, the gates checkout fails, saying so.
+  GATES_REPOSITORY: ""
+  GATES_REF: fef527e3ba7410ec054340dd297a9b924d124748
+  # angzarr-cli at the commit that adds angzarr-build, which the root
+  # Cargo.toml reaches by path.
+  ANGZARR_CLI_REPOSITORY: angzarr-io/angzarr-cli
+  ANGZARR_CLI_REF: 0277731bc9b5e46596633da9786fd5b5e6e993f2
+  TOOLS: just@1.40.0,cargo-nextest@0.9.146,cargo-deny@0.20.2
+  PROTOC_VERSION: "21.12"
+
+jobs:
+  linux:
+    name: gates (linux)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
+        working-directory: ctxloom/taskloom
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: ctxloom/taskloom
+      - name: Check the shared gates have a repository
+        run: |
+          if [ -z "$GATES_REPOSITORY" ]; then
+            echo "::error::GATES_REPOSITORY is unset: the shared gates repository has no GitHub remote, so the gates cannot be imported"
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.GATES_REPOSITORY }}
+          ref: ${{ env.GATES_REF }}
+          path: gates
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.ANGZARR_CLI_REPOSITORY }}
+          ref: ${{ env.ANGZARR_CLI_REF }}
+          path: angzarr/angzarr-cli/main
+      - name: Toolchain (rust-toolchain.toml) and the Windows target
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add x86_64-pc-windows-gnu
+      - uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: ${{ env.TOOLS }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ctxloom/taskloom -> target
+      - run: just gates-link
+      - run: just build
+      - run: just fmt-check
+      - run: just lint
+      - run: just lint-os
+      - run: just lint-deps
+      - run: just test
+      - run: just check-windows
+      - name: The gates' logs
+        if: failure()
+        run: for log in target/logs/*.log; do echo "::group::$log"; cat "$log"; echo "::endgroup::"; done
+
+  windows:
+    name: build and test (windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: ctxloom/taskloom
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: ctxloom/taskloom
+      - name: Check the shared gates have a repository
+        run: |
+          if [ -z "$GATES_REPOSITORY" ]; then
+            echo "::error::GATES_REPOSITORY is unset: the shared gates repository has no GitHub remote, so the gates cannot be imported"
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.GATES_REPOSITORY }}
+          ref: ${{ env.GATES_REF }}
+          path: gates
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.ANGZARR_CLI_REPOSITORY }}
+          ref: ${{ env.ANGZARR_CLI_REF }}
+          path: angzarr/angzarr-cli/main
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: ${{ env.TOOLS }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ctxloom/taskloom -> target
+      - run: just gates-link
+      - run: just build
+      - run: just test
+      - name: The gates' logs
+        if: failure()
+        run: for log in target/logs/*.log; do echo "::group::$log"; cat "$log"; echo "::endgroup::"; done
