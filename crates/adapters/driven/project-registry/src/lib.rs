@@ -163,19 +163,16 @@ impl<N> ProjectRegistry<N> {
         Ok(worktree::primary_checkout(&*self.fs, &root)?.unwrap_or(root))
     }
 
-    /// The project `id` names, resolved for `root`.
-    fn project(&self, id: String, root: &Path) -> Result<Project, RegistryError> {
+    /// The project `id` names, resolved for `root` (`None`: a pinned
+    /// project the registry holds no path for).
+    fn project(&self, id: String, root: Option<String>) -> Result<Project, RegistryError> {
         let store = self
             .home()?
             .join(".ctxloom")
             .join("projects")
             .join(&id)
             .join("state.db");
-        Ok(Project {
-            id,
-            root: root.display().to_string(),
-            store,
-        })
+        Ok(Project { id, root, store })
     }
 
     /// The id given explicitly: the pin, else CTXLOOM_PROJECT_ID. A pin is
@@ -257,7 +254,7 @@ impl<N: Names> ProjectRegistry<N> {
     /// The project a call acts on. A pinned one (the pin, else
     /// CTXLOOM_PROJECT_ID) is resolved first, walking no working
     /// directory: it is rooted where the registry first holds it, or
-    /// nowhere (an empty root), as [`ProjectIdentity::every_project`]
+    /// nowhere (`None`), as [`ProjectIdentity::every_project`]
     /// roots each project. Otherwise the identity root's, bound to a new
     /// id on a write that finds none.
     fn resolve(
@@ -268,7 +265,7 @@ impl<N: Names> ProjectRegistry<N> {
         if let Some((id, _)) = self.pinned(pinned)? {
             let index = index::load(&*self.fs, &index::path(self.home()?))?;
             let root = index.root_of(&*self.fs, &id);
-            return self.project(id, Path::new(&root)).map(Some);
+            return self.project(id, root).map(Some);
         }
         let root = self.identity_root()?;
         let id = match self.bound(&root, write)? {
@@ -276,7 +273,8 @@ impl<N: Names> ProjectRegistry<N> {
             None if write => Some(self.bind(&root)?),
             None => None,
         };
-        id.map(|id| self.project(id, &root)).transpose()
+        let root = root.display().to_string();
+        id.map(|id| self.project(id, Some(root))).transpose()
     }
 }
 

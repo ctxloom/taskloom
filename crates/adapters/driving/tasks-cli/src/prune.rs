@@ -7,7 +7,7 @@ use std::io::{self, Write};
 use presentation::{text, Render};
 use serde::Serialize;
 use tasks_application::{Pruning, Timestamp};
-use tasks_presentation::{rfc3339, spelled};
+use tasks_presentation::{project_dir, rfc3339, spelled};
 
 use crate::render::{headline, project_label};
 use crate::PROG;
@@ -56,7 +56,7 @@ impl Render for PruneReport<'_> {
         let project = pruning.project.as_ref();
         ReportJson {
             project_id: project.map_or("", |p| p.id.as_str()),
-            project_dir: project.map_or("", |p| p.root.as_str()),
+            project_dir: project.map_or("", project_dir),
             statuses: &pruning.statuses,
             before: rfc3339(pruning.before),
             // Go's report shape: "" where no tag query was given.

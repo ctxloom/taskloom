@@ -76,7 +76,7 @@ fn listing_none() -> Listing {
 fn project() -> Project {
     Project {
         id: "jolly-mute-magma".to_string(),
-        root: "/work/tree".to_string(),
+        root: Some("/work/tree".to_string()),
         store: PathBuf::new(),
     }
 }
@@ -201,7 +201,7 @@ fn test_a_listing_names_its_project_in_text_and_is_an_array_in_json() {
 fn test_a_listing_across_projects_has_a_table_for_each() {
     let other = Project {
         id: "brisk-tall-oak".to_string(),
-        root: String::new(),
+        root: None,
         store: PathBuf::new(),
     };
     let mut listing = listing(

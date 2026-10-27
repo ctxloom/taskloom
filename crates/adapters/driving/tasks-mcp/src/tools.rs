@@ -9,7 +9,7 @@ use serde_json::Value;
 use tasks_application::{
     ListQuery, Listing, NewTask, Reach, Scope, StatusChange, Summary, TagChange, TextEdit, Written,
 };
-use tasks_presentation::{CompactJson, RowJson, SummaryJson, TaskJson};
+use tasks_presentation::{project_dir, CompactJson, RowJson, SummaryJson, TaskJson};
 
 use crate::{McpError, McpNotice, Settings, TOOLS};
 
@@ -278,7 +278,7 @@ pub fn listed(
     };
     let result = ListResult {
         project_id: project.map(|p| p.id.as_str()),
-        project_dir: project.map(|p| p.root.as_str()),
+        project_dir: project.map(project_dir),
         tasks: rows,
         summary: summary.map(SummaryJson::of),
         compact_tasks: compact_rows,
@@ -304,7 +304,7 @@ pub fn written(written: &Written) -> Value {
     let result = WriteResult {
         task: TaskJson::of(&written.task),
         project_id: &written.project.id,
-        project_dir: &written.project.root,
+        project_dir: project_dir(&written.project),
     };
     serde_json::to_value(result).unwrap_or_default()
 }

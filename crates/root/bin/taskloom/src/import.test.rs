@@ -66,7 +66,7 @@ fn rust_tasks(home: &Path, project: &str) -> Option<BTreeMap<String, TaskState>>
         let mut stores = SqliteStores::new(super::os());
         let project = Project {
             id: project.to_string(),
-            root: String::new(),
+            root: None,
             store: home
                 .join(".ctxloom/projects")
                 .join(project)

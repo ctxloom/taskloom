@@ -29,7 +29,7 @@ pub(crate) fn service(names: &[&str]) -> Fake {
 pub(crate) fn named(id: &str) -> Project {
     Project {
         id: id.to_string(),
-        root: format!("/work/{id}"),
+        root: Some(format!("/work/{id}")),
         store: PathBuf::from(format!("/home/.ctxloom/projects/{id}/state.db")),
     }
 }

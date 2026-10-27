@@ -32,7 +32,7 @@ fn block_on<F: Future>(future: F) -> F::Output {
 fn project(id: &str, store: PathBuf) -> Project {
     Project {
         id: id.to_string(),
-        root: "/work/tree".to_string(),
+        root: Some("/work/tree".to_string()),
         store,
     }
 }

@@ -30,7 +30,7 @@ fn ready<F: Future>(future: F) -> F::Output {
 fn project() -> Project {
     Project {
         id: "jolly-mute-magma".to_string(),
-        root: "/work/tree".to_string(),
+        root: Some("/work/tree".to_string()),
         store: PathBuf::from("/home/.ctxloom/projects/jolly-mute-magma/state.db"),
     }
 }

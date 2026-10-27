@@ -12,7 +12,7 @@ use crate::{Project, TagSchema};
 fn project(id: &str) -> Project {
     Project {
         id: id.to_string(),
-        root: String::new(),
+        root: None,
         store: PathBuf::new(),
     }
 }

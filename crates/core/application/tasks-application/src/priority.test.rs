@@ -19,7 +19,7 @@ const NOW: Timestamp = Timestamp {
 fn project(id: &str) -> Project {
     Project {
         id: id.to_string(),
-        root: format!("/work/{id}"),
+        root: Some(format!("/work/{id}")),
         store: format!("/home/.ctxloom/projects/{id}/state.db").into(),
     }
 }

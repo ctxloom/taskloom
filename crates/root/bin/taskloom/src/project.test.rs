@@ -313,7 +313,7 @@ fn test_every_project_command_answers_as_text_too() {
 fn settled(path: &Path) {
     let project = ports::Project {
         id: "settling".to_string(),
-        root: "/".to_string(),
+        root: Some("/".to_string()),
         store: path.to_path_buf(),
     };
     let mut stores = SqliteStores::new(super::os());

@@ -265,7 +265,7 @@ fn test_a_pinned_id_wins_over_the_environment_and_the_marker() {
     let mut registry = ProjectRegistry::new(world.fs(), env, names(&[]));
     let project = registry.for_write(Some("from-flag")).unwrap();
     assert_eq!(project.id, "from-flag");
-    assert_eq!(project.root, "", "registered nowhere: no root");
+    assert_eq!(project.root, None, "registered nowhere: no root");
     assert_eq!(project.store, world.store("from-flag"));
     let read = registry.for_read(Some("from-flag")).unwrap().unwrap();
     assert_eq!(read, project);
@@ -290,13 +290,13 @@ fn test_a_pinned_projects_root_is_its_first_registered_path() {
     let read = registry.for_read(None).unwrap().unwrap();
     assert_eq!(
         (read.id.as_str(), read.root),
-        ("pinned-proj-id", text(&elsewhere))
+        ("pinned-proj-id", Some(text(&elsewhere)))
     );
     let written = registry.for_write(Some("pinned-proj-id")).unwrap();
-    assert_eq!(written.root, text(&elsewhere));
+    assert_eq!(written.root, Some(text(&elsewhere)));
     assert_eq!(
         registry.for_read(None).unwrap().unwrap().root,
-        text(&elsewhere)
+        Some(text(&elsewhere))
     );
 }
 
@@ -310,8 +310,8 @@ fn test_a_pinned_call_resolves_from_a_working_directory_that_is_gone() {
     let mut registry = ProjectRegistry::new(world.fs(), env.clone(), names(&[]));
     let read = registry.for_read(Some("pinned-proj-id")).unwrap().unwrap();
     assert_eq!(
-        (read.id.as_str(), read.root.as_str()),
-        ("pinned-proj-id", "")
+        (read.id.as_str(), read.root.as_deref()),
+        ("pinned-proj-id", None)
     );
     let written = registry.for_write(Some("pinned-proj-id")).unwrap();
     assert_eq!(written.store, world.store("pinned-proj-id"));
@@ -462,7 +462,7 @@ fn test_a_symlinked_or_slashed_ctxloom_root_finds_gos_entry() {
         let mut registry = ProjectRegistry::new(world.fs(), env, names(&[]));
         let project = registry.for_read(None).unwrap().expect("Go's entry");
         assert_eq!(project.id, "high-tight-gulf", "{root:?}");
-        assert_eq!(project.root, text(&world.tree()));
+        assert_eq!(project.root, Some(text(&world.tree())));
     }
 }
 
@@ -519,7 +519,7 @@ fn test_a_write_with_no_project_mints_and_binds_one() {
     let mut registry = world.registry(&["fresh-new-id"]);
     let project = registry.for_write(None).unwrap();
     assert_eq!(project.id, "fresh-new-id");
-    assert_eq!(project.root, text(&world.tree()));
+    assert_eq!(project.root, Some(text(&world.tree())));
     assert_eq!(project.store, world.store("fresh-new-id"));
     assert_eq!(world.marker().as_deref(), Some("fresh-new-id\n"));
     let index = world.index();
@@ -747,7 +747,7 @@ fn test_a_linked_worktree_reads_its_primary_checkouts_project() {
     assert_eq!(project.id, "jolly-mute-magma");
     assert_eq!(
         project.root,
-        text(&repo.root()),
+        Some(text(&repo.root())),
         "the project's root is the primary"
     );
     assert_eq!(
@@ -817,7 +817,7 @@ fn test_a_linked_worktree_with_its_own_marker_keeps_its_own_project() {
         .unwrap()
         .unwrap();
     assert_eq!(project.id, "its-own-id");
-    assert_eq!(project.root, text(&linked));
+    assert_eq!(project.root, Some(text(&linked)));
 }
 
 #[test]
@@ -858,14 +858,17 @@ fn test_every_project_is_each_database_directory_by_id_with_its_registered_root(
     world.save(&index);
 
     let every = world.registry(&[]).every_project().unwrap();
-    let seen: Vec<(&str, &str)> = every
+    let seen: Vec<(&str, Option<&str>)> = every
         .iter()
-        .map(|p| (p.id.as_str(), p.root.as_str()))
+        .map(|p| (p.id.as_str(), p.root.as_deref()))
         .collect();
     let tree = text(&world.tree());
     assert_eq!(
         seen,
-        [("brisk-tall-oak", ""), ("zesty-lone-fern", tree.as_str())],
+        [
+            ("brisk-tall-oak", None),
+            ("zesty-lone-fern", Some(tree.as_str()))
+        ],
         "by id; the first registered path, canonical; none unregistered"
     );
     assert_eq!(every[1].store, world.store("zesty-lone-fern"));

@@ -56,13 +56,12 @@ impl Index {
     }
 
     /// Where the project `id` is rooted: the first path registered for it,
-    /// canonical; empty when none is.
-    pub fn root_of(&self, fs: &dyn Fs, id: &str) -> String {
+    /// canonical; `None` when none is.
+    pub fn root_of(&self, fs: &dyn Fs, id: &str) -> Option<String> {
         self.projects
             .iter()
             .find(|e| e.project_id == id)
             .map(|e| canonical(fs, Path::new(&e.path)).display().to_string())
-            .unwrap_or_default()
     }
 
     /// Whether `id` is registered, for any path.

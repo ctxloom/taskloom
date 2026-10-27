@@ -54,7 +54,7 @@ fn catalog() -> Catalog {
 fn project() -> Project {
     Project {
         id: "jolly-mute-magma".to_string(),
-        root: "/work/tree".to_string(),
+        root: Some("/work/tree".to_string()),
         store: PathBuf::new(),
     }
 }
@@ -298,6 +298,27 @@ fn test_add_joins_its_words_and_passes_its_flags_and_the_session() {
     );
     assert_eq!(ran.err, "taskloom: project /work/tree (jolly-mute-magma)\n");
     assert_eq!(ran.out, "swift-amber\tDeferred\tShip it\n");
+}
+
+// A pinned project the registry holds no path for has no root: the notice
+// names it by its id alone, with no gap where a root would be.
+#[test]
+fn test_a_write_to_a_project_with_no_root_is_named_by_its_id() {
+    let mut fake = Fake {
+        written: Some(Ok(Written {
+            dead_letters: Vec::new(),
+            shown: tasks_application::Shown::default(),
+            project: Project {
+                root: None,
+                ..project()
+            },
+            task: shapes::task("swift-amber", "To Do"),
+        })),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["--project", "pinned", "add", "Ship it"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(ran.err, "taskloom: project jolly-mute-magma\n");
 }
 
 #[test]

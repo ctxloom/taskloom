@@ -28,7 +28,7 @@ fn pruning(applied: bool) -> Pruning {
         dead_letters: Vec::new(),
         project: Some(Project {
             id: "jolly-mute-magma".to_string(),
-            root: "/work/tree".to_string(),
+            root: Some("/work/tree".to_string()),
             store: PathBuf::new(),
         }),
         statuses: vec!["Done".to_string(), "Archived".to_string()],

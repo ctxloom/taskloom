@@ -393,7 +393,7 @@ mod ticked {
         let dir = crate::tests::Temp::new();
         let project = Project {
             id: "jolly-mute-magma".to_string(),
-            root: dir.path().display().to_string(),
+            root: Some(dir.path().display().to_string()),
             store: dir.path().join("state.db"),
         };
         let runtime = tokio::runtime::Builder::new_current_thread()

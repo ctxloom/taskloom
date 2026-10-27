@@ -25,7 +25,7 @@ fn settings() -> Settings {
 fn project() -> Project {
     Project {
         id: "jolly-mute-magma".to_string(),
-        root: "/work/tree".to_string(),
+        root: Some("/work/tree".to_string()),
         store: PathBuf::from("/s/state.db"),
     }
 }
@@ -423,6 +423,33 @@ fn test_an_added_task_is_answered_with_its_project_and_no_store() {
     assert_eq!(value["project_dir"], "/work/tree");
     assert_eq!(value["task"]["tags"], json!(["a"]));
     assert_eq!(value["task"]["derived_priority"], json!(null));
+}
+
+// A project with no root (a pinned one the registry holds no path for)
+// still writes `project_dir`, as "": the JSON a program reads keeps its
+// shape, as it always has.
+#[test]
+fn test_a_project_with_no_root_is_answered_with_an_empty_project_dir() {
+    let rootless = Project {
+        root: None,
+        ..project()
+    };
+    let written = Written {
+        dead_letters: Vec::new(),
+        project: rootless.clone(),
+        task: task(),
+        shown: Shown::default(),
+    };
+    assert_eq!(super::written(&written)["project_dir"], json!(""));
+    let mut listing = listing(
+        Reach::Project(rootless.clone()),
+        vec![task()],
+        Shown::default(),
+    );
+    listing.rows[0].project = rootless;
+    let value = listed(&listing, false, None, &catalog());
+    assert_eq!(value["project_dir"], json!(""));
+    assert_eq!(value["tasks"][0]["project_dir"], json!(""));
 }
 
 // A tool's result is read by a program, as the CLI's JSON is: each tag in
