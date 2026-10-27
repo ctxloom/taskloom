@@ -88,7 +88,7 @@ jobs:
       - run: just check-windows
       - name: The gates' logs
         if: failure()
-        run: for log in target/logs/*.log; do echo "::group::$log"; cat "$log"; echo "::endgroup::"; done
+        run: shopt -s nullglob; for log in target/logs/*.log; do echo "::group::$log"; cat "$log"; echo "::endgroup::"; done
 
   windows:
     name: build and test (windows)
@@ -134,4 +134,4 @@ jobs:
       - run: just test
       - name: The gates' logs
         if: failure()
-        run: for log in target/logs/*.log; do echo "::group::$log"; cat "$log"; echo "::endgroup::"; done
+        run: shopt -s nullglob; for log in target/logs/*.log; do echo "::group::$log"; cat "$log"; echo "::endgroup::"; done
