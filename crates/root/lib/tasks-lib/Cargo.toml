@@ -16,6 +16,7 @@ file-lock.workspace = true
 file-system.workspace = true
 harp-names.workspace = true
 jsonl-task-log.workspace = true
+os.workspace = true
 presentation.workspace = true
 project-application.workspace = true
 project-registry.workspace = true

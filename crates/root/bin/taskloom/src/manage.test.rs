@@ -167,7 +167,7 @@ fn test_manage_takes_gos_lock_on_the_file_and_waits_its_turn() {
     let locks = env.home.path().join(".ctxloom/locks");
     let sidecar = locks.join(format!(
         "{}.lock",
-        file_lock::path::flat_name(&config.display().to_string())
+        file_lock::path::flat_name(os::host().flavor(), &config.display().to_string())
     ));
     let interlock = locks.join("reap.interlock");
     // Claude Code is in use here.

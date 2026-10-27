@@ -11,7 +11,8 @@ use annals::next::v1::event_meta::Causation;
 use annals::next::v1::{Cover, EventMeta, EventPage, Uuid};
 use annals::next::{Any, AsyncEventStore};
 use annals_diagnostic::Diagnostic;
-use file_system::{Fs, Mode, Os, Perms, Rooted};
+use file_system::{Fs, Os, Perms, Rooted};
+use os::Mode;
 use ports::{Checked, Project, StoreCheck, TaskStores, WatchedStores};
 
 use annals_store_sql::sqlite::SqliteStore;
@@ -126,7 +127,7 @@ fn test_the_database_is_where_the_filesystem_puts_it() {
         .root()
         .join("home/u/.ctxloom/projects/jolly-mute-magma/state.db");
     assert_eq!(home.real(&path), real);
-    let os = Os::new(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let os = Os::new(os::host(), Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
     assert!(os.exists(&real).unwrap(), "under the filesystem's root");
     assert!(
         !os.exists(&path).unwrap(),
@@ -231,6 +232,9 @@ struct Unplaceable(Rooted);
 impl Fs for Unplaceable {
     fn cwd(&self) -> Result<&Path, file_system::CwdError> {
         self.0.cwd()
+    }
+    fn os(&self) -> &dyn os::Os {
+        self.0.os()
     }
     fn read(&self, path: &Path) -> std::io::Result<Vec<u8>> {
         self.0.read(path)

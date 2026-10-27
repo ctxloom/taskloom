@@ -7,7 +7,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use annals_diagnostic::Diagnostic;
-use file_system::{Fs, Mode, Perms, Rooted};
+use file_system::{Fs, Perms, Rooted};
+use os::Mode;
 use ports::Configuration;
 
 use super::{ConfigError, TaskloomConfig};
@@ -268,6 +269,19 @@ fn test_a_list_splits_on_commas_outside_quotes() {
     assert_eq!(error.code(), "tasks-config-unterminated");
 }
 
+// A variable's name is compared as the host compares names: exactly on
+// unix, in any case on Windows (os's Flavor::env_has_prefix).
+#[test]
+fn test_a_variable_is_named_as_the_host_names_it() {
+    let dirs = Dirs::new(Some(HOME), Some(ROOT));
+    let lower = dirs.config(&[(
+        "taskloom_config_tag_schema",
+        r#"tagma.arity:"env:x"=scalar"#,
+    )]);
+    let read = schema(&lower, &[]) == Ok(strings(&[r#"tagma.arity:"env:x"=scalar"#]));
+    assert_eq!(read, os::host().flavor() == os::Flavor::Windows);
+}
+
 // An empty variable of the environment is unset, as everywhere else
 // (CTXLOOM_PROJECT_ID, CTXLOOM_SESSION_HARP): `TASKLOOM_CONFIG_TAG_SCHEMA=`
 // left over in a shell is no layer, never an empty list that drops every
@@ -348,24 +362,18 @@ fn test_a_blank_item_in_a_config_files_list_is_refused() {
 // The environment is given as the process has it; a variable whose name or
 // value is not UTF-8 is skipped where the configuration reads it, never
 // refused, and the rest still read.
-#[cfg(unix)]
 #[test]
 fn test_a_variable_that_is_not_utf8_is_skipped() {
-    use std::os::unix::ffi::OsStringExt;
-
     let dirs = Dirs::new(Some(HOME), None);
     let set: (OsString, OsString) = (
         "TASKLOOM_CONFIG_TAG_SCHEMA".into(),
         r#"tagma.arity:"env:x"=scalar"#.into(),
     );
     for odd in [
-        (
-            OsString::from_vec(b"TASKLOOM_CONFIG_\xff".to_vec()),
-            OsString::from("x"),
-        ),
+        (os::not_unicode("TASKLOOM_CONFIG_"), OsString::from("x")),
         (
             OsString::from("TASKLOOM_CONFIG_TAG_SCHEMA"),
-            OsString::from_vec(b"\xff".to_vec()),
+            os::not_unicode(""),
         ),
     ] {
         let config = TaskloomConfig::new(

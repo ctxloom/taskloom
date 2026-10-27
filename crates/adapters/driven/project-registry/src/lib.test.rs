@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use annals_diagnostic::Diagnostic;
-use file_system::{Fs, Mode, Os, Perms, Rooted};
+use file_system::{Fs, Os, Perms, Rooted};
+use os::Mode;
 use ports::{Names, ProjectIdentity};
 
 use super::{index, Environment, ProjectRegistry, MINT_ATTEMPTS};
@@ -66,7 +67,7 @@ impl World {
     pub(crate) fn real() -> World {
         let temp = Rooted::temp().unwrap();
         let top = temp.root().to_path_buf();
-        let fs = Arc::new(Os::new(&top.join("tree")).unwrap());
+        let fs = Arc::new(Os::new(os::host(), &top.join("tree")).unwrap());
         World::made(fs, &top, top.clone(), true, Some(temp))
     }
 
@@ -108,7 +109,7 @@ impl World {
     /// The world's filesystem, working in `cwd` instead.
     pub(crate) fn fs_in(&self, cwd: &Path) -> Arc<dyn Fs> {
         if self.real {
-            Arc::new(Os::new(cwd).unwrap())
+            Arc::new(Os::new(os::host(), cwd).unwrap())
         } else {
             Arc::new(Rooted::new(&self.top, cwd).unwrap())
         }
@@ -118,7 +119,7 @@ impl World {
     pub(crate) fn fs_without_cwd(&self) -> Arc<dyn Fs> {
         let gone = std::io::Error::from_raw_os_error(2);
         if self.real {
-            Arc::new(Os::without_cwd(gone))
+            Arc::new(Os::without_cwd(os::host(), gone))
         } else {
             Arc::new(Rooted::without_cwd(&self.top, gone).unwrap())
         }

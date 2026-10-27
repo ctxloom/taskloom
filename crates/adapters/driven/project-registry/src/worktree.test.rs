@@ -2,14 +2,16 @@
 
 use std::path::{Path, PathBuf};
 
-use file_system::{Fs, Mode, Os, Perms, Rooted};
+use file_system::{Fs, Os, Perms, Rooted};
+
+use os::Mode;
 
 use super::primary_checkout;
 use crate::tests::git;
 
 /// The real filesystem, where git makes its repositories.
 fn real() -> Os {
-    Os::new(Path::new("/")).unwrap()
+    Os::new(os::host(), Path::new("/")).unwrap()
 }
 
 /// A filesystem of the test's own, and the directory to work in on it.

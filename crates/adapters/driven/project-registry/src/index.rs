@@ -10,12 +10,14 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use file_system::{Fs, Mode, Perms};
+use file_system::{Fs, Perms};
+
+use os::Mode;
 use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use crate::path::canonical;
+use crate::path::{canonical, same};
 use crate::RegistryError;
 
 /// The schema version this registry writes.
@@ -51,7 +53,7 @@ impl Index {
     pub fn id_for(&self, fs: &dyn Fs, root: &Path) -> Option<&str> {
         self.projects
             .iter()
-            .find(|e| canonical(fs, Path::new(&e.path)) == root)
+            .find(|e| same(fs.os().flavor(), &canonical(fs, Path::new(&e.path)), root))
             .map(|e| e.project_id.as_str())
     }
 

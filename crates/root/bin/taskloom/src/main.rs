@@ -106,43 +106,19 @@ fn serve_mcp(
     }
 }
 
-/// Resolves at SIGINT or SIGTERM (Ctrl-C alone off Unix), listening from
-/// the moment it is made, so a signal before the first await is not lost
-/// to the default disposition. Made on the runtime.
-fn interrupted() -> std::io::Result<impl std::future::Future<Output = ()>> {
-    #[cfg(unix)]
-    {
-        use tokio::signal::unix::{signal, SignalKind};
-        let mut interrupt = signal(SignalKind::interrupt())?;
-        let mut terminate = signal(SignalKind::terminate())?;
-        Ok(std::future::poll_fn(move |cx| {
-            let interrupted = interrupt.poll_recv(cx).is_ready();
-            let terminated = terminate.poll_recv(cx).is_ready();
-            if interrupted || terminated {
-                std::task::Poll::Ready(())
-            } else {
-                std::task::Poll::Pending
-            }
-        }))
-    }
-    #[cfg(not(unix))]
-    {
-        Ok(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-    }
-}
-
 /// `taskloom watch`: the project's changes on stdout, polled every
 /// debounce, until interrupted.
 fn watch<W: tasks_application::WatchService>(
     runtime: &tokio::runtime::Runtime,
+    os: &dyn os::Os,
     service: &mut W,
     settings: &tasks_watch::Settings,
     catalog: &presentation::Catalog,
 ) -> ExitCode {
     let code = runtime.block_on(async {
-        let stop = match interrupted() {
+        // SIGINT or SIGTERM (Ctrl-C on Windows), listened for from here,
+        // made on the runtime.
+        let stop = match os.stop_signal() {
             Ok(stop) => stop,
             Err(e) => {
                 eprintln!("{}: cannot listen for signals: {e}", tasks_cli::PROG);
@@ -320,7 +296,13 @@ fn main() -> ExitCode {
                 project,
                 prog: tasks_cli::PROG,
             };
-            watch(&runtime, &mut taskloom.tasks(), &settings, &catalog)
+            watch(
+                &runtime,
+                taskloom.fs().os(),
+                &mut taskloom.tasks(),
+                &settings,
+                &catalog,
+            )
         }
     }
 }

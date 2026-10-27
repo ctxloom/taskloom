@@ -9,14 +9,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use annals_diagnostic::Diagnostic;
-use file_system::{Fs, Mode, Open, Os, Perms, Rooted};
+use file_system::{Fs, Open, Os, Perms, Rooted};
+use os::Mode;
 use ports::{AgentConfigs, McpServer, Scope};
 
 use super::{go_join, records, AgentConfigFiles, CLAUDE_CODE};
 
 /// This crate's directory, where the recorded cases are.
 fn fixtures() -> Os {
-    Os::new(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap()
+    Os::new(os::host(), Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap()
 }
 
 /// A filesystem of the test's own.
@@ -104,6 +105,7 @@ impl Home {
             fs: Arc::clone(&fs),
             home: Some(home.to_path_buf()),
             path: Some(bin.as_os_str().to_owned()),
+            pathext: None,
             waits: file_lock::Waits::DEFAULT,
         };
         let scope = if case.project() {
@@ -260,7 +262,7 @@ fn test_an_uninstall_after_gos_install_does_what_gos_uninstall_did() {
             .replace("$TARGET", &target);
         let name = format!(
             "{}__20261021T000000.000000000Z.hew-record.yaml",
-            records::flat_name(&target)
+            records::flat_name(os::host().flavor(), &target)
         );
         write(&*home.fs, &records.join(name), record);
         let answered = home.register(None);
@@ -312,6 +314,7 @@ fn files() -> (Arc<dyn Fs>, PathBuf, AgentConfigFiles) {
         fs: Arc::clone(&fs),
         home: Some(home.clone()),
         path: None,
+        pathext: None,
         waits: file_lock::Waits::DEFAULT,
     };
     (fs, home, configs)
@@ -323,6 +326,7 @@ fn homeless(fs: &Arc<dyn Fs>, path: Option<std::ffi::OsString>) -> AgentConfigFi
         fs: Arc::clone(fs),
         home: None,
         path,
+        pathext: None,
         waits: file_lock::Waits::DEFAULT,
     }
 }
@@ -440,9 +444,11 @@ fn test_a_rewrite_that_changes_nothing_writes_nothing() {
     );
 }
 
-#[cfg(unix)]
 #[test]
 fn test_a_write_keeps_the_files_permissions_and_a_new_file_is_private() {
+    if os::host().flavor() != os::Flavor::Unix {
+        return;
+    }
     let (fs, home, mut configs) = files();
     let made = home.join("deeper/.mcp.json");
     install(&mut configs, &made, false).unwrap();
@@ -455,9 +461,11 @@ fn test_a_write_keeps_the_files_permissions_and_a_new_file_is_private() {
     assert_eq!(mode(&kept), 0o640);
 }
 
-#[cfg(unix)]
 #[test]
 fn test_a_corrupt_files_copy_is_private() {
+    if os::host().flavor() != os::Flavor::Unix {
+        return;
+    }
     let (fs, home, mut configs) = files();
     let path = home.join(".claude.json");
     write(&*fs, &path, "not json");
@@ -478,9 +486,11 @@ fn test_a_corrupt_files_copy_is_private() {
     assert_eq!(fs.metadata(&copy).unwrap().mode, Some(Mode::PRIVATE_FILE));
 }
 
-#[cfg(unix)]
 #[test]
 fn test_a_file_that_cannot_be_read_or_written_says_so() {
+    if os::host().flavor() != os::Flavor::Unix {
+        return;
+    }
     let (fs, home, mut configs) = files();
     let dir = home.join("a-directory");
     fs.create_dir_all(&dir, Mode::DIR).unwrap();
@@ -523,8 +533,7 @@ fn test_a_command_resolves_where_an_executable_of_its_name_is_on_the_path() {
     assert!(!configs.resolvable("taskloom"));
     let program = bin.join("taskloom");
     write(&*fs, &program, "#!/bin/sh\n");
-    #[cfg(unix)]
-    {
+    if os::host().flavor() == os::Flavor::Unix {
         assert!(!configs.resolvable("taskloom"), "not executable");
         fs.set_permissions(&program, Mode::from_bits(0o755))
             .unwrap();
@@ -533,6 +542,26 @@ fn test_a_command_resolves_where_an_executable_of_its_name_is_on_the_path() {
     fs.create_dir_all(&other.join("dir"), Mode::DIR).unwrap();
     assert!(!configs.resolvable("dir"), "a directory runs nothing");
     assert!(!homeless(&fs, None).resolvable("taskloom"));
+}
+
+#[test]
+fn test_an_empty_path_entry_never_means_the_working_directory() {
+    // POSIX reads an empty entry as `.`: a program planted in whatever
+    // directory taskloom runs in would be found. It is dropped instead.
+    let fs: Arc<dyn Fs> = Arc::new(Rooted::temp_with_cwd(Path::new("/work")).unwrap());
+    let (work, bin) = (Path::new("/work"), Path::new("/bin"));
+    fs.create_dir_all(bin, Mode::DIR).unwrap();
+    let planted = work.join("taskloom");
+    write(&*fs, &planted, "#!/bin/sh\n");
+    fs.set_permissions(&planted, Mode::from_bits(0o755))
+        .unwrap();
+    let path = std::env::join_paths([Path::new(""), bin]).unwrap();
+    assert!(!homeless(&fs, Some(path)).resolvable("taskloom"));
+    let named = std::env::join_paths([work, bin]).unwrap();
+    assert!(
+        homeless(&fs, Some(named)).resolvable("taskloom"),
+        "the directory named is searched"
+    );
 }
 
 #[test]
@@ -587,6 +616,7 @@ impl Locking {
             fs: Arc::clone(&fs),
             home: Some(home.to_path_buf()),
             path: None,
+            pathext: None,
             waits: file_lock::Waits {
                 lock: wait,
                 reap_interlock: wait,

@@ -84,7 +84,11 @@ impl<N> ProjectRegistry<N> {
                 Change::Unregister { id, path } => {
                     registry.projects.retain(|e| {
                         !(e.project_id == *id
-                            && self.canonical(Path::new(&e.path)) == Path::new(path))
+                            && crate::path::same(
+                                self.fs.os().flavor(),
+                                &self.canonical(Path::new(&e.path)),
+                                Path::new(path),
+                            ))
                     });
                     registry_changed = true;
                 }

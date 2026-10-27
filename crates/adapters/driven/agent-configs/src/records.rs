@@ -48,7 +48,7 @@ struct Op {
 /// the records name the file) says it added `pointer` whole. A record that
 /// cannot be read says nothing.
 pub fn added(fs: &dyn Fs, dir: &Path, target: &str, pointer: &str) -> bool {
-    let prefix = format!("{}__", flat_name(target));
+    let prefix = format!("{}__", flat_name(fs.os().flavor(), target));
     let Ok(entries) = fs.read_dir(dir) else {
         return false;
     };

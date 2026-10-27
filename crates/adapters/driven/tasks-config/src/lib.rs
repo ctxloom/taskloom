@@ -125,6 +125,7 @@ impl TaskloomConfig {
                 tag_schema = list;
             }
         }
+        let flavor = self.fs.os().flavor();
         for (name, value) in &self.env {
             // Configuration reads only UTF-8: any other variable is
             // skipped, not refused.
@@ -132,8 +133,10 @@ impl TaskloomConfig {
                 continue;
             };
             // An empty variable is unset, as the environment's are
-            // everywhere: no layer, never an empty list.
-            let Some(key) = name.strip_prefix(ENV_PREFIX).filter(|_| !value.is_empty()) else {
+            // everywhere: no layer, never an empty list. The prefix is
+            // matched as the host compares names (any case on Windows).
+            let prefixed = flavor.env_has_prefix(name, ENV_PREFIX) && !value.is_empty();
+            let Some(key) = name.get(ENV_PREFIX.len()..).filter(|_| prefixed) else {
                 continue;
             };
             if let Some(list) = set(name, &key.to_ascii_lowercase(), value)? {

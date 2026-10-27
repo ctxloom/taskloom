@@ -17,6 +17,7 @@ dependencies = [
  "file-system",
  "fluent-syntax",
  "fs4",
+ "os",
  "ports",
  "serde",
  "serde_norway",
@@ -534,8 +535,8 @@ dependencies = [
  "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "file-system",
  "fluent-syntax",
- "fs4",
  "mutants",
+ "os",
  "sha2",
 ]
 
@@ -545,9 +546,8 @@ version = "0.1.0"
 dependencies = [
  "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "fluent-syntax",
- "junction",
  "mutants",
- "same-file",
+ "os",
  "tempfile",
 ]
 
@@ -1100,6 +1100,7 @@ dependencies = [
  "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "file-system",
  "fluent-syntax",
+ "os",
  "ports",
  "serde",
  "serde_json",
@@ -1562,6 +1563,7 @@ dependencies = [
  "fluent-syntax",
  "fs4",
  "mutants",
+ "os",
  "ports",
  "serde",
  "serde_norway",
@@ -2476,6 +2478,7 @@ dependencies = [
  "annals-store-sql",
  "file-system",
  "fluent-syntax",
+ "os",
  "ports",
  "tokio",
 ]
@@ -2494,6 +2497,7 @@ dependencies = [
  "fs4",
  "harp-names",
  "jsonl-task-log",
+ "os",
  "ports",
  "presentation",
  "project-application",
@@ -2570,6 +2574,7 @@ dependencies = [
  "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "file-system",
  "fluent-syntax",
+ "os",
  "ports",
  "serde",
  "serde_norway",
@@ -2588,6 +2593,7 @@ dependencies = [
  "fluent-syntax",
  "harp-names",
  "jsonl-task-log",
+ "os",
  "presentation",
  "project-application",
  "project-cli",

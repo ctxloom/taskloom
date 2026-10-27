@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use annals::next::Timestamp;
 use annals_diagnostic::Diagnostic;
-use file_system::{Fs, Mode, Perms, Rooted};
+use file_system::{Fs, Perms, Rooted};
+use os::Mode;
 use ports::{JsonlOp, JsonlRecord, JsonlTaskLogs};
 
 use crate::{parse, JsonlTaskLogDir, LogError, MISSING_TS_INSTANT};

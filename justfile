@@ -51,7 +51,7 @@ build:
         cargo build "${terse[@]}" --manifest-path {{TOP}}/Cargo.toml --workspace
 
 # Clippy, warnings denied, including the core's purity rules
-# (crates/core/clippy.toml): lefthook's `clippy` step. Clippy reads only the
+# (crates/core/clippy.toml), after `lint-os`: lefthook's `clippy` step. Clippy reads only the
 # nearest clippy.toml, so the core's repeats the root's nesting threshold
 # and every method the root's disallows (the file I/O the file-system seam
 # holds); refuse to lint if they differ.
@@ -71,16 +71,26 @@ lint:
         echo "FAIL lint: crates/core/clippy.toml does not disallow what clippy.toml does: $missing" >&2
         exit 1
     fi
+    {{TOP}}/scripts/os-cfg-check.sh
     terse=(-q --message-format=short)
     [ "${VERBOSE:-}" = 1 ] && terse=()
     exec just --justfile {{TOP}}/justfile _run lint workspace cargo \
         cargo clippy "${terse[@]}" --manifest-path {{TOP}}/Cargo.toml --workspace --all-targets -- -D warnings
 
+# Nothing outside crates/adapters/platform/os names an operating system
+# (decision 4): no cfg naming one, `cfg!(`, `std::os::`, `split_paths` or
+# target-specific dependency, tests included, but the allowlist's
+# (scripts/os-cfg-allow.txt). `just lint` runs it first.
+[no-exit-message]
+lint-os:
+    @{{TOP}}/scripts/os-cfg-check.sh
+
 # The platform crates' Windows implementors (os, and the seams over it),
-# compiled for a Windows target but not run: what a Linux host can check of
-# them until a Windows runner tests them (decision 5). Needs the
-# x86_64-pc-windows-gnu target (`rustup target add`); no linker, since
-# nothing is linked.
+# and the driven adapters that use them, compiled for a Windows target but
+# not run: what a Linux host can check of them until a Windows runner tests
+# them (decision 5). Needs the x86_64-pc-windows-gnu target (`rustup target
+# add`); no linker, since nothing is linked. The rest of the workspace is
+# not checked: its C dependencies (psm, stacker) need a mingw C compiler.
 [no-exit-message]
 check-windows:
     #!/usr/bin/env bash
@@ -89,7 +99,7 @@ check-windows:
     [ "${VERBOSE:-}" = 1 ] && terse=()
     exec just --justfile {{TOP}}/justfile _run check-windows platform cargo \
         cargo check "${terse[@]}" --manifest-path {{TOP}}/Cargo.toml --target x86_64-pc-windows-gnu \
-        -p os -p file-system -p file-lock --all-targets
+        -p os -p file-system -p file-lock -p agent-configs -p tasks-config -p project-registry --all-targets
 
 # Where `just install` puts the Rust taskloom: a cargo root of its own, so
 # the binary lands in <root>/bin, a directory on no one's PATH, and never

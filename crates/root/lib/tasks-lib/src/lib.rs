@@ -33,6 +33,7 @@ use agent_configs::AgentConfigFiles;
 use file_system::{Fs, Os};
 use harp_names::HarpNames;
 use jsonl_task_log::JsonlTaskLogDir;
+use os::Flavor;
 use project_registry::{Environment, ProjectRegistry};
 use system::System;
 use task_store_sqlite::SqliteStores;
@@ -179,15 +180,15 @@ impl Taskloom {
     /// given, as given (none there, none resolved: the process's is never
     /// read).
     pub fn registrations(&self) -> Registrations {
-        let path = self
-            .vars
-            .iter()
-            .find(|(name, _)| name == "PATH")
-            .map(|(_, value)| value.clone());
+        let flavor = self.fs.os().flavor();
+        let path = var(flavor, &self.vars, "PATH").cloned();
+        let pathext =
+            var(flavor, &self.vars, "PATHEXT").and_then(|ext| ext.to_str().map(str::to_string));
         registration_application::Registrations::taskloom(AgentConfigFiles {
             fs: Arc::clone(&self.fs),
             home: self.env.home.clone(),
             path,
+            pathext,
             waits: file_lock::Waits::DEFAULT,
         })
     }
@@ -267,15 +268,16 @@ impl Builder {
     fn from_env(cwd: io::Result<PathBuf>, vars: Vec<(OsString, OsString)>) -> Builder {
         let ground = match cwd {
             Ok(cwd) => Ground::Cwd(cwd),
-            Err(why) => Ground::Fs(Arc::new(Os::without_cwd(why))),
+            Err(why) => Ground::Fs(Arc::new(Os::without_cwd(os::host(), why))),
         };
-        let var = |name: &str| {
-            vars.iter()
-                .find(|(n, _)| n == name)
-                .map(|(_, value)| value.clone())
-        };
+        let flavor = os::host().flavor();
+        let var = |name: &str| var(flavor, &vars, name).cloned();
         Builder {
-            home: var("HOME").map(PathBuf::from),
+            // HOME, or USERPROFILE on Windows (as Go's os.UserHomeDir);
+            // set empty, unset.
+            home: var(flavor.home_var())
+                .filter(|home| !home.is_empty())
+                .map(PathBuf::from),
             root: var("CTXLOOM_ROOT").map(PathBuf::from),
             project_id: var("CTXLOOM_PROJECT_ID").and_then(|id| id.into_string().ok()),
             ..Builder::over(ground)
@@ -332,9 +334,13 @@ impl Builder {
     /// that needs it.
     pub fn build(self) -> Result<Taskloom, BuildError> {
         let fs: Arc<dyn Fs> = match self.ground {
-            Ground::Cwd(cwd) => Arc::new(Os::new(&cwd).map_err(|_| BuildError::RelativeCwd {
-                cwd: cwd.display().to_string(),
-            })?),
+            Ground::Cwd(cwd) => {
+                Arc::new(
+                    Os::new(os::host(), &cwd).map_err(|_| BuildError::RelativeCwd {
+                        cwd: cwd.display().to_string(),
+                    })?,
+                )
+            }
             Ground::Fs(fs) => fs,
         };
         Ok(Taskloom {
@@ -348,6 +354,16 @@ impl Builder {
             config_set: self.config_set,
         })
     }
+}
+
+/// The variable `name` among `vars`, its name compared as `flavor`
+/// compares names (in any case on Windows); one whose name is not UTF-8 is
+/// no taskloom variable.
+fn var<'a>(flavor: Flavor, vars: &'a [(OsString, OsString)], name: &str) -> Option<&'a OsString> {
+    let key = flavor.env_key(name);
+    vars.iter()
+        .find(|(n, _)| n.to_str().is_some_and(|n| flavor.env_key(n) == key))
+        .map(|(_, value)| value)
 }
 
 #[cfg(test)]

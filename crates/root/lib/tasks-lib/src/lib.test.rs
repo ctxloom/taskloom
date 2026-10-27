@@ -11,7 +11,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use annals_diagnostic::Diagnostic;
-use file_system::{CwdError, Entry, Meta, Mode, Open, Perms, Rooted};
+use file_system::{CwdError, Entry, Meta, Open, Perms, Rooted};
+use os::Mode;
 use tasks_application::{
     Changed, ImportRequest, ImportService, ListQuery, NewTask, PruneService, Reach, TaskService,
     WatchRequest, WatchService,
@@ -112,6 +113,11 @@ impl Fs for Recording {
     // made with.
     fn cwd(&self) -> Result<&Path, CwdError> {
         self.inner.cwd()
+    }
+
+    // Not recorded: the host's syscalls, not a filesystem call.
+    fn os(&self) -> &dyn os::Os {
+        self.inner.os()
     }
 
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
@@ -534,13 +540,10 @@ fn test_an_unreadable_working_directory_fails_only_what_needs_it() {
 
 // The variables are taken as given: PATH is read without loss, though it
 // is not UTF-8.
-#[cfg(unix)]
 #[test]
 fn test_a_path_that_is_not_utf8_is_read_without_loss() {
-    use std::os::unix::ffi::OsStringExt;
-
     let dirs = Dirs::new();
-    let bin = OsString::from_vec(b"/b\xffn".to_vec());
+    let bin = os::not_unicode("/b");
     let server = PathBuf::from(&bin).join("taskloom");
     dirs.owner
         .create_dir_all(Path::new(&bin), Mode::DIR)
@@ -568,19 +571,13 @@ fn test_a_path_that_is_not_utf8_is_read_without_loss() {
 
 // The configuration reads the UTF-8 variables; one that is not is
 // skipped, not refused, and the rest still read.
-#[cfg(unix)]
 #[test]
 fn test_the_configuration_skips_a_variable_that_is_not_utf8() {
-    use std::os::unix::ffi::OsStringExt;
-
     let dirs = Dirs::new();
     let wide = dirs
         .builder_in(PROJECT)
         .vars(vec![
-            (
-                "TASKLOOM_CONFIG_NOT_UTF8".into(),
-                OsString::from_vec(b"\xff".to_vec()),
-            ),
+            ("TASKLOOM_CONFIG_NOT_UTF8".into(), os::not_unicode("")),
             (
                 "TASKLOOM_CONFIG_TAG_SCHEMA".into(),
                 r#"tagma.range:"triage:level"="1,9""#.into(),

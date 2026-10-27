@@ -2,7 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
-use file_system::{Fs, Mode, Open, Perms, Rooted};
+use file_system::{Fs, Open, Perms, Rooted};
+
+use os::Mode;
 
 use super::{
     from_lock, load, lock_within, path, save, write_atomically, Index, LOCK_WAIT, SCHEMA_VERSION,

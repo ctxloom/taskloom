@@ -50,7 +50,9 @@ fn binary() -> &'static Path {
 /// run, for what a test lays out for them and reads back. Every path a
 /// test gives it is absolute; its working directory is this crate's.
 pub(crate) fn os() -> std::sync::Arc<dyn file_system::Fs> {
-    std::sync::Arc::new(file_system::Os::new(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap())
+    std::sync::Arc::new(
+        file_system::Os::new(os::host(), Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap(),
+    )
 }
 
 /// A new temporary directory on the real filesystem, for a process the
@@ -75,7 +77,9 @@ pub(crate) mod disk {
     use std::io;
     use std::path::{Path, PathBuf};
 
-    use file_system::{Mode, Open, Perms};
+    use file_system::{Open, Perms};
+
+    use os::Mode;
 
     use super::os;
 
@@ -571,7 +575,7 @@ fn test_a_tag_where_there_is_no_project_fails_and_binds_none() {
 /// Run `taskloom args` with HOME `home`, in a working directory that is
 /// gone: the shell enters a directory and removes it, so the binary starts
 /// where nothing is.
-#[cfg(unix)]
+/// (A unix shell's: the callers run on unix only.)
 fn run_where_the_working_directory_is_gone(env: &Env, home: &Path, args: &[&str]) -> Ran {
     let gone = env.project.path().join("gone");
     disk::create_dir_all(&gone).unwrap();
@@ -593,9 +597,11 @@ fn run_where_the_working_directory_is_gone(env: &Env, home: &Path, args: &[&str]
 // A working directory that is gone fails only the commands that need it,
 // with the catalogued error: `version` and `loadout` run, `list` is
 // refused.
-#[cfg(unix)]
 #[test]
 fn test_a_deleted_working_directory_fails_only_the_commands_that_need_it() {
+    if os::host().flavor() != os::Flavor::Unix {
+        return;
+    }
     let env = Env::new("gone-cwd-harp");
     let run = |args: &[&str]| run_where_the_working_directory_is_gone(&env, env.home.path(), args);
     let version = run(&["version"]);
@@ -614,9 +620,11 @@ fn test_a_deleted_working_directory_fails_only_the_commands_that_need_it() {
 // With the working directory gone, a relative path is resolved against
 // nothing, never against `/`: a relative HOME's store is refused for the
 // working directory, not made (or refused) at `/<home>`.
-#[cfg(unix)]
 #[test]
 fn test_a_relative_path_is_never_resolved_against_the_top_when_the_cwd_is_gone() {
+    if os::host().flavor() != os::Flavor::Unix {
+        return;
+    }
     let env = Env::new("gone-cwd-harp");
     let home = Path::new("taskloom-relative-home");
     let added = run_where_the_working_directory_is_gone(

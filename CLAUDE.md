@@ -31,8 +31,9 @@ the architecture; there is no other table of crates.
 - `core/ports`: traits the core needs from outside.
 - `core/application`: command and query handlers.
 - `adapters/driven`: port implementations (stores, clock, git).
-- `adapters/platform`: libraries adapters build on (the `file-system`
-  seam, and `file-lock`'s advisory locks over it); they implement no port.
+- `adapters/platform`: libraries adapters build on (`os`, everything that
+  differs between operating systems; the `file-system` seam over it; and
+  `file-lock`'s advisory locks over both); they implement no port.
 - `adapters/driving`: CLI, MCP, gRPC: translation only.
 - `root/lib`: the composition root's wiring as a library (`tasks-lib`):
   the use cases over the default adapters, which the binaries, their
@@ -60,6 +61,20 @@ The root `clippy.toml` disallows `std::fs`, `Path`'s filesystem methods
 and `tempfile` everywhere else, tests included; only the seam crate
 allows them.
 
+Everything that differs between operating systems is in the `os` crate:
+`Flavor` (Unix | Windows), the logic (PATH and PATHEXT, environment
+names, the home variable, path display and comparison keys, lock-file
+records) as pure functions both flavors test on every host; and the `Os`
+trait, the host's syscalls (modes, directory links, file identity,
+directory sync, advisory locks, the stop signal), made once by
+`os::host()` and reached through the seam (`Fs::os`). Nothing else names
+an OS: no `cfg(unix|windows|target_os|target_family)`, `cfg!(`,
+`std::os::`, `split_paths` or target-specific dependency, tests included
+(a test that needs a unix tool asks `os::host().flavor()` at run time).
+`just lint-os` checks it, with an allowlist (`scripts/os-cfg-allow.txt`),
+and `just lint` runs it. `just check-windows` compiles the crates that use
+it for Windows (not run: the repository has no Windows runner yet).
+
 ## Architecture: hexagonal around CQRS/ES (checked in review)
 
 Dependencies point inward; a review refuses a change that breaks these:
@@ -73,8 +88,8 @@ Dependencies point inward; a review refuses a change that breaks these:
   expr-lang (the Rust port of the language Go's taskloom evaluates them
   in), which is computation and nothing else.
 - A platform crate depends on no other workspace crate but another
-  platform crate (`file-lock` on `file-system`); a driven adapter may
-  depend on one (that is not one adapter depending on another).
+  platform crate (`file-lock` on `file-system` and `os`); a driven adapter
+  may depend on one (that is not one adapter depending on another).
 - A driven adapter sees only ports (and wire types), never a use case. A
   driving adapter sees only the application layer, never a domain's
   internals. Adapters never depend on each other, with one exception:

@@ -4,11 +4,34 @@
 use std::path::{Component, Path, PathBuf};
 
 use file_system::Fs;
+use os::Flavor;
 
 /// `path` with its symlinks resolved on `fs`, when it exists; else
-/// [`clean`]ed.
+/// [`clean`]ed: as the host displays it ([`displayed`]), the form Go's
+/// shared index.yaml holds.
 pub fn canonical(fs: &dyn Fs, path: &Path) -> PathBuf {
-    fs.canonicalize(path).unwrap_or_else(|_| clean(path))
+    let resolved = fs.canonicalize(path).unwrap_or_else(|_| clean(path));
+    displayed(fs.os().flavor(), resolved)
+}
+
+/// `path` as `flavor` displays it: on Windows without the verbatim prefix
+/// a resolution adds (`\\?\C:\x` is `C:\x`); unchanged on unix, and
+/// unchanged when it is not UTF-8.
+pub fn displayed(flavor: Flavor, path: PathBuf) -> PathBuf {
+    match path.to_str() {
+        Some(text) => PathBuf::from(flavor.display_path(text)),
+        None => path,
+    }
+}
+
+/// Whether `a` and `b` name one path as `flavor` compares paths: exactly
+/// on unix; on Windows in any case, either separator, no trailing one
+/// ([`Flavor::path_key`]). A path that is not UTF-8 is compared exactly.
+pub fn same(flavor: Flavor, a: &Path, b: &Path) -> bool {
+    match (a.to_str(), b.to_str()) {
+        (Some(a), Some(b)) => flavor.path_key(a) == flavor.path_key(b),
+        _ => a == b,
+    }
 }
 
 /// `path` cleaned lexically: no `.`, no empty or trailing separator, and

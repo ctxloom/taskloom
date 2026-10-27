@@ -32,7 +32,8 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use annals_diagnostic::Report;
-use file_system::{Fs, Kind, Mode, Perms};
+use file_system::{Fs, Kind, Perms};
+use os::Mode;
 use ports::{AgentConfigs, McpServer, Rewritten, Scope};
 
 pub use error::EN_US;
@@ -45,13 +46,16 @@ pub const CLAUDE_CODE: &str = "claude-code";
 pub const SERVERS: &str = "mcpServers";
 
 /// The agents' configuration files under a home, on the filesystem `fs`,
-/// the PATH a server's command is looked for on, and how long a write
-/// waits for the file's lock.
+/// the PATH a server's command is looked for on (with PATHEXT, the
+/// extensions Windows tries), and how long a write waits for the file's
+/// lock.
 #[derive(Clone, Debug)]
 pub struct AgentConfigFiles {
     pub fs: Arc<dyn Fs>,
     pub home: Option<PathBuf>,
     pub path: Option<OsString>,
+    /// PATHEXT, as the environment gives it (read on Windows only).
+    pub pathext: Option<String>,
     /// The waits for the file's lock ([`file_lock::Waits::DEFAULT`] in
     /// use).
     pub waits: file_lock::Waits,
@@ -135,7 +139,13 @@ impl AgentConfigs for AgentConfigFiles {
         let Some(path) = &self.path else {
             return false;
         };
-        std::env::split_paths(path).any(|dir| executable(&*self.fs, &dir.join(command)))
+        let flavor = self.fs.os().flavor();
+        let names = flavor.candidates(command, self.pathext.as_deref());
+        flavor.split_search_path_os(path).iter().any(|dir| {
+            names
+                .iter()
+                .any(|name| executable(&*self.fs, &dir.join(name)))
+        })
     }
 }
 

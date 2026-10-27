@@ -4,13 +4,20 @@
 
 use std::path::{Path, PathBuf};
 
-use file_system::{Fs, Mode, Os, Perms, Rooted};
+use file_system::{Fs, Os, Perms, Rooted};
 
-use super::{added, flat_name};
+use os::Mode;
+
+use super::added;
+
+/// `path`'s flat name on the host.
+fn flat_name(path: &str) -> String {
+    super::flat_name(os::host().flavor(), path)
+}
 
 /// The recorded record `fixture`, read from this crate's fixtures.
 fn fixture(fixture: &str) -> String {
-    Os::new(Path::new(env!("CARGO_MANIFEST_DIR")))
+    Os::new(os::host(), Path::new(env!("CARGO_MANIFEST_DIR")))
         .unwrap()
         .read_to_string(Path::new(&format!(
             "fixtures/go-records/{fixture}.hew-record.yaml"

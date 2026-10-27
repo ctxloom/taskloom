@@ -32,7 +32,8 @@ use annals::next::{AsyncWatch, StoreError};
 use annals_diagnostic::Report;
 use annals_store_sql::sqlite::SqliteStore;
 use annals_store_sql::Integrity;
-use file_system::{Fs, Mode};
+use file_system::Fs;
+use os::Mode;
 use ports::{Checked, HeldToken, Project, StoreCheck, TaskStores, WatchedStores};
 
 pub use error::{diagnostic_samples, StoreOpenError, EN_US};

@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 clap.workspace = true
 file-lock.workspace = true
+os.workspace = true
 presentation.workspace = true
 project-cli.workspace = true
 registration-cli.workspace = true
@@ -19,8 +20,9 @@ tasks-cli.workspace = true
 tasks-lib.workspace = true
 tasks-mcp.workspace = true
 tasks-watch.workspace = true
-# `signal`: watch stops on SIGINT or SIGTERM, as Go's does.
-tokio = { workspace = true, features = ["signal"] }
+# The runtime watch and the MCP server run on; the stop signal (SIGINT or
+# SIGTERM, as Go's watch stops on) is the os crate's.
+tokio.workspace = true
 
 [dev-dependencies]
 agent-configs.workspace = true
