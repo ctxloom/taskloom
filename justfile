@@ -76,6 +76,21 @@ lint:
     exec just --justfile {{TOP}}/justfile _run lint workspace cargo \
         cargo clippy "${terse[@]}" --manifest-path {{TOP}}/Cargo.toml --workspace --all-targets -- -D warnings
 
+# The platform crates' Windows implementors (os, and the seams over it),
+# compiled for a Windows target but not run: what a Linux host can check of
+# them until a Windows runner tests them (decision 5). Needs the
+# x86_64-pc-windows-gnu target (`rustup target add`); no linker, since
+# nothing is linked.
+[no-exit-message]
+check-windows:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    terse=(-q --message-format=short)
+    [ "${VERBOSE:-}" = 1 ] && terse=()
+    exec just --justfile {{TOP}}/justfile _run check-windows platform cargo \
+        cargo check "${terse[@]}" --manifest-path {{TOP}}/Cargo.toml --target x86_64-pc-windows-gnu \
+        -p os -p file-system -p file-lock --all-targets
+
 # Where `just install` puts the Rust taskloom: a cargo root of its own, so
 # the binary lands in <root>/bin, a directory on no one's PATH, and never
 # shadows the Go taskloom every other project still runs (cargo's default,
