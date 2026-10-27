@@ -28,6 +28,11 @@ pub const INSTRUCTIONS: &[(&str, &str)] = &[
         "Never read the raw ~/.ctxloom/tasks/<project>.jsonl directly",
         "Never read the raw ~/.ctxloom/projects/<project>/state.db directly",
     ),
+    // 8. An explicit empty string is a value, refused as blank.
+    (
+        "only these tools / the CLI dedup to current state.",
+        "only these tools / the CLI dedup to current state.\nOmit optional arguments you don't mean to set. An explicit empty string is a value, and is refused as blank.",
+    ),
 ];
 
 pub const TOOLS: &[(&str, &str)] = &[
@@ -48,6 +53,21 @@ pub const TOOLS: &[(&str, &str)] = &[
     (
         r#" A repo-homed project (homing: repo, its log checked into \u003crepo\u003e/.taskloom/tasks.jsonl) is registered nowhere global and is NEVER included, even if it is the current project -- every global listing's notice field says so.""#,
         r#"""#,
+    ),
+    // 6. task_add and task_tag: two different values for one scalar target
+    // in one call are refused (tag-scalar-conflict).
+    (
+        r#"is rejected at write, as are the reserved words and/or/not and the tagma.* namespace.""#,
+        r#"is rejected at write, as are the reserved words and/or/not and the tagma.* namespace. Giving two DIFFERENT values for the same scalar target in one call is refused (tag-scalar-conflict); give one.""#,
+    ),
+    (
+        r#"Filter task_list with tag_query using the resulting tags.""#,
+        r#"Filter task_list with tag_query using the resulting tags. Within one call, two different `add` values for the same scalar target are refused (tag-scalar-conflict); the retraction rule above applies across calls, not within one.""#,
+    ),
+    // 7. task_list's limit: left out is no cap; 0 is refused.
+    (
+        "0 (default) means no cap.",
+        "Omit it for no cap; 0 is refused.",
     ),
 ];
 

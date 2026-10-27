@@ -1,6 +1,6 @@
 [
   {
-    "description": "Add a new task to the project's task log. Returns the assigned harp ID; reference the task by that ID in subsequent calls. Tags (optional, via `tags`) are shaped (namespace:)key(=value), not flat labels -- read the taskloom://tag-schema and taskloom://tag-vocabulary resources for this project's declared vocabulary and tags already in use before choosing one. If a tag's target is declared scalar (at most one value), setting a DIFFERENT value for it later via task_tag SILENTLY RETRACTS the value set here rather than adding a second one -- it is not a no-op. A tag value violating a declared enum or numeric range is rejected at write, as are the reserved words and/or/not and the tagma.* namespace.",
+    "description": "Add a new task to the project's task log. Returns the assigned harp ID; reference the task by that ID in subsequent calls. Tags (optional, via `tags`) are shaped (namespace:)key(=value), not flat labels -- read the taskloom://tag-schema and taskloom://tag-vocabulary resources for this project's declared vocabulary and tags already in use before choosing one. If a tag's target is declared scalar (at most one value), setting a DIFFERENT value for it later via task_tag SILENTLY RETRACTS the value set here rather than adding a second one -- it is not a no-op. A tag value violating a declared enum or numeric range is rejected at write, as are the reserved words and/or/not and the tagma.* namespace. Giving two DIFFERENT values for the same scalar target in one call is refused (tag-scalar-conflict); give one.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -237,7 +237,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Optional cap on the number of rows returned, applied AFTER every filter (statuses/term/tag_query) and the default active-only view. 0 (default) means no cap. Rows cut by the cap are reported in omitted_by_limit; status/summary counts (include_summary) are never affected by it -- they always cover every matching task.",
+          "description": "Optional cap on the number of rows returned, applied AFTER every filter (statuses/term/tag_query) and the default active-only view. Omit it for no cap; 0 is refused. Rows cut by the cap are reported in omitted_by_limit; status/summary counts (include_summary) are never affected by it -- they always cover every matching task.",
           "type": "integer"
         },
         "sort": {
@@ -568,7 +568,7 @@
     }
   },
   {
-    "description": "Add and/or remove tags on a task, keyed by its harp ID. Tags are shaped (namespace:)key(=value), not flat labels -- read the taskloom://tag-schema and taskloom://tag-vocabulary resources for this project's declared vocabulary and tags already in use before choosing one. Pass `add`, `remove`, or both in one call (add is applied before remove, so a tag in both lists ends up removed). WARNING: for a tag whose target is declared scalar (at most one value), adding a DIFFERENT value does NOT no-op like an already-present flat tag would -- it SILENTLY RETRACTS whatever value was there before. Adding the identical value again is still a no-op. A tag value violating a declared enum or numeric range is rejected at write, as are the reserved words and/or/not and the tagma.* namespace. Filter task_list with tag_query using the resulting tags.",
+    "description": "Add and/or remove tags on a task, keyed by its harp ID. Tags are shaped (namespace:)key(=value), not flat labels -- read the taskloom://tag-schema and taskloom://tag-vocabulary resources for this project's declared vocabulary and tags already in use before choosing one. Pass `add`, `remove`, or both in one call (add is applied before remove, so a tag in both lists ends up removed). WARNING: for a tag whose target is declared scalar (at most one value), adding a DIFFERENT value does NOT no-op like an already-present flat tag would -- it SILENTLY RETRACTS whatever value was there before. Adding the identical value again is still a no-op. A tag value violating a declared enum or numeric range is rejected at write, as are the reserved words and/or/not and the tagma.* namespace. Filter task_list with tag_query using the resulting tags. Within one call, two different `add` values for the same scalar target are refused (tag-scalar-conflict); the retraction rule above applies across calls, not within one.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
