@@ -10,6 +10,9 @@ use tasks_application::Project;
 pub enum Notice {
     /// The project a write went to.
     Project { root: String, id: String },
+    /// The project a write went to, which has no root: a pinned project
+    /// the registry holds no path for.
+    UnrootedProject { id: String },
     /// A listing found no project here, so lists nothing.
     NoProject,
     /// A read found no project in `directory`, which lies in no work
@@ -33,9 +36,13 @@ pub enum Notice {
 
 impl Notice {
     pub fn project(project: &Project) -> Notice {
-        Notice::Project {
-            root: project.root.clone(),
-            id: project.id.clone(),
+        let id = project.id.clone();
+        match &project.root {
+            Some(root) => Notice::Project {
+                root: root.clone(),
+                id,
+            },
+            None => Notice::UnrootedProject { id },
         }
     }
 }
@@ -44,6 +51,7 @@ impl fmt::Display for Notice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Notice::Project { root, id } => write!(f, "project {root} ({id})"),
+            Notice::UnrootedProject { id } => write!(f, "project {id}"),
             Notice::NoProject => f.write_str("no project here yet: nothing to list"),
             Notice::EveryProject { directory } => write!(
                 f,
@@ -74,6 +82,7 @@ impl Diagnostic for Notice {
     fn code(&self) -> &'static str {
         match self {
             Notice::Project { .. } => "tasks-cli-project",
+            Notice::UnrootedProject { .. } => "tasks-cli-unrooted-project",
             Notice::NoProject => "tasks-cli-no-project",
             Notice::EveryProject { .. } => "tasks-cli-every-project",
             Notice::Hidden { .. } => "tasks-cli-hidden",
@@ -88,6 +97,7 @@ impl Diagnostic for Notice {
             Notice::Project { root, id } => {
                 vec![("root", root.as_str().into()), ("id", id.as_str().into())]
             }
+            Notice::UnrootedProject { id } => vec![("id", id.as_str().into())],
             Notice::EveryProject { directory } => vec![("directory", directory.as_str().into())],
             Notice::Hidden {
                 hidden,

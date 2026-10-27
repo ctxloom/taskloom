@@ -85,6 +85,7 @@ fn run_as(
             cap: 30 * MS,
             attempts,
         },
+        dead_letters: &annals::next::MemoryDeadLetters::new(),
     };
     ready(runner.run(store, &book, &command_id))
 }
@@ -212,6 +213,8 @@ fn runner<'a>(
             cap: 30 * MS,
             attempts: 5,
         },
+        // None is written here; leaked, so the runner may outlive this.
+        dead_letters: Box::leak(Box::new(annals::next::MemoryDeadLetters::new())),
     }
 }
 

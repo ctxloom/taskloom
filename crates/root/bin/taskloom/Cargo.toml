@@ -14,6 +14,7 @@ annals.workspace = true
 annals-store-sql.workspace = true
 clap.workspace = true
 file-lock.workspace = true
+file-system.workspace = true
 jsonl-task-log.workspace = true
 harp-names.workspace = true
 presentation.workspace = true
@@ -41,7 +42,6 @@ serde_json.workspace = true
 tagma-core.workspace = true
 task-priority.workspace = true
 tasks.workspace = true
-tempfile.workspace = true
 time.workspace = true
 
 [lints]

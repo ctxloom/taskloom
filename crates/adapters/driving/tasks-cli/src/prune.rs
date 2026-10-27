@@ -7,7 +7,7 @@ use std::io::{self, Write};
 use presentation::{text, Render};
 use serde::Serialize;
 use tasks_application::{Pruning, Timestamp};
-use tasks_presentation::{rfc3339, spelled};
+use tasks_presentation::{project_dir, rfc3339, spelled};
 
 use crate::render::{headline, project_label};
 use crate::PROG;
@@ -56,10 +56,11 @@ impl Render for PruneReport<'_> {
         let project = pruning.project.as_ref();
         ReportJson {
             project_id: project.map_or("", |p| p.id.as_str()),
-            project_dir: project.map_or("", |p| p.root.as_str()),
+            project_dir: project.map_or("", project_dir),
             statuses: &pruning.statuses,
             before: rfc3339(pruning.before),
-            tag_query: &pruning.tag_query,
+            // Go's report shape: "" where no tag query was given.
+            tag_query: pruning.tag_query.as_deref().unwrap_or_default(),
             applied: pruning.applied,
             pruned: pruning
                 .pruned
@@ -97,8 +98,8 @@ impl Render for PruneReport<'_> {
             pruning.statuses.join(" or "),
             minute(pruning.before)
         );
-        if !pruning.tag_query.is_empty() {
-            criteria = format!("{criteria}, tag query {}", pruning.tag_query);
+        if let Some(tag_query) = &pruning.tag_query {
+            criteria = format!("{criteria}, tag query {tag_query}");
         }
         if pruning.pruned.is_empty() {
             return writeln!(out, "Nothing to prune ({criteria}).");
@@ -165,7 +166,7 @@ fn minute(at: Timestamp) -> String {
 /// The command that applies exactly the prune a report showed: its age,
 /// statuses and tag query as given, then `--yes`, each quoted for a POSIX
 /// shell where it must be.
-pub fn apply_command(older_than: &str, statuses: &[String], tag_query: &str) -> String {
+pub fn apply_command(older_than: &str, statuses: &[String], tag_query: Option<&str>) -> String {
     let mut words = vec![
         PROG.to_string(),
         "prune".to_string(),
@@ -176,7 +177,7 @@ pub fn apply_command(older_than: &str, statuses: &[String], tag_query: &str) -> 
         words.push("--status".to_string());
         words.push(shell_word(status));
     }
-    if !tag_query.is_empty() {
+    if let Some(tag_query) = tag_query {
         words.push("--tag-query".to_string());
         words.push(shell_word(tag_query));
     }

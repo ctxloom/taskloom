@@ -110,6 +110,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             root: "/work/tree".to_string(),
             id: "jolly-mute-magma".to_string(),
         }),
+        Box::new(Notice::UnrootedProject {
+            id: "jolly-mute-magma".to_string(),
+        }),
         Box::new(CliError::LoadoutFormat {
             format: "json".to_string(),
         }),

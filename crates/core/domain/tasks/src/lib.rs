@@ -16,6 +16,7 @@ use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::fmt;
 
+use annals::next::v1::Uuid;
 use annals::next::{ids, Domain, IngestCtx, Tx};
 
 pub use generated::*;
@@ -149,17 +150,12 @@ fn decide_add(add: &AddTask, tx: &mut Tx<'_, Tasks>) -> Result<(), TaskRejection
     if harp_id.is_empty() {
         return Err(TaskRejection::HarpIdRequired);
     }
-    // The stream is addressed by the root its harp id derives; the harp id
-    // the event records must be that one, or the task takes another's.
-    if tx.stream().root.as_ref() != ids::compute_root(TASK_DOMAIN, harp_id).ok().as_ref() {
-        return Err(TaskRejection::NotItsStream {
-            harp_id: harp_id.to_string(),
-        });
-    }
+    belongs(TASK_DOMAIN, harp_id, tx.stream().root.as_ref())?;
     let Added {
         text,
         status,
         trigger,
+        origin_session,
     } = added(add)?;
     let at = tx.recorded_at();
     let deferred_since = (status == DEFERRED).then_some(at);
@@ -170,12 +166,30 @@ fn decide_add(add: &AddTask, tx: &mut Tx<'_, Tasks>) -> Result<(), TaskRejection
             status,
             trigger,
             tags: normalized(&add.tags).into_values().collect(),
-            origin_session: add.origin_session.clone(),
+            origin_session,
             at,
             deferred_since,
         }
         .into(),
     );
+    Ok(())
+}
+
+/// Whether the task `harp_id` of `domain` belongs in the stream rooted at
+/// `root`: the stream is addressed by the root its harp id derives, so the
+/// harp id the event records must be that one, or the task takes
+/// another's. A root that cannot be derived is refused for that, with its
+/// cause.
+fn belongs(domain: &str, harp_id: &str, root: Option<&Uuid>) -> Result<(), TaskRejection> {
+    let derived = ids::compute_root(domain, harp_id).map_err(|e| TaskRejection::NoRoot {
+        harp_id: harp_id.to_string(),
+        cause: e.to_string(),
+    })?;
+    if root != Some(&derived) {
+        return Err(TaskRejection::NotItsStream {
+            harp_id: harp_id.to_string(),
+        });
+    }
     Ok(())
 }
 
@@ -201,10 +215,11 @@ struct Added {
     text: String,
     status: String,
     trigger: String,
+    origin_session: String,
 }
 
-/// An add's text trimmed, its status (To Do when it gives none) and its
-/// trigger trimmed; refused without text, with a reserved status, or
+/// An add's text trimmed, its status (To Do when it gives none), its
+/// trigger and its origin session trimmed; refused without text, with a reserved status, or
 /// Deferred with no trigger.
 fn added(add: &AddTask) -> Result<Added, TaskRejection> {
     let text = required_text(&add.text)?;
@@ -217,6 +232,7 @@ fn added(add: &AddTask) -> Result<Added, TaskRejection> {
         text,
         status,
         trigger,
+        origin_session: add.origin_session.trim().to_string(),
     })
 }
 

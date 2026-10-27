@@ -25,6 +25,8 @@ pub enum ConfigError {
     NotAnOverride { entry: String },
     /// A list value whose quote is never closed.
     Unterminated { source: String, value: String },
+    /// A list value with a blank item (`a,,b`, a trailing comma).
+    BlankItem { source: String, value: String },
 }
 
 impl fmt::Display for ConfigError {
@@ -53,6 +55,10 @@ impl fmt::Display for ConfigError {
             ConfigError::Unterminated { source, value } => {
                 write!(f, "{source}: {value} has an unterminated quote")
             }
+            ConfigError::BlankItem { source, value } => write!(
+                f,
+                "{source}: {value} has a blank item: give one, or leave it out"
+            ),
         }
     }
 }
@@ -66,6 +72,7 @@ impl Diagnostic for ConfigError {
             ConfigError::UnknownKey { .. } => "tasks-config-unknown-key",
             ConfigError::NotAnOverride { .. } => "tasks-config-not-an-override",
             ConfigError::Unterminated { .. } => "tasks-config-unterminated",
+            ConfigError::BlankItem { .. } => "tasks-config-blank-item",
         }
     }
 
@@ -90,7 +97,8 @@ impl Diagnostic for ConfigError {
                 ("known", KEYS.join(", ").into()),
             ],
             ConfigError::NotAnOverride { entry } => vec![("entry", s(entry))],
-            ConfigError::Unterminated { source, value } => {
+            ConfigError::Unterminated { source, value }
+            | ConfigError::BlankItem { source, value } => {
                 vec![("source", s(source)), ("value", s(value))]
             }
         }
@@ -131,6 +139,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(ConfigError::Unterminated {
             source: "--config-set".to_string(),
             value: "\"a,b".to_string(),
+        }),
+        Box::new(ConfigError::BlankItem {
+            source: "TASKLOOM_CONFIG_TAG_SCHEMA".to_string(),
+            value: "a,,b".to_string(),
         }),
     ]
 }

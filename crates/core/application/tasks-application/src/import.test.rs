@@ -823,3 +823,16 @@ fn test_each_reason_renders_its_english_and_a_refusal_is_its_rejection() {
 fn spelled(tags: &[tasks::Tag]) -> Vec<String> {
     tags.iter().map(ToString::to_string).collect()
 }
+
+// An import returns the dead letters written while it ran (the kernel
+// writes them; here the test writes one to the log it is handed, as the
+// tasks domain can be made to produce none), each once.
+#[test]
+fn test_an_import_returns_the_dead_letters_written_while_it_ran() {
+    let mut service = service(vec![add("swift-amber", "Ship it", 1)]);
+    annals::next::DeadLetterLog::write(&service.dead_letters, "DEAD LETTER: import");
+    let report = import(&mut service);
+    let line = "DEAD LETTER: import".to_string();
+    assert_eq!(report.dead_letters, [crate::DeadLetter { line }]);
+    assert!(import(&mut service).dead_letters.is_empty(), "each once");
+}

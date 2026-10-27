@@ -4,6 +4,7 @@
 //! an optional pre-release (`-`) and build metadata (`+`).
 
 use std::cmp::Ordering;
+use std::fmt;
 
 /// A version, as precedence (§11) needs it: build metadata is kept out,
 /// since it takes no part.
@@ -20,9 +21,55 @@ enum Identifier {
     Alphanumeric(String),
 }
 
+/// Why a value is no version. Its English is what a refusal of the value
+/// (`TagRefusal::NotSemver`) gives as its detail.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum SemverError {
+    /// Not three dot-separated numbers before any pre-release or build.
+    NotThreeNumbers { version: String },
+    /// A part of the three that is not digits.
+    NotANumber { part: String },
+    /// A part of the three with a leading zero.
+    LeadingZero { part: String },
+    /// A part of the three too large for a u64.
+    TooLarge { part: String },
+    /// A numeric pre-release identifier with a leading zero.
+    PreReleaseLeadingZero { identifier: String },
+    /// A pre-release or build metadata (`of`) identifier that is empty or
+    /// not `[0-9A-Za-z-]+`.
+    NotAnIdentifier {
+        of: &'static str,
+        identifier: String,
+    },
+}
+
+impl fmt::Display for SemverError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SemverError::NotThreeNumbers { version } => {
+                write!(f, "{version:?} is not MAJOR.MINOR.PATCH")
+            }
+            SemverError::NotANumber { part } => write!(f, "{part:?} is not a number"),
+            SemverError::LeadingZero { part } => write!(f, "{part:?} has a leading zero"),
+            SemverError::TooLarge { part } => write!(f, "{part:?} is too large"),
+            SemverError::PreReleaseLeadingZero { identifier } => {
+                write!(
+                    f,
+                    "pre-release identifier {identifier:?} has a leading zero"
+                )
+            }
+            SemverError::NotAnIdentifier { of, identifier } => {
+                write!(f, "{of} identifier {identifier:?} is not [0-9A-Za-z-]+")
+            }
+        }
+    }
+}
+
+impl std::error::Error for SemverError {}
+
 impl Version {
     /// `s` as a version, or why it is not one.
-    pub fn parse(s: &str) -> Result<Version, String> {
+    pub fn parse(s: &str) -> Result<Version, SemverError> {
         let (rest, build) = match s.split_once('+') {
             Some((rest, build)) => (rest, Some(build)),
             None => (s, None),
@@ -36,7 +83,9 @@ impl Version {
         };
         let numbers: Vec<&str> = core.split('.').collect();
         let [major, minor, patch] = numbers[..] else {
-            return Err(format!("{s:?} is not MAJOR.MINOR.PATCH"));
+            return Err(SemverError::NotThreeNumbers {
+                version: s.to_string(),
+            });
         };
         let core = [number(major)?, number(minor)?, number(patch)?];
         let pre = match pre {
@@ -46,7 +95,9 @@ impl Version {
                 .map(|id| match number(id) {
                     Ok(n) => Ok(Identifier::Numeric(n)),
                     Err(_) if id.bytes().all(|b| b.is_ascii_digit()) => {
-                        Err(format!("pre-release identifier {id:?} has a leading zero"))
+                        Err(SemverError::PreReleaseLeadingZero {
+                            identifier: id.to_string(),
+                        })
                     }
                     Err(_) => Ok(Identifier::Alphanumeric(id.to_string())),
                 })
@@ -97,22 +148,27 @@ impl PartialOrd for Identifier {
 }
 
 /// A number: digits, with no leading zero unless it is `0`.
-fn number(s: &str) -> Result<u64, String> {
+fn number(s: &str) -> Result<u64, SemverError> {
+    let part = || s.to_string();
     if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(format!("{s:?} is not a number"));
+        return Err(SemverError::NotANumber { part: part() });
     }
     if s.len() > 1 && s.starts_with('0') {
-        return Err(format!("{s:?} has a leading zero"));
+        return Err(SemverError::LeadingZero { part: part() });
     }
-    s.parse().map_err(|_| format!("{s:?} is too large"))
+    s.parse()
+        .map_err(|_| SemverError::TooLarge { part: part() })
 }
 
 /// The dot-separated identifiers of `s`: each non-empty, of `[0-9A-Za-z-]`.
-fn identifiers<'a>(s: &'a str, what: &str) -> Result<Vec<&'a str>, String> {
+fn identifiers<'a>(s: &'a str, of: &'static str) -> Result<Vec<&'a str>, SemverError> {
     s.split('.')
         .map(|id| {
             if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
-                Err(format!("{what} identifier {id:?} is not [0-9A-Za-z-]+"))
+                Err(SemverError::NotAnIdentifier {
+                    of,
+                    identifier: id.to_string(),
+                })
             } else {
                 Ok(id)
             }

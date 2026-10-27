@@ -2,15 +2,39 @@
 //! what taskloom's `manage` did to that file (scripts/go-manage-fixtures.sh
 //! recorded it), and the adapter must leave the same bytes, refuse where
 //! the recorded run refused, and copy a file aside where it did. Every
-//! case runs in temporary homes; nothing outside them is read or written.
+//! case runs on a filesystem of its own (`Rooted::temp`); nothing outside
+//! it is written, and only the recorded cases are read from the crate.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use annals_diagnostic::Diagnostic;
+use file_system::{Fs, Mode, Open, Os, Perms, Rooted};
 use ports::{AgentConfigs, McpServer, Scope};
-use tempfile::TempDir;
 
 use super::{go_join, records, AgentConfigFiles, CLAUDE_CODE};
+
+/// This crate's directory, where the recorded cases are.
+fn fixtures() -> Os {
+    Os::new(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap()
+}
+
+/// A filesystem of the test's own.
+fn rooted() -> Arc<dyn Fs> {
+    Arc::new(Rooted::temp().unwrap())
+}
+
+/// Write `bytes` at `path`, making its directory.
+fn write(fs: &dyn Fs, path: &Path, bytes: impl AsRef<[u8]>) {
+    fs.create_dir_all(path.parent().unwrap(), Mode::DIR)
+        .unwrap();
+    fs.write_atomic(path, bytes.as_ref(), Perms::Exact(Mode::FILE))
+        .unwrap();
+}
+
+fn text(fs: &dyn Fs, path: &Path) -> String {
+    fs.read_to_string(path).unwrap()
+}
 
 fn server() -> McpServer {
     McpServer {
@@ -27,28 +51,26 @@ struct Case {
 
 impl Case {
     fn all() -> Vec<Case> {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/go-manage");
-        let mut cases: Vec<Case> = std::fs::read_dir(&root)
+        let root = Path::new("fixtures/go-manage");
+        let cases: Vec<Case> = fixtures()
+            .read_dir(root)
             .expect("the Go cases")
-            .map(|e| {
-                let dir = e.unwrap().path();
-                Case {
-                    name: dir.file_name().unwrap().to_string_lossy().into_owned(),
-                    dir,
-                }
+            .into_iter()
+            .map(|e| Case {
+                name: e.name.to_string_lossy().into_owned(),
+                dir: root.join(&e.name),
             })
             .collect();
-        cases.sort_by(|a, b| a.name.cmp(&b.name));
         assert!(cases.len() > 20, "the cases are there");
         cases
     }
 
     fn file(&self, name: &str) -> Option<Vec<u8>> {
-        std::fs::read(self.dir.join(name)).ok()
+        fixtures().read(&self.dir.join(name)).ok()
     }
 
     fn project(&self) -> bool {
-        self.dir.join("scope").exists()
+        fixtures().exists(&self.dir.join("scope")).unwrap()
     }
 
     /// An outcome file: its exit code and the rest.
@@ -62,41 +84,38 @@ impl Case {
 /// A fresh home and project directory, the case's file at its place with
 /// `content`, and the adapter over them, with nothing on its PATH.
 struct Home {
-    _home: TempDir,
-    _dir: TempDir,
-    _bin: TempDir,
+    fs: Arc<dyn Fs>,
     configs: AgentConfigFiles,
     path: PathBuf,
 }
 
 impl Home {
     fn new(case: &Case, content: Option<&[u8]>) -> Home {
+        let fs = rooted();
         let (home, dir, bin) = (
-            tempfile::tempdir().unwrap(),
-            tempfile::tempdir().unwrap(),
-            tempfile::tempdir().unwrap(),
+            Path::new("/home/u"),
+            Path::new("/work"),
+            Path::new("/bin-empty"),
         );
+        for made in [home, dir, bin] {
+            fs.create_dir_all(made, Mode::DIR).unwrap();
+        }
         let mut configs = AgentConfigFiles {
-            home: Some(home.path().to_path_buf()),
-            path: Some(bin.path().as_os_str().to_owned()),
+            fs: Arc::clone(&fs),
+            home: Some(home.to_path_buf()),
+            path: Some(bin.as_os_str().to_owned()),
             waits: file_lock::Waits::DEFAULT,
         };
         let scope = if case.project() {
-            Scope::Project(dir.path().to_path_buf())
+            Scope::Project(dir.to_path_buf())
         } else {
             Scope::User
         };
         let path = configs.config_path(CLAUDE_CODE, &scope).unwrap();
         if let Some(content) = content {
-            std::fs::write(&path, content).unwrap();
+            write(&*fs, &path, content);
         }
-        Home {
-            _home: home,
-            _dir: dir,
-            _bin: bin,
-            configs,
-            path,
-        }
+        Home { fs, configs, path }
     }
 
     fn register(&mut self, server: Option<&McpServer>) -> Result<bool, annals_diagnostic::Report> {
@@ -107,7 +126,7 @@ impl Home {
     }
 
     fn content(&self) -> Option<Vec<u8>> {
-        std::fs::read(&self.path).ok()
+        self.fs.read(&self.path).ok()
     }
 
     fn backups(&self) -> Vec<Vec<u8>> {
@@ -116,13 +135,14 @@ impl Home {
             "{}.corrupt-",
             self.path.file_name().unwrap().to_string_lossy()
         );
-        std::fs::read_dir(dir)
+        self.fs
+            .read_dir(dir)
             .unwrap()
+            .into_iter()
             .filter_map(|e| {
-                let e = e.unwrap();
-                let name = e.file_name().to_string_lossy().into_owned();
+                let name = e.name.to_string_lossy().into_owned();
                 name.starts_with(&prefix)
-                    .then(|| std::fs::read(e.path()).unwrap())
+                    .then(|| self.fs.read(&dir.join(&e.name)).unwrap())
             })
             .collect()
     }
@@ -235,7 +255,6 @@ fn test_an_uninstall_after_gos_install_does_what_gos_uninstall_did() {
             .clone()
             .unwrap()
             .join(".ctxloom/records/taskloom");
-        std::fs::create_dir_all(&records).unwrap();
         let record = String::from_utf8(record)
             .unwrap()
             .replace("$TARGET", &target);
@@ -243,7 +262,7 @@ fn test_an_uninstall_after_gos_install_does_what_gos_uninstall_did() {
             "{}__20261021T000000.000000000Z.hew-record.yaml",
             records::flat_name(&target)
         );
-        std::fs::write(records.join(name), record).unwrap();
+        write(&*home.fs, &records.join(name), record);
         let answered = home.register(None);
         assert!(answered.is_ok(), "{}: {answered:?}", case.name);
         assert_eq!(
@@ -284,23 +303,53 @@ fn test_a_check_reads_each_file_as_gos_did() {
 
 // ------------------------------------------------------------ the rest
 
-fn files() -> (TempDir, AgentConfigFiles) {
-    let home = tempfile::tempdir().unwrap();
+/// A filesystem of the test's own, a home on it, and the adapter there.
+fn files() -> (Arc<dyn Fs>, PathBuf, AgentConfigFiles) {
+    let fs = rooted();
+    let home = PathBuf::from("/home/u");
+    fs.create_dir_all(&home, Mode::DIR).unwrap();
     let configs = AgentConfigFiles {
-        home: Some(home.path().to_path_buf()),
+        fs: Arc::clone(&fs),
+        home: Some(home.clone()),
         path: None,
         waits: file_lock::Waits::DEFAULT,
     };
-    (home, configs)
+    (fs, home, configs)
+}
+
+/// The adapter over `fs` with no home, PATH `path`.
+fn homeless(fs: &Arc<dyn Fs>, path: Option<std::ffi::OsString>) -> AgentConfigFiles {
+    AgentConfigFiles {
+        fs: Arc::clone(fs),
+        home: None,
+        path,
+        waits: file_lock::Waits::DEFAULT,
+    }
+}
+
+/// Register taskloom's server in the file at `path`, as a dry run or not.
+fn install(
+    configs: &mut AgentConfigFiles,
+    path: &Path,
+    dry_run: bool,
+) -> Result<ports::Rewritten, annals_diagnostic::Report> {
+    configs.register(
+        CLAUDE_CODE,
+        path,
+        "taskloom",
+        "taskloom",
+        Some(&server()),
+        dry_run,
+    )
 }
 
 #[test]
 fn test_claude_code_is_the_one_agent_and_its_files_are_gos() {
-    let (home, mut configs) = files();
+    let (fs, home, mut configs) = files();
     assert_eq!(configs.engines(), ["claude-code"]);
     assert_eq!(
         configs.config_path(CLAUDE_CODE, &Scope::User).unwrap(),
-        home.path().join(".claude.json")
+        home.join(".claude.json")
     );
     assert_eq!(
         configs
@@ -311,106 +360,77 @@ fn test_claude_code_is_the_one_agent_and_its_files_are_gos() {
     );
     let unknown = configs.config_path("codex", &Scope::User).unwrap_err();
     assert_eq!(unknown.code(), "agent-configs-unknown-engine");
-    let path = home.path().join(".claude.json");
+    let path = home.join(".claude.json");
     let refused = configs
         .register("codex", &path, "taskloom", "taskloom", None, false)
         .unwrap_err();
     assert_eq!(refused.code(), "agent-configs-unknown-engine");
-    let homeless = AgentConfigFiles {
-        home: None,
-        path: None,
-        waits: file_lock::Waits::DEFAULT,
-    }
-    .config_path(CLAUDE_CODE, &Scope::User)
-    .unwrap_err();
+    let homeless = homeless(&fs, None)
+        .config_path(CLAUDE_CODE, &Scope::User)
+        .unwrap_err();
     assert_eq!(homeless.code(), "agent-configs-no-home");
 }
 
 #[test]
 fn test_an_agent_is_present_where_its_file_or_its_directory_is() {
-    let (home, mut configs) = files();
-    let project = tempfile::tempdir().unwrap();
-    let scope = Scope::Project(project.path().to_path_buf());
+    let (fs, home, mut configs) = files();
+    let project = Path::new("/work");
+    fs.create_dir_all(project, Mode::DIR).unwrap();
+    let scope = Scope::Project(project.to_path_buf());
     assert!(!configs.present(CLAUDE_CODE, &Scope::User));
     assert!(!configs.present(CLAUDE_CODE, &scope));
-    std::fs::create_dir(home.path().join(".claude")).unwrap();
+    fs.create_dir_all(&home.join(".claude"), Mode::DIR).unwrap();
     assert!(configs.present(CLAUDE_CODE, &Scope::User));
-    std::fs::write(project.path().join(".mcp.json"), "{}").unwrap();
+    write(&*fs, &project.join(".mcp.json"), "{}");
     assert!(configs.present(CLAUDE_CODE, &scope));
     assert!(!configs.present("codex", &Scope::User));
-    let homeless = AgentConfigFiles {
-        home: None,
-        path: None,
-        waits: file_lock::Waits::DEFAULT,
-    };
-    assert!(!homeless.clone().present(CLAUDE_CODE, &Scope::User));
-    let other = tempfile::tempdir().unwrap();
-    std::fs::write(other.path().join(".claude.json"), "{}").unwrap();
+    assert!(!homeless(&fs, None).present(CLAUDE_CODE, &Scope::User));
+    let other = Path::new("/other");
+    write(&*fs, &other.join(".claude.json"), "{}");
     let mut configs = AgentConfigFiles {
-        home: Some(other.path().to_path_buf()),
-        path: None,
-        waits: file_lock::Waits::DEFAULT,
+        home: Some(other.to_path_buf()),
+        ..homeless(&fs, None)
     };
     assert!(configs.present(CLAUDE_CODE, &Scope::User));
 }
 
 #[test]
+fn test_a_relative_project_is_looked_for_in_the_filesystems_working_directory() {
+    let fs: Arc<dyn Fs> = Arc::new(Rooted::temp_with_cwd(Path::new("/work")).unwrap());
+    write(&*fs, Path::new("/work/.mcp.json"), "{}");
+    let mut configs = homeless(&fs, None);
+    assert!(configs.present(CLAUDE_CODE, &Scope::Project(PathBuf::from("."))));
+}
+
+#[test]
 fn test_a_dry_run_answers_the_document_and_writes_nothing() {
-    let (home, mut configs) = files();
-    let path = home.path().join(".claude.json");
-    std::fs::write(&path, "{}").unwrap();
-    let rewritten = configs
-        .register(
-            CLAUDE_CODE,
-            &path,
-            "taskloom",
-            "taskloom",
-            Some(&server()),
-            true,
-        )
-        .unwrap();
+    let (fs, home, mut configs) = files();
+    let path = home.join(".claude.json");
+    write(&*fs, &path, "{}");
+    let rewritten = install(&mut configs, &path, true).unwrap();
     assert!(rewritten.changed);
     assert_eq!(
         rewritten.after,
         r#"{ "mcpServers": { "taskloom": { "args": ["mcp"], "command": "taskloom" } } }"#
     );
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}");
+    assert_eq!(text(&*fs, &path), "{}");
 }
 
 #[test]
 fn test_a_rewrite_that_changes_nothing_writes_nothing() {
-    let (home, mut configs) = files();
-    let path = home.path().join(".claude.json");
-    configs
-        .register(
-            CLAUDE_CODE,
-            &path,
-            "taskloom",
-            "taskloom",
-            Some(&server()),
-            false,
-        )
-        .unwrap();
-    let written = std::fs::metadata(&path).unwrap().modified().unwrap();
-    std::fs::write(home.path().join("marker"), "").unwrap();
-    let again = configs
-        .register(
-            CLAUDE_CODE,
-            &path,
-            "taskloom",
-            "taskloom",
-            Some(&server()),
-            false,
-        )
-        .unwrap();
+    let (fs, home, mut configs) = files();
+    let path = home.join(".claude.json");
+    install(&mut configs, &path, false).unwrap();
+    let written = fs.metadata(&path).unwrap().modified;
+    write(&*fs, &home.join("marker"), "");
+    let again = install(&mut configs, &path, false).unwrap();
     assert!(!again.changed);
-    assert_eq!(
-        std::fs::metadata(&path).unwrap().modified().unwrap(),
-        written
-    );
-    let entries: Vec<_> = std::fs::read_dir(home.path())
+    assert_eq!(fs.metadata(&path).unwrap().modified, written);
+    let entries: Vec<_> = fs
+        .read_dir(&home)
         .unwrap()
-        .map(|e| e.unwrap().file_name())
+        .into_iter()
+        .map(|e| e.name)
         .filter(|name| name != ".ctxloom")
         .collect();
     assert_eq!(
@@ -423,128 +443,96 @@ fn test_a_rewrite_that_changes_nothing_writes_nothing() {
 #[cfg(unix)]
 #[test]
 fn test_a_write_keeps_the_files_permissions_and_a_new_file_is_private() {
-    use std::os::unix::fs::PermissionsExt;
-    let (home, mut configs) = files();
-    let made = home.path().join("deeper/.mcp.json");
-    configs
-        .register(
-            CLAUDE_CODE,
-            &made,
-            "taskloom",
-            "taskloom",
-            Some(&server()),
-            false,
-        )
-        .unwrap();
-    let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    let (fs, home, mut configs) = files();
+    let made = home.join("deeper/.mcp.json");
+    install(&mut configs, &made, false).unwrap();
+    let mode = |p: &Path| fs.metadata(p).unwrap().mode.unwrap().bits();
     assert_eq!(mode(&made), 0o600);
-    let kept = home.path().join(".claude.json");
-    std::fs::write(&kept, "{}").unwrap();
-    std::fs::set_permissions(&kept, std::fs::Permissions::from_mode(0o640)).unwrap();
-    configs
-        .register(
-            CLAUDE_CODE,
-            &kept,
-            "taskloom",
-            "taskloom",
-            Some(&server()),
-            false,
-        )
-        .unwrap();
+    let kept = home.join(".claude.json");
+    write(&*fs, &kept, "{}");
+    fs.set_permissions(&kept, Mode::from_bits(0o640)).unwrap();
+    install(&mut configs, &kept, false).unwrap();
     assert_eq!(mode(&kept), 0o640);
 }
 
 #[cfg(unix)]
 #[test]
+fn test_a_corrupt_files_copy_is_private() {
+    let (fs, home, mut configs) = files();
+    let path = home.join(".claude.json");
+    write(&*fs, &path, "not json");
+    let refused = install(&mut configs, &path, false).unwrap_err();
+    assert_eq!(refused.code(), "agent-configs-corrupt");
+    let copy = fs
+        .read_dir(&home)
+        .unwrap()
+        .into_iter()
+        .find(|e| {
+            e.name
+                .to_string_lossy()
+                .starts_with(".claude.json.corrupt-")
+        })
+        .expect("the copy");
+    let copy = home.join(copy.name);
+    assert_eq!(fs.read(&copy).unwrap(), b"not json");
+    assert_eq!(fs.metadata(&copy).unwrap().mode, Some(Mode::PRIVATE_FILE));
+}
+
+#[cfg(unix)]
+#[test]
 fn test_a_file_that_cannot_be_read_or_written_says_so() {
-    let (home, mut configs) = files();
-    let dir = home.path().join("a-directory");
-    std::fs::create_dir(&dir).unwrap();
-    let unreadable = configs
-        .register(
-            CLAUDE_CODE,
-            &dir,
-            "taskloom",
-            "taskloom",
-            Some(&server()),
-            false,
-        )
-        .unwrap_err();
+    let (fs, home, mut configs) = files();
+    let dir = home.join("a-directory");
+    fs.create_dir_all(&dir, Mode::DIR).unwrap();
+    let unreadable = install(&mut configs, &dir, false).unwrap_err();
     assert_eq!(unreadable.code(), "agent-configs-read");
     let found = configs
         .installed(CLAUDE_CODE, &dir, "taskloom")
         .unwrap_err();
     assert_eq!(found.code(), "agent-configs-read");
 
-    use std::os::unix::fs::PermissionsExt;
-    let locked = home.path().join("locked");
-    std::fs::create_dir(&locked).unwrap();
-    std::fs::write(locked.join(".mcp.json"), "{}").unwrap();
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500)).unwrap();
-    let unwritable = configs.register(
-        CLAUDE_CODE,
-        &locked.join(".mcp.json"),
-        "taskloom",
-        "taskloom",
-        Some(&server()),
-        false,
-    );
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let locked = home.join("locked");
+    write(&*fs, &locked.join(".mcp.json"), "{}");
+    fs.set_permissions(&locked, Mode::from_bits(0o500)).unwrap();
+    let unwritable = install(&mut configs, &locked.join(".mcp.json"), false);
+    fs.set_permissions(&locked, Mode::PRIVATE_DIR).unwrap();
     assert_eq!(unwritable.unwrap_err().code(), "agent-configs-write");
-    assert_eq!(
-        std::fs::read_to_string(locked.join(".mcp.json")).unwrap(),
-        "{}"
-    );
+    assert_eq!(text(&*fs, &locked.join(".mcp.json")), "{}");
 }
 
 #[test]
 fn test_an_entry_running_another_program_is_refused_by_name() {
-    let (home, mut configs) = files();
-    let path = home.path().join(".claude.json");
+    let (fs, home, mut configs) = files();
+    let path = home.join(".claude.json");
     let src = r#"{"mcpServers": {"taskloom": {"command": "mywrapper"}}}"#;
-    std::fs::write(&path, src).unwrap();
-    let refused = configs
-        .register(
-            CLAUDE_CODE,
-            &path,
-            "taskloom",
-            "taskloom",
-            Some(&server()),
-            false,
-        )
-        .unwrap_err();
+    write(&*fs, &path, src);
+    let refused = install(&mut configs, &path, false).unwrap_err();
     assert_eq!(refused.code(), "agent-configs-foreign");
     assert!(refused.to_string().contains("named taskloom"), "{refused}");
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), src);
+    assert_eq!(text(&*fs, &path), src);
 }
 
 #[test]
 fn test_a_command_resolves_where_an_executable_of_its_name_is_on_the_path() {
-    let bin = tempfile::tempdir().unwrap();
-    let other = tempfile::tempdir().unwrap();
-    let mut configs = AgentConfigFiles {
-        home: None,
-        path: Some(std::env::join_paths([other.path(), bin.path()]).unwrap()),
-        waits: file_lock::Waits::DEFAULT,
-    };
+    let fs = rooted();
+    let (bin, other) = (Path::new("/bin"), Path::new("/other"));
+    for dir in [bin, other] {
+        fs.create_dir_all(dir, Mode::DIR).unwrap();
+    }
+    let mut configs = homeless(&fs, Some(std::env::join_paths([other, bin]).unwrap()));
     assert!(!configs.resolvable("taskloom"));
-    let program = bin.path().join("taskloom");
-    std::fs::write(&program, "#!/bin/sh\n").unwrap();
+    let program = bin.join("taskloom");
+    write(&*fs, &program, "#!/bin/sh\n");
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
         assert!(!configs.resolvable("taskloom"), "not executable");
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        fs.set_permissions(&program, Mode::from_bits(0o755))
+            .unwrap();
     }
     assert!(configs.resolvable("taskloom"));
-    std::fs::create_dir(other.path().join("dir")).unwrap();
+    fs.create_dir_all(&other.join("dir"), Mode::DIR).unwrap();
     assert!(!configs.resolvable("dir"), "a directory runs nothing");
-    let mut pathless = AgentConfigFiles {
-        home: None,
-        path: None,
-        waits: file_lock::Waits::DEFAULT,
-    };
-    assert!(!pathless.resolvable("taskloom"));
+    assert!(!homeless(&fs, None).resolvable("taskloom"));
 }
 
 #[test]
@@ -567,57 +555,11 @@ fn test_a_path_is_joined_and_cleaned_as_gos() {
     assert_eq!(go_join(Path::new(""), ""), PathBuf::from("."));
 }
 
-#[test]
-fn test_a_write_stages_beside_a_staging_file_left_by_another() {
-    let (home, mut configs) = files();
-    let path = home.path().join(".claude.json");
-    // Staging names are `.<base>.<pid>.<n>.tmp`, and the base is
-    // `.claude.json`: the first two are taken.
-    let left = home
-        .path()
-        .join(format!("..claude.json.{}.0.tmp", std::process::id()));
-    std::fs::write(&left, "someone's").unwrap();
-    let next = home
-        .path()
-        .join(format!("..claude.json.{}.1.tmp", std::process::id()));
-    std::fs::write(&next, "another's").unwrap();
-    configs
-        .register(
-            CLAUDE_CODE,
-            &path,
-            "taskloom",
-            "taskloom",
-            Some(&server()),
-            false,
-        )
-        .unwrap();
-    assert_eq!(std::fs::read_to_string(&left).unwrap(), "someone's");
-    assert_eq!(std::fs::read_to_string(&next).unwrap(), "another's");
-    assert!(std::fs::read_to_string(&path).unwrap().contains("taskloom"));
-}
-
-#[test]
-fn test_staging_gives_up_after_a_thousand_names_taken() {
-    let dir = tempfile::tempdir().unwrap();
-    let name = |n: u32| {
-        dir.path()
-            .join(format!(".f.{}.{n}.tmp", std::process::id()))
-    };
-    for n in 0..1000 {
-        std::fs::write(name(n), "").unwrap();
-    }
-    let (staged, _) = super::fresh(dir.path(), "f").unwrap();
-    assert_eq!(staged, name(1000), "the thousandth retry is the last");
-    let refused = super::fresh(dir.path(), "f").unwrap_err();
-    assert_eq!(refused.kind(), std::io::ErrorKind::AlreadyExists);
-    assert!(!name(1001).exists(), "no retry past the thousandth");
-}
-
 // ------------------------------------------------------------ the lock
 
 /// Whether some holder keeps `path` from being locked exclusively now.
-fn held(path: &Path) -> bool {
-    match std::fs::File::open(path) {
+fn held(fs: &dyn Fs, path: &Path) -> bool {
+    match fs.open(path, Open::Read) {
         Ok(file) => fs4::FileExt::try_lock(&file).is_err(),
         Err(_) => false,
     }
@@ -627,8 +569,7 @@ fn held(path: &Path) -> bool {
 /// for a held lock; the project's `.mcp.json`, and the sidecar lock taken
 /// for it, held here as another process holding it would.
 struct Locking {
-    home: TempDir,
-    _dir: TempDir,
+    fs: Arc<dyn Fs>,
     configs: AgentConfigFiles,
     path: PathBuf,
     sidecar: file_lock::path::Sidecar,
@@ -637,33 +578,33 @@ struct Locking {
 
 impl Locking {
     fn new(wait: std::time::Duration) -> Locking {
-        let (home, dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let fs = rooted();
+        let (home, dir) = (Path::new("/home/u"), Path::new("/work"));
+        for made in [home, dir] {
+            fs.create_dir_all(made, Mode::DIR).unwrap();
+        }
         let configs = AgentConfigFiles {
-            home: Some(home.path().to_path_buf()),
+            fs: Arc::clone(&fs),
+            home: Some(home.to_path_buf()),
             path: None,
             waits: file_lock::Waits {
                 lock: wait,
                 reap_interlock: wait,
             },
         };
-        let path = dir.path().join(".mcp.json");
-        let sidecar = file_lock::path::sidecar_for(home.path(), &path);
+        let path = dir.join(".mcp.json");
+        let sidecar = file_lock::path::sidecar_for(&*fs, home, &path);
         assert_eq!(
             sidecar.lock.parent().unwrap(),
-            home.path().join(".ctxloom/locks"),
+            home.join(".ctxloom/locks"),
             "Go's home lock directory"
         );
-        std::fs::create_dir_all(sidecar.lock.parent().unwrap()).unwrap();
-        let holder = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(&sidecar.lock)
+        fs.create_dir_all(sidecar.lock.parent().unwrap(), Mode::DIR)
             .unwrap();
+        let holder = fs.open(&sidecar.lock, Open::Create(Mode::FILE)).unwrap();
         fs4::FileExt::lock(&holder).unwrap();
         Locking {
-            home,
-            _dir: dir,
+            fs,
             configs,
             path,
             sidecar,
@@ -677,39 +618,31 @@ fn test_a_registration_waits_while_another_process_holds_the_files_lock_then_wri
     let mut at = Locking::new(std::time::Duration::from_secs(60));
     let interlock = at.sidecar.interlock.clone().unwrap();
     let (path, mut configs) = (at.path.clone(), at.configs.clone());
-    let registering = std::thread::spawn(move || {
-        configs.register(
-            CLAUDE_CODE,
-            &path,
-            "taskloom",
-            "taskloom",
-            Some(&server()),
-            false,
-        )
-    });
+    let registering = std::thread::spawn(move || install(&mut configs, &path, false));
     // The registration has begun its lock once it holds the reap interlock
     // (shared); from then until the sidecar is let go it can write nothing.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    while !held(&interlock) {
+    while !held(&*at.fs, &interlock) {
         assert!(std::time::Instant::now() < deadline, "never began its lock");
         assert!(!registering.is_finished(), "{:?}", registering.join());
         std::thread::yield_now();
     }
-    assert!(!at.path.exists(), "nothing written while the lock is held");
+    assert!(
+        !at.fs.exists(&at.path).unwrap(),
+        "nothing written while the lock is held"
+    );
     at.holder = None;
     let rewritten = registering.join().unwrap().expect("written once let go");
     assert!(rewritten.changed);
-    assert!(std::fs::read_to_string(&at.path)
-        .unwrap()
-        .contains("\"taskloom\""));
-    assert!(!held(&at.sidecar.lock), "released after the write");
-    assert!(!held(&interlock));
+    assert!(text(&*at.fs, &at.path).contains("\"taskloom\""));
+    assert!(!held(&*at.fs, &at.sidecar.lock), "released after the write");
+    assert!(!held(&*at.fs, &interlock));
 }
 
 #[test]
 fn test_a_registration_whose_file_stays_locked_past_the_wait_is_refused_and_writes_nothing() {
     let mut at = Locking::new(std::time::Duration::from_millis(30));
-    std::fs::write(&at.path, "{}").unwrap();
+    write(&*at.fs, &at.path, "{}");
     for server in [Some(server()), None] {
         let path = at.path.clone();
         let refused = at
@@ -724,45 +657,20 @@ fn test_a_registration_whose_file_stays_locked_past_the_wait_is_refused_and_writ
             )
             .unwrap_err();
         assert_eq!(refused.code(), "file-lock-timeout");
-        assert_eq!(std::fs::read_to_string(&at.path).unwrap(), "{}");
+        assert_eq!(text(&*at.fs, &at.path), "{}");
     }
     drop(at.holder.take());
     let path = at.path.clone();
-    at.configs
-        .register(
-            CLAUDE_CODE,
-            &path,
-            "taskloom",
-            "taskloom",
-            Some(&server()),
-            false,
-        )
-        .expect("written once let go");
-    assert!(std::fs::read_to_string(&at.path)
-        .unwrap()
-        .contains("\"taskloom\""));
-    drop(at.home);
+    install(&mut at.configs, &path, false).expect("written once let go");
+    assert!(text(&*at.fs, &at.path).contains("\"taskloom\""));
 }
 
 #[test]
 fn test_a_registration_with_no_home_has_no_lock_to_take_and_is_refused() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut homeless = AgentConfigFiles {
-        home: None,
-        path: None,
-        waits: file_lock::Waits::DEFAULT,
-    };
-    let path = dir.path().join(".mcp.json");
-    let refused = homeless
-        .register(
-            CLAUDE_CODE,
-            &path,
-            "taskloom",
-            "taskloom",
-            Some(&server()),
-            true,
-        )
-        .unwrap_err();
+    let fs = rooted();
+    let mut homeless = homeless(&fs, None);
+    let path = Path::new("/work/.mcp.json");
+    let refused = install(&mut homeless, path, true).unwrap_err();
     assert_eq!(refused.code(), "agent-configs-no-home");
-    assert!(!path.exists());
+    assert!(!fs.exists(path).unwrap());
 }

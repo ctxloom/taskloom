@@ -1,7 +1,7 @@
 //! Task lists: read models a projector folds from a project's task streams.
 //! A list is purely derived, so it is no aggregate: each list is a projector
-//! that decides membership from each task's state after an event, and
-//! numbers its own changes. A UI resumes a list from that number.
+//! holding every live task (none removed) as its state after each event,
+//! and numbering its own changes. A UI resumes a list from that number.
 //!
 //! The store is the collection: every task stream in a project's store is
 //! that project's, so a list needs no membership metadata on the streams, and
@@ -15,9 +15,6 @@ use annals::next::{
     Projection, Registry, Slice, Stream, Timestamp,
 };
 use tasks::{RemovalReason, TaskEvent, TaskState, Tasks, TASK_DOMAIN};
-
-/// Which live tasks a list holds.
-pub type Membership = Box<dyn Fn(&TaskState) -> bool + Send>;
 
 /// One change to a list.
 #[derive(Clone, Debug, PartialEq)]
@@ -35,9 +32,10 @@ pub struct Delta {
     pub change: Change,
 }
 
-/// One list of a project's tasks.
+/// One list of a project's tasks: every live task (none removed). A new
+/// one ([`TaskList::default`]) is empty, at sequence 0.
+#[derive(Default)]
 pub struct TaskList {
-    membership: Membership,
     /// The listed tasks, by harp id.
     entries: BTreeMap<String, TaskState>,
     /// Every change, in order: the change numbered `n` is at `n - 1`.
@@ -52,17 +50,6 @@ pub struct TaskList {
 }
 
 impl TaskList {
-    /// The list of the live tasks `membership` holds.
-    pub fn new(membership: Membership) -> TaskList {
-        TaskList {
-            membership,
-            entries: BTreeMap::new(),
-            deltas: Vec::new(),
-            projected: BTreeMap::new(),
-            unpurged: BTreeMap::new(),
-        }
-    }
-
     /// The listed tasks, by harp id.
     pub fn entries(&self) -> Vec<&TaskState> {
         self.entries.values().collect()
@@ -202,7 +189,7 @@ impl Projection<Tasks> for TaskList {
             self.unpurged.remove(&task.harp_id);
         }
 
-        let listed = !task.removed && (self.membership)(task);
+        let listed = !task.removed;
         if listed {
             if self.entries.get(&task.harp_id) != Some(task) {
                 self.entries.insert(task.harp_id.clone(), task.clone());

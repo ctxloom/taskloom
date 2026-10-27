@@ -10,7 +10,7 @@ use rmcp::model::Resource;
 use serde::Serialize;
 use serde_json::ser::{Formatter, PrettyFormatter};
 use tasks_application::{ListQuery, Reach, TagSchema, Vocabulary};
-use tasks_presentation::TagCountJson;
+use tasks_presentation::{project_dir, TagCountJson};
 
 use crate::{McpNotice, Settings};
 
@@ -135,7 +135,7 @@ pub fn vocabulary_text(vocabulary: &Vocabulary, catalog: &Catalog) -> String {
     };
     go_indented(&VocabularyDoc {
         project_id: project.map_or("", |p| p.id.as_str()),
-        project_dir: project.map_or("", |p| p.root.as_str()),
+        project_dir: project.map_or("", project_dir),
         warning,
         tags: vocabulary.tags.iter().map(TagCountJson::of).collect(),
     })

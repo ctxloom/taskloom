@@ -143,16 +143,18 @@ fn test_an_install_writes_every_agent_in_use_at_the_scope_and_only_those() {
     let installed = r.install(&install(None, Scope::User)).expect("installed");
     assert!(installed.resolvable);
     assert_eq!(r.configs.resolved, ["taskloom"]);
+    let asked = |dry_run| Asked {
+        engine: "beta".to_string(),
+        path: PathBuf::from("/home/beta.json"),
+        name: "taskloom".to_string(),
+        owner: "taskloom".to_string(),
+        server: Some(taskloom_server()),
+        dry_run,
+    };
     assert_eq!(
         r.configs.asked,
-        [Asked {
-            engine: "beta".to_string(),
-            path: PathBuf::from("/home/beta.json"),
-            name: "taskloom".to_string(),
-            owner: "taskloom".to_string(),
-            server: Some(taskloom_server()),
-            dry_run: false,
-        }]
+        [asked(true), asked(false)],
+        "checked, then written"
     );
     assert_eq!(installed.outcomes.len(), 1);
     assert_eq!(installed.outcomes[0].engine, "beta");
@@ -248,7 +250,9 @@ fn test_an_uninstall_takes_the_server_out_and_with_no_agent_in_use_does_nothing(
         .expect("uninstalled");
     assert_eq!(removed.len(), 1);
     assert_eq!(r.configs.asked[0].server, None, "no server: the removal");
-    assert!(!r.configs.asked[0].dry_run);
+    assert!(r.configs.asked[0].dry_run, "checked first");
+    assert_eq!(r.configs.asked[1].server, None);
+    assert!(!r.configs.asked[1].dry_run, "then written");
 
     let mut r = registrations(Fake::default());
     let removed = r
@@ -271,7 +275,7 @@ fn test_a_check_reports_each_configuration_there_is_at_both_scopes() {
         pathless: vec![("beta".to_string(), project())],
         ..Fake::default()
     });
-    let checked = r.check(Path::new("/work"));
+    let checked = r.check(Path::new("/work")).expect("checked");
     assert!(!checked.resolvable);
     let found: Vec<(&str, &str, &Path, &State)> = checked
         .found
@@ -301,4 +305,103 @@ fn test_a_check_reports_each_configuration_there_is_at_both_scopes() {
             ),
         ]
     );
+}
+
+#[test]
+fn test_an_install_that_one_agent_refuses_writes_no_agent() {
+    // alpha would be written; beta refuses (a foreign entry, say). Every
+    // configuration is checked before any is written, so alpha's is not.
+    let mut r = registrations(Fake {
+        present: vec![
+            ("alpha".to_string(), Scope::User),
+            ("beta".to_string(), Scope::User),
+        ],
+        failing: vec!["beta".to_string()],
+        ..Fake::default()
+    });
+    let failed = r.install(&install(None, Scope::User)).unwrap_err();
+    assert_eq!(failed.to_string(), "beta: it is not JSON");
+    let written: Vec<&str> = r
+        .configs
+        .asked
+        .iter()
+        .filter(|a| !a.dry_run)
+        .map(|a| a.engine.as_str())
+        .collect();
+    assert!(written.is_empty(), "written: {written:?}");
+
+    let mut r = registrations(Fake {
+        present: vec![
+            ("alpha".to_string(), project()),
+            ("beta".to_string(), project()),
+        ],
+        pathless: vec![("beta".to_string(), project())],
+        ..Fake::default()
+    });
+    let failed = r
+        .uninstall(&Uninstall {
+            engine: None,
+            scope: project(),
+        })
+        .unwrap_err();
+    assert!(
+        matches!(failed, RegistrationError::EngineFailed { ref engine, .. } if engine == "beta")
+    );
+    assert!(
+        r.configs.asked.iter().all(|a| a.dry_run),
+        "{:?}",
+        r.configs.asked
+    );
+}
+
+#[test]
+fn test_an_install_that_every_agent_admits_writes_each_after_checking_each() {
+    let mut r = registrations(Fake {
+        present: vec![
+            ("alpha".to_string(), Scope::User),
+            ("beta".to_string(), Scope::User),
+        ],
+        ..Fake::default()
+    });
+    let installed = r.install(&install(None, Scope::User)).expect("installed");
+    let asked: Vec<(&str, bool)> = r
+        .configs
+        .asked
+        .iter()
+        .map(|a| (a.engine.as_str(), a.dry_run))
+        .collect();
+    assert_eq!(
+        asked,
+        [
+            ("alpha", true),
+            ("beta", true),
+            ("alpha", false),
+            ("beta", false)
+        ]
+    );
+    assert_eq!(installed.outcomes.len(), 2);
+}
+
+#[test]
+fn test_a_project_directory_given_blank_is_refused_before_any_agent_is_asked() {
+    let blank = || Scope::Project(PathBuf::new());
+    let mut r = registrations(Fake {
+        present: vec![("alpha".to_string(), blank())],
+        ..Fake::default()
+    });
+    let refused = r.install(&install(Some("alpha"), blank())).unwrap_err();
+    assert_eq!(refused, RegistrationError::BlankDirectory);
+    assert_eq!(refused.code(), "registration-application-blank-directory");
+    let refused = r
+        .uninstall(&Uninstall {
+            engine: None,
+            scope: blank(),
+        })
+        .unwrap_err();
+    assert_eq!(refused, RegistrationError::BlankDirectory);
+    assert_eq!(
+        r.check(Path::new("")).unwrap_err(),
+        RegistrationError::BlankDirectory
+    );
+    assert!(r.configs.asked.is_empty());
 }

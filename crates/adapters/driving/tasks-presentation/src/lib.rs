@@ -77,10 +77,16 @@ pub fn headline(text: &str) -> String {
 /// `dir (id)`: the project a command ran in; its id alone where its
 /// directory is not known.
 pub fn project_label(project: &Project) -> String {
-    if project.root.is_empty() {
-        return project.id.clone();
+    match &project.root {
+        Some(root) => format!("{root} ({})", project.id),
+        None => project.id.clone(),
     }
-    format!("{} ({})", project.root, project.id)
+}
+
+/// The directory a project's JSON names: its root, or `""` where it has
+/// none, as the JSON has always written it.
+pub fn project_dir(project: &Project) -> &str {
+    project.root.as_deref().unwrap_or_default()
 }
 
 /// A task as one row of a compact listing: its fields in this order, the
@@ -120,7 +126,7 @@ impl<'a, T: Serialize> RowJson<'a, T> {
         RowJson {
             task,
             project_id: &project.id,
-            project_dir: &project.root,
+            project_dir: project_dir(project),
         }
     }
 }

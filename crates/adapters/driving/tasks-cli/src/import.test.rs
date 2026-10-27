@@ -54,6 +54,7 @@ fn test_text_names_every_count_and_every_record_left_behind() {
     let mut stopped = every_count();
     stopped.failed = Some(Report::new("x-bad", "the store failed"));
     let report = ImportReport {
+        dead_letters: Vec::new(),
         projects: vec![stopped],
     };
     assert_eq!(
@@ -71,6 +72,7 @@ fn test_text_names_every_count_and_every_record_left_behind() {
 #[test]
 fn test_text_leaves_out_the_counts_that_are_zero() {
     let report = ImportReport {
+        dead_letters: Vec::new(),
         projects: vec![
             ProjectImport {
                 project_id: "able-calm-fox".to_string(),
@@ -97,6 +99,7 @@ fn test_json_carries_the_whole_report() {
     let mut stopped = every_count();
     stopped.failed = Some(Report::new("x-bad", "the store failed"));
     let report = ImportReport {
+        dead_letters: Vec::new(),
         projects: vec![stopped],
     };
     let json: Value = serde_json::to_value(ImportJson::of(&report, &catalog())).unwrap();
@@ -143,6 +146,7 @@ fn test_json_carries_the_whole_report() {
 #[test]
 fn test_json_of_a_complete_import_says_so() {
     let report = ImportReport {
+        dead_letters: Vec::new(),
         projects: vec![ProjectImport::default()],
     };
     let json: Value = serde_json::to_value(ImportJson::of(&report, &catalog())).unwrap();

@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use super::{binary, Env};
+use super::{binary, disk, Env, Temp};
 
 /// The reference capabilities, tools and resources as initialize,
 /// tools/list and resources/list answer them, and the tag-schema resource
@@ -50,7 +50,13 @@ impl Server {
     /// [`Server::start_in`], with `vars` in its environment too, as
     /// [`Env::run_in`] runs the command line.
     fn start_with(env: &Env, dir: &Path, vars: &[(&str, &str)]) -> Server {
+        Server::start_args(env, dir, vars, &[])
+    }
+
+    /// [`Server::start_with`], `globals` given before `mcp`.
+    fn start_args(env: &Env, dir: &Path, vars: &[(&str, &str)], globals: &[&str]) -> Server {
         let mut child = Command::new(binary())
+            .args(globals)
             .arg("mcp")
             .current_dir(dir)
             .env_clear()
@@ -202,7 +208,7 @@ fn test_mcp_serves_every_tool_and_the_vocabulary_on_the_projects_store() {
         .as_str()
         .expect("the project written to");
     let store = format!(".ctxloom/projects/{project_id}/state.db");
-    assert!(env.home.path().join(store).exists(), "{added}");
+    assert!(disk::exists(env.home.path().join(store)), "{added}");
     assert_eq!(added.get("path"), None, "no result names its store");
     let harp = task["harp_id"].clone();
     server.call(
@@ -292,7 +298,7 @@ fn lists(server: &mut Server, harp: &Value, project_id: &str) {
 fn test_mcp_lists_every_project_outside_any_work_root_as_the_cli_does() {
     let env = Env::new("mcp-test-harp");
     env.seed("in the project");
-    let stray = tempfile::tempdir().unwrap();
+    let stray = Temp::new();
     let mut server = Server::start_in(&env, stray.path());
     server.initialize();
     let listing = server.call("task_list", json!({}));
@@ -320,7 +326,7 @@ fn test_mcp_lists_every_project_outside_any_work_root_as_the_cli_does() {
 #[test]
 fn test_mcp_and_the_cli_resolve_the_same_project_in_the_same_environment() {
     let env = Env::new("mcp-test-harp");
-    let elsewhere = tempfile::tempdir().unwrap();
+    let elsewhere = Temp::new();
     let there = env.run_in(elsewhere.path(), &["add", "there", "--json"], &[]);
     assert!(there.ok, "{}", there.stderr);
     let there = project_of(&env, elsewhere.path(), &there.json()["harp_id"], &[]);
@@ -352,6 +358,52 @@ fn project_of(env: &Env, dir: &Path, harp: &Value, vars: &[(&str, &str)]) -> Str
         .to_string()
 }
 
+// An argument left out is the default; one given "" is given, and refused
+// as blank, as the command line refuses it: never read as left out.
+#[test]
+fn test_mcp_refuses_an_argument_given_empty_as_the_cli_does() {
+    let env = Env::new("mcp-test-harp");
+    let mut server = Server::start(&env);
+    server.initialize();
+    let added = server.call("task_add", json!({"text": "Ship it"}));
+    assert_eq!(added["task"]["status"], "To Do");
+    let harp = added["task"]["harp_id"].clone();
+    for (tool, arguments, code) in [
+        (
+            "task_add",
+            json!({"text": "x", "status": ""}),
+            "tasks-application-blank",
+        ),
+        (
+            "task_add",
+            json!({"text": "x", "tags": [""]}),
+            "tasks-application-tag-blank",
+        ),
+        (
+            "task_set_status",
+            json!({"harp_id": harp, "status": "Deferred", "trigger": ""}),
+            "tasks-application-blank",
+        ),
+        (
+            "task_list",
+            json!({"tag_query": ""}),
+            "tasks-application-blank",
+        ),
+    ] {
+        let refused = server.ask("tools/call", json!({"name": tool, "arguments": arguments}));
+        let result = &refused["result"];
+        assert_eq!(result["isError"], true, "{refused}");
+        let envelope: Value =
+            serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(envelope["code"], code, "{tool}: {envelope}");
+    }
+    let listing = server.call("task_list", json!({"include_completed": true}));
+    assert_eq!(listing["tasks"].as_array().unwrap().len(), 1, "{listing}");
+    assert_eq!(listing["tasks"][0]["status"], "To Do", "{listing}");
+    let (ok, stderr) = server.finish();
+    assert!(ok, "{stderr}");
+}
+
 // Each call's service is configured as the command line's is: the home's
 // tag schema refuses a tag outside its enum, as a tool error carrying the
 // envelope, and the configured hiding leaves the JSON every tag.
@@ -359,8 +411,8 @@ fn project_of(env: &Env, dir: &Path, harp: &Value, vars: &[(&str, &str)]) -> Str
 fn test_mcp_calls_are_served_under_the_configured_tag_schema() {
     let env = Env::new("mcp-test-harp");
     let dir = env.home.path().join(".taskloom");
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(
+    disk::create_dir_all(&dir).unwrap();
+    disk::write(
         dir.join("config.yaml"),
         "tag_schema:\n  - 'tagma.enum:\"team:size\"=\"small,large\"'\n  - 'tagma.hide:\"team:size\"=true'\n",
     )
@@ -401,6 +453,32 @@ fn test_mcp_calls_are_served_under_the_configured_tag_schema() {
     let vocabulary: Value =
         serde_json::from_str(&server.read("taskloom://tag-vocabulary")).unwrap();
     assert_eq!(vocabulary["tags"], json!([]), "the hidden tag is left out");
+    let (ok, stderr) = server.finish();
+    assert!(ok, "{stderr}");
+}
+
+// `--config-set` before `mcp` configures every call's service, as it
+// configures a command line's: it is bound once, where the server is made.
+#[test]
+fn test_mcp_calls_are_served_under_the_config_set_given_it() {
+    let env = Env::new("mcp-test-harp");
+    let set = r#"tag_schema=tagma.enum:"team:size"="small,large""#;
+    let mut server = Server::start_args(&env, env.project.path(), &[], &["--config-set", set]);
+    server.initialize();
+    let refused = server.ask(
+        "tools/call",
+        json!({"name": "task_add", "arguments": {"text": "Ship it", "tags": ["team:size=huge"]}}),
+    );
+    let result = &refused["result"];
+    assert_eq!(result["isError"], true, "{refused}");
+    let envelope: Value =
+        serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(envelope["code"], "tasks-application-tag-not-in-enum");
+    let added = server.call(
+        "task_add",
+        json!({"text": "Ship it", "tags": ["team:size=small"]}),
+    );
+    assert_eq!(added["task"]["tags"], json!(["team:size=small"]));
     let (ok, stderr) = server.finish();
     assert!(ok, "{stderr}");
 }

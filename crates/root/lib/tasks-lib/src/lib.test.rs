@@ -1,18 +1,20 @@
 //! The wiring's contract: how the binary (one service per command), the
 //! MCP server and a gRPC server (one per call, on threads and spawned
-//! futures) and ctxloom build the use cases from it, over a temporary home
-//! and project, never a real one.
+//! futures) and ctxloom build the use cases from it, over a home and
+//! project on a filesystem of the test's own (`Rooted`), never a real one.
 
+use std::fs::File;
 use std::future::Future;
-use std::path::Path;
-use std::sync::Arc;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use annals_diagnostic::Diagnostic;
+use file_system::{Entry, Meta, Mode, Open, Perms, Rooted};
 use tasks_application::{
     Changed, ImportRequest, ImportService, ListQuery, NewTask, PruneService, Reach, TaskService,
     WatchRequest, WatchService,
 };
-use tempfile::TempDir;
 
 use super::*;
 
@@ -24,28 +26,185 @@ fn block_on<F: Future>(future: F) -> F::Output {
         .block_on(future)
 }
 
-/// An isolated home and project directory.
+/// The home, on the test's filesystem.
+const HOME: &str = "/home/u";
+
+/// The project directory, on the test's filesystem.
+const PROJECT: &str = "/project";
+
+/// An isolated home and project directory: `/home/u` and `/project` on a
+/// filesystem of the test's own, removed when this is dropped.
 struct Dirs {
-    home: TempDir,
-    project: TempDir,
+    owner: Rooted,
 }
 
 impl Dirs {
     fn new() -> Dirs {
-        Dirs {
-            home: tempfile::tempdir().unwrap(),
-            project: tempfile::tempdir().unwrap(),
+        let owner = Rooted::temp().unwrap();
+        for dir in [HOME, PROJECT] {
+            owner.create_dir_all(Path::new(dir), Mode::DIR).unwrap();
         }
+        Dirs { owner }
     }
 
-    /// The wiring in `dir`, under the home, and nothing else.
-    fn builder_in(&self, dir: &Path) -> Builder {
-        Builder::new(dir).home(self.home.path())
+    /// The test's filesystem, working in `dir` (the interim rule: a
+    /// filesystem given works in the builder's working directory).
+    fn fs_in(&self, dir: &str) -> Arc<dyn Fs> {
+        Arc::new(Rooted::new(self.owner.root(), Path::new(dir)).unwrap())
+    }
+
+    /// The wiring in `dir`, under the home, on the test's filesystem, and
+    /// nothing else.
+    fn builder_in(&self, dir: &str) -> Builder {
+        Builder::new(dir).home(HOME).fs(self.fs_in(dir))
     }
 
     /// The wiring in the project directory.
     fn taskloom(&self) -> Taskloom {
-        self.builder_in(self.project.path()).build().unwrap()
+        self.builder_in(PROJECT).build().unwrap()
+    }
+
+    /// `bytes` written at `path` on the test's filesystem, its directory
+    /// made, with `mode`.
+    fn write(&self, path: &str, bytes: &[u8], mode: Mode) {
+        let path = Path::new(path);
+        self.owner
+            .create_dir_all(path.parent().unwrap(), Mode::DIR)
+            .unwrap();
+        self.owner
+            .write_atomic(path, bytes, Perms::Exact(mode))
+            .unwrap();
+    }
+}
+
+/// A filesystem that records every call made on it, then makes it on
+/// `inner`.
+#[derive(Debug)]
+struct Recording {
+    inner: Rooted,
+    calls: Mutex<Vec<String>>,
+}
+
+impl Recording {
+    fn new(inner: Rooted) -> Recording {
+        Recording {
+            inner,
+            calls: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn record(&self, call: &str, path: &Path) {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("{call} {}", path.display()));
+    }
+
+    /// Every call made so far, in order.
+    fn calls(&self) -> Vec<String> {
+        self.calls.lock().unwrap().clone()
+    }
+}
+
+impl Fs for Recording {
+    fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
+        self.record("read", path);
+        self.inner.read(path)
+    }
+
+    fn read_to_string(&self, path: &Path) -> io::Result<String> {
+        self.record("read_to_string", path);
+        self.inner.read_to_string(path)
+    }
+
+    fn write_atomic(&self, path: &Path, bytes: &[u8], perms: Perms) -> io::Result<()> {
+        self.record("write_atomic", path);
+        self.inner.write_atomic(path, bytes, perms)
+    }
+
+    fn open(&self, path: &Path, how: Open) -> io::Result<File> {
+        self.record("open", path);
+        self.inner.open(path, how)
+    }
+
+    fn create_dir_all(&self, path: &Path, mode: Mode) -> io::Result<()> {
+        self.record("create_dir_all", path);
+        self.inner.create_dir_all(path, mode)
+    }
+
+    fn remove_file(&self, path: &Path) -> io::Result<()> {
+        self.record("remove_file", path);
+        self.inner.remove_file(path)
+    }
+
+    fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
+        self.record("remove_dir_all", path);
+        self.inner.remove_dir_all(path)
+    }
+
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        self.record("rename", from);
+        self.inner.rename(from, to)
+    }
+
+    fn set_permissions(&self, path: &Path, mode: Mode) -> io::Result<()> {
+        self.record("set_permissions", path);
+        self.inner.set_permissions(path, mode)
+    }
+
+    fn read_dir(&self, path: &Path) -> io::Result<Vec<Entry>> {
+        self.record("read_dir", path);
+        self.inner.read_dir(path)
+    }
+
+    fn metadata(&self, path: &Path) -> io::Result<Meta> {
+        self.record("metadata", path);
+        self.inner.metadata(path)
+    }
+
+    fn symlink_metadata(&self, path: &Path) -> io::Result<Meta> {
+        self.record("symlink_metadata", path);
+        self.inner.symlink_metadata(path)
+    }
+
+    fn exists(&self, path: &Path) -> io::Result<bool> {
+        self.record("exists", path);
+        self.inner.exists(path)
+    }
+
+    fn absolute(&self, path: &Path) -> io::Result<PathBuf> {
+        self.record("absolute", path);
+        self.inner.absolute(path)
+    }
+
+    fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
+        self.record("canonicalize", path);
+        self.inner.canonicalize(path)
+    }
+
+    fn symlink_dir(&self, target: &Path, link: &Path) -> io::Result<()> {
+        self.record("symlink_dir", link);
+        self.inner.symlink_dir(target, link)
+    }
+
+    fn read_link(&self, link: &Path) -> io::Result<PathBuf> {
+        self.record("read_link", link);
+        self.inner.read_link(link)
+    }
+
+    fn make_temp_dir(&self, parent: &Path, prefix: &str) -> io::Result<PathBuf> {
+        self.record("make_temp_dir", parent);
+        self.inner.make_temp_dir(parent, prefix)
+    }
+
+    fn real_path(&self, path: &Path) -> io::Result<PathBuf> {
+        self.record("real_path", path);
+        self.inner.real_path(path)
+    }
+
+    fn same_file(&self, file: &File, path: &Path) -> io::Result<bool> {
+        self.record("same_file", path);
+        self.inner.same_file(file, path)
     }
 }
 
@@ -156,9 +315,11 @@ fn test_a_pinned_project_beats_the_working_directorys() {
     let there = block_on(dirs.taskloom().tasks().add(new_task("there")))
         .unwrap()
         .project;
-    let elsewhere = tempfile::tempdir().unwrap();
+    dirs.owner
+        .create_dir_all(Path::new("/elsewhere"), Mode::DIR)
+        .unwrap();
     let pinned = dirs
-        .builder_in(elsewhere.path())
+        .builder_in("/elsewhere")
         .project_id(there.id.clone())
         .build()
         .unwrap();
@@ -166,26 +327,68 @@ fn test_a_pinned_project_beats_the_working_directorys() {
     assert_eq!(written.project.id, there.id);
 }
 
+/// A task tagged `triage:level=7`, out of the default schema's range
+/// (1-5), added on `taskloom`.
+fn add_level_seven(
+    taskloom: &Taskloom,
+) -> Result<tasks_application::Written, tasks_application::AppError> {
+    block_on(taskloom.tasks().add(NewTask {
+        tags: vec!["triage:level=7".to_string()],
+        ..new_task("Ship it")
+    }))
+}
+
 // The variables given are the configuration's environment layer.
 #[test]
 fn test_the_configuration_reads_the_variables_given() {
     let dirs = Dirs::new();
-    let tagged = |taskloom: &Taskloom| {
-        block_on(taskloom.tasks().add(NewTask {
-            tags: vec!["triage:level=7".to_string()],
-            ..new_task("Ship it")
-        }))
-    };
-    assert!(tagged(&dirs.taskloom()).is_err(), "the default range, 1-5");
+    assert!(
+        add_level_seven(&dirs.taskloom()).is_err(),
+        "the default range, 1-5"
+    );
     let wide = dirs
-        .builder_in(dirs.project.path())
+        .builder_in(PROJECT)
         .vars(vec![(
             "TASKLOOM_CONFIG_TAG_SCHEMA".to_string(),
             r#"tagma.range:"triage:level"="1,9""#.to_string(),
         )])
         .build()
         .unwrap();
-    assert!(tagged(&wide).is_ok());
+    assert!(add_level_seven(&wide).is_ok());
+}
+
+// The `--config-set` overrides, bound once at composition, are the
+// configuration's last layer.
+#[test]
+fn test_the_configuration_applies_the_overrides_given() {
+    let dirs = Dirs::new();
+    assert!(
+        add_level_seven(&dirs.taskloom()).is_err(),
+        "the default range, 1-5"
+    );
+    let wide = dirs
+        .builder_in(PROJECT)
+        .config_set(vec![
+            r#"tag_schema=tagma.range:"triage:level"="1,9""#.to_string()
+        ])
+        .build()
+        .unwrap();
+    assert!(add_level_seven(&wide).is_ok());
+}
+
+// Building the tasks use cases does no I/O: no work root is searched for
+// and no project resolved until a call needs one, so `version` and
+// `loadout` touch nothing.
+#[test]
+fn test_building_the_tasks_use_cases_touches_no_file() {
+    let dirs = Dirs::new();
+    let recording = Arc::new(Recording::new(
+        Rooted::new(dirs.owner.root(), Path::new(PROJECT)).unwrap(),
+    ));
+    let fs: Arc<dyn Fs> = Arc::clone(&recording) as Arc<dyn Fs>;
+    let taskloom = Builder::new(PROJECT).home(HOME).fs(fs).build().unwrap();
+    let _tasks = taskloom.tasks();
+    assert_eq!(recording.calls(), Vec::<String>::new());
 }
 
 // Import only on request, over the home's JSONL task logs, into the stores
@@ -193,17 +396,16 @@ fn test_the_configuration_reads_the_variables_given() {
 #[test]
 fn test_the_importer_reads_the_homes_logs_into_the_stores_tasks_reads() {
     let dirs = Dirs::new();
-    let logs = dirs.home.path().join(".ctxloom/tasks");
-    std::fs::create_dir_all(&logs).unwrap();
-    std::fs::write(
-        logs.join("jolly-mute-magma.jsonl"),
+    dirs.write(
+        "/home/u/.ctxloom/tasks/jolly-mute-magma.jsonl",
         concat!(
             r#"{"op":"add","task":"brisk-heron","text":"Write the tour","status":"To Do","#,
             r#""session":"calm-otter","ts":"2026-03-01T10:00:00.123456789Z"}"#,
             "\n"
-        ),
-    )
-    .unwrap();
+        )
+        .as_bytes(),
+        Mode::FILE,
+    );
     let taskloom = dirs.taskloom();
     let report = block_on(taskloom.importer().import(ImportRequest::default())).unwrap();
     assert!(report.complete(), "{report:?}");
@@ -225,36 +427,32 @@ fn test_projects_shows_the_project_an_add_minted() {
     assert_eq!(shown.store, Some(written.project.store));
 }
 
-// A registration's command is resolved on the PATH given, and on no other.
+// A registration's command is resolved on the PATH among the variables
+// given, and on no other.
 #[test]
 fn test_registrations_resolve_the_server_on_the_path_given() {
     let dirs = Dirs::new();
-    let bin = tempfile::tempdir().unwrap();
-    let server = bin.path().join("taskloom");
-    std::fs::write(&server, "#!/bin/sh\n").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&server, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    dirs.write("/bin/taskloom", b"#!/bin/sh\n", Mode::from_bits(0o755));
     let on_path = dirs
-        .builder_in(dirs.project.path())
-        .path(bin.path())
+        .builder_in(PROJECT)
+        .vars(vec![("PATH".to_string(), "/bin".to_string())])
         .build()
         .unwrap();
     assert!(
         on_path
             .registrations()
-            .check(dirs.project.path())
+            .check(Path::new(PROJECT))
+            .unwrap()
             .resolvable
     );
     assert!(
         !dirs
             .taskloom()
             .registrations()
-            .check(dirs.project.path())
+            .check(Path::new(PROJECT))
+            .unwrap()
             .resolvable,
-        "no PATH given: the process's is not read"
+        "no PATH among the variables given: the process's is not read"
     );
 }
 
@@ -262,9 +460,9 @@ fn test_registrations_resolve_the_server_on_the_path_given() {
 #[test]
 fn test_the_filesystem_given_is_the_one_the_wiring_holds() {
     let dirs = Dirs::new();
-    let given: Arc<dyn Fs> = Arc::new(file_system::Rooted::temp().unwrap());
-    let taskloom = dirs
-        .builder_in(dirs.project.path())
+    let given = dirs.fs_in(PROJECT);
+    let taskloom = Builder::new(PROJECT)
+        .home(HOME)
         .fs(Arc::clone(&given))
         .build()
         .unwrap();
@@ -291,6 +489,26 @@ fn test_a_relative_working_directory_is_refused_as_a_catalogued_diagnostic() {
     assert_eq!(
         catalog(&[]).unwrap().render(&refused).unwrap(),
         "the working directory is not an absolute path: relative"
+    );
+}
+
+// A working directory the process cannot read (it was deleted) is refused
+// as a catalogued diagnostic, with no fallback to the top: what
+// `from_process` builds from.
+#[test]
+fn test_an_unreadable_working_directory_is_refused_as_a_catalogued_diagnostic() {
+    let reason = "No such file or directory (os error 2)";
+    let refused = Builder::at(Err(reason.to_string())).build().unwrap_err();
+    assert_eq!(
+        refused,
+        BuildError::NoWorkingDirectory {
+            reason: reason.to_string()
+        }
+    );
+    assert_eq!(refused.code(), "tasks-lib-no-working-directory");
+    assert_eq!(
+        catalog(&[]).unwrap().render(&refused).unwrap(),
+        "cannot read the working directory: No such file or directory (os error 2)"
     );
 }
 

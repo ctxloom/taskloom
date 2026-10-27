@@ -7,7 +7,7 @@ use std::process::Command;
 
 use serde::Deserialize;
 
-use super::{binary, Ran};
+use super::{binary, disk, Ran, Temp};
 
 /// What ctxloom's boot probe and its lock reaper decode from `<bin>
 /// version --format json`. A field left out decodes as zero and one it
@@ -64,7 +64,7 @@ fn probe(home: &std::path::Path) -> Ran {
 
 #[test]
 fn test_the_version_probe_parses_as_go_ctxloom_parses_it() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Temp::new();
     let ran = probe(home.path());
     assert!(ran.ok, "the probe failed: {}", ran.stderr);
     let info = parse(ran.stdout.as_bytes()).unwrap_or_else(|e| panic!("{e}: {:?}", ran.stdout));
@@ -73,7 +73,7 @@ fn test_the_version_probe_parses_as_go_ctxloom_parses_it() {
     assert_eq!(predates_the_recheck(&info), None, "{info:?}");
     assert_eq!(info.lock_protocol, GO_LOCK_PROTOCOL);
     assert_eq!(
-        std::fs::read_dir(home.path()).unwrap().count(),
+        disk::read_dir(home.path()).unwrap().len(),
         0,
         "the probe writes nothing"
     );
@@ -96,7 +96,7 @@ mod reviewed;
 
 #[test]
 fn test_the_loadout_probe_prints_gos_document_reviewed() {
-    let home = tempfile::tempdir().unwrap();
+    let home = Temp::new();
     let output = Command::new(binary())
         .args(["loadout", "--format", "yaml"])
         .current_dir(home.path())

@@ -10,6 +10,7 @@
 use std::path::Path;
 
 pub use file_lock::path::flat_name;
+use file_system::Fs;
 use serde::Deserialize;
 
 /// The record directory's name under `~/.ctxloom/records`: taskloom's own,
@@ -43,22 +44,22 @@ struct Op {
     path: String,
 }
 
-/// Whether the newest record in `dir` for `target` (the path as the
-/// records name the file) says it added `pointer` whole. A record that
+/// Whether the newest record in `dir` on `fs` for `target` (the path as
+/// the records name the file) says it added `pointer` whole. A record that
 /// cannot be read says nothing.
-pub fn added(dir: &Path, target: &str, pointer: &str) -> bool {
+pub fn added(fs: &dyn Fs, dir: &Path, target: &str, pointer: &str) -> bool {
     let prefix = format!("{}__", flat_name(target));
-    let Ok(entries) = std::fs::read_dir(dir) else {
+    let Ok(entries) = fs.read_dir(dir) else {
         return false;
     };
     let newest = entries
-        .filter_map(Result::ok)
+        .into_iter()
         .filter_map(|entry| {
-            let name = entry.file_name().into_string().ok()?;
+            let name = entry.name.into_string().ok()?;
             (name.starts_with(&prefix) && name.ends_with(SUFFIX)).then_some(name)
         })
         .filter_map(|name| {
-            let text = std::fs::read_to_string(dir.join(&name)).ok()?;
+            let text = fs.read_to_string(&dir.join(&name)).ok()?;
             let record: Record = serde_norway::from_str(&text).ok()?;
             Some((record.applied_at.clone(), name, record))
         })

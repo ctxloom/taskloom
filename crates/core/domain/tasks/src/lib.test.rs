@@ -470,6 +470,47 @@ fn test_add_naming_another_harp_than_its_stream_is_refused() {
     );
 }
 
+// A root that cannot be derived is refused for what it is, never as a
+// harp naming another stream. (The tasks domain's own name always derives
+// one; a domain with a ':' is the one failure compute_root has.)
+#[test]
+fn test_an_add_whose_root_cannot_be_derived_says_why() {
+    let root = ids::compute_root("tasks", HARP).unwrap();
+    assert_eq!(
+        crate::belongs("bad:domain", HARP, Some(&root)),
+        Err(TaskRejection::NoRoot {
+            harp_id: HARP.to_string(),
+            cause: "a domain never contains ':'".to_string(),
+        })
+    );
+    assert_eq!(crate::belongs("tasks", HARP, Some(&root)), Ok(()));
+    assert_eq!(
+        crate::belongs("tasks", HARP, None),
+        Err(TaskRejection::NotItsStream {
+            harp_id: HARP.to_string()
+        }),
+        "a stream with no root is not its stream"
+    );
+}
+
+// The session an add came from is trimmed, as its text, status, trigger
+// and harp id are.
+#[test]
+fn test_add_trims_its_origin_session() {
+    let mut task = Task::new();
+    let events = task
+        .run(AddTask {
+            origin_session: "  calm-otter \n".to_string(),
+            ..add("Ship it")
+        })
+        .unwrap();
+    let TaskEvent::TaskAdded(added) = &events[0] else {
+        panic!("{events:?}")
+    };
+    assert_eq!(added.origin_session, "calm-otter");
+    assert_eq!(task.state().origin_session, "calm-otter");
+}
+
 #[test]
 fn test_add_without_text_is_refused() {
     assert_eq!(

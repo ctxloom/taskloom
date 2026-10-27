@@ -254,7 +254,7 @@ impl<A: ProjectAdmin, C: StoreCheck> Projects<A, C> {
     fn make(&mut self, survey: &Survey, mut plan: Plan, apply: bool) -> Result<Plan, ProjectError> {
         if apply && !plan.changes.is_empty() {
             self.admin
-                .apply(None, survey, &plan.changes)
+                .apply(survey, &plan.changes)
                 .map_err(ProjectError::Port)?;
             plan.applied = true;
         }

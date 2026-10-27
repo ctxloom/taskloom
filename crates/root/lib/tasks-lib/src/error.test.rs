@@ -13,7 +13,10 @@ fn test_each_error_renders_its_english_fallback() {
     let english: Vec<String> = diagnostic_samples().iter().map(|d| d.to_string()).collect();
     assert_eq!(
         english,
-        ["the working directory is not an absolute path: work/taskloom"]
+        [
+            "the working directory is not an absolute path: work/taskloom",
+            "cannot read the working directory: No such file or directory (os error 2)",
+        ]
     );
 }
 
@@ -27,6 +30,14 @@ fn test_each_error_gives_its_args_values() {
         "{error:?}"
     );
     assert_eq!(error.code(), "tasks-lib-relative-cwd");
+    let error = BuildError::NoWorkingDirectory {
+        reason: "r".to_string(),
+    };
+    assert!(
+        matches!(&error.args()[..], [("reason", Arg::Str(r))] if r == "r"),
+        "{error:?}"
+    );
+    assert_eq!(error.code(), "tasks-lib-no-working-directory");
 }
 
 #[test]

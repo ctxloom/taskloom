@@ -4,6 +4,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
+use file_system::Fs;
 use sha2::{Digest, Sha256};
 
 use crate::LockError;
@@ -82,18 +83,11 @@ pub fn clean(path: &Path) -> PathBuf {
     parts.iter().collect()
 }
 
-/// `path` joined to the working directory when it is relative, and
+/// `path` joined to `fs`'s working directory when it is relative, and
 /// cleaned. Links are never resolved, so a path names its lock however its
 /// links stand.
-pub fn absolute(path: &Path) -> Result<PathBuf, LockError> {
-    if path.is_absolute() {
-        return Ok(clean(path));
-    }
-    let cwd = std::env::current_dir().map_err(|e| LockError::NoWorkingDirectory {
-        path: path.display().to_string(),
-        detail: e.to_string(),
-    })?;
-    Ok(clean(&cwd.join(path)))
+pub fn absolute(fs: &dyn Fs, path: &Path) -> Result<PathBuf, LockError> {
+    fs.absolute(path).map_err(|e| LockError::io(path, e))
 }
 
 /// The locks guarding a file: its sidecar, and the reap interlock to hold
@@ -110,12 +104,12 @@ pub struct Sidecar {
 /// `~/.ctxloom/sessions/<harp>/locks/<FlatName(rel)>.lock`, with no
 /// interlock (a session's locks go with it); anywhere else,
 /// `~/.ctxloom/locks/<FlatName(target)>.lock`, under the reap interlock.
-pub fn sidecar_for(home: &Path, target: &Path) -> Sidecar {
+pub fn sidecar_for(fs: &dyn Fs, home: &Path, target: &Path) -> Sidecar {
     let sessions = clean(&home.join(SESSIONS));
     let inside = split_harp(&sessions, target).or_else(|| {
         // The sessions root as its links resolve too, so a target is
         // inside it whichever spelling of the root it was given under.
-        let resolved = std::fs::canonicalize(&sessions).ok()?;
+        let resolved = fs.canonicalize(&sessions).ok()?;
         split_harp(&resolved, target)
     });
     if let Some((harp, rel)) = inside {

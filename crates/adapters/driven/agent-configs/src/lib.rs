@@ -27,12 +27,12 @@ pub mod records;
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use annals_diagnostic::Report;
+use file_system::{Fs, Kind, Mode, Perms};
 use ports::{AgentConfigs, McpServer, Rewritten, Scope};
 
 pub use error::EN_US;
@@ -44,11 +44,12 @@ pub const CLAUDE_CODE: &str = "claude-code";
 /// The object a configuration's servers are in.
 pub const SERVERS: &str = "mcpServers";
 
-/// The agents' configuration files under a home, the PATH a server's
-/// command is looked for on, and how long a write waits for the file's
-/// lock.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// The agents' configuration files under a home, on the filesystem `fs`,
+/// the PATH a server's command is looked for on, and how long a write
+/// waits for the file's lock.
+#[derive(Clone, Debug)]
 pub struct AgentConfigFiles {
+    pub fs: Arc<dyn Fs>,
     pub home: Option<PathBuf>,
     pub path: Option<OsString>,
     /// The waits for the file's lock ([`file_lock::Waits::DEFAULT`] in
@@ -72,7 +73,9 @@ impl AgentConfigs for AgentConfigFiles {
             },
             Scope::Project(dir) => (dir.as_path(), ".mcp.json"),
         };
-        dir.join(file).exists() || dir.join(".claude").exists()
+        // What cannot be looked at is not there.
+        let there = |path: PathBuf| self.fs.exists(&path).unwrap_or(false);
+        there(dir.join(file)) || there(dir.join(".claude"))
     }
 
     fn config_path(&mut self, engine: &str, scope: &Scope) -> Result<PathBuf, Report> {
@@ -111,7 +114,7 @@ impl AgentConfigs for AgentConfigFiles {
     }
 
     fn installed(&mut self, _: &str, path: &Path, name: &str) -> Result<Option<bool>, Report> {
-        let Some(src) = read(path).map_err(|e| Report::of(&e))? else {
+        let Some(src) = read(&*self.fs, path).map_err(|e| Report::of(&e))? else {
             return Ok(None);
         };
         let parse = |detail: String| Report::of(&ConfigError::Parse { detail });
@@ -132,7 +135,7 @@ impl AgentConfigs for AgentConfigFiles {
         let Some(path) = &self.path else {
             return false;
         };
-        std::env::split_paths(path).any(|dir| executable(&dir.join(command)))
+        std::env::split_paths(path).any(|dir| executable(&*self.fs, &dir.join(command)))
     }
 }
 
@@ -162,7 +165,8 @@ impl AgentConfigFiles {
             .home
             .as_ref()
             .ok_or_else(|| Report::of(&ConfigError::NoHome))?;
-        let _locked = file_lock::lock_file(home, path, self.waits).map_err(|e| Report::of(&e))?;
+        let _locked =
+            file_lock::lock_file(&*self.fs, home, path, self.waits).map_err(|e| Report::of(&e))?;
         self.rewrite_locked(path, name, owner, server, dry_run)
             .map_err(|e| Report::of(&e))
     }
@@ -175,21 +179,28 @@ impl AgentConfigFiles {
         server: Option<&McpServer>,
         dry_run: bool,
     ) -> Result<Rewritten, ConfigError> {
-        let found = read(path)?;
+        let found = read(&*self.fs, path)?;
         let before = found.clone().unwrap_or_else(|| b"{}".to_vec());
         let made_by_go = || {
             self.records().is_some_and(|dir| {
-                records::added(&dir, &path.display().to_string(), &format!("/{SERVERS}"))
+                records::added(
+                    &*self.fs,
+                    &dir,
+                    &path.display().to_string(),
+                    &format!("/{SERVERS}"),
+                )
             })
         };
         let after = match splice(&before, path, name, owner, server, made_by_go) {
             Ok(after) => after,
-            Err(Splice::Unparsed(detail)) => return Err(corrupt(path, &before, &detail)),
+            Err(Splice::Unparsed(detail)) => {
+                return Err(corrupt(&*self.fs, path, &before, &detail))
+            }
             Err(Splice::Refused(error)) => return Err(error),
         };
         let changed = after != before;
         if changed && !dry_run {
-            write(path, &after)?;
+            write(&*self.fs, path, &after)?;
         }
         Ok(Rewritten {
             changed,
@@ -312,8 +323,8 @@ fn owned(value: &json::Node, owner: &str) -> bool {
 }
 
 /// The file's bytes, or `None` when there is none.
-fn read(path: &Path) -> Result<Option<Vec<u8>>, ConfigError> {
-    match std::fs::read(path) {
+fn read(fs: &dyn Fs, path: &Path) -> Result<Option<Vec<u8>>, ConfigError> {
+    match fs.read(path) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(ConfigError::Read {
@@ -324,7 +335,7 @@ fn read(path: &Path) -> Result<Option<Vec<u8>>, ConfigError> {
 }
 
 /// Copy the unparsable `src` of `path` beside it, and say so.
-fn corrupt(path: &Path, src: &[u8], detail: &str) -> ConfigError {
+fn corrupt(fs: &dyn Fs, path: &Path, src: &[u8], detail: &str) -> ConfigError {
     let file = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -333,7 +344,8 @@ fn corrupt(path: &Path, src: &[u8], detail: &str) -> ConfigError {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
     let backup = PathBuf::from(format!("{}.corrupt-{stamp}", path.display()));
-    match write_private(&backup, src) {
+    // Private, as the file it copies may hold secrets.
+    match fs.write_atomic(&backup, src, Perms::KeepOr(Mode::PRIVATE_FILE)) {
         Ok(()) => ConfigError::Corrupt {
             file,
             detail: detail.to_string(),
@@ -347,87 +359,26 @@ fn corrupt(path: &Path, src: &[u8], detail: &str) -> ConfigError {
     }
 }
 
-/// Write `bytes` to a new private file at `path`, or over the one there.
-fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let mut options = OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    options.open(path)?.write_all(bytes)
-}
-
-/// Replace the file at `path` with `bytes` whole: written to a fresh file
-/// beside it, synced, given the old file's permissions (0600 for a new
-/// one), and renamed over it, so a reader sees all of one or all of the
-/// other.
-fn write(path: &Path, bytes: &[u8]) -> Result<(), ConfigError> {
+/// Replace the file at `path` with `bytes` whole, atomically, keeping its
+/// permissions (0600 for a new one), its directory made if missing.
+fn write(fs: &dyn Fs, path: &Path, bytes: &[u8]) -> Result<(), ConfigError> {
     let failed = |e: std::io::Error| ConfigError::Write {
         path: path.display().to_string(),
         detail: e.to_string(),
     };
-    let dir = path.parent().filter(|d| !d.as_os_str().is_empty());
-    if let Some(dir) = dir {
-        std::fs::create_dir_all(dir).map_err(failed)?;
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        // As std's create_dir_all makes them: 0777 before the umask.
+        fs.create_dir_all(dir, Mode::from_bits(0o777))
+            .map_err(failed)?;
     }
-    let permissions = std::fs::metadata(path).map(|m| m.permissions()).ok();
-    let base = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let (temp, mut file) = fresh(dir.unwrap_or(Path::new(".")), &base).map_err(failed)?;
-    let written = file
-        .write_all(bytes)
-        .and_then(|()| file.sync_all())
-        .and_then(|()| match permissions {
-            Some(permissions) => std::fs::set_permissions(&temp, permissions),
-            None => Ok(()),
-        })
-        .and_then(|()| std::fs::rename(&temp, path));
-    if let Err(e) = written {
-        let _ = std::fs::remove_file(&temp);
-        return Err(failed(e));
-    }
-    Ok(())
-}
-
-/// A file of its own in `dir` to stage `base`'s write in, private.
-fn fresh(dir: &Path, base: &str) -> std::io::Result<(PathBuf, std::fs::File)> {
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let pid = std::process::id();
-    let mut n = 0u32;
-    loop {
-        let temp = dir.join(format!(".{base}.{pid}.{n}.tmp"));
-        match options.open(&temp) {
-            Ok(file) => return Ok((temp, file)),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && n < 1000 => n += 1,
-            Err(e) => return Err(e),
-        }
-    }
+    fs.write_atomic(path, bytes, Perms::KeepOr(Mode::PRIVATE_FILE))
+        .map_err(failed)
 }
 
 /// Whether `path` is a file this process may run.
-fn executable(path: &Path) -> bool {
-    let Ok(meta) = path.metadata() else {
-        return false;
-    };
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        meta.is_file() && meta.permissions().mode() & 0o111 != 0
-    }
-    #[cfg(not(unix))]
-    {
-        meta.is_file()
-    }
+fn executable(fs: &dyn Fs, path: &Path) -> bool {
+    fs.metadata(path)
+        .is_ok_and(|meta| meta.kind == Kind::File && meta.executable)
 }
 
 /// `dir` joined with `name` and cleaned lexically, so a path reads (and

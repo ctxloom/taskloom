@@ -2,7 +2,7 @@
 //! temporary home: a report changes nothing, `--yes` removes and purges,
 //! and each answer is one JSON document as jq reads it.
 
-use super::{one_document, Env};
+use super::{disk, one_document, Env};
 
 /// Add `args` as a task; its harp.
 fn add(env: &Env, args: &[&str]) -> String {
@@ -122,8 +122,8 @@ fn test_a_prune_where_there_is_no_project_creates_nothing() {
         ran.stderr,
         "taskloom: no project here yet: nothing to prune\n"
     );
-    assert!(!env.home.path().join(".ctxloom").exists());
-    assert!(!env.project.path().join(".project-id").exists());
+    assert!(!disk::exists(env.home.path().join(".ctxloom")));
+    assert!(!disk::exists(env.project.path().join(".project-id")));
 }
 
 #[test]

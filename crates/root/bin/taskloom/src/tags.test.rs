@@ -1,14 +1,13 @@
 //! Acceptance: tags through the real binary, its configuration read from
 //! a temporary home and project, never a real one.
 
-use std::fs;
 use std::path::Path;
 
-use super::Env;
+use super::{disk, Env};
 
 fn configure(dir: &Path, yaml: &str) {
-    fs::create_dir_all(dir.join(".taskloom")).unwrap();
-    fs::write(dir.join(".taskloom/config.yaml"), yaml).unwrap();
+    disk::create_dir_all(dir.join(".taskloom")).unwrap();
+    disk::write(dir.join(".taskloom/config.yaml"), yaml).unwrap();
 }
 
 /// The `code` of the JSON error envelope on stderr.
@@ -108,6 +107,28 @@ fn test_a_scalar_tag_displaces_its_old_value() {
         listed[0]["tags"],
         serde_json::json!(["triage:level=1", "x"])
     );
+}
+
+// One write giving a scalar target two values is refused, on add and on
+// tag alike; the task keeps the value it held.
+#[test]
+fn test_two_values_for_a_scalar_target_in_one_write_are_refused() {
+    let env = Env::new("calm-otter-fox");
+    let two = ["--tag", "triage:level=3", "--tag", "triage:level=1"];
+    let ran = env.run(&[&["add", "Ship it", "--json"][..], &two[..]].concat());
+    assert!(!ran.ok);
+    assert_eq!(code(&ran.stderr), "tasks-application-tag-scalar-conflict");
+    let task = env.seed("Ship it");
+    let harp = task["harp_id"].as_str().unwrap();
+    let ran = env.run(&["tag", harp, "--add", "triage:level=3", "--json"]);
+    assert!(ran.ok, "{}", ran.stderr);
+    let both = ["--add", "triage:level=2", "--add", "triage:level=1"];
+    let ran = env.run(&[&["tag", harp, "--json"][..], &both[..]].concat());
+    assert!(!ran.ok);
+    assert_eq!(code(&ran.stderr), "tasks-application-tag-scalar-conflict");
+    let listed = env.list();
+    assert_eq!(listed.len(), 1, "the refused add wrote nothing");
+    assert_eq!(listed[0]["tags"], serde_json::json!(["triage:level=3"]));
 }
 
 #[test]

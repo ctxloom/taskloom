@@ -26,15 +26,14 @@ use std::io::{self, Write};
 use annals_diagnostic::Diagnostic;
 use clap::{Args, Parser, Subcommand};
 use presentation::{Catalog, CatalogError, Format, Render, Source, UnknownFormat};
-use tasks_application::{PruneService, TaskService, Written};
+use tasks_application::{DeadLetter, PruneService, TaskService, Written};
 
-pub use companion::{Asked, VersionJson, LOADOUT};
+pub use companion::{Asked, LOADOUT};
 pub use error::{diagnostic_samples, CliError, EN_US};
-pub use import::{run_import, ImportGroup, ImportJson, Imported};
-pub use notice::Notice;
-pub use prune::{apply_command, PruneReport};
-pub use render::{headline, table, Added, CompactJson, Listed, RowJson, Tagged, HEADLINE_WIDTH};
-pub use tasks_presentation::{rfc3339, TaskJson};
+pub use import::{run_import, ImportGroup};
+
+use companion::VersionJson;
+use notice::Notice;
 
 /// The program's name: every diagnostic's prefix.
 pub const PROG: &str = "taskloom";
@@ -81,8 +80,8 @@ pub struct Globals {
     pub project: Option<String>,
     /// Override a configuration key for this run: <path>=<value>, e.g.
     /// tag_schema=<declaration>,... (repeatable; beats TASKLOOM_CONFIG_*
-    /// and every config.yaml). The task commands take it; import, project,
-    /// mcp, watch and manage do not.
+    /// and every config.yaml). The task commands, mcp and watch take it;
+    /// import, project and manage do not.
     #[arg(long = "config-set", global = true, value_name = "PATH=VALUE")]
     pub config_set: Vec<String>,
 }
@@ -243,7 +242,6 @@ pub async fn run<S: TaskService + PruneService>(
     };
     let ctx = commands::Ctx {
         project: globals.project,
-        config_set: globals.config_set,
         format,
         catalog,
         session: &context.session,
@@ -307,7 +305,19 @@ pub(crate) fn notify(
     writeln!(err, "{PROG}: {}", catalog.message(notice))
 }
 
-/// Name the project on stderr, then render the task.
+/// Say each dead letter annals' kernel wrote on stderr: almost certainly
+/// a bug, so never left unsaid.
+pub(crate) fn dead_lettered(
+    letters: &[DeadLetter],
+    catalog: &Catalog,
+    err: &mut dyn Write,
+) -> io::Result<()> {
+    letters
+        .iter()
+        .try_for_each(|letter| notify(letter, catalog, err))
+}
+
+/// Name the project on stderr, and any dead letter, then render the task.
 pub(crate) fn wrote(
     written: &Written,
     view: &impl Render,
@@ -317,6 +327,7 @@ pub(crate) fn wrote(
     err: &mut dyn Write,
 ) -> Result<(), CliError> {
     notify(&Notice::project(&written.project), catalog, err)
+        .and_then(|()| dead_lettered(&written.dead_letters, catalog, err))
         .and_then(|()| presentation::render(out, format, view))
         .map_err(output_failed)
 }

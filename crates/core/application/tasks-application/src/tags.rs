@@ -5,7 +5,8 @@
 //! the reason. Only what a write adds is checked; a tag already held, or
 //! one being removed, never is.
 //!
-//! A scalar target's values collapse before the retag is sent
+//! One write gives a scalar target one value at most ([`check_scalars`]),
+//! and the value it gives displaces the one held before the retag is sent
 //! ([`collapse`]): decide never reads the schema.
 
 use std::collections::BTreeMap;
@@ -25,6 +26,8 @@ pub const OPERATOR_WORDS: [&str; 3] = ["and", "or", "not"];
 /// Why a tag given to a write was refused.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum TagRefusal {
+    /// Blank: a tag given is never read as none given.
+    Blank,
     /// Not a tag in tagma's grammar: it could never be queried.
     Unparseable { tag: String, detail: String },
     /// `and`, `or` or `not`, which a query always reads as an operator.
@@ -62,11 +65,19 @@ pub enum TagRefusal {
         target: String,
         detail: String,
     },
+    /// Two values for one scalar target in one write: `first` and
+    /// `second`, the first two given, neither more the one meant.
+    ScalarConflict {
+        target: String,
+        first: String,
+        second: String,
+    },
 }
 
 impl fmt::Display for TagRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            TagRefusal::Blank => f.write_str("a tag was given blank: give one, or leave it out"),
             TagRefusal::Unparseable { tag, detail } => {
                 write!(f, "the tag {tag} is not a tag in tagma's grammar: {detail}")
             }
@@ -116,6 +127,14 @@ impl fmt::Display for TagRefusal {
                 f,
                 "the tag {tag}'s value {value} is not a SemVer 2.0.0 version, which {target}'s declared type semver requires: {detail}"
             ),
+            TagRefusal::ScalarConflict {
+                target,
+                first,
+                second,
+            } => write!(
+                f,
+                "the tags {first} and {second} both give {target} a value, and it takes one: give one of them"
+            ),
         }
     }
 }
@@ -123,6 +142,7 @@ impl fmt::Display for TagRefusal {
 impl Diagnostic for TagRefusal {
     fn code(&self) -> &'static str {
         match self {
+            TagRefusal::Blank => "tasks-application-tag-blank",
             TagRefusal::Unparseable { .. } => "tasks-application-tag-unparseable",
             TagRefusal::OperatorWord { .. } => "tasks-application-tag-operator-word",
             TagRefusal::ReservedNamespace { .. } => "tasks-application-tag-reserved-namespace",
@@ -130,12 +150,14 @@ impl Diagnostic for TagRefusal {
             TagRefusal::NotANumber { .. } => "tasks-application-tag-not-a-number",
             TagRefusal::OutOfRange { .. } => "tasks-application-tag-out-of-range",
             TagRefusal::NotSemver { .. } => "tasks-application-tag-not-semver",
+            TagRefusal::ScalarConflict { .. } => "tasks-application-tag-scalar-conflict",
         }
     }
 
     fn args(&self) -> Vec<(&'static str, Arg)> {
         let s = |v: &String| Arg::from(v.as_str());
         match self {
+            TagRefusal::Blank => Vec::new(),
             TagRefusal::Unparseable { tag, detail } => vec![("tag", s(tag)), ("detail", s(detail))],
             TagRefusal::OperatorWord { tag } => vec![("tag", s(tag))],
             TagRefusal::ReservedNamespace { tag, namespace } => {
@@ -183,6 +205,15 @@ impl Diagnostic for TagRefusal {
                 ("target", s(target)),
                 ("detail", s(detail)),
             ],
+            TagRefusal::ScalarConflict {
+                target,
+                first,
+                second,
+            } => vec![
+                ("target", s(target)),
+                ("first", s(first)),
+                ("second", s(second)),
+            ],
         }
     }
 }
@@ -204,10 +235,15 @@ pub fn parse(spelled: &str) -> Option<Result<Tag, TagRefusal>> {
     )
 }
 
-/// Every tag `spelled` names, in its order, the empty ones left out;
-/// refused at the first that does not parse.
+/// Every tag `spelled` names, in its order, as a write is given them;
+/// refused at the first that does not parse, or is blank: a tag given is
+/// never read as none (an import, reading what Go wrote, leaves a blank
+/// one out through [`parse`] instead).
 pub fn parse_all(spelled: &[String]) -> Result<Vec<Tag>, TagRefusal> {
-    spelled.iter().filter_map(|s| parse(s)).collect()
+    spelled
+        .iter()
+        .map(|s| parse(s).unwrap_or(Err(TagRefusal::Blank)))
+        .collect()
 }
 
 /// Whether `tag` may be written under `schema`: it could be queried, it
@@ -269,12 +305,12 @@ pub fn admit(tag: &Tag, schema: &TagSchema) -> Result<(), TagRefusal> {
         }
     }
     if schema.type_of(&target) == Some(SEMVER) {
-        if let Err(detail) = Version::parse(value) {
+        if let Err(why) = Version::parse(value) {
             return Err(TagRefusal::NotSemver {
                 tag: spelled(),
                 value: value.clone(),
                 target,
-                detail,
+                detail: why.to_string(),
             });
         }
     }
@@ -291,10 +327,39 @@ pub fn admit_all(spelled: &[String], schema: &TagSchema) -> Result<Vec<Tag>, Tag
     Ok(tags)
 }
 
+/// Whether `add`, the tags one write gives, gives each scalar target of
+/// `schema` one value at most (the same value given twice, however spelled,
+/// is one); refused at the first target given a second.
+pub fn check_scalars(schema: &TagSchema, add: &[Tag]) -> Result<(), TagRefusal> {
+    let mut first: BTreeMap<String, &Tag> = BTreeMap::new();
+    for tag in add.iter().filter(|tag| tag.namespace.is_some()) {
+        let target = tag.target();
+        if !schema.is_scalar(&target) {
+            continue;
+        }
+        match first.get(&target) {
+            Some(held) if held.value != tag.value => {
+                return Err(TagRefusal::ScalarConflict {
+                    first: held.to_string(),
+                    second: tag.to_string(),
+                    target,
+                })
+            }
+            Some(_) => {}
+            None => {
+                first.insert(target, tag);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// `add`, with every value of a scalar target but its last dropped, and the
 /// tags of `held` that a surviving scalar value displaces: a different
 /// value of the same target. A scalar target is always namespaced, so a
-/// tag with no namespace is never collapsed.
+/// tag with no namespace is never collapsed. A write refuses two
+/// different values first ([`check_scalars`]), so what it collapses is one
+/// value given more than once.
 pub fn collapse(schema: &TagSchema, held: &[Tag], add: Vec<Tag>) -> (Vec<Tag>, Vec<Tag>) {
     let scalar = |tag: &Tag| {
         let target = tag.target();
@@ -332,6 +397,7 @@ pub fn collapse(schema: &TagSchema, held: &[Tag], add: Vec<Tag>) -> (Vec<Tag>, V
 pub(crate) fn samples() -> Vec<TagRefusal> {
     let x = || "x".to_string();
     vec![
+        TagRefusal::Blank,
         TagRefusal::Unparseable {
             tag: x(),
             detail: x(),
@@ -366,6 +432,11 @@ pub(crate) fn samples() -> Vec<TagRefusal> {
             value: x(),
             target: x(),
             detail: x(),
+        },
+        TagRefusal::ScalarConflict {
+            target: x(),
+            first: x(),
+            second: x(),
         },
     ]
 }

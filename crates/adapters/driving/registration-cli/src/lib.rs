@@ -19,12 +19,11 @@ use annals_diagnostic::Diagnostic;
 use clap::{Parser, Subcommand};
 use presentation::{Catalog, Format, Render};
 use registration_application::{
-    Checked, Install, Installed, Outcome, Registrations, State, Uninstall,
+    AgentConfigs, Checked, Install, Installed, Outcome, Registrations, Scope, State, Uninstall,
 };
 use serde::Serialize;
 
 pub use error::{diagnostic_samples, ManageError, ManageNotice, EN_US};
-pub use registration_application::{AgentConfigs, Scope};
 
 /// The command, its words left for [`run`] to read.
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
@@ -213,7 +212,7 @@ fn answer<A: AgentConfigs>(
             json_only(format, out, &Written::uninstall(&removed))
         }
         Command::Check { dir } => {
-            let checked = registrations.check(&dir);
+            let checked = registrations.check(&dir).map_err(ManageError::App)?;
             let view = Found {
                 checked: &checked,
                 command: &command_name,

@@ -25,9 +25,10 @@ fn task(harp: &str, status: &str, text: &str) -> Task {
 
 fn pruning(applied: bool) -> Pruning {
     Pruning {
+        dead_letters: Vec::new(),
         project: Some(Project {
             id: "jolly-mute-magma".to_string(),
-            root: "/work/tree".to_string(),
+            root: Some("/work/tree".to_string()),
             store: PathBuf::new(),
         }),
         statuses: vec!["Done".to_string(), "Archived".to_string()],
@@ -35,7 +36,7 @@ fn pruning(applied: bool) -> Pruning {
             seconds: 1_767_268_800,
             nanos: 0,
         },
-        tag_query: "release".to_string(),
+        tag_query: Some("release".to_string()),
         applied,
         pruned: vec![
             Pruned {
@@ -110,7 +111,7 @@ fn test_an_applied_prune_says_it_pruned() {
 fn test_a_prune_that_takes_nothing_says_so_with_what_it_selected_by() {
     let mut nothing = pruning(false);
     nothing.pruned.clear();
-    nothing.tag_query.clear();
+    nothing.tag_query = None;
     nothing.project = None;
     assert_eq!(
         rendered(Format::Text, &nothing),
@@ -198,14 +199,14 @@ fn test_a_report_with_no_project_has_empty_project_fields() {
 #[test]
 fn test_the_apply_command_repeats_the_selection_then_yes() {
     assert_eq!(
-        apply_command("7d", &["Done".to_string()], ""),
+        apply_command("7d", &["Done".to_string()], None),
         "taskloom prune --older-than 7d --status Done --yes"
     );
     assert_eq!(
         apply_command(
             "2026-01-01",
             &["Done".to_string(), "To Do".to_string()],
-            "urgent/release/and"
+            Some("urgent/release/and")
         ),
         "taskloom prune --older-than 2026-01-01 --status Done --status 'To Do' \
          --tag-query urgent/release/and --yes"

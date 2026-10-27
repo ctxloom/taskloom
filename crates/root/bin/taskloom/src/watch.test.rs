@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use super::{binary, one_document, Env};
+use super::{binary, disk, one_document, Env};
 
 /// How long a line may take before the stream is judged not to answer.
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -160,7 +160,7 @@ fn test_watch_where_there_is_no_project_says_so_and_binds_none() {
         "taskloom: no project here yet; add a task first (taskloom add \"<task text>\")\n"
     );
     assert!(
-        !env.home.path().join(".ctxloom").exists(),
+        !disk::exists(env.home.path().join(".ctxloom")),
         "a watch binds no project and creates nothing"
     );
 
@@ -246,7 +246,7 @@ mod ticked {
     fn service(project: &Project) -> Real {
         Service::new(
             Here(project.clone()),
-            SqliteStores::default(),
+            SqliteStores::new(crate::tests::os()),
             HarpNames,
             System,
             System,
@@ -390,10 +390,10 @@ mod ticked {
     /// The lines the stream writes over `steps`, for a project holding
     /// one task (`harp`) at the start; and the project's tasks after.
     fn watched(steps: impl Fn(&str) -> Vec<Step>) -> (usize, Vec<String>) {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::tests::Temp::new();
         let project = Project {
             id: "jolly-mute-magma".to_string(),
-            root: dir.path().display().to_string(),
+            root: Some(dir.path().display().to_string()),
             store: dir.path().join("state.db"),
         };
         let runtime = tokio::runtime::Builder::new_current_thread()

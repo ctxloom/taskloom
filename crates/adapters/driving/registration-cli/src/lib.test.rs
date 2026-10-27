@@ -125,7 +125,7 @@ fn test_an_install_says_what_go_says_and_writes_nothing_on_stdout() {
         format!("{WARNING}taskloom: registered MCP server for claude-code\n  config: /home/.claude.json\n")
     );
     assert_eq!(r.configs.scopes, [Scope::User]);
-    assert_eq!(r.configs.dry_runs, [false]);
+    assert_eq!(r.configs.dry_runs, [true, false], "checked, then written");
 
     let mut r = fake(Fake {
         present: true,
@@ -333,4 +333,28 @@ fn test_help_is_an_answer_and_a_word_it_does_not_know_an_error() {
     let ran = manage(&mut r, Format::Text, &[]);
     assert_eq!(ran.code, 1);
     assert!(ran.err.contains("Usage"), "{}", ran.err);
+}
+
+#[test]
+fn test_a_dir_given_blank_is_refused_never_read_as_the_working_directory() {
+    // `--dir "$UNSET"` would write `.mcp.json` into wherever it ran. The
+    // parser refuses an empty path before the use case's own refusal
+    // (registration-application-blank-directory) is reached.
+    for words in [
+        &["install", "--project", "--dir", ""][..],
+        &["uninstall", "--project", "--dir", ""],
+        &["check", "--dir", ""],
+    ] {
+        let mut r = fake(Fake {
+            present: true,
+            changes: true,
+            ..Fake::default()
+        });
+        let ran = manage(&mut r, Format::Json, words);
+        assert_eq!(ran.code, 1, "{words:?}: {}", ran.out);
+        let refused: Value = serde_json::from_str(&ran.err).expect("one envelope");
+        assert_eq!(refused["code"], "registration-cli-usage", "{words:?}");
+        assert_eq!(ran.out, "", "{words:?}");
+        assert!(r.configs.dry_runs.is_empty(), "{words:?}: no agent asked");
+    }
 }

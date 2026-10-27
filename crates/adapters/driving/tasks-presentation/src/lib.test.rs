@@ -7,8 +7,8 @@ use serde_json::json;
 use tasks_application::{Project, Reach, Row, Summary, TagCount, Task, Timestamp};
 
 use super::{
-    headline, project_label, rfc3339, spelled, CompactJson, RowJson, SummaryJson, TagCountJson,
-    TaskJson,
+    headline, project_dir, project_label, rfc3339, spelled, CompactJson, RowJson, SummaryJson,
+    TagCountJson, TaskJson,
 };
 
 fn task(harp: &str, status: &str) -> Task {
@@ -124,7 +124,7 @@ fn test_each_tag_is_spelled_canonically() {
 fn project() -> Project {
     Project {
         id: "jolly-mute-magma".to_string(),
-        root: "/work/tree".to_string(),
+        root: Some("/work/tree".to_string()),
         store: PathBuf::from("/s/state.db"),
     }
 }
@@ -141,8 +141,20 @@ fn test_a_project_is_labelled_by_its_root_then_its_id() {
 #[test]
 fn test_a_project_with_no_known_directory_is_labelled_by_its_id() {
     let mut project = project();
-    project.root.clear();
+    project.root = None;
     assert_eq!(project_label(&project), "jolly-mute-magma");
+}
+
+// The JSON names a project with no root by an empty `project_dir`, as it
+// always has, never null: a program reading it keeps its shape.
+#[test]
+fn test_a_project_with_no_known_directory_has_an_empty_dir() {
+    assert_eq!(project_dir(&project()), "/work/tree");
+    let mut rootless = project();
+    rootless.root = None;
+    assert_eq!(project_dir(&rootless), "");
+    let row = value(&RowJson::of(json!({}), &rootless));
+    assert_eq!(row["project_dir"], json!(""));
 }
 
 #[test]

@@ -28,7 +28,6 @@ tasks-config.workspace = true
 [dev-dependencies]
 fluent-syntax.workspace = true
 project-cli.workspace = true
-tempfile.workspace = true
 tokio.workspace = true
 
 [lints]

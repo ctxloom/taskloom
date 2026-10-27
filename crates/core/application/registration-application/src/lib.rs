@@ -115,6 +115,7 @@ impl<A: AgentConfigs> Registrations<A> {
 
     /// Write the server into the configurations `request` names.
     pub fn install(&mut self, request: &Install) -> Result<Installed, RegistrationError> {
+        given(&request.scope)?;
         let engines = self.engines(request.engine.as_deref(), &request.scope)?;
         if engines.is_empty() {
             return Err(RegistrationError::NoBackends {
@@ -133,13 +134,15 @@ impl<A: AgentConfigs> Registrations<A> {
     /// Take the server out of the configurations `request` names; none
     /// when no agent is in use there.
     pub fn uninstall(&mut self, request: &Uninstall) -> Result<Vec<Outcome>, RegistrationError> {
+        given(&request.scope)?;
         let engines = self.engines(request.engine.as_deref(), &request.scope)?;
         self.rewrite(&engines, &request.scope, None, false)
     }
 
     /// Where the server is registered, the project scope's configurations
-    /// those under `dir`.
-    pub fn check(&mut self, dir: &Path) -> Checked {
+    /// those under `dir`; refused when `dir` is given blank.
+    pub fn check(&mut self, dir: &Path) -> Result<Checked, RegistrationError> {
+        given(&Scope::Project(dir.to_path_buf()))?;
         let resolvable = self.configs.resolvable(&self.server.command);
         let mut found = Vec::new();
         for engine in self.configs.engines() {
@@ -165,7 +168,7 @@ impl<A: AgentConfigs> Registrations<A> {
                 });
             }
         }
-        Checked { resolvable, found }
+        Ok(Checked { resolvable, found })
     }
 
     /// The agents a call touches: the one named, or every one in use at
@@ -196,9 +199,27 @@ impl<A: AgentConfigs> Registrations<A> {
     }
 
     /// Write `server` (or its removal) into each of `engines`'
-    /// configurations at `scope`, in order, stopping at the first that
-    /// fails.
+    /// configurations at `scope`, in order. Every one is first rewritten
+    /// without writing, so one that refuses (a foreign entry, a file that
+    /// is not JSON) or cannot be found fails the call before any is
+    /// written; `dry_run` stops there.
     fn rewrite(
+        &mut self,
+        engines: &[String],
+        scope: &Scope,
+        server: Option<&McpServer>,
+        dry_run: bool,
+    ) -> Result<Vec<Outcome>, RegistrationError> {
+        let checked = self.rewrite_each(engines, scope, server, true)?;
+        if dry_run {
+            return Ok(checked);
+        }
+        self.rewrite_each(engines, scope, server, false)
+    }
+
+    /// One pass of [`Registrations::rewrite`], stopping at the first
+    /// configuration that fails.
+    fn rewrite_each(
         &mut self,
         engines: &[String],
         scope: &Scope,
@@ -230,6 +251,15 @@ impl<A: AgentConfigs> Registrations<A> {
             });
         }
         Ok(outcomes)
+    }
+}
+
+/// `scope`, refused when it is a project's given blank (an empty path): a
+/// directory given is never read as the working directory.
+fn given(scope: &Scope) -> Result<(), RegistrationError> {
+    match scope {
+        Scope::Project(dir) if dir.as_os_str().is_empty() => Err(RegistrationError::BlankDirectory),
+        Scope::Project(_) | Scope::User => Ok(()),
     }
 }
 
