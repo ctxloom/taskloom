@@ -25,7 +25,8 @@ pub enum ConfigError {
     NotAnOverride { entry: String },
     /// A list value whose quote is never closed.
     Unterminated { source: String, value: String },
-    /// A list value with a blank item (`a,,b`, a trailing comma).
+    /// A list value with a blank item (`a,,b`, a trailing comma), or a
+    /// config file's list with one (`source` the file, `value` its key).
     BlankItem { source: String, value: String },
 }
 

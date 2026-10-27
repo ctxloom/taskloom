@@ -11,8 +11,9 @@
 //! below it: lists are never merged. An environment variable or override
 //! gives the list comma-separated; a comma inside a double-quoted span does
 //! not split, so an enum declaration's members (`tagma.enum:"k:x"="a,b"`)
-//! stay one declaration. A blank item (`a,,b`, a trailing comma) is
-//! refused, never dropped; an empty value is an empty list. A missing file
+//! stay one declaration. A blank item (`a,,b`, a trailing comma, or `''`
+//! in a file's list) is refused, never dropped; an empty value is an empty
+//! list. A missing file
 //! is no layer; a file that cannot be read, is not YAML, names a key taskloom does not know or is a newer
 //! `schema_version` is refused, as is an environment variable or override
 //! naming no key. Files are read through the [`Fs`] it is given. `homing` (repo homing is dropped) and `schema_version`
@@ -180,14 +181,23 @@ fn read(fs: &dyn Fs, path: &Path) -> Result<File, ConfigError> {
         detail: e.to_string(),
     })?;
     let file = file.unwrap_or_default();
-    match file.schema_version {
-        Some(version) if version > SCHEMA_VERSION => Err(ConfigError::Newer {
+    if let Some(version) = file.schema_version.filter(|v| *v > SCHEMA_VERSION) {
+        return Err(ConfigError::Newer {
             path: shown(),
             version,
             current: SCHEMA_VERSION,
-        }),
-        _ => Ok(file),
+        });
     }
+    // A blank item is refused, never dropped, as a comma-separated list's
+    // is.
+    let blank = |list: &Vec<String>| list.iter().any(|item| item.trim().is_empty());
+    if file.tag_schema.as_ref().is_some_and(blank) {
+        return Err(ConfigError::BlankItem {
+            source: shown(),
+            value: "tag_schema".to_string(),
+        });
+    }
+    Ok(file)
 }
 
 /// What `source` setting `key` to `value` does to the tag schema: `Some`

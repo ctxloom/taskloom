@@ -320,6 +320,31 @@ fn test_a_blank_item_in_a_list_is_refused() {
     );
 }
 
+// A config file's list is held to the same rule: a blank item in it is
+// refused, the file and its key named, never dropped.
+#[test]
+fn test_a_blank_item_in_a_config_files_list_is_refused() {
+    for item in ["''", "'  '"] {
+        let text = format!("tag_schema:\n  - 'a'\n  - {item}\n");
+        let dirs = Dirs::new(None, Some(&text));
+        assert_eq!(
+            schema(&dirs.config(&[]), &[]),
+            Err(ConfigError::BlankItem {
+                source: "/tree/.taskloom/config.yaml".to_string(),
+                value: "tag_schema".to_string(),
+            }),
+            "{item}"
+        );
+    }
+    let dirs = Dirs::new(Some("tag_schema:\n  - ''\n"), None);
+    let error = schema(&dirs.config(&[]), &[]).unwrap_err();
+    assert_eq!(error.code(), "tasks-config-blank-item");
+    assert_eq!(
+        error.to_string(),
+        "/home/u/.taskloom/config.yaml: tag_schema has a blank item: give one, or leave it out"
+    );
+}
+
 // The environment is given as the process has it; a variable whose name or
 // value is not UTF-8 is skipped where the configuration reads it, never
 // refused, and the rest still read.
