@@ -6,8 +6,9 @@ use std::io::{self, Write};
 use clap::Args;
 use presentation::{Catalog, Format};
 use tasks_application::{
-    ListQuery, Listing, NewTask, PruneRequest, PruneService, Reach, Scope, ShowQuery, StatusChange,
-    TagChange, TaskService, TextEdit, DEFAULT_OLDER_THAN, DEFAULT_PRUNE_STATUSES,
+    ListQuery, Listing, NewTask, PermitService, PruneRequest, PruneService, Reach, Scope,
+    ShowQuery, StatusChange, TagChange, TaskService, TextEdit, DEFAULT_OLDER_THAN,
+    DEFAULT_PRUNE_STATUSES,
 };
 
 use crate::prune::{apply_command, PruneReport};
@@ -284,6 +285,37 @@ pub(crate) async fn show(
     read_in(&details.reach, ctx.catalog, err)
         .and_then(|()| presentation::render(out, ctx.format, &Detailed(&details)))
         .map_err(output_failed)
+}
+
+#[derive(Args, Debug)]
+pub struct PermitArgs {
+    /// The permit: `area:` (a namespace, any key), `area:cli` (a key of a
+    /// namespace) or `urgent` (a flat tag); never a value.
+    permit: String,
+}
+
+/// Permit `args.permit` and say what changed: in text, `permitted <permit>`
+/// or `<permit> was already permitted`; in JSON, `{"permit", "changed"}`.
+// RED stub: asks the service nothing and says nothing.
+pub(crate) async fn permit(
+    _args: PermitArgs,
+    _ctx: Ctx<'_>,
+    _service: &mut impl PermitService,
+    _out: &mut dyn Write,
+) -> Result<(), CliError> {
+    Ok(())
+}
+
+/// Revoke `args.permit` and say so: in text, `revoked <permit>`; in JSON,
+/// `{"permit", "changed"}`.
+// RED stub: asks the service nothing and says nothing.
+pub(crate) async fn revoke(
+    _args: PermitArgs,
+    _ctx: Ctx<'_>,
+    _service: &mut impl PermitService,
+    _out: &mut dyn Write,
+) -> Result<(), CliError> {
+    Ok(())
 }
 
 #[derive(Args, Debug)]

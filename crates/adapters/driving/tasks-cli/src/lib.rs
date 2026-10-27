@@ -26,7 +26,7 @@ use std::io::{self, Write};
 use annals_diagnostic::Diagnostic;
 use clap::{Args, Parser, Subcommand};
 use presentation::{Catalog, CatalogError, Format, Render, Source, UnknownFormat};
-use tasks_application::{DeadLetter, PruneService, TaskService, Written};
+use tasks_application::{DeadLetter, PermitService, PruneService, TaskService, Written};
 
 pub use companion::{Asked, LOADOUT};
 pub use error::{diagnostic_samples, CliError, EN_US};
@@ -138,6 +138,17 @@ pub enum Command {
     /// could not purge is taken too, whatever the flags select. To keep a
     /// finished task, archive it and leave Archived out of --status.
     Prune(commands::PruneArgs),
+    /// Permit a tag in this project, in its .taskloom/config.yaml
+    /// (tag_permits): a namespace, open to any key (`area:`); a key of a
+    /// namespace, which closes it to its permitted keys (`area:cli`); or a
+    /// flat tag (`urgent`). Once a project permits anything, a write adding
+    /// a tag it does not permit is refused. A person's command: the MCP
+    /// server does not offer it.
+    Permit(commands::PermitArgs),
+    /// Revoke a tag permit, spelled as `permit` takes it; refused, naming
+    /// them, while any task (whatever its status) still carries a tag it
+    /// permits.
+    Revoke(commands::PermitArgs),
     /// Print the taskloom version.
     Version,
     /// Print the context, commands, hooks and MCP servers taskloom
@@ -223,7 +234,7 @@ pub fn parse<P: Parser>(
 
 /// Run `command` under the global flags against `service`, writing to
 /// `out` and `err` with messages from `catalog`; the exit code.
-pub async fn run<S: TaskService + PruneService>(
+pub async fn run<S: TaskService + PruneService + PermitService>(
     command: Command,
     globals: Globals,
     context: &Context,
@@ -259,6 +270,8 @@ pub async fn run<S: TaskService + PruneService>(
         Command::Tags(args) => commands::tags(args, ctx, service, out, err).await,
         Command::List(args) => commands::list(args, ctx, service, out, err).await,
         Command::Prune(args) => commands::prune(args, ctx, service, out, err).await,
+        Command::Permit(args) => commands::permit(args, ctx, service, out).await,
+        Command::Revoke(args) => commands::revoke(args, ctx, service, out).await,
         Command::Version => version(context, format, out),
         // Answered above: it has its own format.
         Command::Loadout => Ok(()),

@@ -65,6 +65,9 @@ pub enum TagRefusal {
         target: String,
         detail: String,
     },
+    /// Not permitted by the project's tag permits: `permit` is what
+    /// `taskloom permit` takes to permit it (its target, no value).
+    NotPermitted { tag: String, permit: String },
     /// Two values for one scalar target in one write: `first` and
     /// `second`, the first two given, neither more the one meant.
     ScalarConflict {
@@ -127,6 +130,10 @@ impl fmt::Display for TagRefusal {
                 f,
                 "the tag {tag}'s value {value} is not a SemVer 2.0.0 version, which {target}'s declared type semver requires: {detail}"
             ),
+            TagRefusal::NotPermitted { tag, permit } => write!(
+                f,
+                "the tag {tag} is not permitted in this project: a person permits it with `taskloom permit {permit}`"
+            ),
             TagRefusal::ScalarConflict {
                 target,
                 first,
@@ -150,6 +157,7 @@ impl Diagnostic for TagRefusal {
             TagRefusal::NotANumber { .. } => "tasks-application-tag-not-a-number",
             TagRefusal::OutOfRange { .. } => "tasks-application-tag-out-of-range",
             TagRefusal::NotSemver { .. } => "tasks-application-tag-not-semver",
+            TagRefusal::NotPermitted { .. } => "tasks-application-tag-not-permitted",
             TagRefusal::ScalarConflict { .. } => "tasks-application-tag-scalar-conflict",
         }
     }
@@ -205,6 +213,9 @@ impl Diagnostic for TagRefusal {
                 ("target", s(target)),
                 ("detail", s(detail)),
             ],
+            TagRefusal::NotPermitted { tag, permit } => {
+                vec![("tag", s(tag)), ("permit", s(permit))]
+            }
             TagRefusal::ScalarConflict {
                 target,
                 first,
@@ -432,6 +443,10 @@ pub(crate) fn samples() -> Vec<TagRefusal> {
             value: x(),
             target: x(),
             detail: x(),
+        },
+        TagRefusal::NotPermitted {
+            tag: x(),
+            permit: x(),
         },
         TagRefusal::ScalarConflict {
             target: x(),

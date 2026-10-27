@@ -20,6 +20,12 @@ tasks-application-ambiguous = { $count ->
     [one] a harp id is
    *[other] harp ids are
 } held by more than one project ({ $held }): pass --project <id> instead of --global to choose one
+tasks-application-permit-malformed = { $permit } is not a permit: give a namespace (area:), a namespace's key (area:cli) or a flat tag (urgent), with no value
+tasks-application-permit-not-declared = { $permit } is not among this project's tag permits, so there is nothing to revoke
+tasks-application-permit-in-use = { $permit } cannot be revoked: { $count ->
+    [one] this task still carries it
+   *[other] these tasks still carry it
+}: { $harp_ids } (retag them first)
 tasks-application-import-displaced = another task holds this harp in Go's log: run Go's `taskloom repair`, then import again
 tasks-application-import-harp-taken = a task not imported from this record already holds this harp
 tasks-application-import-task-not-imported = its task was not imported
@@ -31,6 +37,7 @@ tasks-application-tag-not-in-enum = the tag { $tag }'s value { $value } is not o
 tasks-application-tag-not-a-number = the tag { $tag }'s value { $value } is not a finite number, which { $target }'s declared range [{ $min }, { $max }] requires
 tasks-application-tag-out-of-range = the tag { $tag }'s value { $value } is outside { $target }'s declared range [{ $min }, { $max }]
 tasks-application-tag-not-semver = the tag { $tag }'s value { $value } is not a SemVer 2.0.0 version, which { $target }'s declared type semver requires: { $detail }
+tasks-application-tag-not-permitted = the tag { $tag } is not permitted in this project: a person permits it with `taskloom permit { $permit }`
 tasks-application-tag-scalar-conflict = the tags { $first } and { $second } both give { $target } a value, and it takes one: give one of them
 tasks-application-dead-letter = { $line }
 tasks-application-schema-unparseable = tag_schema: { $declaration } is not a tag in tagma's grammar: { $detail }
@@ -45,6 +52,7 @@ tasks-application-tag-query = the tag query { $query } is malformed (as postfix:
 tasks-application-lint-not-in-enum = { $target }={ $value } is not one of the declared enum values: { $members }
 tasks-application-lint-not-a-number = { $target }={ $value } does not parse as a finite number
 tasks-application-lint-out-of-range = { $target }={ $value } is outside the declared range [{ $min }, { $max }]
+tasks-application-lint-not-permitted = { $tag } is not permitted in this project (`taskloom permit { $permit }` permits it)
 tasks-application-lint-scalar = { $target } carries { $count } distinct values ({ $values }) but is declared arity=scalar
 tasks-application-lint-formula-enum = { $facet } on { $target } references the placeholder { $placeholder }, but { $value } is not one of { $reference }'s declared enum values: { $members }
 tasks-application-prune-no-status = a prune needs at least one status to select by: an empty status set is never read as every status

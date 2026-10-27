@@ -103,6 +103,21 @@ fn test_the_tools_offered_are_gos_five_in_gos_order() {
     );
 }
 
+// PROPOSAL (tag permits, open question 1): permitting and revoking are
+// the command line's alone. An agent permitting its own inventions is what
+// permits exist to stop, so no tool grants or revokes one; a refusal names
+// `taskloom permit` for the agent to put to a person.
+#[test]
+fn test_no_tool_permits_or_revokes_a_tag() {
+    for tool in offered() {
+        let name = tool.name.to_ascii_lowercase();
+        assert!(
+            !name.contains("permit") && !name.contains("revoke"),
+            "{name}"
+        );
+    }
+}
+
 #[test]
 fn test_a_listing_asks_for_everything_its_arguments_name() {
     let request = list_request(

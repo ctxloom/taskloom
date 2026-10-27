@@ -30,7 +30,7 @@ use std::sync::Arc;
 
 use annals_diagnostic::Report;
 use file_system::Fs;
-use ports::Configuration;
+use ports::{Configuration, ConfigurationWriter, TagPermits};
 use serde::Deserialize;
 
 pub use error::{diagnostic_samples, ConfigError, EN_US};
@@ -44,7 +44,7 @@ pub const ENV_PREFIX: &str = "TASKLOOM_CONFIG_";
 /// The newest `schema_version` this taskloom reads.
 pub const SCHEMA_VERSION: u64 = 1;
 /// The config keys taskloom knows.
-pub const KEYS: [&str; 3] = ["homing", "schema_version", "tag_schema"];
+pub const KEYS: [&str; 4] = ["homing", "schema_version", "tag_permits", "tag_schema"];
 
 /// One config file's keys.
 #[derive(Deserialize, Default)]
@@ -54,6 +54,10 @@ struct File {
     #[allow(dead_code)]
     homing: Option<String>,
     tag_schema: Option<Vec<String>>,
+    /// RED stub: read and ignored. The proposed shape is
+    /// [`ports::TagPermits`] as the tests write it.
+    #[allow(dead_code)]
+    tag_permits: Option<serde_norway::Value>,
 }
 
 /// Taskloom's configuration over a filesystem and the environment.
@@ -162,6 +166,18 @@ impl TaskloomConfig {
 impl Configuration for TaskloomConfig {
     fn tag_schema(&mut self) -> Result<Vec<String>, Report> {
         self.resolve().map_err(|e| Report::of(&e))
+    }
+
+    // RED stub: the work root's tag_permits are never read.
+    fn tag_permits(&mut self) -> Result<Option<TagPermits>, Report> {
+        Ok(None)
+    }
+}
+
+impl ConfigurationWriter for TaskloomConfig {
+    // RED stub: nothing is written.
+    fn write_tag_permits(&mut self, _permits: &TagPermits) -> Result<(), Report> {
+        Ok(())
     }
 }
 

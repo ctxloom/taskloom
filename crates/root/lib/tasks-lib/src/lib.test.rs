@@ -14,8 +14,8 @@ use annals_diagnostic::Diagnostic;
 use file_system::{CwdError, Entry, Meta, Open, Perms, Rooted};
 use os::Mode;
 use tasks_application::{
-    Changed, ImportRequest, ImportService, ListQuery, NewTask, PruneService, Reach, TaskService,
-    WatchRequest, WatchService,
+    Changed, ImportRequest, ImportService, ListQuery, NewTask, PermitChange, PermitService,
+    PruneService, Reach, TaskService, WatchRequest, WatchService,
 };
 
 use super::*;
@@ -683,4 +683,36 @@ fn test_the_process_is_read_from_its_variables_and_working_directory() {
             reason: "No such file or directory (os error 2)".to_string()
         })
     );
+}
+
+// Tag permits, wired: the work root's config refuses a tag it does not
+// permit; `permit` writes it there, keeping the human's comment; and the
+// next service, reading the file again, admits it.
+#[test]
+fn test_a_projects_permits_refuse_a_tag_until_it_is_permitted() {
+    let dirs = Dirs::new();
+    dirs.write(
+        "/project/.taskloom/config.yaml",
+        b"# Our vocabulary.\ntag_permits:\n  tags:\n    - urgent\n",
+        Mode::FILE,
+    );
+    let taskloom = dirs.taskloom();
+    let task = || NewTask {
+        tags: vec!["area:cli".to_string()],
+        ..new_task("Ship it")
+    };
+    let error = block_on(taskloom.tasks().add(task())).unwrap_err();
+    assert_eq!(error.code(), "tasks-application-tag-not-permitted");
+    let permitted = block_on(taskloom.tasks().permit(PermitChange {
+        permit: "area:cli".to_string(),
+    }))
+    .unwrap();
+    assert!(permitted.changed);
+    let file = dirs
+        .owner
+        .read_to_string(Path::new("/project/.taskloom/config.yaml"))
+        .unwrap();
+    assert!(file.starts_with("# Our vocabulary.\n"), "{file}");
+    assert!(file.contains("area:"), "{file}");
+    block_on(taskloom.tasks().add(task())).unwrap();
 }

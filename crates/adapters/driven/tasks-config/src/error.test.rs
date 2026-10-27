@@ -18,11 +18,14 @@ fn test_each_error_renders_its_english_fallback() {
             format!("cannot read {path}: permission denied"),
             format!("{path} is not taskloom's config: unknown field `homeing`"),
             format!("{path} is schema_version 2, newer than the 1 this taskloom reads"),
-            "TASKLOOM_CONFIG_TAGS sets tags, which is no config key taskloom knows (known: homing, schema_version, tag_schema)".to_string(),
+            "TASKLOOM_CONFIG_TAGS sets tags, which is no config key taskloom knows (known: homing, schema_version, tag_permits, tag_schema)".to_string(),
             "--config-set tag_schema: expected <path>=<value>".to_string(),
             "--config-set: \"a,b has an unterminated quote".to_string(),
             "TASKLOOM_CONFIG_TAG_SCHEMA: a,,b has a blank item: give one, or leave it out"
                 .to_string(),
+            format!("{path} sets tag_permits, which only a project's own .taskloom/config.yaml sets"),
+            "--config-set sets tag_permits, which only the project's .taskloom/config.yaml sets (taskloom permit and revoke change it)".to_string(),
+            "there is no work root here, so no project config to write tag permits to".to_string(),
         ]
     );
 }

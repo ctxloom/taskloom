@@ -413,3 +413,169 @@ fn test_a_work_root_found_on_reading_is_not_sought_until_then() {
     assert_eq!(config.tag_schema().unwrap().len(), 2, "the root's list");
     assert_eq!(sought.load(Ordering::SeqCst), 1);
 }
+
+// ------------------------------------------------------------ tag permits
+//
+// The proposed shape, in the work root's .taskloom/config.yaml alone:
+//
+//     tag_permits:
+//       namespaces:
+//         area:          # closed: only these keys
+//           - cli
+//           - mcp
+//         relates: open  # open: any key
+//       tags:            # flat tags (no namespace)
+//         - urgent
+
+mod permits {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use ports::{ConfigurationWriter, NamespacePermit, TagPermits};
+
+    use super::*;
+
+    const PERMITS: &str = "tag_permits:\n  namespaces:\n    area:\n      - cli\n      - mcp\n    relates: open\n  tags:\n    - urgent\n";
+
+    fn usual() -> TagPermits {
+        let keys = |k: &[&str]| k.iter().map(|k| k.to_string()).collect::<BTreeSet<_>>();
+        TagPermits {
+            namespaces: BTreeMap::from([
+                (
+                    "area".to_string(),
+                    NamespacePermit::Closed(keys(&["cli", "mcp"])),
+                ),
+                ("relates".to_string(), NamespacePermit::Open),
+            ]),
+            flat: keys(&["urgent"]),
+        }
+    }
+
+    fn file(dirs: &Dirs) -> String {
+        dirs.fs
+            .read_to_string(&dirs.root.join(".taskloom/config.yaml"))
+            .unwrap()
+    }
+
+    #[test]
+    fn test_the_work_roots_tag_permits_are_read() {
+        let dirs = Dirs::new(None, Some(PERMITS));
+        assert_eq!(dirs.config(&[]).tag_permits(), Ok(Some(usual())));
+    }
+
+    // PROPOSAL (open question 2, opt-in): no tag_permits is None, which
+    // the use cases read as permissive; an empty section is permits that
+    // permit nothing.
+    #[test]
+    fn test_no_tag_permits_is_none_and_an_empty_section_is_none_permitted() {
+        for text in [None, Some(ROOT)] {
+            let dirs = Dirs::new(None, text);
+            assert_eq!(dirs.config(&[]).tag_permits(), Ok(None), "{text:?}");
+        }
+        let dirs = Dirs::new(None, Some("tag_permits: {}\n"));
+        assert_eq!(
+            dirs.config(&[]).tag_permits(),
+            Ok(Some(TagPermits::default()))
+        );
+    }
+
+    // PROPOSAL: a project's vocabulary is its own (ruling 4): permits in
+    // the home's config are refused, never merged or silently ignored.
+    #[test]
+    fn test_tag_permits_in_the_homes_config_are_refused() {
+        let dirs = Dirs::new(Some(PERMITS), None);
+        let error = dirs.config(&[]).tag_permits().unwrap_err();
+        assert_eq!(error.code(), "tasks-config-permits-outside-project");
+        assert!(error.to_string().contains("/home/u/.taskloom/config.yaml"));
+    }
+
+    // PROPOSAL: permits are not layered: no variable or --config-set sets
+    // them, so a run cannot widen the vocabulary for itself.
+    #[test]
+    fn test_tag_permits_cannot_be_set_by_a_variable_or_override() {
+        let dirs = Dirs::new(None, None);
+        let error = schema(&dirs.config(&[]), &["tag_permits=x"]).unwrap_err();
+        assert_eq!(
+            error,
+            ConfigError::FileOnly {
+                source: "--config-set".to_string(),
+                key: "tag_permits".to_string()
+            }
+        );
+        let env = [("TASKLOOM_CONFIG_TAG_PERMITS", "x")];
+        let error = schema(&dirs.config(&env), &[]).unwrap_err();
+        assert_eq!(error.code(), "tasks-config-file-only");
+    }
+
+    #[test]
+    fn test_tag_permits_not_of_their_shape_are_refused() {
+        for (text, code) in [
+            (
+                "tag_permits:\n  namespaces:\n    area: maybe\n",
+                "tasks-config-malformed",
+            ),
+            ("tag_permits:\n  areas: {}\n", "tasks-config-malformed"),
+            ("tag_permits:\n  tags: urgent\n", "tasks-config-malformed"),
+            (
+                "tag_permits:\n  namespaces:\n    area: ['cli', '']\n",
+                "tasks-config-blank-item",
+            ),
+            ("tag_permits:\n  tags: ['']\n", "tasks-config-blank-item"),
+        ] {
+            let dirs = Dirs::new(None, Some(text));
+            let error = dirs.config(&[]).tag_permits().unwrap_err();
+            assert_eq!(error.code(), code, "{text}");
+        }
+    }
+
+    // Open question 4: the write keeps everything outside the tag_permits
+    // block byte for byte (comments, other keys, their order and layout),
+    // and replaces the block whole, in its place, in one canonical form:
+    // keys sorted, one per line. A comment INSIDE the block is not kept.
+    #[test]
+    fn test_writing_tag_permits_keeps_the_rest_of_the_file_as_written() {
+        let before = "# Taskloom, for this project.\nschema_version: 1   # pinned\n\n# What tags may be used:\ntag_permits:\n  tags: [old]\n\n# The schema.\ntag_schema:\n  - 'tagma.arity:\"area:x\"=scalar'\n";
+        let dirs = Dirs::new(None, Some(before));
+        dirs.config(&[]).write_tag_permits(&usual()).unwrap();
+        let expected = format!(
+            "# Taskloom, for this project.\nschema_version: 1   # pinned\n\n# What tags may be used:\n{PERMITS}\n# The schema.\ntag_schema:\n  - 'tagma.arity:\"area:x\"=scalar'\n"
+        );
+        assert_eq!(file(&dirs), expected);
+        assert_eq!(dirs.config(&[]).tag_permits(), Ok(Some(usual())));
+        assert_eq!(schema(&dirs.config(&[]), &[]).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_writing_tag_permits_appends_them_or_makes_the_file() {
+        let dirs = Dirs::new(None, Some("# mine\nhoming: home\n"));
+        dirs.config(&[]).write_tag_permits(&usual()).unwrap();
+        assert_eq!(file(&dirs), format!("# mine\nhoming: home\n{PERMITS}"));
+        let dirs = Dirs::new(None, None);
+        dirs.config(&[]).write_tag_permits(&usual()).unwrap();
+        assert_eq!(file(&dirs), PERMITS);
+        let dirs = Dirs::new(None, None);
+        dirs.config(&[])
+            .write_tag_permits(&TagPermits::default())
+            .unwrap();
+        assert_eq!(file(&dirs), "tag_permits: {}\n");
+    }
+
+    #[test]
+    fn test_writing_tag_permits_with_no_work_root_is_refused() {
+        let dirs = Dirs::new(None, None);
+        let mut rootless = TaskloomConfig::new(
+            Arc::clone(&dirs.fs),
+            Some(dirs.home.clone()),
+            None,
+            Vec::new(),
+            Vec::new(),
+        );
+        let error = rootless.write_tag_permits(&usual()).unwrap_err();
+        assert_eq!(error.code(), "tasks-config-no-work-root");
+        assert!(
+            dirs.fs
+                .read_to_string(&dirs.home.join(".taskloom/config.yaml"))
+                .is_err(),
+            "the home's config is never written"
+        );
+    }
+}

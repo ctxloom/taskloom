@@ -11,10 +11,10 @@ use std::task::{Context as TaskContext, Poll, Waker};
 use annals_diagnostic::Report;
 use tasks_application::{
     AppError, Details, Finding, Hidden, ImportReport, ImportRequest, ImportService, LintReport,
-    ListQuery, Listing, NewTask, PriorityNote, PriorityWarning, Project, ProjectImport,
-    PruneRequest, PruneService, Pruning, Reach, Row, Scope, ShowQuery, StatusChange, StatusInfo,
-    Statuses, Summary, TagChange, TagCount, TagSchema, Task, TaskService, TextEdit, Violation,
-    Vocabulary, Written,
+    ListQuery, Listing, NewTask, PermitChange, PermitService, Permitted, PriorityNote,
+    PriorityWarning, Project, ProjectImport, PruneRequest, PruneService, Pruning, Reach, Row,
+    Scope, ShowQuery, StatusChange, StatusInfo, Statuses, Summary, TagChange, TagCount, TagSchema,
+    Task, TaskService, TextEdit, Violation, Vocabulary, Written,
 };
 
 use presentation::Catalog;
@@ -81,6 +81,9 @@ struct Fake {
     listing: Option<Result<Listing, AppError>>,
     prunes: Vec<PruneRequest>,
     pruning: Option<Result<Pruning, AppError>>,
+    permits: Vec<PermitChange>,
+    revokes: Vec<PermitChange>,
+    permitted: Option<Result<Permitted, AppError>>,
 }
 
 impl TaskService for Fake {
@@ -159,6 +162,18 @@ impl PruneService for Fake {
     async fn prune(&mut self, request: PruneRequest) -> Result<Pruning, AppError> {
         self.prunes.push(request);
         self.pruning.clone().expect("a prune answer scripted")
+    }
+}
+
+impl PermitService for Fake {
+    async fn permit(&mut self, change: PermitChange) -> Result<Permitted, AppError> {
+        self.permits.push(change);
+        self.permitted.clone().expect("a permit answer scripted")
+    }
+
+    async fn revoke(&mut self, change: PermitChange) -> Result<Permitted, AppError> {
+        self.revokes.push(change);
+        self.permitted.clone().expect("a revoke answer scripted")
     }
 }
 
@@ -2168,4 +2183,76 @@ fn test_an_imports_dead_letters_are_said_on_stderr() {
     let ran = import_on(&mut fake, true, &["import"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(ran.err, "taskloom: DEAD LETTER (a bug): x\n");
+}
+
+// ------------------------------------------------------------ permit, revoke
+
+fn permitted(permit: &str, changed: bool) -> Option<Result<Permitted, AppError>> {
+    Some(Ok(Permitted {
+        permit: permit.to_string(),
+        changed,
+    }))
+}
+
+fn change(permit: &str) -> PermitChange {
+    PermitChange {
+        permit: permit.to_string(),
+    }
+}
+
+#[test]
+fn test_permit_passes_its_permit_on_and_says_what_changed() {
+    let mut fake = Fake {
+        permitted: permitted("area:cli", true),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["permit", "area:cli"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(fake.permits, [change("area:cli")]);
+    assert_eq!(ran.out, "permitted area:cli\n");
+    let mut fake = Fake {
+        permitted: permitted("area:cli", false),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["permit", "area:cli"]);
+    assert_eq!(ran.out, "area:cli was already permitted\n");
+    let ran = run_on(&mut fake, false, &["permit", "area:cli"]);
+    let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({"permit": "area:cli", "changed": false})
+    );
+}
+
+#[test]
+fn test_revoke_passes_its_permit_on_and_says_so() {
+    let mut fake = Fake {
+        permitted: permitted("area:", true),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["revoke", "area:"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(fake.revokes, [change("area:")]);
+    assert!(fake.permits.is_empty());
+    assert_eq!(ran.out, "revoked area:\n");
+}
+
+// Ruling 4, as a person sees it: the refusal names every task still
+// carrying the permit, and the command fails.
+#[test]
+fn test_a_refused_revoke_names_the_tasks_still_carrying_it() {
+    let mut fake = Fake {
+        permitted: Some(Err(AppError::PermitInUse {
+            permit: "area:cli".to_string(),
+            harp_ids: vec!["calm-otter".to_string(), "swift-amber".to_string()],
+        })),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["revoke", "area:cli"]);
+    assert_eq!(ran.code, 1);
+    assert_eq!(ran.out, "");
+    assert_eq!(
+        ran.err,
+        "taskloom: area:cli cannot be revoked: these tasks still carry it: \"calm-otter\", \"swift-amber\" (retag them first)\n"
+    );
 }

@@ -28,6 +28,15 @@ pub enum ConfigError {
     /// A list value with a blank item (`a,,b`, a trailing comma), or a
     /// config file's list with one (`source` the file, `value` its key).
     BlankItem { source: String, value: String },
+    /// `tag_permits` in a config file other than the work root's: a
+    /// project's tag vocabulary is its own.
+    PermitsOutsideProject { path: String },
+    /// An environment variable or `--config-set` setting a key only the
+    /// work root's config file sets (`tag_permits`).
+    FileOnly { source: String, key: String },
+    /// Tag permits written where there is no work root, so no project
+    /// config file to write them to.
+    NoWorkRoot,
 }
 
 impl fmt::Display for ConfigError {
@@ -60,6 +69,17 @@ impl fmt::Display for ConfigError {
                 f,
                 "{source}: {value} has a blank item: give one, or leave it out"
             ),
+            ConfigError::PermitsOutsideProject { path } => write!(
+                f,
+                "{path} sets tag_permits, which only a project's own .taskloom/config.yaml sets"
+            ),
+            ConfigError::FileOnly { source, key } => write!(
+                f,
+                "{source} sets {key}, which only the project's .taskloom/config.yaml sets (taskloom permit and revoke change it)"
+            ),
+            ConfigError::NoWorkRoot => f.write_str(
+                "there is no work root here, so no project config to write tag permits to",
+            ),
         }
     }
 }
@@ -74,6 +94,9 @@ impl Diagnostic for ConfigError {
             ConfigError::NotAnOverride { .. } => "tasks-config-not-an-override",
             ConfigError::Unterminated { .. } => "tasks-config-unterminated",
             ConfigError::BlankItem { .. } => "tasks-config-blank-item",
+            ConfigError::PermitsOutsideProject { .. } => "tasks-config-permits-outside-project",
+            ConfigError::FileOnly { .. } => "tasks-config-file-only",
+            ConfigError::NoWorkRoot => "tasks-config-no-work-root",
         }
     }
 
@@ -102,6 +125,9 @@ impl Diagnostic for ConfigError {
             | ConfigError::BlankItem { source, value } => {
                 vec![("source", s(source)), ("value", s(value))]
             }
+            ConfigError::PermitsOutsideProject { path } => vec![("path", s(path))],
+            ConfigError::FileOnly { source, key } => vec![("source", s(source)), ("key", s(key))],
+            ConfigError::NoWorkRoot => Vec::new(),
         }
     }
 }
@@ -145,6 +171,12 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             source: "TASKLOOM_CONFIG_TAG_SCHEMA".to_string(),
             value: "a,,b".to_string(),
         }),
+        Box::new(ConfigError::PermitsOutsideProject { path: path() }),
+        Box::new(ConfigError::FileOnly {
+            source: "--config-set".to_string(),
+            key: "tag_permits".to_string(),
+        }),
+        Box::new(ConfigError::NoWorkRoot),
     ]
 }
 

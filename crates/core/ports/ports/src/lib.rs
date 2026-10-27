@@ -11,6 +11,7 @@
 //! store port, so a server on a multi-threaded runtime can spawn a use case
 //! generic over them (`tokio::spawn`, an MCP server's handlers).
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -188,7 +189,7 @@ pub trait Jitter {
 }
 
 /// Taskloom's configuration, as far as the use cases read it: the tag
-/// schema's declarations.
+/// schema's declarations and the project's tag permits.
 ///
 /// Synchronous, and it blocks on the filesystem, as [`ProjectIdentity`]
 /// does.
@@ -198,6 +199,49 @@ pub trait Configuration {
     /// replacing a lower one's, the overrides the configuration was made
     /// with (`--config-set`'s) last. Empty when no layer sets one.
     fn tag_schema(&mut self) -> Result<Vec<String>, Report>;
+
+    /// The project's tag permits, from the work root's config file alone
+    /// (`tag_permits`): `None` when it declares none, and then every tag
+    /// the schema admits is permitted, as before permits existed.
+    ///
+    /// PROPOSAL (tag permits, open question 2, opt-in): the default
+    /// answers `None`, so a configuration that knows nothing of permits
+    /// (ctxloom's, a test's) stays permissive.
+    fn tag_permits(&mut self) -> Result<Option<TagPermits>, Report> {
+        Ok(None)
+    }
+}
+
+/// Where the tag permits are written: the work root's config file.
+///
+/// Synchronous, and it blocks on the filesystem, as [`Configuration`]
+/// does.
+pub trait ConfigurationWriter {
+    /// Replace the work root's config file's `tag_permits` with
+    /// `permits`, keeping the rest of the file (its other keys, comments
+    /// and layout) as written; the file and its directory made when there
+    /// is none. Refused where there is no work root.
+    fn write_tag_permits(&mut self, permits: &TagPermits) -> Result<(), Report>;
+}
+
+/// A project's closed tag vocabulary: the namespaces its tasks' tags may
+/// use, each open (any key) or closed (only its keys), and the tags with
+/// no namespace it permits. A permit is of a target (`namespace:key`, or
+/// a flat tag's key), never of a value: the schema governs values.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct TagPermits {
+    pub namespaces: BTreeMap<String, NamespacePermit>,
+    /// The flat tags (no namespace) permitted, by key.
+    pub flat: BTreeSet<String>,
+}
+
+/// What a permitted namespace admits.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum NamespacePermit {
+    /// Any key (`relates:<harp>`, `sig:<function>`).
+    Open,
+    /// Only these keys (`area:` with `cli`, `mcp`, ...).
+    Closed(BTreeSet<String>),
 }
 
 /// One record of a JSONL task log, `~/.ctxloom/tasks/<project-id>.jsonl`:

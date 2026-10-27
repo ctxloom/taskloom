@@ -57,6 +57,19 @@ pub enum AppError {
     /// Ids held in more than one project, read across projects: each with
     /// the projects holding it.
     Ambiguous { held: Vec<(String, Vec<String>)> },
+    /// A permit not spelled as one: a namespace (`area:`), a namespace's
+    /// key (`area:cli`) or a flat tag (`urgent`), with no value, outside
+    /// tagma's namespace, and not a query operator.
+    PermitMalformed { permit: String },
+    /// A revoke of what is not among the project's permits (a key of an
+    /// open namespace among them: its namespace's permit admits it).
+    PermitNotDeclared { permit: String },
+    /// A revoke of a permit tasks still carry a tag under: every one of
+    /// them, by harp id.
+    PermitInUse {
+        permit: String,
+        harp_ids: Vec<String>,
+    },
     /// `error`, from a write during which annals' kernel dead-lettered
     /// `dead_letters` (never none): `error`'s diagnostic, its code, args
     /// and English, with the lines beside it for the driving adapter to
@@ -148,6 +161,19 @@ impl fmt::Display for AppError {
                 "no task holds these harp ids: {} (see `taskloom list`)",
                 quoted(harp_ids)
             ),
+            AppError::PermitMalformed { permit } => write!(
+                f,
+                "{permit} is not a permit: give a namespace (area:), a namespace's key (area:cli) or a flat tag (urgent), with no value"
+            ),
+            AppError::PermitNotDeclared { permit } => write!(
+                f,
+                "{permit} is not among this project's tag permits, so there is nothing to revoke"
+            ),
+            AppError::PermitInUse { permit, harp_ids } => write!(
+                f,
+                "{permit} cannot be revoked: these tasks still carry it: {} (retag them first)",
+                quoted(harp_ids)
+            ),
             AppError::Ambiguous { held } => write!(
                 f,
                 "harp ids held by more than one project ({}): pass --project <id> instead of --global to choose one",
@@ -179,6 +205,9 @@ impl Diagnostic for AppError {
             AppError::TriggerAndClear => "tasks-application-trigger-and-clear",
             AppError::NotFound { .. } => "tasks-application-not-found",
             AppError::Ambiguous { .. } => "tasks-application-ambiguous",
+            AppError::PermitMalformed { .. } => "tasks-application-permit-malformed",
+            AppError::PermitNotDeclared { .. } => "tasks-application-permit-not-declared",
+            AppError::PermitInUse { .. } => "tasks-application-permit-in-use",
         }
     }
 
@@ -213,6 +242,14 @@ impl Diagnostic for AppError {
             AppError::Ambiguous { held } => {
                 vec![("held", held_in(held).into()), ("count", held.len().into())]
             }
+            AppError::PermitMalformed { permit } | AppError::PermitNotDeclared { permit } => {
+                vec![("permit", permit.as_str().into())]
+            }
+            AppError::PermitInUse { permit, harp_ids } => vec![
+                ("permit", permit.as_str().into()),
+                ("harp_ids", quoted(harp_ids).into()),
+                ("count", harp_ids.len().into()),
+            ],
         }
     }
 }
@@ -266,6 +303,16 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
                 "swift-amber".to_string(),
                 vec!["jolly-mute-magma".to_string(), "brisk-tall-oak".to_string()],
             )],
+        }),
+        Box::new(AppError::PermitMalformed {
+            permit: "area:cli=x".to_string(),
+        }),
+        Box::new(AppError::PermitNotDeclared {
+            permit: "sig:".to_string(),
+        }),
+        Box::new(AppError::PermitInUse {
+            permit: "area:cli".to_string(),
+            harp_ids: vec!["swift-amber".to_string(), "calm-otter".to_string()],
         }),
         Box::new(crate::Why::Displaced),
         Box::new(crate::Why::HarpTaken),

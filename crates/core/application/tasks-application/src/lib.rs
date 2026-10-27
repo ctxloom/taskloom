@@ -13,6 +13,7 @@ mod dead_letter;
 mod error;
 mod import;
 mod lint;
+mod permit;
 mod priority;
 mod prune;
 mod query;
@@ -42,6 +43,7 @@ pub use dead_letter::DeadLetter;
 pub use error::{diagnostic_samples, AppError, CATALOGS, EN_US};
 pub use import::{ImportReport, ImportRequest, ImportService, Importer, Lost, ProjectImport, Why};
 pub use lint::{Finding, LintReport, Violation};
+pub use permit::{PermitChange, PermitService, Permitted};
 pub use ports::Project;
 pub use priority::{PriorityNote, PriorityWarning};
 pub use prune::{

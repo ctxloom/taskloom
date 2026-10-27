@@ -46,6 +46,10 @@ pub enum Finding {
     },
     /// A scalar target holding more than one value on one task.
     Scalar { target: String, values: Vec<String> },
+    /// A stored tag the project's tag permits do not permit: written
+    /// before they did, or imported. `permit` is what `taskloom permit`
+    /// takes to permit it.
+    NotPermitted { tag: String, permit: String },
     /// A formula's placeholder naming a value its target's enum does not
     /// declare.
     FormulaEnum {
@@ -87,6 +91,10 @@ impl fmt::Display for Finding {
                 values.len(),
                 values.join(", ")
             ),
+            Finding::NotPermitted { tag, permit } => write!(
+                f,
+                "{tag} is not permitted in this project (`taskloom permit {permit}` permits it)"
+            ),
             Finding::FormulaEnum {
                 facet,
                 target,
@@ -109,6 +117,7 @@ impl Diagnostic for Finding {
             Finding::NotANumber { .. } => "tasks-application-lint-not-a-number",
             Finding::OutOfRange { .. } => "tasks-application-lint-out-of-range",
             Finding::Scalar { .. } => "tasks-application-lint-scalar",
+            Finding::NotPermitted { .. } => "tasks-application-lint-not-permitted",
             Finding::FormulaEnum { .. } => "tasks-application-lint-formula-enum",
         }
     }
@@ -144,6 +153,7 @@ impl Diagnostic for Finding {
                 ("count", values.len().into()),
                 ("values", values.join(", ").into()),
             ],
+            Finding::NotPermitted { tag, permit } => vec![("tag", s(tag)), ("permit", s(permit))],
             Finding::FormulaEnum {
                 facet,
                 target,
@@ -338,6 +348,10 @@ pub(crate) fn samples() -> Vec<Finding> {
         Finding::Scalar {
             target: x(),
             values: vec![x(), x()],
+        },
+        Finding::NotPermitted {
+            tag: x(),
+            permit: x(),
         },
         Finding::FormulaEnum {
             facet: x(),
