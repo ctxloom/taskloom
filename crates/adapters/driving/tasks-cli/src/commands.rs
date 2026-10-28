@@ -6,13 +6,15 @@ use std::io::{self, Write};
 use clap::Args;
 use presentation::{Catalog, Format};
 use tasks_application::{
-    ListQuery, Listing, NewTask, PermitService, PruneRequest, PruneService, Reach, Scope,
-    ShowQuery, StatusChange, TagChange, TaskService, TextEdit, DEFAULT_OLDER_THAN,
+    ListQuery, Listing, NewTask, PermitChange, PermitService, PruneRequest, PruneService, Reach,
+    Scope, ShowQuery, StatusChange, TagChange, TaskService, TextEdit, DEFAULT_OLDER_THAN,
     DEFAULT_PRUNE_STATUSES,
 };
 
 use crate::prune::{apply_command, PruneReport};
-use crate::render::{Added, Counted, Detailed, Linted, Listed, Summed, Tagged, Taxonomy};
+use crate::render::{
+    Added, Changed, Counted, Detailed, Linted, Listed, Permits, Summed, Tagged, Taxonomy,
+};
 use crate::{dead_lettered, notify, output_failed, wrote, CliError, Notice};
 
 /// What every task command is handed besides its own arguments: the
@@ -296,39 +298,53 @@ pub struct PermitArgs {
 
 /// Permit `args.permit` and say what changed: in text, `permitted <permit>`
 /// or `<permit> was already permitted`; in JSON, `{"permit", "changed"}`.
-// RED stub: asks the service nothing and says nothing.
 pub(crate) async fn permit(
-    _args: PermitArgs,
-    _ctx: Ctx<'_>,
-    _service: &mut impl PermitService,
-    _out: &mut dyn Write,
+    args: PermitArgs,
+    ctx: Ctx<'_>,
+    service: &mut impl PermitService,
+    out: &mut dyn Write,
 ) -> Result<(), CliError> {
-    Ok(())
+    let change = PermitChange {
+        permit: args.permit,
+    };
+    let permitted = service.permit(change).await.map_err(CliError::App)?;
+    let view = Changed {
+        permitted: &permitted,
+        revoked: false,
+    };
+    presentation::render(out, ctx.format, &view).map_err(output_failed)
 }
 
 /// Revoke `args.permit` and say so: in text, `revoked <permit>`; in JSON,
 /// `{"permit", "changed"}`.
-// RED stub: asks the service nothing and says nothing.
 pub(crate) async fn revoke(
-    _args: PermitArgs,
-    _ctx: Ctx<'_>,
-    _service: &mut impl PermitService,
-    _out: &mut dyn Write,
+    args: PermitArgs,
+    ctx: Ctx<'_>,
+    service: &mut impl PermitService,
+    out: &mut dyn Write,
 ) -> Result<(), CliError> {
-    Ok(())
+    let change = PermitChange {
+        permit: args.permit,
+    };
+    let permitted = service.revoke(change).await.map_err(CliError::App)?;
+    let view = Changed {
+        permitted: &permitted,
+        revoked: true,
+    };
+    presentation::render(out, ctx.format, &view).map_err(output_failed)
 }
 
 /// List what the project permits: in text, its namespaces (open, or
 /// closed with their keys), its flat tags and the schema's targets, or
 /// that it declares none; in JSON, [`tasks_presentation::PermitsJson`],
 /// the `taskloom://tag-permits` resource's document.
-// RED stub: asks the service nothing and says nothing.
 pub(crate) async fn permits(
-    _ctx: Ctx<'_>,
-    _service: &mut impl TaskService,
-    _out: &mut dyn Write,
+    ctx: Ctx<'_>,
+    service: &mut impl TaskService,
+    out: &mut dyn Write,
 ) -> Result<(), CliError> {
-    Ok(())
+    let list = service.permits().await.map_err(CliError::App)?;
+    presentation::render(out, ctx.format, &Permits(&list)).map_err(output_failed)
 }
 
 #[derive(Args, Debug)]

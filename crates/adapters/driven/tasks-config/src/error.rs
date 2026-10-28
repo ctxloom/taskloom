@@ -10,6 +10,9 @@ use crate::KEYS;
 pub enum ConfigError {
     /// A config file that exists could not be read.
     Unreadable { path: String, detail: String },
+    /// The work root's config file (or its directory) could not be
+    /// written.
+    Unwritable { path: String, detail: String },
     /// A config file that is not taskloom's: not YAML, a key it does not
     /// know, or a value of the wrong shape.
     Malformed { path: String, detail: String },
@@ -49,6 +52,9 @@ impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ConfigError::Unreadable { path, detail } => write!(f, "cannot read {path}: {detail}"),
+            ConfigError::Unwritable { path, detail } => {
+                write!(f, "cannot write {path}: {detail}")
+            }
             ConfigError::Malformed { path, detail } => {
                 write!(f, "{path} is not taskloom's config: {detail}")
             }
@@ -98,6 +104,7 @@ impl Diagnostic for ConfigError {
     fn code(&self) -> &'static str {
         match self {
             ConfigError::Unreadable { .. } => "tasks-config-unreadable",
+            ConfigError::Unwritable { .. } => "tasks-config-unwritable",
             ConfigError::Malformed { .. } => "tasks-config-malformed",
             ConfigError::Newer { .. } => "tasks-config-newer",
             ConfigError::UnknownKey { .. } => "tasks-config-unknown-key",
@@ -115,6 +122,7 @@ impl Diagnostic for ConfigError {
         let s = |v: &String| Arg::from(v.as_str());
         match self {
             ConfigError::Unreadable { path, detail }
+            | ConfigError::Unwritable { path, detail }
             | ConfigError::Malformed { path, detail }
             | ConfigError::EditRefused { path, detail } => {
                 vec![("path", s(path)), ("detail", s(detail))]
@@ -193,6 +201,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(ConfigError::EditRefused {
             path: path(),
             detail: "schema_version changed".to_string(),
+        }),
+        Box::new(ConfigError::Unwritable {
+            path: path(),
+            detail: "read-only file system".to_string(),
         }),
     ]
 }

@@ -533,6 +533,8 @@ fn test_a_permit_not_spelled_as_one_is_refused_and_nothing_written() {
         "and",
         "a b",
         ":",
+        "a:b:",
+        "area:cli:",
     ] {
         let mut service = under(Some(usual()), &[]);
         let error = permit(&mut service, spelled).unwrap_err();
@@ -736,13 +738,137 @@ fn test_lint_reports_a_task_carrying_more_than_one_area_or_repo() {
     );
 }
 
-// PROPOSAL (opt-in, ruling 6): the one-area rule comes with the permits,
-// so a project declaring none sees no new finding from it; its lint says
-// what it said before permits existed. (Paired with the test above, which
-// fails while the rule is not there at all.)
+// Review (2026-10-27): the one-area/one-repo rule holds EVERYWHERE, not
+// only where a project declares permits: a project declaring none gets
+// the finding too, on open and Deferred rows, and still none on a closed
+// one.
 #[test]
-fn test_lint_holds_a_task_to_one_area_only_where_the_project_declares_permits() {
-    let mut service = under(None, &["swift-amber"]);
+fn test_lint_holds_a_task_to_one_area_and_one_repo_even_where_the_project_declares_no_permits() {
+    let mut service = under(None, &["swift-amber", "calm-otter", "brisk-oak"]);
     add(&mut service, &["area:cli", "area:mcp", "repo:a", "repo:b"]).unwrap();
-    assert_eq!(lint_findings(&mut service), []);
+    add(&mut service, &["area:cli", "area:store"]).unwrap();
+    add(&mut service, &["repo:a", "repo:b"]).unwrap();
+    moved(&mut service, "calm-otter", "Deferred");
+    moved(&mut service, "brisk-oak", "Done");
+    let many = |namespace: &str, keys: &[&str]| Finding::ManyKeys {
+        namespace: namespace.to_string(),
+        keys: keys.iter().map(|k| k.to_string()).collect(),
+    };
+    assert_eq!(
+        lint_findings(&mut service),
+        [
+            ("calm-otter".to_string(), many("area", &["cli", "store"])),
+            ("swift-amber".to_string(), many("area", &["cli", "mcp"])),
+            ("swift-amber".to_string(), many("repo", &["a", "b"])),
+        ]
+    );
+}
+
+// A closed namespace's last key revoked takes the namespace with it: a
+// namespace closed to no key permits what no namespace does.
+#[test]
+fn test_revoking_a_closed_namespaces_last_key_drops_the_namespace() {
+    let mut service = under(Some(permits(&[("area", &["cli"])], &[], &["urgent"])), &[]);
+    revoke(&mut service, "area:cli").unwrap();
+    assert_eq!(
+        service.configuration.written,
+        [permits(&[], &[], &["urgent"])]
+    );
+}
+
+// The first permit of a project declaring none writes, even when it
+// grants nothing new, since it is where the project's permits start.
+#[test]
+fn test_a_first_permit_always_writes_and_answers_changed() {
+    let mut service = under(None, &[]);
+    let permitted = permit(&mut service, "relates:").unwrap();
+    assert!(permitted.changed);
+    assert_eq!(
+        service.configuration.written,
+        [permits(&[], &["relates"], &[])]
+    );
+}
+
+// A permit answers spelled as the tag it permits is, canonically: a
+// namespace's as the namespace and a colon, a key quoted as tagma quotes
+// one, a flat tag bare.
+#[test]
+fn test_each_kind_of_permit_is_answered_in_its_canonical_spelling() {
+    for (given, canonical) in [
+        (" area: ", "area:"),
+        ("area:cli", "area:cli"),
+        ("urgent", "urgent"),
+        (r#"sig:"a b""#, r#"sig:"a b""#),
+    ] {
+        let mut service = under(Some(TagPermits::default()), &[]);
+        assert_eq!(
+            permit(&mut service, given).unwrap().permit,
+            canonical,
+            "{given}"
+        );
+    }
+    let mut service = under(Some(TagPermits::default()), &[]);
+    permit(&mut service, r#"sig:"a b""#).unwrap();
+    assert_eq!(
+        service.configuration.written,
+        [permits(&[("sig", &["a b"])], &[], &[])]
+    );
+}
+
+// The permits are the work root's, so they judge the one project read:
+// a lint across every project reports no tag as not permitted (it still
+// reports a task's second area).
+#[test]
+fn test_a_lint_of_every_project_holds_no_project_to_the_work_roots_permits() {
+    let mut service = under(None, &["swift-amber"]);
+    add(&mut service, &["wibble", "area:cli", "area:x"]).unwrap();
+    service.identity.every = service.identity.bound.clone().into_iter().collect();
+    service.configuration.permits = Some(usual());
+    let report = ready(service.lint(Scope {
+        global: true,
+        ..Scope::default()
+    }))
+    .unwrap();
+    let found: Vec<Finding> = report.violations.into_iter().map(|v| v.finding).collect();
+    assert_eq!(
+        found,
+        [Finding::ManyKeys {
+            namespace: "area".to_string(),
+            keys: vec!["cli".to_string(), "x".to_string()],
+        }]
+    );
+}
+
+// A revoke reads the work root's project's tasks: where it has no
+// project yet, or no store, none carries anything, and the revoke lands.
+#[test]
+fn test_a_revoke_where_there_is_no_project_yet_lands() {
+    let mut service = under(Some(usual()), &[]);
+    assert!(service.identity.bound.is_none());
+    assert!(revoke(&mut service, "area:cli").unwrap().changed);
+}
+
+// A flat tag's revoke is blocked by a task carrying that flat tag only:
+// not by a namespaced tag of the same key, nor by another flat tag.
+#[test]
+fn test_a_flat_tags_revoke_is_blocked_only_by_that_flat_tag() {
+    let mut service = under(
+        Some(permits(
+            &[("area", &["urgent"])],
+            &[],
+            &["urgent", "blocked"],
+        )),
+        &["swift-amber", "calm-otter"],
+    );
+    add(&mut service, &["area:urgent"]).unwrap();
+    add(&mut service, &["blocked"]).unwrap();
+    assert!(revoke(&mut service, "urgent").unwrap().changed);
+    let error = revoke(&mut service, "blocked").unwrap_err();
+    assert_eq!(
+        error,
+        AppError::PermitInUse {
+            permit: "blocked".to_string(),
+            harp_ids: vec!["calm-otter".to_string()],
+        }
+    );
 }

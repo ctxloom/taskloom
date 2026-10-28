@@ -4,7 +4,9 @@ members = ["crates/*/*/*"]
 
 [workspace.package]
 edition = "2021"
-rust-version = "1.85"
+# The newest any dependency needs: yaml-rt-core (tasks-config) needs 1.96,
+# rmcp (tasks-mcp, and the binary through it) 1.88.
+rust-version = "1.96"
 license = "AGPL-3.0-only"
 publish = false
 

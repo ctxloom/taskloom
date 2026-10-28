@@ -269,3 +269,41 @@ fn test_each_refusal_has_its_code_and_args() {
         assert_eq!(sample.args()[0].0, "declaration");
     }
 }
+
+// Tag permits: a target any facet is declared for is permitted without a
+// permit, so every facet counts, each target once, sorted.
+#[test]
+fn test_every_facet_declares_its_target() {
+    let facets = [
+        r#"tagma.arity:"f:arity"=scalar"#,
+        r#"tagma.enum:"f:enum"="a""#,
+        r#"tagma.range:"f:range"="1,2""#,
+        r#"tagma.type:"f:type"=semver"#,
+        r#"tagma.hide:"f:hide"=true"#,
+        r#"tagma.priority_fn:"f:priority"="1""#,
+        r#"tagma.decay_fn:"f:decay"="1""#,
+        r#"tagma.enum:"f:arity"="a""#,
+    ];
+    let schema = parse(&facets);
+    assert_eq!(
+        schema.targets(),
+        [
+            "f:arity",
+            "f:decay",
+            "f:enum",
+            "f:hide",
+            "f:priority",
+            "f:range",
+            "f:type"
+        ]
+    );
+    for target in schema.targets() {
+        assert!(schema.declares(&target), "{target}");
+    }
+    assert!(!schema.declares("f:none"));
+    for facet in facets {
+        let one = parse(&[facet]);
+        let target = one.targets().pop().unwrap();
+        assert!(one.declares(&target), "{facet}");
+    }
+}

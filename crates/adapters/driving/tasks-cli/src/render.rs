@@ -8,11 +8,11 @@ use annals_diagnostic::Diagnostic;
 use presentation::{text, Catalog, Envelope, Render};
 use serde::Serialize;
 use tasks_application::{
-    Details, LintReport, Listing, Reach, Row, Shown, StatusInfo, Statuses, Summary, Tag, Task,
-    Vocabulary,
+    Details, LintReport, Listing, NamespacePermit, PermitList, Permitted, Reach, Row, Shown,
+    StatusInfo, Statuses, Summary, Tag, Task, Vocabulary,
 };
 pub(crate) use tasks_presentation::{headline, project_label, CompactJson, RowJson};
-use tasks_presentation::{SummaryJson, TagCountJson, TaskJson};
+use tasks_presentation::{PermitsJson, SummaryJson, TagCountJson, TaskJson};
 
 /// The heading of an answer read across every project.
 pub fn projects_heading(out: &mut dyn Write, projects: usize) -> io::Result<()> {
@@ -416,6 +416,101 @@ fn detail(out: &mut dyn Write, task: &Task, shown: &Shown) -> io::Result<()> {
     }
     writeln!(out)?;
     writeln!(out, "{}", task.text)
+}
+
+/// A permit or revoke done: JSON the permit and whether the config
+/// changed; text what was done.
+pub struct Changed<'a> {
+    pub permitted: &'a Permitted,
+    /// A revoke, not a permit.
+    pub revoked: bool,
+}
+
+#[derive(Serialize)]
+struct ChangedJson<'a> {
+    permit: &'a str,
+    changed: bool,
+}
+
+impl Render for Changed<'_> {
+    fn json(&self) -> impl Serialize + '_ {
+        ChangedJson {
+            permit: &self.permitted.permit,
+            changed: self.permitted.changed,
+        }
+    }
+
+    fn text(&self, out: &mut dyn Write) -> io::Result<()> {
+        let permit = &self.permitted.permit;
+        match (self.revoked, self.permitted.changed) {
+            (true, _) => writeln!(out, "revoked {permit}"),
+            (false, true) => writeln!(out, "permitted {permit}"),
+            (false, false) => writeln!(out, "{permit} was already permitted"),
+        }
+    }
+}
+
+/// What a project permits: JSON tasks-presentation's [`PermitsJson`];
+/// text one line a namespace, its keys in a column, then the flat tags and
+/// the targets the schema permits.
+pub struct Permits<'a>(pub &'a PermitList);
+
+impl Render for Permits<'_> {
+    fn json(&self) -> impl Serialize + '_ {
+        PermitsJson::of(self.0)
+    }
+
+    fn text(&self, out: &mut dyn Write) -> io::Result<()> {
+        let list = self.0;
+        match &list.permits {
+            None => writeln!(
+                out,
+                "No tag permits: this project declares none, so every tag the tag schema admits is permitted (`taskloom permit <permit>` starts them)."
+            )?,
+            Some(permits) => {
+                if permits.namespaces.is_empty() {
+                    writeln!(out, "Namespaces: (none)")?;
+                } else {
+                    writeln!(out, "Namespaces:")?;
+                    let width = permits
+                        .namespaces
+                        .keys()
+                        .map(|n| text::width(n) + 1)
+                        .max()
+                        .unwrap_or(0)
+                        + 2;
+                    for (namespace, permit) in &permits.namespaces {
+                        let keys = match permit {
+                            NamespacePermit::Open => "(open: any key)".to_string(),
+                            NamespacePermit::Closed(keys) if keys.is_empty() => {
+                                "(no key)".to_string()
+                            }
+                            NamespacePermit::Closed(keys) => {
+                                keys.iter().cloned().collect::<Vec<_>>().join(", ")
+                            }
+                        };
+                        let name = format!("{namespace}:");
+                        writeln!(out, "  {}{keys}", text::pad(&name, width))?;
+                    }
+                }
+                writeln!(out, "Flat tags: {}", listed(permits.flat.iter()))?;
+            }
+        }
+        writeln!(
+            out,
+            "Permitted by the tag schema: {}",
+            listed(list.schema_targets.iter())
+        )
+    }
+}
+
+/// `items` comma-separated, or `(none)`.
+fn listed<'i>(items: impl Iterator<Item = &'i String>) -> String {
+    let items: Vec<&str> = items.map(String::as_str).collect();
+    match items.is_empty() {
+        true => "(none)".to_string(),
+        false => items.join(", "),
+    }
 }
 
 #[cfg(test)]

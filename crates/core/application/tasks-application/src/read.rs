@@ -315,7 +315,10 @@ where
 
     /// The live tasks of `project`'s store in the order they were added;
     /// `None` when it has no store.
-    async fn rows_of(&mut self, project: &Project) -> Result<Option<Vec<Row>>, AppError> {
+    pub(crate) async fn rows_of(
+        &mut self,
+        project: &Project,
+    ) -> Result<Option<Vec<Row>>, AppError> {
         let Some(store) = self.stores.open_existing(project).await.map_err(failed)? else {
             return Ok(None);
         };
@@ -417,8 +420,12 @@ where
     /// Every task `scope` reaches, and the schema, linted.
     pub(crate) async fn linted(&mut self, scope: crate::Scope) -> Result<LintReport, AppError> {
         let schema = self.schema()?;
+        let permits = self.tag_permits()?;
         let scan = self.scan(scope.project.as_deref(), scope.global).await?;
-        let (violations, checked_targets) = lint::lint(&scan.rows, &schema);
+        // The permits are the work root's, so they judge the one project
+        // read, never every project's tasks.
+        let permits = permits.filter(|_| matches!(scan.reach, Reach::Project(_)));
+        let (violations, checked_targets) = lint::lint(&scan.rows, &schema, permits.as_ref());
         Ok(LintReport {
             reach: scan.reach,
             violations,

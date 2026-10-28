@@ -55,7 +55,11 @@ pub const FACETS: [&str; 7] = [
 /// `triage:level` (1, the worst, to 5), `triage:kind`, `triage:effort` (0
 /// to 5) and `triage:blocks-release` (a SemVer version) scalar, with the
 /// vocabularies `taskloom lint` checks and the priority formulas.
-pub const DEFAULT_TAG_SCHEMA: [&str; 15] = [
+/// `triage:blind-gate`, which `decay_fn` reads, is a repeatable enum of the
+/// gates a green run can be blind in (Rust's alone: Go's schema does not
+/// declare it), so a project with tag permits admits it, and a typo is
+/// refused on write; a project with more gates re-declares it.
+pub const DEFAULT_TAG_SCHEMA: [&str; 16] = [
     r#"tagma.arity:"triage:level"=scalar"#,
     r#"tagma.arity:"triage:verdict"=scalar"#,
     r#"tagma.arity:"triage:audited"=scalar"#,
@@ -66,6 +70,7 @@ pub const DEFAULT_TAG_SCHEMA: [&str; 15] = [
     r#"tagma.enum:"triage:kind"="defect,capability,chore""#,
     r#"tagma.enum:"triage:exposed"="wire,cli,config,on-disk,api""#,
     r#"tagma.enum:"triage:verdict"="holds,phantom,obsolete,partial,unclear""#,
+    r#"tagma.enum:"triage:blind-gate"="unit,integration,acceptance,mutation,lint,ci""#,
     r#"tagma.range:"triage:level"="1,5""#,
     r#"tagma.range:"triage:audited"="20250101,20991231""#,
     r#"tagma.range:"triage:effort"="0,5""#,
@@ -222,6 +227,36 @@ impl TagSchema {
     /// Every declared `(target, hide)`, by target.
     pub fn hide_facts(&self) -> impl Iterator<Item = (&str, bool)> {
         self.hide.iter().map(|(t, h)| (t.as_str(), *h))
+    }
+
+    /// Every target any facet is declared for, sorted, each once: the
+    /// targets a project's tag permits permit without a permit.
+    pub fn targets(&self) -> Vec<String> {
+        let mut targets: Vec<String> = self
+            .scalar
+            .keys()
+            .chain(self.enums.keys())
+            .chain(self.ranges.keys())
+            .chain(self.types.keys())
+            .chain(self.hide.keys())
+            .chain(self.priority_fns.keys())
+            .chain(self.decay_fns.keys())
+            .cloned()
+            .collect();
+        targets.sort();
+        targets.dedup();
+        targets
+    }
+
+    /// Whether any facet is declared for `target`.
+    pub fn declares(&self, target: &str) -> bool {
+        self.scalar.contains_key(target)
+            || self.enums.contains_key(target)
+            || self.ranges.contains_key(target)
+            || self.types.contains_key(target)
+            || self.hide.contains_key(target)
+            || self.priority_fns.contains_key(target)
+            || self.decay_fns.contains_key(target)
     }
 
     /// The `priority_fn` formulas, by target.

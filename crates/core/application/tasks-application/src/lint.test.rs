@@ -59,7 +59,11 @@ fn said(violations: &[Violation]) -> Vec<(Option<&str>, &str, String)> {
 #[test]
 fn test_a_value_outside_its_enum_is_a_violation_whatever_the_tasks_status() {
     let schema = schema(&[r#"tagma.enum:"area:x"="a,b""#]);
-    let (found, checked) = lint(&[row("p", "done-task", &["area:x=c", "area:x=a"])], &schema);
+    let (found, checked) = lint(
+        &[row("p", "done-task", &["area:x=c", "area:x=a"])],
+        &schema,
+        None,
+    );
     assert_eq!(
         said(&found),
         [(
@@ -84,7 +88,7 @@ fn test_a_range_targets_value_must_be_a_finite_number_within_it() {
         row("p", "c-task", &["area:n=inf", "area:n=lots"]),
         row("p", "d-task", &["area:n=1", "area:n=5", "area:n=2.5"]),
     ];
-    let (found, checked) = lint(&rows, &schema);
+    let (found, checked) = lint(&rows, &schema, None);
     let codes: Vec<(&str, &str)> = found
         .iter()
         .map(|v| (v.harp_id.as_str(), v.finding.code()))
@@ -116,7 +120,7 @@ fn test_a_scalar_target_holding_two_values_is_a_violation() {
         ),
         row("p", "one", &["area:s=1", "area:s"]),
     ];
-    let (found, checked) = lint(&rows, &schema);
+    let (found, checked) = lint(&rows, &schema, None);
     assert_eq!(
         said(&found),
         [(
@@ -142,7 +146,7 @@ fn test_a_formula_naming_a_value_no_enum_declares_is_the_schemas_violation() {
         r#"tagma.priority_fn:"area:k"="{{area:k=a}} + {{ area:k=zz }} + {{area:k=zz}} + {{area:k=*}} + {{area:other=q}} + {{age_days}}""#,
         r#"tagma.decay_fn:"area:k"="{{area:k=yy}}""#,
     ]);
-    let (found, _) = lint(&[], &schema);
+    let (found, _) = lint(&[], &schema, None);
     assert_eq!(
         said(&found),
         [
@@ -164,7 +168,7 @@ fn test_a_formula_naming_a_value_no_enum_declares_is_the_schemas_violation() {
 #[test]
 fn test_the_default_schemas_formulas_name_only_declared_values() {
     let schema = TagSchema::resolved(&[]).unwrap();
-    let (found, checked) = lint(&[], &schema);
+    let (found, checked) = lint(&[], &schema, None);
     assert!(found.is_empty(), "{:?}", said(&found));
     assert!(checked > 0);
 }
@@ -179,7 +183,7 @@ fn test_violations_sort_by_project_then_task_and_nothing_checked_is_counted() {
         row("zulu", "a-task", &["area:x=b"]),
         row("alpha", "z-task", &["area:x=b"]),
     ];
-    let (found, checked) = lint(&rows, &schema);
+    let (found, checked) = lint(&rows, &schema, None);
     let order: Vec<(Option<&str>, &str)> = found
         .iter()
         .map(|v| (v.project.as_deref(), v.harp_id.as_str()))
@@ -194,7 +198,7 @@ fn test_violations_sort_by_project_then_task_and_nothing_checked_is_counted() {
         ]
     );
     assert_eq!(checked, 1, "one target, two facets");
-    assert_eq!(lint(&rows, &TagSchema::default()), (Vec::new(), 0));
+    assert_eq!(lint(&rows, &TagSchema::default(), None), (Vec::new(), 0));
 }
 
 #[test]

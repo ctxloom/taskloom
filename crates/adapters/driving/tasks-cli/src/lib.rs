@@ -108,9 +108,11 @@ pub enum Command {
     Show(commands::ShowArgs),
     /// Check every task's tags, whatever its status, against the tag
     /// schema: a value outside its enum or range, a scalar target with two
-    /// values, and a formula naming a value no enum declares. Advisory,
-    /// never a write gate; it exits 1 on a violation, and when the schema
-    /// gave it no target to check.
+    /// values, and a formula naming a value no enum declares; and every
+    /// open or Deferred task's against the project's tag permits (a tag
+    /// they do not permit) and for more than one area: or repo: key.
+    /// Advisory, never a write gate; it exits 1 on a violation, and when
+    /// the schema gave it no target to check.
     Lint(commands::GlobalArgs),
     /// Count the tasks in each status, every task included whatever list
     /// would hide, and name those In Progress.

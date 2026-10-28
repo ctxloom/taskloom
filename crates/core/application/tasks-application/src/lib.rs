@@ -1,7 +1,9 @@
 //! The tasks use cases: add a task, move, edit or retag one, read a
 //! project's tasks (or every project's), watch them change, prune old
-//! finished ones; and, apart from them, import the JSONL task logs
-//! ([`Importer`], the one use case that reads them).
+//! finished ones, read what the project's tag permits permit; and, apart
+//! from them, import the JSONL task logs ([`Importer`], the one use case
+//! that reads them), and grant and revoke tag permits ([`PermitService`],
+//! which no MCP server is handed).
 //!
 //! Each resolves its project through [`ProjectIdentity`], opens the
 //! project's store through [`TaskStores`], and runs its command through
@@ -294,6 +296,24 @@ impl<I, S, N, C, D, G: Configuration> Service<I, S, N, C, D, G> {
             .map_err(AppError::Configuration)?;
         TagSchema::resolved(&configured).map_err(|e| AppError::Configuration(Report::of(&e)))
     }
+
+    /// The project's tag permits as configured: `None` where it declares
+    /// none.
+    fn tag_permits(&mut self) -> Result<Option<TagPermits>, AppError> {
+        self.configuration
+            .tag_permits()
+            .map_err(AppError::Configuration)
+    }
+
+    /// Whether the project's tag permits permit every tag of `add`, the
+    /// tags a write adds: refused at the first they do not.
+    fn check_permitted(&mut self, add: &[Tag], schema: &TagSchema) -> Result<(), AppError> {
+        let permits = self.tag_permits()?;
+        for tag in add {
+            tags::permitted(tag, permits.as_ref(), schema).map_err(|r| refused(&r))?;
+        }
+        Ok(())
+    }
 }
 
 impl<I, S, N, C, D, G> Service<I, S, N, C, D, G>
@@ -384,6 +404,7 @@ where
         let origin_session = given(task.origin_session, "origin_session")?;
         let schema = self.schema()?;
         let tags = tags::admit_all(&task.tags, &schema).map_err(|r| refused(&r))?;
+        self.check_permitted(&tags, &schema)?;
         tags::check_scalars(&schema, &tags).map_err(|r| refused(&r))?;
         let (tags, _) = tags::collapse(&schema, &[], tags);
         // Each attempt mints its own harp; everything else is this, held to
@@ -460,6 +481,7 @@ where
         for tag in &add {
             tags::admit(tag, &schema).map_err(|r| refused(&r))?;
         }
+        self.check_permitted(&add, &schema)?;
         tags::check_scalars(&schema, &add).map_err(|r| refused(&r))?;
         let project = self.existing(change.project.as_deref()).await?;
         // A scalar target's new value displaces the one the task holds:
@@ -584,9 +606,12 @@ where
         self.schema()
     }
 
-    // RED stub: no permits, and no schema targets.
     async fn permits(&mut self) -> Result<PermitList, AppError> {
-        Ok(PermitList::default())
+        let schema = self.schema()?;
+        Ok(PermitList {
+            permits: self.tag_permits()?,
+            schema_targets: schema.targets(),
+        })
     }
 }
 

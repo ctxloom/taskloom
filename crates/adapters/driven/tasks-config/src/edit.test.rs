@@ -84,3 +84,170 @@ fn test_an_edit_is_judged_by_what_the_file_says_not_how() {
     let refused = after.replace("[cli, mcp]", "[cli]");
     assert!(verified(PATH, before, &refused, &meant(&["cli", "mcp"])).is_err());
 }
+
+// ------------------------------------------------------------ edited
+
+fn open(names: &[&str]) -> Vec<(String, NamespacePermit)> {
+    names
+        .iter()
+        .map(|n| (n.to_string(), NamespacePermit::Open))
+        .collect()
+}
+
+fn closed(name: &str, keys: &[&str]) -> (String, NamespacePermit) {
+    (
+        name.to_string(),
+        NamespacePermit::Closed(keys.iter().map(|k| k.to_string()).collect()),
+    )
+}
+
+fn of(namespaces: Vec<(String, NamespacePermit)>, flat: &[&str]) -> TagPermits {
+    TagPermits {
+        namespaces: namespaces.into_iter().collect(),
+        flat: flat.iter().map(|k| k.to_string()).collect(),
+    }
+}
+
+fn edit(before: &str, permits: &TagPermits) -> String {
+    super::edited(PATH, before, permits).unwrap()
+}
+
+// yaml-rt-core takes the blank lines after a block list's last item with
+// it; they are put back, whether the list keeps items or is left empty.
+#[test]
+fn test_removing_a_lists_last_item_keeps_the_blank_lines_after_it() {
+    let before = "tag_permits:\n  namespaces:\n    area:\n      - cli\n      - mcp  # m\n\n    queue: open\n  tags:\n    - urgent\n\n\n# The schema.\nschema_version: 1\n";
+    let after = edit(
+        before,
+        &of(
+            vec![closed("area", &["cli"]), open(&["queue"]).remove(0)],
+            &[],
+        ),
+    );
+    assert_eq!(
+        after,
+        "tag_permits:\n  namespaces:\n    area:\n      - cli\n\n    queue: open\n  tags: []\n\n\n# The schema.\nschema_version: 1\n"
+    );
+}
+
+// A namespace turning open or closed keeps the comment beside it, in
+// either style; a block list turning open keeps the comment above it.
+#[test]
+fn test_a_namespace_turning_open_or_closed_keeps_its_comment() {
+    let before = "tag_permits:\n  namespaces:\n    # Where.\n    area:\n      - cli  # c\n    queue: open  # q\n    sig: [a, b]  # s\n";
+    let after = edit(
+        before,
+        &of(
+            vec![
+                open(&["area"]).remove(0),
+                closed("queue", &["nightly", "weekly"]),
+                open(&["sig"]).remove(0),
+            ],
+            &[],
+        ),
+    );
+    assert_eq!(
+        after,
+        "tag_permits:\n  namespaces:\n    # Where.\n    area: open\n    queue: [nightly, weekly]  # q\n    sig: open  # s\n"
+    );
+}
+
+// A quoted `open` has no spelling yaml-rt-core can lend, so the value is
+// replaced whole: the edit still reads back as meant.
+#[test]
+fn test_a_quoted_open_is_replaced_whole() {
+    let after = edit(
+        "tag_permits:\n  namespaces:\n    area: 'open'\n",
+        &of(vec![closed("area", &["cli"])], &[]),
+    );
+    assert_eq!(after, "tag_permits:\n  namespaces:\n    area: [cli]\n");
+}
+
+// Permits permitting nothing are `{}`, the block's comments with it; the
+// rest of the file stays.
+#[test]
+fn test_permitting_nothing_is_an_empty_mapping() {
+    let after = edit(
+        "a: 1\ntag_permits:\n  # Ours.\n  tags:\n    - urgent\n\nb: 2\n",
+        &TagPermits::default(),
+    );
+    assert_eq!(after, "a: 1\ntag_permits: {}\n\nb: 2\n");
+}
+
+// A block with nothing under it is no permits: written whole, at the end.
+#[test]
+fn test_a_block_with_nothing_under_it_is_written_whole() {
+    let after = edit("tag_permits:\nhoming: home\n", &of(vec![], &["urgent"]));
+    assert_eq!(after, "homing: home\ntag_permits:\n  tags:\n    - urgent\n");
+}
+
+// A list or `namespaces` the block lacks is added: a list in flow style,
+// a namespaces of one open entry in flow style (a one-line block fragment
+// does not parse), of more in block style.
+#[test]
+fn test_what_the_block_lacks_is_added() {
+    let before = "tag_permits:\n  tags: [urgent]\n";
+    assert_eq!(
+        edit(before, &of(open(&["relates"]), &["urgent"])),
+        "tag_permits:\n  tags: [urgent]\n  namespaces: {relates: open}\n"
+    );
+    assert_eq!(
+        edit(
+            before,
+            &of(vec![closed("area", &["cli", "mcp"])], &["urgent"])
+        ),
+        "tag_permits:\n  tags: [urgent]\n  namespaces:\n    area:\n      - cli\n      - mcp\n"
+    );
+    let before = "tag_permits:\n  namespaces:\n    relates: open\n";
+    assert_eq!(
+        edit(before, &of(open(&["relates"]), &["blocked", "urgent"])),
+        "tag_permits:\n  namespaces:\n    relates: open\n  tags: [blocked, urgent]\n"
+    );
+    assert_eq!(edit(before, &of(vec![], &[])), "tag_permits: {}\n");
+}
+
+// A file of comments alone, or ending without a line break, is followed
+// by the block whole.
+#[test]
+fn test_a_file_of_comments_is_followed_by_the_block() {
+    let permits = of(open(&["relates"]), &[]);
+    assert_eq!(
+        edit("# mine", &permits),
+        "# mine\ntag_permits:\n  namespaces:\n    relates: open\n"
+    );
+    assert_eq!(edit("", &TagPermits::default()), "tag_permits: {}\n");
+}
+
+// Names are keys in a JSON Pointer, escaped as one: a `/` or `~` in a
+// namespace still names it.
+#[test]
+fn test_a_namespace_named_with_a_pointers_escapes_is_edited() {
+    let before = "tag_permits:\n  namespaces:\n    a/b: [x]\n    c~d: open\n";
+    let after = edit(before, &of(vec![closed("a/b", &["x", "z"])], &[]));
+    assert_eq!(after, "tag_permits:\n  namespaces:\n    a/b: [x, z]\n");
+}
+
+// Already as meant: the source back, unedited.
+#[test]
+fn test_permits_already_as_meant_give_the_source_back() {
+    let before = "tag_permits:   # ours\n  tags: [urgent]\n";
+    assert_eq!(edit(before, &of(vec![], &["urgent"])), before);
+}
+
+// A namespace the permits do not change is not touched, however it is
+// spelled.
+#[test]
+fn test_a_namespace_left_as_it_was_keeps_its_spelling() {
+    let before = "tag_permits:\n  namespaces:\n    area: 'open'\n    sig: [x]\n";
+    let after = edit(
+        before,
+        &of(
+            vec![open(&["area"]).remove(0), closed("sig", &["x", "z"])],
+            &[],
+        ),
+    );
+    assert_eq!(
+        after,
+        "tag_permits:\n  namespaces:\n    area: 'open'\n    sig: [x, z]\n"
+    );
+}

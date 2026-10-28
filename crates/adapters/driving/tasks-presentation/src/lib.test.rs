@@ -4,11 +4,14 @@ use std::path::PathBuf;
 
 use presentation::write_json;
 use serde_json::json;
-use tasks_application::{Project, Reach, Row, Summary, TagCount, Task, Timestamp};
+use tasks_application::{
+    NamespacePermit, PermitList, Project, Reach, Row, Summary, TagCount, TagPermits, Task,
+    Timestamp,
+};
 
 use super::{
-    headline, project_dir, project_label, rfc3339, spelled, CompactJson, RowJson, SummaryJson,
-    TagCountJson, TaskJson,
+    headline, project_dir, project_label, rfc3339, spelled, CompactJson, PermitsJson, RowJson,
+    SummaryJson, TagCountJson, TaskJson,
 };
 
 fn task(harp: &str, status: &str) -> Task {
@@ -213,5 +216,47 @@ fn test_a_tag_in_use_is_spelled_canonically_with_its_counts() {
     assert_eq!(
         value(&TagCountJson::of(&count)),
         json!({"tag": "triage:kind=defect", "active": 1, "total": 3})
+    );
+}
+
+// What a project permits, as a program reads it: each namespace in order,
+// open with no keys or closed to its sorted keys; the flat tags; the
+// schema's targets. A project declaring none says so, its targets still
+// listed.
+#[test]
+fn test_the_permits_are_each_namespace_open_or_closed_the_flat_tags_and_the_targets() {
+    let declared = PermitList {
+        permits: Some(TagPermits {
+            namespaces: [
+                (
+                    "area".to_string(),
+                    NamespacePermit::Closed(["mcp", "cli"].map(String::from).into()),
+                ),
+                ("relates".to_string(), NamespacePermit::Open),
+            ]
+            .into(),
+            flat: ["urgent".to_string(), "blocked".to_string()].into(),
+        }),
+        schema_targets: vec!["triage:kind".to_string()],
+    };
+    assert_eq!(
+        serde_json::to_value(PermitsJson::of(&declared)).unwrap(),
+        json!({
+            "declared": true,
+            "namespaces": [
+                {"namespace": "area", "open": false, "keys": ["cli", "mcp"]},
+                {"namespace": "relates", "open": true, "keys": []},
+            ],
+            "tags": ["blocked", "urgent"],
+            "schema_targets": ["triage:kind"],
+        })
+    );
+    let undeclared = PermitList {
+        permits: None,
+        schema_targets: vec!["triage:kind".to_string()],
+    };
+    assert_eq!(
+        serde_json::to_value(PermitsJson::of(&undeclared)).unwrap(),
+        json!({"declared": false, "namespaces": [], "tags": [], "schema_targets": ["triage:kind"]})
     );
 }

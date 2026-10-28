@@ -2,8 +2,9 @@
 //! `(namespace:)key(=value)`, parsed into [`Tag`]s at the edge of every
 //! write, and admitted only if they could be queried and the project's
 //! schema allows them: a write is refused at the first that is not, with
-//! the reason. Only what a write adds is checked; a tag already held, or
-//! one being removed, never is.
+//! the reason, and, where the project declares tag permits, only if they
+//! permit it ([`permitted`]). Only what a write adds is checked; a tag
+//! already held, or one being removed, never is.
 //!
 //! One write gives a scalar target one value at most ([`check_scalars`]),
 //! and the value it gives displaces the one held before the retag is sent
@@ -13,6 +14,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use annals_diagnostic::{Arg, Diagnostic};
+use ports::{NamespacePermit, TagPermits};
 
 pub use tasks::Tag;
 
@@ -326,6 +328,39 @@ pub fn admit(tag: &Tag, schema: &TagSchema) -> Result<(), TagRefusal> {
         }
     }
     Ok(())
+}
+
+/// Whether the project's tag `permits` permit `tag`: always where it
+/// declares none (`None`); else when `schema` declares its target (any
+/// facet), its namespace is permitted open, its key is among its closed
+/// namespace's keys, or, with no namespace, it is a permitted flat tag. A
+/// permit is of a target, never a value. Refused naming the target, the
+/// narrowest permit that admits it.
+pub fn permitted(
+    tag: &Tag,
+    permits: Option<&TagPermits>,
+    schema: &TagSchema,
+) -> Result<(), TagRefusal> {
+    let Some(permits) = permits else {
+        return Ok(());
+    };
+    let target = tag.target();
+    let admitted = schema.declares(&target)
+        || match &tag.namespace {
+            None => permits.flat.contains(&tag.key),
+            Some(namespace) => match permits.namespaces.get(namespace) {
+                Some(NamespacePermit::Open) => true,
+                Some(NamespacePermit::Closed(keys)) => keys.contains(&tag.key),
+                None => false,
+            },
+        };
+    if admitted {
+        return Ok(());
+    }
+    Err(TagRefusal::NotPermitted {
+        tag: tag.to_string(),
+        permit: target,
+    })
 }
 
 /// Every tag `spelled` names, parsed and admitted under `schema`, in its

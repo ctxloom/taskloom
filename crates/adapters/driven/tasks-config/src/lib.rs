@@ -1,5 +1,5 @@
-//! Taskloom's configuration, layered, as far as the tag schema needs it.
-//! Each layer beats the one before:
+//! Taskloom's configuration, layered, as far as the tag schema and the
+//! tag permits need it. Each layer beats the one before:
 //!
 //! 1. `~/.taskloom/config.yaml`;
 //! 2. `<root>/.taskloom/config.yaml`, the work root's;
@@ -13,15 +13,21 @@
 //! not split, so an enum declaration's members (`tagma.enum:"k:x"="a,b"`)
 //! stay one declaration. A blank item (`a,,b`, a trailing comma, or `''`
 //! in a file's list) is refused, never dropped; an empty value is an empty
-//! list. A missing file
-//! is no layer; a file that cannot be read, is not YAML, names a key taskloom does not know or is a newer
-//! `schema_version` is refused, as is an environment variable or override
-//! naming no key. Files are read through the [`Fs`] it is given. `homing` (repo homing is dropped) and `schema_version`
-//! are known and ignored. Nothing is written: there is no older version to
-//! upgrade from.
+//! list. A missing file is no layer; a file that cannot be read, is not
+//! YAML, names a key taskloom does not know or is a newer `schema_version`
+//! is refused, as is an environment variable or override naming no key.
+//! Files are read through the [`Fs`] it is given. `homing` (repo homing is
+//! dropped) and `schema_version` are known and ignored.
+//!
+//! `tag_permits` is not layered: it is read from the work root's file
+//! alone, refused in the home's, and no variable or override sets it. It
+//! is the one key written ([`ConfigurationWriter`]), in place, by the
+//! fewest edits to the file as the person wrote it (the `edit` module).
+//! Nothing else is written: there is no older version to upgrade from.
 
 mod edit;
 mod error;
+mod permits;
 
 use std::ffi::OsString;
 use std::fmt;
@@ -30,7 +36,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use annals_diagnostic::Report;
-use file_system::Fs;
+use file_system::{Fs, Perms};
+use os::Mode;
 use ports::{Configuration, ConfigurationWriter, TagPermits};
 use serde::Deserialize;
 
@@ -55,10 +62,8 @@ struct File {
     #[allow(dead_code)]
     homing: Option<String>,
     tag_schema: Option<Vec<String>>,
-    /// RED stub: read and ignored. The proposed shape is
-    /// [`ports::TagPermits`] as the tests write it.
-    #[allow(dead_code)]
-    tag_permits: Option<serde_norway::Value>,
+    /// Read from the work root's file alone ([`permits`]).
+    tag_permits: Option<permits::Raw>,
 }
 
 /// Taskloom's configuration over a filesystem and the environment.
@@ -169,34 +174,99 @@ impl Configuration for TaskloomConfig {
         self.resolve().map_err(|e| Report::of(&e))
     }
 
-    // RED stub: the work root's tag_permits are never read.
     fn tag_permits(&mut self) -> Result<Option<TagPermits>, Report> {
-        Ok(None)
+        self.permits().map_err(|e| Report::of(&e))
     }
 }
 
 impl ConfigurationWriter for TaskloomConfig {
-    // RED stub: nothing is written.
-    fn write_tag_permits(&mut self, _permits: &TagPermits) -> Result<(), Report> {
-        Ok(())
+    fn write_tag_permits(&mut self, permits: &TagPermits) -> Result<(), Report> {
+        self.write_permits(permits).map_err(|e| Report::of(&e))
+    }
+}
+
+impl TaskloomConfig {
+    /// The work root, when there is one.
+    fn work_root(&self) -> Option<PathBuf> {
+        (self.root.0)().filter(|dir| !dir.as_os_str().is_empty())
+    }
+
+    /// The work root's `tag_permits`: refused in the home's config (a
+    /// project's vocabulary is its own), which is never merged or ignored.
+    fn permits(&self) -> Result<Option<TagPermits>, ConfigError> {
+        let root = self.work_root().map(|dir| dir.join(DIR).join(FILE));
+        let home = self.home.as_ref().filter(|dir| !dir.as_os_str().is_empty());
+        if let Some(home) = home.map(|dir| dir.join(DIR).join(FILE)) {
+            if Some(&home) != root.as_ref() && read(&*self.fs, &home)?.tag_permits.is_some() {
+                return Err(ConfigError::PermitsOutsideProject {
+                    path: home.display().to_string(),
+                });
+            }
+        }
+        let Some(root) = root else {
+            return Ok(None);
+        };
+        let shown = root.display().to_string();
+        read(&*self.fs, &root)?
+            .tag_permits
+            .map(|raw| raw.permits(&shown))
+            .transpose()
+    }
+
+    /// `permits` written to the work root's config file by the fewest
+    /// edits ([`edit::edited`]), the file and its directory made when
+    /// there is none; nothing written when it already permits exactly
+    /// them.
+    fn write_permits(&self, permits: &TagPermits) -> Result<(), ConfigError> {
+        let dir = self.work_root().ok_or(ConfigError::NoWorkRoot)?.join(DIR);
+        let path = dir.join(FILE);
+        let shown = path.display().to_string();
+        let source = text_of(&*self.fs, &path)?.unwrap_or_default();
+        // The file must read as taskloom's before it is edited.
+        parsed(&path, &source)?;
+        let edited = edit::edited(&shown, &source, permits)?;
+        if edited == source {
+            return Ok(());
+        }
+        let unwritable = |e: std::io::Error| ConfigError::Unwritable {
+            path: shown.clone(),
+            detail: e.to_string(),
+        };
+        self.fs
+            .create_dir_all(&dir, Mode::DIR)
+            .map_err(unwritable)?;
+        self.fs
+            .write_atomic(&path, edited.as_bytes(), Perms::KeepOr(Mode::FILE))
+            .map_err(unwritable)
     }
 }
 
 /// The config file at `path` on `fs`; no keys when there is none.
 fn read(fs: &dyn Fs, path: &Path) -> Result<File, ConfigError> {
+    match text_of(fs, path)? {
+        Some(text) => parsed(path, &text),
+        None => Ok(File::default()),
+    }
+}
+
+/// The text of the config file at `path` on `fs`; `None` when there is
+/// none.
+fn text_of(fs: &dyn Fs, path: &Path) -> Result<Option<String>, ConfigError> {
+    match fs.read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(ConfigError::Unreadable {
+            path: path.display().to_string(),
+            detail: e.to_string(),
+        }),
+    }
+}
+
+/// `text`, the config file at `path`, as taskloom reads it.
+fn parsed(path: &Path, text: &str) -> Result<File, ConfigError> {
     let shown = || path.display().to_string();
-    let text = match fs.read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(File::default()),
-        Err(e) => {
-            return Err(ConfigError::Unreadable {
-                path: shown(),
-                detail: e.to_string(),
-            })
-        }
-    };
     // An empty file, or one of comments, is a document of nothing.
-    let file: Option<File> = serde_norway::from_str(&text).map_err(|e| ConfigError::Malformed {
+    let file: Option<File> = serde_norway::from_str(text).map_err(|e| ConfigError::Malformed {
         path: shown(),
         detail: e.to_string(),
     })?;
@@ -217,6 +287,11 @@ fn read(fs: &dyn Fs, path: &Path) -> Result<File, ConfigError> {
             value: "tag_schema".to_string(),
         });
     }
+    // Refused here, whichever file it is in, as the schema's list is: a
+    // config file is taskloom's whole or not at all.
+    if let Some(raw) = &file.tag_permits {
+        raw.clone().permits(&shown())?;
+    }
     Ok(file)
 }
 
@@ -226,6 +301,10 @@ fn set(source: &str, key: &str, value: &str) -> Result<Option<Vec<String>>, Conf
     match key {
         "tag_schema" => split(source, value).map(Some),
         "homing" | "schema_version" => Ok(None),
+        "tag_permits" => Err(ConfigError::FileOnly {
+            source: source.to_string(),
+            key: key.to_string(),
+        }),
         _ => Err(ConfigError::UnknownKey {
             source: source.to_string(),
             key: key.to_string(),

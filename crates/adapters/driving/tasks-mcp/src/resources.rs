@@ -1,6 +1,6 @@
 //! The resources: the tag schema a write is held to, the tags in use, and
-//! the tags the project permits, each read fresh through the use cases, its JSON indented two spaces a
-//! level with `<`, `>` and `&` escaped.
+//! the tags the project permits, each read fresh through the use cases,
+//! its JSON indented two spaces a level with `<`, `>` and `&` escaped.
 
 use std::collections::BTreeMap;
 use std::io;
@@ -24,8 +24,6 @@ pub const TAG_VOCABULARY: &str = "taskloom://tag-vocabulary";
 /// "in use" and "permitted" would read alike to an agent, though a tag in
 /// use may not be permitted (stored before the permits, and lint says
 /// so), and Go's document would no longer be Go's.
-// RED: neither offered nor read yet.
-#[allow(dead_code)]
 pub const TAG_PERMITS: &str = "taskloom://tag-permits";
 
 /// The MIME type every resource is read as.
@@ -154,8 +152,6 @@ pub fn vocabulary_text(vocabulary: &Vocabulary, catalog: &Catalog) -> String {
 
 /// `list` as the tag-permits resource reads: tasks-presentation's
 /// [`PermitsJson`], the document `taskloom permits --format json` prints.
-// RED: read() does not serve it yet.
-#[allow(dead_code)]
 pub fn permits_text(list: &PermitList) -> String {
     go_indented(&PermitsJson::of(list))
 }

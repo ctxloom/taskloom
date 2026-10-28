@@ -10,5 +10,11 @@
     "mimeType": "application/json",
     "name": "tag-vocabulary",
     "uri": "taskloom://tag-vocabulary"
+  },
+  {
+    "description": "What the project's tag permits permit (its .taskloom/config.yaml's tag_permits; the MCP twin of `taskloom permits`): each permitted namespace, open (any key) or closed to its keys, the permitted flat tags, and schema_targets, the targets the tag schema declares, which are permitted without a permit. \"declared\": false means the project declares no permits, and every tag the schema admits is permitted. Where it declares them, a write adding a tag they do not permit is refused: choose a permitted tag, or propose the one you need to the user, who permits it with `taskloom permit`. No tool permits or revokes a tag.",
+    "mimeType": "application/json",
+    "name": "tag-permits",
+    "uri": "taskloom://tag-permits"
   }
 ]

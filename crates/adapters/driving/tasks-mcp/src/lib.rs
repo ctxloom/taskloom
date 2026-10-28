@@ -1,13 +1,15 @@
 //! The tasks MCP server: `taskloom mcp`, the tools `task_list`,
 //! `task_add`, `task_set_status`, `task_edit` and `task_tag` and the
-//! resources `taskloom://tag-schema` and `taskloom://tag-vocabulary` over
-//! stdio, each call translated into the application's use cases and its
-//! answer given in taskloom's shapes. The server's instructions and
-//! capabilities, each tool's description and input and output schema,
-//! and each resource's description, are the reference fixtures', copied
-//! verbatim but for the human's reviewed factual changes to the
-//! instructions and the tool descriptions (`fixtures/reviewed.rs`); parity
-//! tests hold them to the fixtures with those applied.
+//! resources `taskloom://tag-schema`, `taskloom://tag-vocabulary` and
+//! `taskloom://tag-permits` over stdio, each call translated into the
+//! application's use cases and its answer given in taskloom's shapes. The
+//! server's instructions and capabilities, each tool's description and
+//! input and output schema, and each resource's description, are the
+//! reference fixtures', copied verbatim but for the human's reviewed
+//! factual changes to the instructions, the tool descriptions, the
+//! resources (the tag-permits resource is Rust's alone) and the default
+//! tag schema (`fixtures/reviewed.rs`); parity tests hold them to the
+//! fixtures with those applied. No tool permits or revokes a tag.
 //!
 //! A call is served by a [`TaskService`] of its own, made for it by the
 //! composition root, on a blocking thread: two calls share nothing in the
@@ -272,6 +274,13 @@ where
                     .await?
                     .map_err(McpError::App)?;
                 Ok(resources::vocabulary_text(&vocabulary, &self.catalog))
+            }
+            resources::TAG_PERMITS => {
+                let list = self
+                    .on_its_own(|mut service| async move { service.permits().await })
+                    .await?
+                    .map_err(McpError::App)?;
+                Ok(resources::permits_text(&list))
             }
             other => Err(McpError::UnknownResource {
                 uri: other.to_string(),

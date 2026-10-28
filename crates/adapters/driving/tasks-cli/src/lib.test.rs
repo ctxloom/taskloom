@@ -2364,3 +2364,26 @@ fn test_permits_in_json_is_the_resources_document() {
     assert_eq!(json["declared"], false);
     assert_eq!(json["namespaces"], serde_json::json!([]));
 }
+
+// A namespace closed to no key (a person's `area: []`) permits none of
+// its keys, and the listing says so rather than leave the column blank.
+#[test]
+fn test_permits_says_a_namespace_closed_to_no_key_permits_none() {
+    let mut fake = Fake {
+        permit_list: listed(Some(TagPermits {
+            namespaces: [(
+                "area".to_string(),
+                NamespacePermit::Closed(Default::default()),
+            )]
+            .into(),
+            flat: Default::default(),
+        })),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["permits"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(
+        ran.out,
+        "Namespaces:\n  area:  (no key)\nFlat tags: (none)\nPermitted by the tag schema: triage:kind, triage:level\n"
+    );
+}

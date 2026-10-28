@@ -7,7 +7,12 @@
 //! It checks, for every task whatever its status: a value outside its
 //! target's declared enum; a value on a range-declared target that is not
 //! a finite number, or lies outside the range; a scalar target holding
-//! more than one value. And, against the schema itself, a value-qualified
+//! more than one value. For every task still in play (open or Deferred;
+//! a closed row's tags are its history): a tag the project's tag permits
+//! do not permit (stored before they did, or imported), where it declares
+//! them; and more than one permitted key of `area:` or `repo:`
+//! ([`ONE_KEY`]), in every project, which no write refuses (arity binds only a target's
+//! values, never a namespace's keys). And, against the schema itself, a value-qualified
 //! placeholder in a `priority_fn` or `decay_fn` (`{{triage:kind=foo}}`)
 //! naming a value its target's enum does not declare. A stored tag that
 //! does not parse is not checked for: every stored tag is a parsed one, so
@@ -18,13 +23,20 @@ use std::fmt;
 
 use annals_diagnostic::{Arg, Diagnostic};
 
+use ports::TagPermits;
+
 use crate::schema::{self, TagSchema};
-use crate::view::Row;
+use crate::tags::{self, TagRefusal};
+use crate::view::{is_terminal, Row};
 use task_priority::placeholders;
 
 /// The subject of a violation in the schema rather than in a task, sorting
 /// before every harp id.
 pub const SCHEMA_SUBJECT: &str = "(schema)";
+
+/// The namespaces a task takes one key of: where in the code it is, and
+/// which repository.
+pub const ONE_KEY: [&str; 2] = ["area", "repo"];
 
 /// What a violation is.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -211,7 +223,11 @@ pub struct LintReport {
 
 /// The violations among `rows` and in `schema`, sorted by project, subject
 /// and English, each once; and how many targets were checked.
-pub(crate) fn lint(rows: &[Row], schema: &TagSchema) -> (Vec<Violation>, usize) {
+pub(crate) fn lint(
+    rows: &[Row],
+    schema: &TagSchema,
+    permits: Option<&TagPermits>,
+) -> (Vec<Violation>, usize) {
     let enums: BTreeMap<&str, &[String]> = schema.enums().collect();
     let ranges: BTreeMap<&str, schema::Range> = schema.ranges().collect();
     let checked: BTreeSet<&str> = enums.keys().chain(ranges.keys()).copied().collect();
@@ -225,10 +241,13 @@ pub(crate) fn lint(rows: &[Row], schema: &TagSchema) -> (Vec<Violation>, usize) 
         .collect();
     for row in rows {
         let values = by_target(&row.task.tags);
-        let findings = value_findings(&enums, &ranges, &values)
-            .into_iter()
-            .chain(scalar_findings(schema, &values));
-        found.extend(findings.map(|finding| Violation {
+        let mut findings = value_findings(&enums, &ranges, &values);
+        findings.extend(scalar_findings(schema, &values));
+        if !is_terminal(&row.task.status) {
+            findings.extend(permit_findings(&row.task.tags, permits, schema));
+            findings.extend(many_key_findings(&row.task.tags, permits, schema));
+        }
+        found.extend(findings.into_iter().map(|finding| Violation {
             project: Some(row.project.id.clone()),
             harp_id: row.task.harp_id.clone(),
             finding,
@@ -303,6 +322,53 @@ fn scalar_findings(schema: &TagSchema, values: &BTreeMap<String, Vec<String>>) -
         .map(|(target, held)| Finding::Scalar {
             target: target.clone(),
             values: held.clone(),
+        })
+        .collect()
+}
+
+/// The tags `permits` do not permit, each as [`tags::permitted`] refuses
+/// it on write; none where the project declares no permits.
+fn permit_findings(
+    held: &[crate::Tag],
+    permits: Option<&TagPermits>,
+    schema: &TagSchema,
+) -> Vec<Finding> {
+    held.iter()
+        .filter_map(|tag| match tags::permitted(tag, permits, schema) {
+            Err(TagRefusal::NotPermitted { tag, permit }) => {
+                Some(Finding::NotPermitted { tag, permit })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Each namespace a task takes one key of ([`ONE_KEY`]) carrying more
+/// than one: its distinct keys, in the order its tags hold them. A key
+/// the permits do not permit is not counted: it is reported as that
+/// ([`permit_findings`]), and retagging it is what settles it.
+fn many_key_findings(
+    held: &[crate::Tag],
+    permits: Option<&TagPermits>,
+    schema: &TagSchema,
+) -> Vec<Finding> {
+    ONE_KEY
+        .iter()
+        .filter_map(|namespace| {
+            let mut keys: Vec<String> = Vec::new();
+            let under = held.iter().filter(|tag| {
+                tag.namespace.as_deref() == Some(*namespace)
+                    && tags::permitted(tag, permits, schema).is_ok()
+            });
+            for tag in under {
+                if !keys.contains(&tag.key) {
+                    keys.push(tag.key.clone());
+                }
+            }
+            (keys.len() > 1).then(|| Finding::ManyKeys {
+                namespace: namespace.to_string(),
+                keys,
+            })
         })
         .collect()
 }

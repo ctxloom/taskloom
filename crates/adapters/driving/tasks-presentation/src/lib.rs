@@ -6,7 +6,9 @@
 use std::collections::BTreeMap;
 
 use serde::Serialize;
-use tasks_application::{PermitList, Project, Summary, Tag, TagCount, Task, Timestamp};
+use tasks_application::{
+    NamespacePermit, PermitList, Project, Summary, Tag, TagCount, Task, Timestamp,
+};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
@@ -214,10 +216,32 @@ pub struct NamespaceJson {
 }
 
 impl PermitsJson {
-    // RED stub: says nothing is declared and nothing permitted.
     pub fn of(list: &PermitList) -> PermitsJson {
-        let _ = list;
-        PermitsJson::default()
+        let schema_targets = list.schema_targets.clone();
+        let Some(permits) = &list.permits else {
+            return PermitsJson {
+                schema_targets,
+                ..PermitsJson::default()
+            };
+        };
+        let namespaces = permits
+            .namespaces
+            .iter()
+            .map(|(namespace, permit)| NamespaceJson {
+                namespace: namespace.clone(),
+                open: *permit == NamespacePermit::Open,
+                keys: match permit {
+                    NamespacePermit::Open => Vec::new(),
+                    NamespacePermit::Closed(keys) => keys.iter().cloned().collect(),
+                },
+            })
+            .collect();
+        PermitsJson {
+            declared: true,
+            namespaces,
+            tags: permits.flat.iter().cloned().collect(),
+            schema_targets,
+        }
     }
 }
 
