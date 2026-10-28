@@ -17,12 +17,13 @@ prost = "0.14"
 prost-types = "0.14"
 angzarr-proto = { version = "0.1", git = "https://github.com/angzarr-io/angzarr-project", rev = "672ed768aa1c8a8e05818c457c757cd406105e55" }
 
-# annals is pinned by full commit; bumps are deliberate commits.
-# angzarr-build is still a local checkout until angzarr-cli's main is
-# reconciled with its origin.
+# annals and angzarr-build (angzarr-cli's `rust-cli` branch) are pinned by
+# full commit, so a fresh clone builds with no sibling checkouts; bumps are
+# deliberate commits. To build against local checkouts while changing them
+# together, see "Co-developing annals, angzarr-cli or tagma" in CLAUDE.md.
 annals = { git = "https://github.com/benjaminabbitt/annals", rev = "ed00923e915c7fc9b832eba30d32115168ab7c35" }
 annals-diagnostic = { git = "https://github.com/benjaminabbitt/annals", rev = "ed00923e915c7fc9b832eba30d32115168ab7c35" }
-angzarr-build = { path = "../../angzarr/angzarr-cli/main/crates/angzarr-build" }
+angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "0277731bc9b5e46596633da9786fd5b5e6e993f2" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
 annals-store-sql = { git = "https://github.com/benjaminabbitt/annals", rev = "ed00923e915c7fc9b832eba30d32115168ab7c35", features = ["sqlite"] }
 tasks = { path = "crates/core/domain/tasks" }

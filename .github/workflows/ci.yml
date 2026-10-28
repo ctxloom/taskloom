@@ -4,9 +4,9 @@
 # build and test (decision 5: the platform crates' Windows implementors run,
 # not only compile).
 #
-# The checkout mirrors a developer's: taskloom at ctxloom/taskloom, so its
-# relative path to angzarr-build (Cargo.toml, ../../angzarr/angzarr-cli/main)
-# resolves inside the workspace. The gates are in the repository (gates/).
+# A plain checkout: every dependency outside this repository is a git
+# dependency pinned by commit (Cargo.toml). The gates are in the repository
+# (gates/).
 #
 # Every action is pinned to a commit, its release in the comment; every tool
 # to a version.
@@ -23,11 +23,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: never
-  # angzarr-cli at the commit that adds angzarr-build, which the root
-  # Cargo.toml reaches by path: checked out by SHA, which is on its rust-cli
-  # branch.
-  ANGZARR_CLI_REPOSITORY: angzarr-io/angzarr-cli
-  ANGZARR_CLI_REF: 0277731bc9b5e46596633da9786fd5b5e6e993f2
   TOOLS: just@1.40.0,cargo-nextest@0.9.146,cargo-deny@0.20.2
   PROTOC_VERSION: "21.12"
 
@@ -38,16 +33,8 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: ctxloom/taskloom
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: ctxloom/taskloom
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.ANGZARR_CLI_REPOSITORY }}
-          ref: ${{ env.ANGZARR_CLI_REF }}
-          path: angzarr/angzarr-cli/main
       - name: Toolchain (rust-toolchain.toml) and the Windows target
         run: |
           rustup show active-toolchain || rustup toolchain install
@@ -60,8 +47,6 @@ jobs:
         with:
           tool: ${{ env.TOOLS }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: ctxloom/taskloom -> target
       - run: just build
       - run: just fmt-check
       - run: just lint
@@ -79,16 +64,8 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: ctxloom/taskloom
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: ctxloom/taskloom
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.ANGZARR_CLI_REPOSITORY }}
-          ref: ${{ env.ANGZARR_CLI_REF }}
-          path: angzarr/angzarr-cli/main
       - name: Toolchain (rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
       - uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
@@ -99,8 +76,6 @@ jobs:
         with:
           tool: ${{ env.TOOLS }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: ctxloom/taskloom -> target
       - run: just build
       - run: just test
       - name: The gates' logs

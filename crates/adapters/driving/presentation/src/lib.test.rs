@@ -89,14 +89,20 @@ fn test_it_depends_on_no_crate_of_this_workspace_but_annals_diagnostic() {
     let workspace = include_str!("../../../../../Cargo.toml");
     let ours: Vec<&str> = workspace
         .lines()
-        // annals is pinned by git rather than path, but is still not
-        // presentation's to depend on (only annals-diagnostic is).
-        .filter(|line| line.contains("path = \"") || line.contains("/benjaminabbitt/annals\""))
+        // annals and angzarr-build are pinned by git rather than path, but
+        // are still not presentation's to depend on (only
+        // annals-diagnostic is).
+        .filter(|line| {
+            line.contains("path = \"")
+                || line.contains("/benjaminabbitt/annals\"")
+                || line.contains("/angzarr-io/angzarr-cli\"")
+        })
         .filter_map(|line| line.split([' ', '=']).next())
         .filter(|name| *name != "annals-diagnostic")
         .collect();
     assert!(ours.contains(&"tasks"), "the workspace's crates: {ours:?}");
     assert!(ours.contains(&"annals"), "{ours:?}");
+    assert!(ours.contains(&"angzarr-build"), "{ours:?}");
     let mine = dependencies(include_str!("../Cargo.toml"));
     assert!(mine.contains(&"annals-diagnostic"), "{mine:?}");
     let domain: Vec<&&str> = mine.iter().filter(|name| ours.contains(name)).collect();

@@ -586,9 +586,10 @@ order.
    gets its companions from the host PATH at image build, but only the
    Go JSONL log is mounted, never `projects/<id>/state.db`: such an agent
    writes tasks the host never sees until ctxloom mounts the database.
-10. **Git dependencies**: push annals (`feat/audit`), tagma (`kvtag`) and
-    angzarr-cli (angzarr-build), and depend on each by git, pinned by
-    commit, in place of the local paths; then ctxloom depends on this
+10. **Git dependencies**: annals, tagma and angzarr-build (angzarr-cli's
+    `rust-cli`) are git dependencies pinned by commit, so a fresh clone
+    builds alone (`.cargo/local-deps.toml` patches them onto sibling
+    checkouts for co-development). What remains: ctxloom depends on this
     repository's crates the same way. A build needs `protoc` on PATH
     (generated code is never committed).
 

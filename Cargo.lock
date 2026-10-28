@@ -50,6 +50,7 @@ dependencies = [
 [[package]]
 name = "angzarr-build"
 version = "0.1.0"
+source = "git+https://github.com/angzarr-io/angzarr-cli?rev=0277731bc9b5e46596633da9786fd5b5e6e993f2#0277731bc9b5e46596633da9786fd5b5e6e993f2"
 dependencies = [
  "angzarr-codegen",
  "angzarr-proto",
@@ -60,6 +61,7 @@ dependencies = [
 [[package]]
 name = "angzarr-codegen"
 version = "0.1.0"
+source = "git+https://github.com/angzarr-io/angzarr-cli?rev=0277731bc9b5e46596633da9786fd5b5e6e993f2#0277731bc9b5e46596633da9786fd5b5e6e993f2"
 dependencies = [
  "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=8a328c8d0fd70a0b43fbfb428250e946ebd273c4)",
  "prettyplease 0.3.0",
