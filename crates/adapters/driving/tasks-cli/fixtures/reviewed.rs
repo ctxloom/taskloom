@@ -50,6 +50,18 @@ pub const LOADOUT: &[(&str, &str)] = &[
         "`--format` also accepts yaml, toml, text, markdown).",
         "`--format` also accepts text).",
     ),
+    // 11. The fragment: tag permits, which only Rust has (the settled tag
+    // vocabulary, session inept-sixth-stick, 2026-10-27).
+    (
+        "        this paragraph is the reason.\n\n",
+        "        this paragraph is the reason.\n\n        \
+         Where the project declares tag permits (its `.taskloom/config.yaml`'s\n        \
+         `tag_permits`), a tag they do not permit is REFUSED on write. Read\n        \
+         `taskloom://tag-permits` before choosing one. A refused tag is a\n        \
+         question for the human: choose a permitted tag that says the same\n        \
+         thing, or propose the one you need and let them `taskloom permit` it.\n        \
+         No tool permits a tag. Never coin a near-twin that happens to pass.\n\n",
+    ),
 ];
 
 /// `go` with each pair applied, each `old` found exactly once.

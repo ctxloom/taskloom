@@ -317,6 +317,13 @@ run:
         "simplify" them away as detail; they are the deliberate exception, and
         this paragraph is the reason.
 
+        Where the project declares tag permits (its `.taskloom/config.yaml`'s
+        `tag_permits`), a tag they do not permit is REFUSED on write. Read
+        `taskloom://tag-permits` before choosing one. A refused tag is a
+        question for the human: choose a permitted tag that says the same
+        thing, or propose the one you need and let them `taskloom permit` it.
+        No tool permits a tag. Never coin a near-twin that happens to pass.
+
         Rate the level FROM THE CODE, never from the task's own prose: a task
         description outlives the code it describes, and tasks here have named
         functions deleted commits earlier.
