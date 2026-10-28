@@ -27,7 +27,7 @@ impl Home {
     }
 
     fn path(&self) -> PathBuf {
-        PathBuf::from("/home/u")
+        os::fixture("/home/u")
     }
 
     fn fs(&self) -> Arc<dyn Fs> {
@@ -268,7 +268,11 @@ fn test_a_bad_log_reports_its_path() {
     let (home, mut logs) = logs(&[("able-calm-fox.jsonl", "{")]);
     let error = logs.records("able-calm-fox").unwrap_err();
     assert_eq!(error.code(), "jsonl-task-log-malformed");
-    let path = home.path().join(".ctxloom/tasks/able-calm-fox.jsonl");
+    let path = home
+        .path()
+        .join(".ctxloom")
+        .join("tasks")
+        .join("able-calm-fox.jsonl");
     assert!(
         error
             .to_string()

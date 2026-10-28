@@ -7,7 +7,7 @@ use std::process::Command;
 
 use serde::Deserialize;
 
-use super::{binary, disk, Ran, Temp};
+use super::{binary, disk, Isolated, Ran, Temp};
 
 /// What ctxloom's boot probe and its lock reaper decode from `<bin>
 /// version --format json`. A field left out decodes as zero and one it
@@ -54,8 +54,7 @@ fn probe(home: &std::path::Path) -> Ran {
     let output = Command::new(binary())
         .args(["version", "--format", "json"])
         .current_dir(home)
-        .env_clear()
-        .env("HOME", home)
+        .isolated(home)
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())
         .output()
         .expect("taskloom runs");
@@ -72,11 +71,8 @@ fn test_the_version_probe_parses_as_go_ctxloom_parses_it() {
     assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
     assert_eq!(predates_the_recheck(&info), None, "{info:?}");
     assert_eq!(info.lock_protocol, GO_LOCK_PROTOCOL);
-    assert_eq!(
-        disk::read_dir(home.path()).unwrap().len(),
-        0,
-        "the probe writes nothing"
-    );
+    let written = disk::read_dir(home.path()).unwrap();
+    assert_eq!(written.len(), 0, "the probe writes nothing: {written:?}");
 }
 
 #[test]
@@ -100,8 +96,7 @@ fn test_the_loadout_probe_prints_gos_document_reviewed() {
     let output = Command::new(binary())
         .args(["loadout", "--format", "yaml"])
         .current_dir(home.path())
-        .env_clear()
-        .env("HOME", home.path())
+        .isolated(home.path())
         .output()
         .expect("taskloom runs");
     let ran = Ran::of(output);

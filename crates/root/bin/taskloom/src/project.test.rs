@@ -9,7 +9,7 @@ use ports::TaskStores;
 use serde_json::Value;
 use task_store_sqlite::SqliteStores;
 
-use super::{binary, disk, Ran, Temp};
+use super::{binary, disk, Isolated, Ran, Temp};
 
 #[path = "../../../../adapters/driven/task-store-sqlite/src/damage.test.rs"]
 mod damage;
@@ -40,8 +40,7 @@ impl World {
         let output = Command::new(binary())
             .args(args)
             .current_dir(cwd)
-            .env_clear()
-            .env("HOME", self.home.path())
+            .isolated(self.home.path())
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
             .output()
             .expect("taskloom runs");
@@ -77,7 +76,7 @@ impl World {
     }
 
     fn database(&self, id: &str) -> PathBuf {
-        self.home.path().join(".ctxloom/projects").join(id)
+        self.home.path().join(".ctxloom").join("projects").join(id)
     }
 }
 

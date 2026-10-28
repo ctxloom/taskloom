@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use super::{binary, disk, Env, Temp};
+use super::{binary, disk, Env, Isolated, Temp};
 
 /// The reference capabilities as initialize answers them, as
 /// `scripts/go-companion-fixtures.sh` extracted them. The instructions,
@@ -54,8 +54,7 @@ impl Server {
             .args(globals)
             .arg("mcp")
             .current_dir(dir)
-            .env_clear()
-            .env("HOME", env.home.path())
+            .isolated(env.home.path())
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
             .env("CTXLOOM_SESSION_HARP", env.session)
             .envs(vars.iter().copied())

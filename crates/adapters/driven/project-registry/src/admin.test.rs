@@ -48,7 +48,8 @@ fn test_a_survey_reads_the_markers_the_registry_and_the_databases() {
     world.mkdir(&world.tree().join(".ctxloom"));
     world.write(&world.tree().join(".ctxloom/project-id"), "go-id\n");
     world.register("mark-id", &format!("{tree}/./"));
-    world.register("gone-id", "/no/such/tree");
+    let gone = text(&os::fixture("/no/such/tree"));
+    world.register("gone-id", &gone);
     world.database("mark-id");
     world.database("b-orphan");
     world.write(&world.projects().join("not-a-dir"), "");
@@ -72,8 +73,8 @@ fn test_a_survey_reads_the_markers_the_registry_and_the_databases() {
                 },
                 Registered {
                     id: s("gone-id"),
-                    path: s("/no/such/tree"),
-                    canonical: s("/no/such/tree"),
+                    path: gone.clone(),
+                    canonical: gone,
                     exists: false,
                 },
             ],
@@ -134,6 +135,10 @@ fn test_a_survey_in_a_linked_worktree_is_rooted_at_its_primary_checkout() {
 
 #[test]
 fn test_a_survey_fails_on_a_projects_directory_it_cannot_list() {
+    // Made unlistable by its mode, which Windows does not have.
+    if os::host().flavor() != os::Flavor::Unix {
+        return;
+    }
     let world = World::new();
     world.mkdir(&world.projects());
     // Its files can be opened by name (there is no registry yet), but it

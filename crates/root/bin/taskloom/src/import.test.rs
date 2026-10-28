@@ -21,7 +21,7 @@ use tasks::{TaskState, Tasks};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use super::{binary, disk, Ran, Temp};
+use super::{binary, disk, Isolated, Ran, Temp};
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures")
@@ -47,8 +47,7 @@ fn import(home: &Path) -> (Ran, Value) {
     let output = Command::new(binary())
         .args(["import", "--json"])
         .current_dir(cwd.path())
-        .env_clear()
-        .env("HOME", home)
+        .isolated(home)
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())
         .output()
         .expect("taskloom runs");

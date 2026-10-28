@@ -65,6 +65,18 @@ fn entry(id: &str, path: &str, exists: bool) -> Registered {
     }
 }
 
+/// The fake's projects directory.
+const PROJECTS: &str = "/h/.ctxloom/projects";
+
+/// `rel` (`/`-separated) under [`PROJECTS`], displayed as the application
+/// joins it: by the host's separator (`\` on Windows).
+fn database(rel: &str) -> String {
+    rel.split('/')
+        .fold(PathBuf::from(PROJECTS), |path, part| path.join(part))
+        .display()
+        .to_string()
+}
+
 /// /w marked `m` but registered as `a`; a stray database.
 fn projects() -> Projects<Fake, FakeCheck> {
     checked(Checked::Intact)
@@ -81,7 +93,7 @@ fn checked(found: Checked) -> Projects<Fake, FakeCheck> {
             legacy_marker: None,
             registry: vec![entry("a", "/w", true), entry("t", "/gone", false)],
             databases: vec!["stray".to_string(), "t".to_string()],
-            projects: PathBuf::from("/h/.ctxloom/projects"),
+            projects: PathBuf::from(PROJECTS),
         },
         pinned: Vec::new(),
         applied: Vec::new(),
@@ -196,13 +208,13 @@ fn test_show_as_json_is_one_document_with_every_part() {
             "marker": "m",
             "legacy_marker": null,
             "entries": [{"project_id": "a", "path": "/w", "exists": true}],
-            "database": "/h/.ctxloom/projects/m/state.db",
+            "database": database("m/state.db"),
             "shared_with": [],
             "problems": [
                 {"kind": "two-ids", "root": "/w", "project_ids": ["a", "m"]},
                 {"kind": "gone", "project_id": "t", "path": "/gone"},
-                {"kind": "orphan", "project_id": "stray", "database": "/h/.ctxloom/projects/stray"},
-                {"kind": "orphan", "project_id": "t", "database": "/h/.ctxloom/projects/t"},
+                {"kind": "orphan", "project_id": "stray", "database": database("stray")},
+                {"kind": "orphan", "project_id": "t", "database": database("t")},
             ],
         })
     );
@@ -233,8 +245,8 @@ fn test_show_as_json_lists_the_other_trees_sharing_the_project() {
         shown["problems"],
         json!([
             {"kind": "gone", "project_id": "m", "path": "/gone"},
-            {"kind": "orphan", "project_id": "stray", "database": "/h/.ctxloom/projects/stray"},
-            {"kind": "orphan", "project_id": "t", "database": "/h/.ctxloom/projects/t"},
+            {"kind": "orphan", "project_id": "stray", "database": database("stray")},
+            {"kind": "orphan", "project_id": "t", "database": database("t")},
         ]),
         "sharing is no problem"
     );
@@ -251,7 +263,7 @@ fn test_show_as_text() {
             "Root:     /w",
             "Marker:   m",
             "Registry: a\t/w",
-            "Database: /h/.ctxloom/projects/m/state.db",
+            format!("Database: {}", database("m/state.db")).as_str(),
         ]
     );
     assert!(ran
@@ -293,7 +305,7 @@ fn test_heal_reports_damage_from_the_catalog_in_one_document_or_a_line() {
         json!([{
             "kind": "damaged",
             "project_id": "m",
-            "database": "/h/.ctxloom/projects/m/state.db",
+            "database": database("m/state.db"),
             "damage": {
                 "code": "fake-store-damaged",
                 "args": {"first": "row 2 missing from index i", "more": 1},
@@ -304,11 +316,12 @@ fn test_heal_reports_damage_from_the_catalog_in_one_document_or_a_line() {
     let found = ran(&["project", "heal"], false, &mut projects);
     assert_eq!(found.code, 0);
     assert!(
-        found.out.ends_with(
-            "Not resolved:\n  - /h/.ctxloom/projects/m/state.db, the database of m: \
+        found.out.ends_with(&format!(
+            "Not resolved:\n  - {}, the database of m: \
              from the catalog: row 2 missing from index i (+1); \
-             heal reports damage and does not repair it\n"
-        ),
+             heal reports damage and does not repair it\n",
+            database("m/state.db")
+        )),
         "{}",
         found.out
     );
@@ -356,14 +369,14 @@ fn test_orphans_are_listed_and_removed_by_name() {
     assert_eq!(
         document(&listed),
         json!([
-            {"project_id": "stray", "database": "/h/.ctxloom/projects/stray"},
-            {"project_id": "t", "database": "/h/.ctxloom/projects/t"},
+            {"project_id": "stray", "database": database("stray")},
+            {"project_id": "t", "database": database("t")},
         ])
     );
     let text = ran(&["project", "orphans"], false, &mut projects);
     assert_eq!(
         text.out,
-        "stray\t/h/.ctxloom/projects/stray\nt\t/h/.ctxloom/projects/t\n"
+        format!("stray\t{}\nt\t{}\n", database("stray"), database("t"))
     );
     let removed = ran(
         &["project", "orphans", "remove", "stray", "--yes"],

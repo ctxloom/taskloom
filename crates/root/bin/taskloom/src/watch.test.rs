@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use super::{binary, disk, one_document, Env};
+use super::{binary, disk, one_document, Env, Isolated};
 
 /// How long a line may take before the stream is judged not to answer.
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -34,8 +34,7 @@ impl Watching {
             .arg("watch")
             .args(args)
             .current_dir(env.project.path())
-            .env_clear()
-            .env("HOME", env.home.path())
+            .isolated(env.home.path())
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
             // As the VS Code extension spawns it: stdin is /dev/null, closed
             // from the start.
@@ -68,16 +67,27 @@ impl Watching {
     }
 
     /// Send `signal` and wait for the process to end; whatever it wrote
-    /// after the lines already read must be nothing.
-    pub(super) fn stop(mut self, signal: &str) -> ExitStatus {
+    /// after the lines already read must be nothing. Its status, on unix.
+    ///
+    /// Windows has no signal to send another process (its stop is a
+    /// console's Ctrl-C, which reaches only the processes sharing the
+    /// console): there the process is killed, its status says nothing of a
+    /// clean end, and `None` says so.
+    pub(super) fn stop(mut self, signal: &str) -> Option<ExitStatus> {
         let mut child = self.child.take().unwrap();
+        if os::host().flavor() != os::Flavor::Unix {
+            child.kill().expect("watch is killed");
+            let status = child.wait().expect("watch ends");
+            self.finish(status);
+            return None;
+        }
         let sent = Command::new("kill")
             .args([&format!("-{signal}"), &child.id().to_string()])
             .status()
             .expect("kill runs");
         assert!(sent.success(), "kill -{signal}");
         let status = child.wait().expect("watch ends");
-        self.finish(status)
+        Some(self.finish(status))
     }
 
     /// Whether the process is still running.
@@ -129,8 +139,9 @@ fn test_watch_writes_a_line_at_once_and_one_for_a_task_another_process_adds() {
     assert!(added.ok, "{}", added.stderr);
     assert_eq!(one_document(&watching.line()), event(&project));
 
-    let status = watching.stop("INT");
-    assert!(status.success(), "SIGINT is a clean end: {status}");
+    if let Some(status) = watching.stop("INT") {
+        assert!(status.success(), "SIGINT is a clean end: {status}");
+    }
 }
 
 #[test]
@@ -145,8 +156,9 @@ fn test_watch_ends_cleanly_at_sigterm_and_watches_a_pinned_project() {
     let elsewhere = Env::new("watch-term-elsewhere");
     let watching = Watching::start(&elsewhere, &["--project", &project, "--json"]);
     assert_eq!(one_document(&watching.line()), event(&project));
-    let status = watching.stop("TERM");
-    assert!(status.success(), "SIGTERM is a clean end: {status}");
+    if let Some(status) = watching.stop("TERM") {
+        assert!(status.success(), "SIGTERM is a clean end: {status}");
+    }
 }
 
 #[test]
@@ -185,8 +197,9 @@ fn test_watch_with_stdin_from_dev_null_stays_up_and_answers_each_change() {
     assert_eq!(one_document(&watching.line())["event"], "changed");
     assert!(watching.alive(), "a closed stdin does not end the watch");
 
-    let status = watching.stop("TERM");
-    assert!(status.success(), "SIGTERM is a clean end: {status}");
+    if let Some(status) = watching.stop("TERM") {
+        assert!(status.success(), "SIGTERM is a clean end: {status}");
+    }
 }
 
 // ------------------------------------------------- in process, tick by tick

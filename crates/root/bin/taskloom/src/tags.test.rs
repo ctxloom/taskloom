@@ -83,8 +83,14 @@ fn test_a_malformed_configuration_refuses_the_command_and_says_where() {
     configure(env.project.path(), "homeing: home\n");
     let ran = env.run(&["add", "Ship it"]);
     assert!(!ran.ok);
+    // The envelope's message (stderr is JSON, a `\` in it escaped) names
+    // the file, joined by the host's separator.
+    let envelope: serde_json::Value = serde_json::from_str(&ran.stderr).expect("an envelope");
+    let file = Path::new(".taskloom").join("config.yaml");
     assert!(
-        ran.stderr.contains(".taskloom/config.yaml"),
+        envelope["message"]
+            .as_str()
+            .is_some_and(|message| message.contains(&file.display().to_string())),
         "{}",
         ran.stderr
     );

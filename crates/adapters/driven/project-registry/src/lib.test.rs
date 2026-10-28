@@ -55,11 +55,12 @@ pub(crate) struct World {
 }
 
 impl World {
-    /// A world on a filesystem of its own: `/home/u` and `/tree`.
+    /// A world on a filesystem of its own: `/home/u` and `/tree` (from
+    /// the host's top: `C:\home\u` and `C:\tree` on Windows).
     pub(crate) fn new() -> World {
-        let rooted = Rooted::temp_with_cwd(&Path::new("/").join("tree")).unwrap();
+        let rooted = Rooted::temp_with_cwd(&os::fixture("/tree")).unwrap();
         let top = rooted.root().to_path_buf();
-        World::made(Arc::new(rooted), Path::new("/"), top, false, None)
+        World::made(Arc::new(rooted), &os::fixture("/"), top, false, None)
     }
 
     /// A world on the real filesystem, under a temporary directory: for
@@ -199,9 +200,12 @@ pub(crate) fn text(path: &Path) -> String {
 fn test_the_work_root_is_ctxloom_root_when_set() {
     let world = World::new();
     let mut env = world.env();
-    env.root = Some(PathBuf::from("/somewhere/else"));
+    env.root = Some(os::fixture("/somewhere/else"));
     let registry = ProjectRegistry::new(world.fs(), env, names(&[]));
-    assert_eq!(registry.work_root().unwrap(), Path::new("/somewhere/else"));
+    assert_eq!(
+        registry.work_root().unwrap(),
+        os::fixture("/somewhere/else")
+    );
 }
 
 #[test]
@@ -253,9 +257,9 @@ fn test_the_work_root_is_canonical_symlinks_resolved_and_slashes_cleaned() {
 fn test_a_work_root_that_does_not_resolve_is_cleaned_lexically() {
     let world = World::new();
     let mut env = world.env();
-    env.root = Some(PathBuf::from("/no/such/./tree/../root/"));
+    env.root = Some(os::fixture("/no/such/./tree/../root/"));
     let registry = ProjectRegistry::new(world.fs(), env, names(&[]));
-    assert_eq!(registry.work_root().unwrap(), Path::new("/no/such/root"));
+    assert_eq!(registry.work_root().unwrap(), os::fixture("/no/such/root"));
 }
 
 #[test]
@@ -313,7 +317,7 @@ fn test_a_pinned_id_wins_over_the_environment_and_the_marker() {
 #[test]
 fn test_a_pinned_projects_root_is_its_first_registered_path() {
     let world = World::new();
-    let elsewhere = PathBuf::from("/elsewhere");
+    let elsewhere = os::fixture("/elsewhere");
     world.fs.create_dir_all(&elsewhere, Mode::DIR).unwrap();
     let mut index = index::Index::default();
     index.register("here-proj-id", &text(&world.tree()));

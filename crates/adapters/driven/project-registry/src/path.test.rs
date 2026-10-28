@@ -34,7 +34,7 @@ fn test_a_clean_is_gos_filepath_clean() {
 #[test]
 fn test_a_canonical_path_resolves_symlinks() {
     let fs = Rooted::temp().unwrap();
-    let real = PathBuf::from("/d/real");
+    let real = os::fixture("/d/real");
     fs.create_dir_all(&real, Mode::DIR).unwrap();
     let link = real.with_file_name("link");
     fs.symlink_dir(&real, &link).unwrap();

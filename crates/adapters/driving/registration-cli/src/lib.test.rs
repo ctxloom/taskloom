@@ -152,8 +152,11 @@ fn test_project_is_a_switch_for_the_file_under_dir() {
         ],
     );
     assert_eq!(ran.code, 0, "{}", ran.err);
+    // The fake joins the file to the directory by the host's separator.
+    let config = Path::new("/work").join(".mcp.json");
     assert!(
-        ran.err.ends_with("  config: /work/.mcp.json\n"),
+        ran.err
+            .ends_with(&format!("  config: {}\n", config.display())),
         "{}",
         ran.err
     );

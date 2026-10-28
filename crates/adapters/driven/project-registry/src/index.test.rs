@@ -27,7 +27,7 @@ pub(crate) fn lock(fs: &dyn Fs, path: &Path) -> Result<super::Locked, RegistryEr
 /// A filesystem of the test's own, and a directory on it.
 fn at() -> (Rooted, PathBuf) {
     let fs = Rooted::temp().unwrap();
-    let dir = PathBuf::from("/d");
+    let dir = os::fixture("/d");
     fs.create_dir_all(&dir, Mode::DIR).unwrap();
     (fs, dir)
 }

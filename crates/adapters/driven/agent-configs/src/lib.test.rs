@@ -94,9 +94,9 @@ impl Home {
     fn new(case: &Case, content: Option<&[u8]>) -> Home {
         let fs = rooted();
         let (home, dir, bin) = (
-            Path::new("/home/u"),
-            Path::new("/work"),
-            Path::new("/bin-empty"),
+            &*os::fixture("/home/u"),
+            &*os::fixture("/work"),
+            &*os::fixture("/bin-empty"),
         );
         for made in [home, dir, bin] {
             fs.create_dir_all(made, Mode::DIR).unwrap();
@@ -308,7 +308,7 @@ fn test_a_check_reads_each_file_as_gos_did() {
 /// A filesystem of the test's own, a home on it, and the adapter there.
 fn files() -> (Arc<dyn Fs>, PathBuf, AgentConfigFiles) {
     let fs = rooted();
-    let home = PathBuf::from("/home/u");
+    let home = os::fixture("/home/u");
     fs.create_dir_all(&home, Mode::DIR).unwrap();
     let configs = AgentConfigFiles {
         fs: Arc::clone(&fs),
@@ -378,7 +378,7 @@ fn test_claude_code_is_the_one_agent_and_its_files_are_gos() {
 #[test]
 fn test_an_agent_is_present_where_its_file_or_its_directory_is() {
     let (fs, home, mut configs) = files();
-    let project = Path::new("/work");
+    let project = &*os::fixture("/work");
     fs.create_dir_all(project, Mode::DIR).unwrap();
     let scope = Scope::Project(project.to_path_buf());
     assert!(!configs.present(CLAUDE_CODE, &Scope::User));
@@ -389,7 +389,7 @@ fn test_an_agent_is_present_where_its_file_or_its_directory_is() {
     assert!(configs.present(CLAUDE_CODE, &scope));
     assert!(!configs.present("codex", &Scope::User));
     assert!(!homeless(&fs, None).present(CLAUDE_CODE, &Scope::User));
-    let other = Path::new("/other");
+    let other = &*os::fixture("/other");
     write(&*fs, &other.join(".claude.json"), "{}");
     let mut configs = AgentConfigFiles {
         home: Some(other.to_path_buf()),
@@ -400,8 +400,8 @@ fn test_an_agent_is_present_where_its_file_or_its_directory_is() {
 
 #[test]
 fn test_a_relative_project_is_looked_for_in_the_filesystems_working_directory() {
-    let fs: Arc<dyn Fs> = Arc::new(Rooted::temp_with_cwd(Path::new("/work")).unwrap());
-    write(&*fs, Path::new("/work/.mcp.json"), "{}");
+    let fs: Arc<dyn Fs> = Arc::new(Rooted::temp_with_cwd(&os::fixture("/work")).unwrap());
+    write(&*fs, &os::fixture("/work/.mcp.json"), "{}");
     let mut configs = homeless(&fs, None);
     assert!(configs.present(CLAUDE_CODE, &Scope::Project(PathBuf::from("."))));
 }
@@ -525,13 +525,13 @@ fn test_an_entry_running_another_program_is_refused_by_name() {
 #[test]
 fn test_a_command_resolves_where_an_executable_of_its_name_is_on_the_path() {
     let fs = rooted();
-    let (bin, other) = (Path::new("/bin"), Path::new("/other"));
+    let (bin, other) = (&*os::fixture("/bin"), &*os::fixture("/other"));
     for dir in [bin, other] {
         fs.create_dir_all(dir, Mode::DIR).unwrap();
     }
     let mut configs = homeless(&fs, Some(std::env::join_paths([other, bin]).unwrap()));
     assert!(!configs.resolvable("taskloom"));
-    let program = bin.join("taskloom");
+    let program = bin.join(os::host().flavor().program_file("taskloom"));
     write(&*fs, &program, "#!/bin/sh\n");
     if os::host().flavor() == os::Flavor::Unix {
         assert!(!configs.resolvable("taskloom"), "not executable");
@@ -548,10 +548,10 @@ fn test_a_command_resolves_where_an_executable_of_its_name_is_on_the_path() {
 fn test_an_empty_path_entry_never_means_the_working_directory() {
     // POSIX reads an empty entry as `.`: a program planted in whatever
     // directory taskloom runs in would be found. It is dropped instead.
-    let fs: Arc<dyn Fs> = Arc::new(Rooted::temp_with_cwd(Path::new("/work")).unwrap());
-    let (work, bin) = (Path::new("/work"), Path::new("/bin"));
+    let fs: Arc<dyn Fs> = Arc::new(Rooted::temp_with_cwd(&os::fixture("/work")).unwrap());
+    let (work, bin) = (&*os::fixture("/work"), &*os::fixture("/bin"));
     fs.create_dir_all(bin, Mode::DIR).unwrap();
-    let planted = work.join("taskloom");
+    let planted = work.join(os::host().flavor().program_file("taskloom"));
     write(&*fs, &planted, "#!/bin/sh\n");
     fs.set_permissions(&planted, Mode::from_bits(0o755))
         .unwrap();
@@ -608,7 +608,7 @@ struct Locking {
 impl Locking {
     fn new(wait: std::time::Duration) -> Locking {
         let fs = rooted();
-        let (home, dir) = (Path::new("/home/u"), Path::new("/work"));
+        let (home, dir) = (&*os::fixture("/home/u"), &*os::fixture("/work"));
         for made in [home, dir] {
             fs.create_dir_all(made, Mode::DIR).unwrap();
         }
@@ -699,7 +699,7 @@ fn test_a_registration_whose_file_stays_locked_past_the_wait_is_refused_and_writ
 fn test_a_registration_with_no_home_has_no_lock_to_take_and_is_refused() {
     let fs = rooted();
     let mut homeless = homeless(&fs, None);
-    let path = Path::new("/work/.mcp.json");
+    let path = &*os::fixture("/work/.mcp.json");
     let refused = install(&mut homeless, path, true).unwrap_err();
     assert_eq!(refused.code(), "agent-configs-no-home");
     assert!(!fs.exists(path).unwrap());

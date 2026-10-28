@@ -28,11 +28,20 @@ fn block_on<F: Future>(future: F) -> F::Output {
         .block_on(future)
 }
 
-/// The home, on the test's filesystem.
+/// The home, on the test's filesystem (each of these is spelled from the
+/// host's top by [`os::fixture`]).
 const HOME: &str = "/home/u";
 
 /// The project directory, on the test's filesystem.
 const PROJECT: &str = "/project";
+
+/// What the host says of a file that is not there (os error 2).
+fn no_such_file() -> &'static str {
+    match os::host().flavor() {
+        os::Flavor::Unix => "No such file or directory (os error 2)",
+        os::Flavor::Windows => "The system cannot find the file specified. (os error 2)",
+    }
+}
 
 /// An isolated home and project directory: `/home/u` and `/project` on a
 /// filesystem of the test's own, removed when this is dropped.
@@ -44,7 +53,7 @@ impl Dirs {
     fn new() -> Dirs {
         let owner = Rooted::temp().unwrap();
         for dir in [HOME, PROJECT] {
-            owner.create_dir_all(Path::new(dir), Mode::DIR).unwrap();
+            owner.create_dir_all(&os::fixture(dir), Mode::DIR).unwrap();
         }
         Dirs { owner }
     }
@@ -52,13 +61,13 @@ impl Dirs {
     /// The test's filesystem, working in `dir` (the interim rule: a
     /// filesystem given works in the builder's working directory).
     fn fs_in(&self, dir: &str) -> Arc<dyn Fs> {
-        Arc::new(Rooted::new(self.owner.root(), Path::new(dir)).unwrap())
+        Arc::new(Rooted::new(self.owner.root(), &os::fixture(dir)).unwrap())
     }
 
     /// The wiring in `dir`, under the home, on the test's filesystem, and
     /// nothing else.
     fn builder_in(&self, dir: &str) -> Builder {
-        Builder::on(self.fs_in(dir)).home(HOME)
+        Builder::on(self.fs_in(dir)).home(os::fixture(HOME))
     }
 
     /// The wiring in the project directory.
@@ -69,7 +78,7 @@ impl Dirs {
     /// `bytes` written at `path` on the test's filesystem, its directory
     /// made, with `mode`.
     fn write(&self, path: &str, bytes: &[u8], mode: Mode) {
-        let path = Path::new(path);
+        let path = &os::fixture(path);
         self.owner
             .create_dir_all(path.parent().unwrap(), Mode::DIR)
             .unwrap();
@@ -329,7 +338,7 @@ fn test_a_pinned_project_beats_the_working_directorys() {
         .unwrap()
         .project;
     dirs.owner
-        .create_dir_all(Path::new("/elsewhere"), Mode::DIR)
+        .create_dir_all(&os::fixture("/elsewhere"), Mode::DIR)
         .unwrap();
     let pinned = dirs
         .builder_in("/elsewhere")
@@ -396,10 +405,10 @@ fn test_the_configuration_applies_the_overrides_given() {
 fn test_building_the_tasks_use_cases_touches_no_file() {
     let dirs = Dirs::new();
     let recording = Arc::new(Recording::new(
-        Rooted::new(dirs.owner.root(), Path::new(PROJECT)).unwrap(),
+        Rooted::new(dirs.owner.root(), &os::fixture(PROJECT)).unwrap(),
     ));
     let fs: Arc<dyn Fs> = Arc::clone(&recording) as Arc<dyn Fs>;
-    let taskloom = Builder::on(fs).home(HOME).build().unwrap();
+    let taskloom = Builder::on(fs).home(os::fixture(HOME)).build().unwrap();
     let _tasks = taskloom.tasks();
     assert_eq!(recording.calls(), Vec::<String>::new());
 }
@@ -445,16 +454,17 @@ fn test_projects_shows_the_project_an_add_minted() {
 #[test]
 fn test_registrations_resolve_the_server_on_the_path_given() {
     let dirs = Dirs::new();
-    dirs.write("/bin/taskloom", b"#!/bin/sh\n", Mode::from_bits(0o755));
+    let program = format!("/bin/{}", os::host().flavor().program_file("taskloom"));
+    dirs.write(&program, b"#!/bin/sh\n", Mode::from_bits(0o755));
     let on_path = dirs
         .builder_in(PROJECT)
-        .vars(vec![("PATH".into(), "/bin".into())])
+        .vars(vec![("PATH".into(), os::fixture("/bin").into())])
         .build()
         .unwrap();
     assert!(
         on_path
             .registrations()
-            .check(Path::new(PROJECT))
+            .check(&os::fixture(PROJECT))
             .unwrap()
             .resolvable
     );
@@ -462,7 +472,7 @@ fn test_registrations_resolve_the_server_on_the_path_given() {
         !dirs
             .taskloom()
             .registrations()
-            .check(Path::new(PROJECT))
+            .check(&os::fixture(PROJECT))
             .unwrap()
             .resolvable,
         "no PATH among the variables given: the process's is not read"
@@ -474,7 +484,10 @@ fn test_registrations_resolve_the_server_on_the_path_given() {
 fn test_the_filesystem_given_is_the_one_the_wiring_holds() {
     let dirs = Dirs::new();
     let given = dirs.fs_in(PROJECT);
-    let taskloom = Builder::on(Arc::clone(&given)).home(HOME).build().unwrap();
+    let taskloom = Builder::on(Arc::clone(&given))
+        .home(os::fixture(HOME))
+        .build()
+        .unwrap();
     assert!(Arc::ptr_eq(taskloom.fs(), &given));
     assert!(
         Arc::ptr_eq(taskloom.clone().fs(), &given),
@@ -521,12 +534,12 @@ fn test_an_unreadable_working_directory_fails_only_what_needs_it() {
     let gone = io::Error::from_raw_os_error(2);
     let fs: Arc<dyn Fs> = Arc::new(Rooted::without_cwd(dirs.owner.root(), gone).unwrap());
     let taskloom = Builder::on(fs)
-        .home(HOME)
+        .home(os::fixture(HOME))
         .build()
         .expect("built with no working directory");
     taskloom
         .registrations()
-        .check(Path::new(PROJECT))
+        .check(&os::fixture(PROJECT))
         .expect("manage needs no working directory");
     let report = block_on(taskloom.importer().import(ImportRequest::default())).unwrap();
     assert!(report.complete(), "{report:?}");
@@ -534,7 +547,7 @@ fn test_an_unreadable_working_directory_fails_only_what_needs_it() {
     assert_eq!(refused.code(), "project-registry-no-cwd");
     assert_eq!(
         catalog(&[]).unwrap().render(&refused).unwrap(),
-        "the working directory cannot be read: No such file or directory (os error 2)"
+        format!("the working directory cannot be read: {}", no_such_file())
     );
 }
 
@@ -543,8 +556,8 @@ fn test_an_unreadable_working_directory_fails_only_what_needs_it() {
 #[test]
 fn test_a_path_that_is_not_utf8_is_read_without_loss() {
     let dirs = Dirs::new();
-    let bin = os::not_unicode("/b");
-    let server = PathBuf::from(&bin).join("taskloom");
+    let bin = os::not_unicode(&os::fixture("/b").display().to_string());
+    let server = PathBuf::from(&bin).join(os::host().flavor().program_file("taskloom"));
     dirs.owner
         .create_dir_all(Path::new(&bin), Mode::DIR)
         .unwrap();
@@ -563,7 +576,7 @@ fn test_a_path_that_is_not_utf8_is_read_without_loss() {
     assert!(
         on_path
             .registrations()
-            .check(Path::new(PROJECT))
+            .check(&os::fixture(PROJECT))
             .unwrap()
             .resolvable
     );
@@ -646,13 +659,17 @@ fn test_a_root_given_is_the_work_root_the_configuration_reads() {
         Mode::FILE,
     );
     dirs.owner
-        .create_dir_all(Path::new("/elsewhere"), Mode::DIR)
+        .create_dir_all(&os::fixture("/elsewhere"), Mode::DIR)
         .unwrap();
     assert!(
         add_level_seven(&dirs.builder_in("/elsewhere").build().unwrap()).is_err(),
         "elsewhere's work root has no config"
     );
-    let rooted = dirs.builder_in("/elsewhere").root(PROJECT).build().unwrap();
+    let rooted = dirs
+        .builder_in("/elsewhere")
+        .root(os::fixture(PROJECT))
+        .build()
+        .unwrap();
     assert!(add_level_seven(&rooted).is_ok());
 }
 
@@ -662,25 +679,28 @@ fn test_a_root_given_is_the_work_root_the_configuration_reads() {
 #[test]
 fn test_the_process_is_read_from_its_variables_and_working_directory() {
     let vars: Vec<(OsString, OsString)> = vec![
-        ("HOME".into(), "/h".into()),
-        ("CTXLOOM_ROOT".into(), "/r".into()),
+        (
+            os::host().flavor().home_var().into(),
+            os::fixture("/h").into(),
+        ),
+        ("CTXLOOM_ROOT".into(), os::fixture("/r").into()),
         ("CTXLOOM_PROJECT_ID".into(), "jolly-mute-magma".into()),
-        ("PATH".into(), "/bin".into()),
+        ("PATH".into(), os::fixture("/bin").into()),
     ];
-    let builder = Builder::from_env(Ok(PathBuf::from(PROJECT)), vars.clone());
-    assert_eq!(builder.home, Some(PathBuf::from("/h")));
-    assert_eq!(builder.root, Some(PathBuf::from("/r")));
+    let builder = Builder::from_env(Ok(os::fixture(PROJECT)), vars.clone());
+    assert_eq!(builder.home, Some(os::fixture("/h")));
+    assert_eq!(builder.root, Some(os::fixture("/r")));
     assert_eq!(builder.project_id.as_deref(), Some("jolly-mute-magma"));
     assert_eq!(builder.vars, vars);
     let taskloom = builder.build().unwrap();
-    assert_eq!(taskloom.fs().cwd(), Ok(Path::new(PROJECT)));
+    assert_eq!(taskloom.fs().cwd(), Ok(os::fixture(PROJECT).as_path()));
     let gone = Builder::from_env(Err(io::Error::from_raw_os_error(2)), Vec::new())
         .build()
         .unwrap();
     assert_eq!(
         gone.fs().cwd(),
         Err(CwdError {
-            reason: "No such file or directory (os error 2)".to_string()
+            reason: no_such_file().to_string()
         })
     );
 }
@@ -710,7 +730,7 @@ fn test_a_projects_permits_refuse_a_tag_until_it_is_permitted() {
     assert!(permitted.changed);
     let file = dirs
         .owner
-        .read_to_string(Path::new("/project/.taskloom/config.yaml"))
+        .read_to_string(&os::fixture("/project/.taskloom/config.yaml"))
         .unwrap();
     assert!(file.starts_with("# Our vocabulary.\n"), "{file}");
     assert!(file.contains("area:"), "{file}");

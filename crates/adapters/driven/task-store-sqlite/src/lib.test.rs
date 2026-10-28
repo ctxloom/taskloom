@@ -66,7 +66,7 @@ impl Home {
     fn new() -> Home {
         let home = Home {
             rooted: Arc::new(Rooted::temp().unwrap()),
-            path: PathBuf::from("/home/u"),
+            path: os::fixture("/home/u"),
         };
         home.mkdir(&home.path);
         home
@@ -103,8 +103,16 @@ impl Home {
         self.rooted.read(path).unwrap()
     }
 
-    fn remove(&self, path: &Path) {
+    /// Remove the database at `path` from under whatever holds it open,
+    /// where the host allows it: unix does; Windows refuses to remove a
+    /// file SQLite holds open (it shares no delete access), so there it is
+    /// left, and `false` says so.
+    fn remove_held(&self, path: &Path) -> bool {
+        if os::host().flavor() != os::Flavor::Unix {
+            return false;
+        }
         self.rooted.remove_file(path).unwrap();
+        true
     }
 
     /// Where SQLite finds `path`.
@@ -122,10 +130,22 @@ fn test_the_database_is_where_the_filesystem_puts_it() {
         &mut stores,
         &project("jolly-mute-magma", path.clone())
     )));
-    let real = home
-        .rooted
-        .root()
-        .join("home/u/.ctxloom/projects/jolly-mute-magma/state.db");
+    // The caller's top under the root: the root itself on unix, its `C`
+    // directory on Windows (`C:\` re-rooted).
+    let top = match os::host().flavor() {
+        os::Flavor::Unix => home.rooted.root().to_path_buf(),
+        os::Flavor::Windows => home.rooted.root().join("C"),
+    };
+    let real = [
+        "home",
+        "u",
+        ".ctxloom",
+        "projects",
+        "jolly-mute-magma",
+        "state.db",
+    ]
+    .iter()
+    .fold(top, |path, part| path.join(part));
     assert_eq!(home.real(&path), real);
     let os = Os::new(os::host(), Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
     assert!(os.exists(&real).unwrap(), "under the filesystem's root");
@@ -153,12 +173,16 @@ fn test_the_store_is_opened_once_and_held_for_its_project() {
     let path = store_in(home.path(), "jolly-mute-magma");
     let project = project("jolly-mute-magma", path.clone());
     let mut stores = home.stores();
-    block_on(async {
+    let removed = block_on(async {
         assert!(answers(&mut stores, &project).await);
-        home.remove(&path);
+        let removed = home.remove_held(&path);
         assert!(answers(&mut stores, &project).await);
+        removed
     });
-    assert!(!home.exists(&path), "the held store, not a new file");
+    assert_eq!(stores.opened, 1, "the held store, not opened again");
+    if removed {
+        assert!(!home.exists(&path), "the held store, not a new file");
+    }
 }
 
 #[test]
@@ -371,10 +395,11 @@ fn test_a_store_held_to_write_serves_a_read() {
     let mut stores = home.stores();
     block_on(async {
         stores.open(&project).await.unwrap();
-        home.remove(&path);
+        home.remove_held(&path);
         let found = stores.open_existing(&project).await.unwrap();
         assert!(found.is_some(), "the held store, though the file is gone");
     });
+    assert_eq!(stores.opened, 1, "the held store, not opened again to read");
     assert!(stores.held.as_ref().unwrap().writable);
 }
 
@@ -536,13 +561,14 @@ fn test_a_token_is_read_through_the_store_the_next_read_is_through() {
             .await
             .unwrap()
             .expect("a store");
-        home.remove(&path);
+        home.remove_held(&path);
         let held = stores.open_existing(&project).await.unwrap();
         assert!(
             held.is_some(),
             "the handle that answered, though the file is gone"
         );
     });
+    assert_eq!(stores.opened, 1, "the handle that answered, not another");
 }
 
 #[test]

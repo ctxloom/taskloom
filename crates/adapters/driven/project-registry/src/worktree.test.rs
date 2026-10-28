@@ -11,12 +11,12 @@ use crate::tests::git;
 
 /// The real filesystem, where git makes its repositories.
 fn real() -> Os {
-    Os::new(os::host(), Path::new("/")).unwrap()
+    Os::new(os::host(), &os::fixture("/")).unwrap()
 }
 
 /// A filesystem of the test's own, and the directory to work in on it.
 fn rooted() -> (Rooted, PathBuf) {
-    (Rooted::temp().unwrap(), PathBuf::from("/d"))
+    (Rooted::temp().unwrap(), os::fixture("/d"))
 }
 
 fn put(fs: &dyn Fs, path: &Path, text: &str) {
@@ -111,6 +111,10 @@ fn test_a_worktree_whose_git_directory_is_gone_is_an_error() {
 
 #[test]
 fn test_an_unreadable_git_file_is_an_error() {
+    // Made unreadable by its mode, which Windows does not have.
+    if os::host().flavor() != os::Flavor::Unix {
+        return;
+    }
     let (fs, root) = rooted();
     put(&fs, &root.join(".git"), "gitdir: x\n");
     fs.set_permissions(&root.join(".git"), Mode::from_bits(0o000))

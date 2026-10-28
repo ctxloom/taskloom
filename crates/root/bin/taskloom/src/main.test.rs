@@ -46,6 +46,26 @@ fn binary() -> &'static Path {
     })
 }
 
+/// A process with nothing of this one's environment but what the host
+/// needs to run one at all ([`os::Flavor::startup_vars`]) and its home, in
+/// the variable the host reads it from (HOME; USERPROFILE on Windows).
+pub(crate) trait Isolated {
+    fn isolated(&mut self, home: impl AsRef<std::ffi::OsStr>) -> &mut Self;
+}
+
+impl Isolated for Command {
+    fn isolated(&mut self, home: impl AsRef<std::ffi::OsStr>) -> &mut Command {
+        let flavor = os::host().flavor();
+        self.env_clear();
+        for name in flavor.startup_vars() {
+            if let Some(value) = std::env::var_os(name) {
+                self.env(name, value);
+            }
+        }
+        self.env(flavor.home_var(), home)
+    }
+}
+
 /// The real filesystem, through the seam: where the binary's processes
 /// run, for what a test lays out for them and reads back. Every path a
 /// test gives it is absolute; its working directory is this crate's.
@@ -201,8 +221,7 @@ impl Env {
         let output = Command::new(binary())
             .args(args)
             .current_dir(dir)
-            .env_clear()
-            .env("HOME", self.home.path())
+            .isolated(self.home.path())
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
             .env("CTXLOOM_SESSION_HARP", self.session)
             .envs(vars.iter().copied())
@@ -586,8 +605,7 @@ fn run_where_the_working_directory_is_gone(env: &Env, home: &Path, args: &[&str]
         .arg(&gone)
         .arg(binary())
         .args(args)
-        .env_clear()
-        .env("HOME", home)
+        .isolated(home)
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())
         .output()
         .expect("sh runs");
@@ -1099,7 +1117,9 @@ fn test_in_json_a_stream_writes_one_document_a_line() {
     let tagged = env.run(&["tag", harp.trim_matches('"'), "--add", "x"]);
     assert!(tagged.ok, "{}", tagged.stderr);
     assert_eq!(one_document(&watching.line())["kind"], "tasks");
-    assert!(watching.stop("INT").success());
+    if let Some(status) = watching.stop("INT") {
+        assert!(status.success(), "SIGINT is a clean end: {status}");
+    }
 }
 
 #[test]

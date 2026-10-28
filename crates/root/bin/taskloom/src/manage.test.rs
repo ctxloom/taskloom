@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use super::{disk, one_document, Env, Ran, Temp};
+use super::{disk, one_document, Env, Isolated, Ran, Temp};
 
 /// The recorded case `name`'s file `file`.
 fn go(name: &str, file: &str) -> Vec<u8> {
@@ -25,11 +25,15 @@ fn manage(env: &Env, path: &Temp, args: &[&str]) -> Ran {
 }
 
 /// The recorded stderr for the case, its exit code dropped, `$HOME` and
-/// `$DIR` put back.
+/// `$DIR` put back, each with the separator after it the host's (the
+/// recording is unix's: `$HOME/.claude.json`).
 fn go_said(name: &str, file: &str, env: &Env) -> String {
     let text = String::from_utf8(go(name, file)).unwrap();
     let (_, said) = text.split_once('\n').unwrap();
-    said.replace("$HOME", &env.home.path().display().to_string())
+    let sep = std::path::MAIN_SEPARATOR;
+    said.replace("$HOME/", &format!("{}{sep}", env.home.path().display()))
+        .replace("$DIR/", &format!("{}{sep}", env.project.path().display()))
+        .replace("$HOME", &env.home.path().display().to_string())
         .replace("$DIR", &env.project.path().display().to_string())
 }
 
@@ -188,8 +192,7 @@ fn test_manage_takes_gos_lock_on_the_file_and_waits_its_turn() {
     let mut child = std::process::Command::new(super::binary())
         .args(["manage", "install", "--json"])
         .current_dir(env.project.path())
-        .env_clear()
-        .env("HOME", env.home.path())
+        .isolated(env.home.path())
         .env("PATH", empty.path())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

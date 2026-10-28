@@ -13,6 +13,11 @@ use ports::Configuration;
 
 use super::{ConfigError, TaskloomConfig};
 
+/// The fixture path `path` ([`os::fixture`]) as an error names it.
+fn shown(path: &str) -> String {
+    os::fixture(path).display().to_string()
+}
+
 /// A home (`/home/u`) and a work root (`/tree`), each with a config file
 /// holding `home` and `root` when given.
 struct Dirs {
@@ -25,8 +30,8 @@ impl Dirs {
     fn new(home: Option<&str>, root: Option<&str>) -> Dirs {
         let dirs = Dirs {
             fs: Arc::new(Rooted::temp().unwrap()),
-            home: PathBuf::from("/home/u"),
-            root: PathBuf::from("/tree"),
+            home: os::fixture("/home/u"),
+            root: os::fixture("/tree"),
         };
         if let Some(text) = home {
             dirs.write(&dirs.home, text);
@@ -209,7 +214,9 @@ fn test_a_config_file_that_cannot_be_read_is_refused() {
     let error = schema(&dirs.config(&[]), &[]).unwrap_err();
     assert_eq!(error.code(), "tasks-config-unreadable");
     assert!(
-        error.to_string().contains("/tree/.taskloom/config.yaml"),
+        error
+            .to_string()
+            .contains(&shown("/tree/.taskloom/config.yaml")),
         "named as the caller names it: {error}"
     );
 }
@@ -344,7 +351,7 @@ fn test_a_blank_item_in_a_config_files_list_is_refused() {
         assert_eq!(
             schema(&dirs.config(&[]), &[]),
             Err(ConfigError::BlankItem {
-                source: "/tree/.taskloom/config.yaml".to_string(),
+                source: shown("/tree/.taskloom/config.yaml"),
                 value: "tag_schema".to_string(),
             }),
             "{item}"
@@ -355,7 +362,10 @@ fn test_a_blank_item_in_a_config_files_list_is_refused() {
     assert_eq!(error.code(), "tasks-config-blank-item");
     assert_eq!(
         error.to_string(),
-        "/home/u/.taskloom/config.yaml: tag_schema has a blank item: give one, or leave it out"
+        format!(
+            "{}: tag_schema has a blank item: give one, or leave it out",
+            shown("/home/u/.taskloom/config.yaml")
+        )
     );
 }
 
@@ -494,7 +504,9 @@ mod permits {
         let dirs = Dirs::new(Some(PERMITS), None);
         let error = dirs.config(&[]).tag_permits().unwrap_err();
         assert_eq!(error.code(), "tasks-config-permits-outside-project");
-        assert!(error.to_string().contains("/home/u/.taskloom/config.yaml"));
+        assert!(error
+            .to_string()
+            .contains(&shown("/home/u/.taskloom/config.yaml")));
     }
 
     // PROPOSAL: permits are not layered: no variable or --config-set sets
