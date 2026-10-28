@@ -24,12 +24,19 @@ fn manage(env: &Env, path: &Temp, args: &[&str]) -> Ran {
     env.run_with(&all, &[("PATH", path.path().to_str().unwrap())])
 }
 
-/// The recorded stderr for the case, its exit code dropped, `$HOME` and
-/// `$DIR` put back, each with the separator after it the host's (the
-/// recording is unix's: `$HOME/.claude.json`).
+/// The departures from the recorded words the human reviewed: on
+/// Windows, `%PATH%` for `$PATH`.
+#[path = "../../../../adapters/driving/registration-cli/fixtures/reviewed.rs"]
+mod reviewed;
+
+/// The recorded stderr for the case, its exit code dropped, the reviewed
+/// departures for this host applied, `$HOME` and `$DIR` put back, each
+/// with the separator after it the host's (the recording is unix's:
+/// `$HOME/.claude.json`).
 fn go_said(name: &str, file: &str, env: &Env) -> String {
     let text = String::from_utf8(go(name, file)).unwrap();
     let (_, said) = text.split_once('\n').unwrap();
+    let said = reviewed::said(said, file, os::host().flavor());
     let sep = std::path::MAIN_SEPARATOR;
     said.replace("$HOME/", &format!("{}{sep}", env.home.path().display()))
         .replace("$DIR/", &format!("{}{sep}", env.project.path().display()))
@@ -235,4 +242,22 @@ fn test_manage_builds_nothing_of_the_tasks() {
     assert!(ran.ok, "{}", ran.stderr);
     assert_eq!(ran.stdout, "binary: taskloom NOT on PATH\n");
     assert!(!disk::exists(env.project.path().join(".project-id")));
+}
+
+#[test]
+fn test_the_recorded_words_depart_from_go_on_windows_alone_as_reviewed() {
+    let case = "indented-other-server";
+    let install = String::from_utf8(go(case, "install.out")).unwrap();
+    assert_eq!(
+        reviewed::said(&install, "install.out", os::Flavor::Unix),
+        install
+    );
+    let windows = reviewed::said(&install, "install.out", os::Flavor::Windows);
+    assert!(windows.contains("executable file not found in %PATH%"));
+    assert!(!windows.contains("$PATH"));
+    let uninstall = String::from_utf8(go(case, "uninstall.out")).unwrap();
+    assert_eq!(
+        reviewed::said(&uninstall, "uninstall.out", os::Flavor::Windows),
+        uninstall
+    );
 }

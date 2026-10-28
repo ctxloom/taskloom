@@ -14,12 +14,13 @@ fn arg_names(d: &dyn Diagnostic) -> Vec<&'static str> {
 fn test_go_says_it_this_way() {
     let warning = ManageNotice::Unresolvable {
         command: "taskloom".to_string(),
+        flavor: os::Flavor::Unix,
     };
     assert_eq!(
         warning.to_string(),
         "warning: \"taskloom\" does not resolve on this process's PATH: exec: \"taskloom\": executable file not found in $PATH"
     );
-    assert_eq!(arg_names(&warning), ["command"]);
+    assert_eq!(arg_names(&warning), ["command", "path_var"]);
     assert_eq!(
         ManageNotice::NothingToRemove.to_string(),
         "nothing to remove (no agent backends detected; name one with --engine)"
@@ -30,6 +31,21 @@ fn test_go_says_it_this_way() {
     assert_eq!(ManageError::App(app.clone()).code(), app.code());
     assert_eq!(ManageError::App(app.clone()).to_string(), app.to_string());
     assert_eq!(arg_names(&ManageError::App(app)), ["known"]);
+}
+
+/// A departure from Go's words (reviewed, 2026-10-28): on Windows the
+/// search path is named `%PATH%`, as Windows refers to a variable.
+#[test]
+fn test_windows_names_the_search_path_percent_path() {
+    let warning = ManageNotice::Unresolvable {
+        command: "taskloom".to_string(),
+        flavor: os::Flavor::Windows,
+    };
+    let said = "warning: \"taskloom\" does not resolve on this process's PATH: exec: \"taskloom\": executable file not found in %PATH%";
+    assert_eq!(warning.to_string(), said);
+    let catalog = presentation::Catalog::en_us(&[crate::EN_US, registration_application::EN_US])
+        .expect("the catalog loads");
+    assert_eq!(catalog.render(&warning), Ok(said.to_string()));
 }
 
 #[test]

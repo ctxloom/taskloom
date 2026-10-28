@@ -10,6 +10,8 @@ publish.workspace = true
 [dependencies]
 annals-diagnostic.workspace = true
 clap.workspace = true
+# Flavor: how a notice names a variable ($PATH, or %PATH% on Windows).
+os.workspace = true
 presentation.workspace = true
 registration-application.workspace = true
 serde.workspace = true

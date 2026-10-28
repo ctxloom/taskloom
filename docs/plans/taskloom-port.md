@@ -863,7 +863,12 @@ restarted on a freed harp is under "Where it stands".
     exactly once (or, for a change made to every tool's output schema
     alike, exactly once per tool): a Go rewording of a changed sentence fails the pair, and
     any other Go change fails the byte comparison. Other wording is not
-    changed: prompt text is the human's voice.
+    changed: prompt text is the human's voice. On Windows (decided
+    2026-10-28), `manage`'s unresolvable-command warning names the search
+    path `%PATH%` where Go's unix recording says `$PATH`
+    (`fixtures/reviewed.rs` in registration-cli, applied on Windows
+    alone), and the no-home errors name USERPROFILE, the variable read
+    there, where they said HOME.
 12. **`manage` keeps no hew records; no hew port for now** (decided
     2026-10-21). `manage` edits with its own byte-preserving JSON patcher
     and reads Go's newest record for one fact (whether Go created

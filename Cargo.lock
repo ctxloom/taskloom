@@ -1807,6 +1807,7 @@ dependencies = [
  "clap",
  "fluent-syntax",
  "mutants",
+ "os",
  "ports",
  "presentation",
  "registration-application",

@@ -22,9 +22,11 @@ pub enum ManageError {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ManageNotice {
     /// The server's command is not on this PATH (an agent looks for it on
-    /// its own).
+    /// its own). The search path is named as `flavor` refers to it
+    /// (`$PATH`, or `%PATH%` on Windows).
     Unresolvable {
         command: String,
+        flavor: os::Flavor,
     },
     /// Under [`ManageNotice::Unresolvable`]: what that means.
     UnresolvableHint {
@@ -62,10 +64,11 @@ impl std::error::Error for ManageError {}
 impl fmt::Display for ManageNotice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ManageNotice::Unresolvable { command } => write!(
+            ManageNotice::Unresolvable { command, flavor } => write!(
                 f,
                 "warning: \"{command}\" does not resolve on this process's PATH: exec: \
-                 \"{command}\": executable file not found in $PATH"
+                 \"{command}\": executable file not found in {}",
+                flavor.var_ref("PATH")
             ),
             ManageNotice::UnresolvableHint { command } => write!(
                 f,
@@ -122,7 +125,11 @@ impl Diagnostic for ManageNotice {
 
     fn args(&self) -> Vec<(&'static str, Arg)> {
         match self {
-            ManageNotice::Unresolvable { command } | ManageNotice::UnresolvableHint { command } => {
+            ManageNotice::Unresolvable { command, flavor } => vec![
+                ("command", command.as_str().into()),
+                ("path_var", flavor.var_ref("PATH").into()),
+            ],
+            ManageNotice::UnresolvableHint { command } => {
                 vec![("command", command.as_str().into())]
             }
             ManageNotice::Registered { engine }
@@ -153,7 +160,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(ManageError::Output {
             detail: "Broken pipe (os error 32)".to_string(),
         }),
-        Box::new(ManageNotice::Unresolvable { command: command() }),
+        Box::new(ManageNotice::Unresolvable {
+            command: command(),
+            flavor: os::Flavor::Unix,
+        }),
         Box::new(ManageNotice::UnresolvableHint { command: command() }),
         Box::new(ManageNotice::Registered { engine: engine() }),
         Box::new(ManageNotice::Removed { engine: engine() }),

@@ -114,6 +114,9 @@ pub struct Settings {
     pub stdout_is_terminal: bool,
     /// The program's name: every diagnostic's prefix.
     pub prog: &'static str,
+    /// The host's flavor: how a notice names a variable (`$PATH`, or
+    /// `%PATH%` on Windows).
+    pub flavor: os::Flavor,
 }
 
 /// Run `manage`'s `words` against `registrations`, writing to `out` and
@@ -148,6 +151,7 @@ pub fn run<A: AgentConfigs>(
     };
     let speaker = Speaker {
         prog: settings.prog,
+        flavor: settings.flavor,
         catalog,
     };
     let result = answer(cli.command, format, registrations, &speaker, out, err);
@@ -164,6 +168,7 @@ pub fn run<A: AgentConfigs>(
 /// under it indented.
 struct Speaker<'a> {
     prog: &'static str,
+    flavor: os::Flavor,
     catalog: &'a Catalog,
 }
 
@@ -236,6 +241,7 @@ fn installed_notices(
             err,
             &ManageNotice::Unresolvable {
                 command: command.clone(),
+                flavor: speaker.flavor,
             },
         )?;
         speaker.under(err, &ManageNotice::UnresolvableHint { command })?;

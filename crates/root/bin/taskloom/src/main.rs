@@ -155,6 +155,7 @@ fn manage(
         format,
         stdout_is_terminal: io::stdout().is_terminal(),
         prog: tasks_cli::PROG,
+        flavor: taskloom.fs().os().flavor(),
     };
     let mut registrations = taskloom.registrations();
     ExitCode::from(registration_cli::run(

@@ -89,10 +89,21 @@ fn catalog() -> Catalog {
 }
 
 fn manage(fake: &mut Registrations<Fake>, format: Format, words: &[&str]) -> Ran {
+    manage_on(os::Flavor::Unix, fake, format, words)
+}
+
+/// [`manage`] on a host of `flavor`.
+fn manage_on(
+    flavor: os::Flavor,
+    fake: &mut Registrations<Fake>,
+    format: Format,
+    words: &[&str],
+) -> Ran {
     let settings = Settings {
         format,
         stdout_is_terminal: false,
         prog: "taskloom",
+        flavor,
     };
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let words = words.iter().map(|w| w.to_string()).collect();
@@ -109,6 +120,23 @@ fn fake(fake: Fake) -> Registrations<Fake> {
 }
 
 const WARNING: &str = "taskloom: warning: \"taskloom\" does not resolve on this process's PATH: exec: \"taskloom\": executable file not found in $PATH\n  the registered MCP entry runs \"taskloom\", which the agent resolves against ITS OWN PATH at startup; install taskloom somewhere on that PATH or the server will not start\n";
+
+#[test]
+fn test_an_install_on_windows_names_the_search_path_percent_path() {
+    let mut r = fake(Fake {
+        present: true,
+        changes: true,
+        ..Fake::default()
+    });
+    let ran = manage_on(os::Flavor::Windows, &mut r, Format::Text, &["install"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    let warning = WARNING.replace("not found in $PATH", "not found in %PATH%");
+    assert_ne!(warning, WARNING);
+    assert_eq!(
+        ran.err,
+        format!("{warning}taskloom: registered MCP server for claude-code\n  config: /home/.claude.json\n")
+    );
+}
 
 #[test]
 fn test_an_install_says_what_go_says_and_writes_nothing_on_stdout() {
