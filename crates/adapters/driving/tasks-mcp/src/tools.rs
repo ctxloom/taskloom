@@ -152,8 +152,10 @@ pub fn status_change(arguments: Value, settings: &Settings) -> Result<StatusChan
     Ok(StatusChange {
         project: settings.project.clone(),
         harp_id: args.harp_id,
-        status: args.status,
+        // PROPOSAL (L, red): status still required, no clear_trigger.
+        status: Some(args.status),
         trigger: args.trigger,
+        clear_trigger: false,
     })
 }
 

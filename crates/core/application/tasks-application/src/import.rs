@@ -526,6 +526,8 @@ impl Fold {
                 SetStatus {
                     status: Some(record.status.clone()),
                     trigger: Some(record.trigger.clone()),
+                    defers: crate::view::DEFERS.to_string(),
+                    initial: crate::view::INITIAL.to_string(),
                 }
                 .into(),
             ),
@@ -578,6 +580,8 @@ impl Fold {
                 trigger: Some(record.trigger.clone()),
                 tags,
                 origin_session: Some(record.session.clone()),
+                defers: crate::view::DEFERS.to_string(),
+                initial: crate::view::INITIAL.to_string(),
             }
             .into(),
         )

@@ -18,6 +18,15 @@ pub const ARCHIVED: &str = "Archived";
 /// may hold any status not starting with `@`.
 pub const DEFAULT_STATUSES: [&str; 5] = [IN_PROGRESS, TO_DO, DEFERRED, DONE, ARCHIVED];
 
+/// The status a trigger defers a task to, which needs a trigger: what a
+/// command that can defer a task carries as its `defers`. The default
+/// taxonomy's until the taxonomy is configured (port step 8).
+pub const DEFERS: &str = DEFERRED;
+/// The status a task gets when none is given, and returns to when its
+/// trigger is cleared and it records none to return to: a command's
+/// `initial`. The default taxonomy's until the taxonomy is configured.
+pub const INITIAL: &str = TO_DO;
+
 /// The status class of every status that is not terminal.
 pub const OPEN: &str = "@open";
 /// The status class of every terminal status.

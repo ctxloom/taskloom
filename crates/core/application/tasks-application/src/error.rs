@@ -47,6 +47,8 @@ pub enum AppError {
     /// `trigger`, `origin_session`, `term`, `tag_query`, `sort`, or
     /// `limit`, given as 0): a value given is never read as one left out.
     Blank { field: &'static str },
+    /// A status change giving a trigger and clearing the trigger at once.
+    TriggerAndClear,
     /// Priority could not be derived (`task_priority::PriorityError`): a
     /// formula that does not compile, or a task it cannot score.
     Priority(Report),
@@ -138,6 +140,9 @@ impl fmt::Display for AppError {
             AppError::Blank { field } => {
                 write!(f, "the {field} given is blank: give one, or leave it out")
             }
+            AppError::TriggerAndClear => f.write_str(
+                "a trigger was given and cleared at once: give a trigger, or clear the one held, not both",
+            ),
             AppError::NotFound { harp_ids } => write!(
                 f,
                 "no task holds these harp ids: {} (see `taskloom list`)",
@@ -171,6 +176,7 @@ impl Diagnostic for AppError {
             AppError::UnknownStatusClass { .. } => "tasks-application-unknown-status-class",
             AppError::UnknownSort { .. } => "tasks-application-unknown-sort",
             AppError::Blank { .. } => "tasks-application-blank",
+            AppError::TriggerAndClear => "tasks-application-trigger-and-clear",
             AppError::NotFound { .. } => "tasks-application-not-found",
             AppError::Ambiguous { .. } => "tasks-application-ambiguous",
         }
@@ -193,7 +199,7 @@ impl Diagnostic for AppError {
             ],
             AppError::HarpsExhausted { attempts } => vec![("attempts", (*attempts).into())],
             AppError::Vanished { harp_id } => vec![("harp_id", harp_id.as_str().into())],
-            AppError::NoProject => Vec::new(),
+            AppError::NoProject | AppError::TriggerAndClear => Vec::new(),
             AppError::UnknownStatusClass { status } => vec![
                 ("status", status.as_str().into()),
                 ("classes", crate::read::classes().into()),
@@ -251,6 +257,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             sort: "age".to_string(),
         }),
         Box::new(AppError::Blank { field: "trigger" }),
+        Box::new(AppError::TriggerAndClear),
         Box::new(AppError::NotFound {
             harp_ids: vec!["swift-amber".to_string(), "calm-otter".to_string()],
         }),

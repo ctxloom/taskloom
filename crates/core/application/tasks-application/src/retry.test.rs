@@ -74,6 +74,8 @@ fn run_as(
         trigger: None,
         tags: Vec::new(),
         origin_session: None,
+        defers: tasks::DEFERRED.to_string(),
+        initial: tasks::TO_DO.to_string(),
     };
     let book = book("swift-amber", add.into());
     let mut runner = Runner {

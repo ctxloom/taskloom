@@ -21,7 +21,7 @@ pub enum TaskRejection {
     Removed { harp_id: String },
     /// Text that is empty once trimmed.
     TextRequired,
-    /// A status change without a status.
+    /// A status change giving neither a status nor a trigger.
     StatusRequired,
     /// A status starting with the status-class sigil.
     StatusReserved { status: String },
@@ -34,6 +34,13 @@ pub enum TaskRejection {
     /// out. A status change's trigger given empty is no such field: it
     /// clears the trigger.
     Blank { field: String },
+    /// A trigger given with a status other than `defers`, the status a
+    /// trigger defers a task to: the two would say different statuses.
+    TriggerWithStatus { status: String, defers: String },
+    /// A command missing a status the application resolves for it from the
+    /// configured taxonomy (`field`: `defers` or `initial`), empty once
+    /// trimmed: decide names no status of its own to fall back on.
+    Unresolved { field: String },
 }
 
 impl fmt::Display for TaskRejection {
@@ -51,7 +58,7 @@ impl fmt::Display for TaskRejection {
             TaskRejection::NoTask => f.write_str("there is no such task"),
             TaskRejection::Removed { harp_id } => write!(f, "task {harp_id} was removed"),
             TaskRejection::TextRequired => f.write_str("a task needs text"),
-            TaskRejection::StatusRequired => f.write_str("a status change needs a status"),
+            TaskRejection::StatusRequired => f.write_str("a status change needs a status, a trigger, or the trigger cleared"),
             TaskRejection::StatusReserved { status } => write!(
                 f,
                 "the status {status} is not allowed: '@' is reserved for status classes"
@@ -63,6 +70,14 @@ impl fmt::Display for TaskRejection {
             TaskRejection::Blank { field } => {
                 write!(f, "the {field} given is blank: give one, or leave it out")
             }
+            TaskRejection::TriggerWithStatus { status, defers } => write!(
+                f,
+                "a trigger defers the task to {defers}, so it cannot be given with the status {status}: give the trigger alone, or the status alone"
+            ),
+            TaskRejection::Unresolved { field } => write!(
+                f,
+                "the command carries no {field} status: the application resolves it from the configured statuses"
+            ),
         }
     }
 }
@@ -82,6 +97,8 @@ impl Diagnostic for TaskRejection {
             TaskRejection::TriggerRequired => "tasks-trigger-required",
             TaskRejection::TagRequired => "tasks-tag-required",
             TaskRejection::Blank { .. } => "tasks-blank",
+            TaskRejection::TriggerWithStatus { .. } => "tasks-trigger-with-status",
+            TaskRejection::Unresolved { .. } => "tasks-unresolved",
         }
     }
 
@@ -97,7 +114,13 @@ impl Diagnostic for TaskRejection {
                 ("cause", cause.as_str().into()),
             ],
             TaskRejection::StatusReserved { status } => vec![("status", status.as_str().into())],
-            TaskRejection::Blank { field } => vec![("field", field.as_str().into())],
+            TaskRejection::Blank { field } | TaskRejection::Unresolved { field } => {
+                vec![("field", field.as_str().into())]
+            }
+            TaskRejection::TriggerWithStatus { status, defers } => vec![
+                ("status", status.as_str().into()),
+                ("defers", defers.as_str().into()),
+            ],
             _ => Vec::new(),
         }
     }
@@ -129,6 +152,13 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(TaskRejection::TagRequired),
         Box::new(TaskRejection::Blank {
             field: "trigger".to_string(),
+        }),
+        Box::new(TaskRejection::TriggerWithStatus {
+            status: "In Progress".to_string(),
+            defers: "Deferred".to_string(),
+        }),
+        Box::new(TaskRejection::Unresolved {
+            field: "defers".to_string(),
         }),
     ]
 }

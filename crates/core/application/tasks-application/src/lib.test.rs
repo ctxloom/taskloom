@@ -164,10 +164,16 @@ fn test_an_add_the_domain_refuses_is_refused_before_anything_is_bound_or_created
         status: Some("@open".to_string()),
         ..new_task("Ship it")
     };
+    let with_status = NewTask {
+        status: Some("In Progress".to_string()),
+        trigger: Some("the release".to_string()),
+        ..new_task("Revisit")
+    };
     for (task, code) in [
         (new_task("   "), "tasks-text-required"),
         (deferred(None), "tasks-trigger-required"),
         (reserved, "tasks-status-reserved"),
+        (with_status, "tasks-trigger-with-status"),
     ] {
         let mut service = service(&["swift-amber"]);
         let error = add(&mut service, task).unwrap_err();
@@ -224,6 +230,24 @@ fn test_an_add_given_a_blank_status_trigger_or_session_is_refused_before_anythin
     assert!(service.configuration.asked == 0, "no configuration read");
     assert!(service.identity.pins.is_empty(), "no project resolved");
     assert_eq!(service.names.minted, 0, "no harp minted");
+}
+
+// A trigger alone defers the task: added Deferred, returning to To Do, the
+// initial status, when it is cleared.
+#[test]
+fn test_an_add_with_a_trigger_alone_is_added_deferred() {
+    let mut service = service(&["swift-amber"]);
+    let task = NewTask {
+        trigger: Some("the release".to_string()),
+        ..new_task("Revisit")
+    };
+    let written = add(&mut service, task).unwrap();
+    assert_eq!(
+        (written.task.status.as_str(), written.task.trigger.as_str()),
+        ("Deferred", "the release")
+    );
+    let cleared = ready(service.set_status(cleared("swift-amber", None))).unwrap();
+    assert_eq!(cleared.task.status, "To Do");
 }
 
 // What is left out is the default: To Do, no trigger, no session.
@@ -559,6 +583,8 @@ fn add_unchecked(service: &mut Configured, tag: &str) {
         trigger: None,
         tags: vec![parse(tag).unwrap().unwrap()],
         origin_session: None,
+        defers: tasks::DEFERRED.to_string(),
+        initial: tasks::TO_DO.to_string(),
     };
     let mut runner = crate::retry::Runner {
         registry: &service.registry,
@@ -702,8 +728,26 @@ fn moved(harp: &str, status: &str, trigger: Option<&str>) -> StatusChange {
     StatusChange {
         project: Some("pinned-id".to_string()),
         harp_id: harp.to_string(),
-        status: status.to_string(),
+        status: Some(status.to_string()),
         trigger: trigger.map(str::to_string),
+        clear_trigger: false,
+    }
+}
+
+/// A status change giving only a trigger.
+fn triggered(harp: &str, trigger: &str) -> StatusChange {
+    StatusChange {
+        status: None,
+        ..moved(harp, "", Some(trigger))
+    }
+}
+
+/// A status change clearing the trigger, moving to `status` if given.
+fn cleared(harp: &str, status: Option<&str>) -> StatusChange {
+    StatusChange {
+        status: status.map(str::to_string),
+        clear_trigger: true,
+        ..moved(harp, "", None)
     }
 }
 
@@ -731,9 +775,92 @@ fn test_deferred_needs_a_trigger_given_or_held() {
     let written =
         ready(service.set_status(moved("swift-amber", "Deferred", Some("the release")))).unwrap();
     assert_eq!(written.task.trigger, "the release");
-    ready(service.set_status(moved("swift-amber", "To Do", None))).unwrap();
     let again = ready(service.set_status(moved("swift-amber", "Deferred", None))).unwrap();
-    assert_eq!(again.task.trigger, "the release", "kept from before");
+    assert_eq!(again.task.trigger, "the release", "held while Deferred");
+    // Reverses the reviewed rule that leaving Deferred kept the trigger
+    // (the human's ruling on L, 2026-10-27): it clears it.
+    let left = ready(service.set_status(moved("swift-amber", "To Do", None))).unwrap();
+    assert_eq!(left.task.trigger, "", "cleared on leaving Deferred");
+    let error = ready(service.set_status(moved("swift-amber", "Deferred", None))).unwrap_err();
+    assert_eq!(error.code(), "tasks-trigger-required", "none held now");
+}
+
+// A trigger alone defers the task, keeping its status to return to; clearing
+// the trigger returns it there.
+#[test]
+fn test_a_trigger_alone_defers_the_task_and_clearing_it_returns_it() {
+    let mut service = service(&["swift-amber"]);
+    add(&mut service, new_task("Ship it")).unwrap();
+    ready(service.set_status(moved("swift-amber", "In Progress", None))).unwrap();
+    let deferred = ready(service.set_status(triggered("swift-amber", "the release"))).unwrap();
+    assert_eq!(
+        (
+            deferred.task.status.as_str(),
+            deferred.task.trigger.as_str()
+        ),
+        ("Deferred", "the release")
+    );
+    let back = ready(service.set_status(cleared("swift-amber", None))).unwrap();
+    assert_eq!(
+        (back.task.status.as_str(), back.task.trigger.as_str()),
+        ("In Progress", "")
+    );
+    ready(service.set_status(triggered("swift-amber", "the release"))).unwrap();
+    let done = ready(service.set_status(cleared("swift-amber", Some("Done")))).unwrap();
+    assert_eq!(
+        (done.task.status.as_str(), done.task.trigger.as_str()),
+        ("Done", "")
+    );
+}
+
+#[test]
+fn test_a_trigger_with_another_status_is_refused() {
+    let mut service = service(&["swift-amber"]);
+    add(&mut service, new_task("Ship it")).unwrap();
+    let change = moved("swift-amber", "In Progress", Some("the release"));
+    let error = ready(service.set_status(change)).unwrap_err();
+    assert_eq!(error.code(), "tasks-trigger-with-status");
+}
+
+// A trigger given and cleared at once is refused, before the configuration
+// is read or a project resolved.
+#[test]
+fn test_a_trigger_given_and_cleared_at_once_is_refused_before_anything_is_read() {
+    let mut service = configured(&["unreadable"]);
+    for status in [None, Some("Deferred")] {
+        let change = StatusChange {
+            trigger: Some("the release".to_string()),
+            ..cleared("swift-amber", status)
+        };
+        let error = ready(service.set_status(change)).unwrap_err();
+        assert_eq!(error, AppError::TriggerAndClear);
+    }
+    assert!(service.configuration.asked == 0, "no configuration read");
+    assert!(service.identity.pins.is_empty(), "no project resolved");
+}
+
+// A status given blank is given: refused, never read as none.
+#[test]
+fn test_a_status_change_given_a_blank_status_is_refused_before_anything_is_read() {
+    let mut service = configured(&["unreadable"]);
+    for blank in ["", " "] {
+        let error = ready(service.set_status(moved("swift-amber", blank, None))).unwrap_err();
+        assert_eq!(error, AppError::Blank { field: "status" });
+    }
+    assert!(service.configuration.asked == 0, "no configuration read");
+    assert!(service.identity.pins.is_empty(), "no project resolved");
+}
+
+#[test]
+fn test_a_status_change_giving_nothing_is_refused() {
+    let mut service = service(&["swift-amber"]);
+    add(&mut service, new_task("Ship it")).unwrap();
+    let change = StatusChange {
+        status: None,
+        ..moved("swift-amber", "", None)
+    };
+    let error = ready(service.set_status(change)).unwrap_err();
+    assert_eq!(error.code(), "tasks-status-required");
 }
 
 // A trigger given blank is given: refused, never read as none (which keeps
@@ -1131,7 +1258,7 @@ fn test_every_write_returns_the_dead_letters_written_while_it_ran() {
     dead_letter(&service, "DEAD LETTER: status");
     let set = StatusChange {
         harp_id: "swift-amber".to_string(),
-        status: "Done".to_string(),
+        status: Some("Done".to_string()),
         ..StatusChange::default()
     };
     let written = ready(service.set_status(set)).unwrap();
@@ -1156,7 +1283,7 @@ fn test_every_failed_write_carries_the_dead_letters_written_while_it_ran() {
     add(&mut service, new_task("Ship it")).unwrap();
     let missing = || StatusChange {
         harp_id: "no-such-harp".to_string(),
-        status: "Done".to_string(),
+        status: Some("Done".to_string()),
         ..StatusChange::default()
     };
     let edit = TextEdit {

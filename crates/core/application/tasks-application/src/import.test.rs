@@ -173,7 +173,10 @@ fn test_an_add_imports_the_task_with_its_harp_session_and_time() {
     assert_eq!(task.harp_id, HARP);
     assert_eq!(task.text, "Write the tour");
     assert_eq!(task.status, "In Progress");
-    assert_eq!(task.trigger, "later");
+    // Go keeps a trigger given with any status; here only a Deferred task
+    // holds one (the human's rulings on L, 2026-10-27), so it is left out of
+    // the add, and kept by the import for a later deferral that names none.
+    assert_eq!(task.trigger, "", "held only while Deferred");
     assert_eq!(spelled(&task.tags), strings(&["a", "b"]));
     assert_eq!(task.origin_session, "calm-otter");
     assert_eq!(task.created_at, at(1), "Go's instant, not the clock's");
@@ -195,7 +198,7 @@ fn test_an_add_with_no_status_is_to_do() {
 }
 
 #[test]
-fn test_status_changes_keep_the_logged_instants_and_the_trigger() {
+fn test_status_changes_keep_the_logged_instants() {
     let mut service = service(vec![
         add(HARP, "Revisit", 1),
         status(HARP, "Deferred", "after the release", 5),
@@ -204,13 +207,83 @@ fn test_status_changes_keep_the_logged_instants_and_the_trigger() {
     import(&mut service);
     let task = state(&mut service, HARP).unwrap();
     assert_eq!(task.status, "In Progress");
-    assert_eq!(
-        task.trigger, "after the release",
-        "kept on leaving Deferred"
-    );
+    // Reverses the reviewed "kept on leaving Deferred" (the human's ruling
+    // on L, 2026-10-27): leaving Deferred clears the trigger.
+    assert_eq!(task.trigger, "", "cleared on leaving Deferred");
     assert_eq!(task.status_set_at, at(9));
     assert_eq!(task.deferred_since, Some(at(5)));
     assert_eq!(task.created_at, at(1));
+}
+
+// Go's empty string is a value left out: an add's status, trigger and
+// session, and a status change's trigger.
+#[test]
+fn test_gos_empty_values_are_read_as_left_out() {
+    let mut service = service(numbered(vec![
+        JsonlRecord {
+            status: String::new(),
+            trigger: String::new(),
+            session: String::new(),
+            ..add(HARP, "Revisit", 1)
+        },
+        status(HARP, "Deferred", "after the release", 2),
+        status(HARP, "Deferred", "", 3),
+    ]));
+    let report = import(&mut service);
+    assert_eq!(only(&report).lost, [], "nothing refused as blank");
+    let task = state(&mut service, HARP).unwrap();
+    assert_eq!(
+        (task.status.as_str(), task.trigger.as_str()),
+        ("Deferred", "after the release")
+    );
+    assert_eq!(task.origin_session, "");
+    assert_eq!(task.prior_status, "To Do");
+}
+
+// Go keeps the trigger a task leaves Deferred with, and defers it again on
+// that one when a status change names none; the import does the same by
+// giving it, since here leaving Deferred clears it.
+#[test]
+fn test_a_go_task_deferred_again_without_a_trigger_defers_on_the_one_go_held() {
+    let mut service = service(numbered(vec![
+        add(HARP, "Revisit", 1),
+        status(HARP, "Deferred", "after the release", 2),
+        status(HARP, "In Progress", "", 3),
+        status(HARP, "Deferred", "", 4),
+    ]));
+    let report = import(&mut service);
+    assert_eq!(only(&report).lost, []);
+    let task = state(&mut service, HARP).unwrap();
+    assert_eq!(
+        (task.status.as_str(), task.trigger.as_str()),
+        ("Deferred", "after the release")
+    );
+    assert_eq!(task.prior_status, "In Progress");
+    assert_eq!(task.deferred_since, Some(at(4)));
+}
+
+// Go records a trigger given with any status; here a trigger with another
+// status is refused, so the import leaves it out of the command and keeps
+// it for a later deferral that names none, as Go does.
+#[test]
+fn test_a_go_trigger_given_with_another_status_is_kept_for_a_later_deferral() {
+    let mut service = service(numbered(vec![
+        JsonlRecord {
+            status: "In Progress".to_string(),
+            trigger: "after the release".to_string(),
+            ..add(HARP, "Revisit", 1)
+        },
+        status(HARP, "Done", "after v2", 2),
+        status(HARP, "Deferred", "", 3),
+    ]));
+    let report = import(&mut service);
+    assert_eq!(only(&report).lost, [], "no trigger refused with a status");
+    let task = state(&mut service, HARP).unwrap();
+    assert_eq!(
+        (task.status.as_str(), task.trigger.as_str()),
+        ("Deferred", "after v2")
+    );
+    assert_eq!(task.prior_status, "Done");
 }
 
 #[test]

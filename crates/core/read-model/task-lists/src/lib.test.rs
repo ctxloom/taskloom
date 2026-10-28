@@ -93,6 +93,8 @@ fn add(harp: &str, text: &str) -> AddTask {
         trigger: None,
         tags: Vec::new(),
         origin_session: None,
+        defers: tasks::DEFERRED.to_string(),
+        initial: tasks::TO_DO.to_string(),
     }
 }
 
@@ -101,6 +103,8 @@ fn status(status: &str, trigger: &str) -> SetStatus {
     SetStatus {
         status: given(status),
         trigger: given(trigger),
+        defers: tasks::DEFERRED.to_string(),
+        initial: tasks::TO_DO.to_string(),
     }
 }
 

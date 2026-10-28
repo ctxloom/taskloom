@@ -528,8 +528,9 @@ fn test_status_passes_its_id_status_and_trigger_and_answers_like_add() {
         [StatusChange {
             project: Some("p".to_string()),
             harp_id: "swift-amber".to_string(),
-            status: "Deferred".to_string(),
+            status: Some("Deferred".to_string()),
             trigger: Some("the release".to_string()),
+            clear_trigger: false,
         }]
     );
     assert_eq!(ran.out, "swift-amber\tDeferred\tShip it\n");
@@ -546,9 +547,55 @@ fn test_status_passes_its_id_status_and_trigger_and_answers_like_add() {
     assert_eq!(fake.moved[2].trigger.as_deref(), Some(""), "given empty");
 }
 
+// A trigger alone defers the task; --clear-trigger clears it, alone or with
+// a status, and is passed on beside a trigger for the use case to refuse.
 #[test]
-fn test_status_needs_an_id_and_a_status_and_says_why_it_failed() {
+fn test_status_passes_a_trigger_alone_and_a_clearing_of_the_trigger() {
+    let mut fake = Fake {
+        written: written(shapes::task("swift-amber", "Deferred")),
+        ..Fake::default()
+    };
+    let change = |status: Option<&str>, trigger: Option<&str>, clear_trigger| StatusChange {
+        project: None,
+        harp_id: "swift-amber".to_string(),
+        status: status.map(str::to_string),
+        trigger: trigger.map(str::to_string),
+        clear_trigger,
+    };
+    for (args, expected) in [
+        (
+            &["status", "swift-amber", "--trigger", "the release"][..],
+            change(None, Some("the release"), false),
+        ),
+        (
+            &["status", "swift-amber", "--clear-trigger"][..],
+            change(None, None, true),
+        ),
+        (
+            &["status", "swift-amber", "Done", "--clear-trigger"][..],
+            change(Some("Done"), None, true),
+        ),
+        (
+            &["status", "swift-amber", "--trigger", "x", "--clear-trigger"][..],
+            change(None, Some("x"), true),
+        ),
+    ] {
+        let ran = run_on(&mut fake, true, args);
+        assert_eq!(ran.code, 0, "{args:?}: {}", ran.err);
+        assert_eq!(fake.moved.last(), Some(&expected), "{args:?}");
+    }
+}
+
+#[test]
+fn test_status_needs_an_id_and_a_change_and_says_why_it_failed() {
     let ran = run_on(&mut Fake::default(), true, &["status", "swift-amber"]);
+    assert_eq!(ran.code, 1);
+    assert!(
+        ran.err.contains("--trigger"),
+        "names what it needs: {}",
+        ran.err
+    );
+    let ran = run_on(&mut Fake::default(), true, &["status"]);
     assert_eq!(ran.code, 1);
     let mut fake = Fake {
         written: Some(Err(AppError::NoProject)),

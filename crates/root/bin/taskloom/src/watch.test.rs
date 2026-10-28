@@ -324,6 +324,8 @@ mod ticked {
                         trigger: None,
                         tags: Vec::new(),
                         origin_session: None,
+                        defers: tasks::DEFERRED.to_string(),
+                        initial: tasks::TO_DO.to_string(),
                     };
                     command(store, &harp, add.into(), 0xdd).await;
                 }

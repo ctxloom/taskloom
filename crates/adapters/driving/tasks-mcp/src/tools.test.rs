@@ -245,8 +245,9 @@ fn test_each_change_asks_for_its_task_by_harp_in_the_pinned_project() {
         StatusChange {
             project: Some("pinned-proj-id".to_string()),
             harp_id: "swift-amber".to_string(),
-            status: "Deferred".to_string(),
+            status: Some("Deferred".to_string()),
             trigger: Some("later".to_string()),
+            clear_trigger: false,
         }
     );
     assert_eq!(
@@ -533,4 +534,34 @@ fn test_a_listing_of_every_project_says_so_and_why_when_it_fell_back() {
         None,
         "an explicit global needs no notice"
     );
+}
+
+// A trigger alone defers the task, so status may be left out; clear_trigger
+// clears it, and is passed on beside a trigger, and a trigger given empty
+// is passed on as given, for the use case to refuse.
+#[test]
+fn test_a_status_change_takes_a_trigger_alone_or_a_clearing_of_it() {
+    let change = |arguments| status_change(arguments, &settings()).unwrap();
+    let alone = change(json!({"harp_id": "h", "trigger": "later"}));
+    assert_eq!(
+        (alone.status, alone.trigger, alone.clear_trigger),
+        (None, Some("later".to_string()), false)
+    );
+    let cleared = change(json!({"harp_id": "h", "clear_trigger": true}));
+    assert_eq!(
+        (cleared.status, cleared.trigger, cleared.clear_trigger),
+        (None, None, true)
+    );
+    let both = change(json!({"harp_id": "h", "trigger": "x", "clear_trigger": true}));
+    assert_eq!(
+        (both.trigger, both.clear_trigger),
+        (Some("x".to_string()), true)
+    );
+    let empty = change(json!({"harp_id": "h", "trigger": ""}));
+    assert_eq!(empty.trigger.as_deref(), Some(""), "given empty");
+    assert!(!change(json!({"harp_id": "h", "clear_trigger": false})).clear_trigger);
+    assert!(matches!(
+        status_change(json!({"harp_id": "h", "clear_trigger": "yes"}), &settings()),
+        Err(McpError::Arguments { tool, .. }) if tool == "task_set_status"
+    ));
 }

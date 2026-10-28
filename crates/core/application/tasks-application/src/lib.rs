@@ -74,7 +74,9 @@ pub struct NewTask {
     pub text: String,
     /// `None` means To Do.
     pub status: Option<String>,
-    /// Required when the status is Deferred.
+    /// Given, the task is added Deferred, returning to To Do when the
+    /// trigger is cleared. Required when the status is Deferred; refused
+    /// with any other.
     pub trigger: Option<String>,
     pub tags: Vec<String>,
     /// The session adding it, if one is.
@@ -94,15 +96,21 @@ pub struct TagChange {
     pub remove: Vec<String>,
 }
 
-/// A task moved to a status. No trigger (`None`) keeps the one it holds;
-/// one given blank is refused ([`AppError::Blank`]). Deferred needs one,
-/// given or held.
+/// A task's status, its trigger, or both, changed. A trigger given defers
+/// the task, keeping the status it held to return to; given with a
+/// status, the status must be Deferred. `clear_trigger` clears the one
+/// held, returning a Deferred task to that status (or to `status`, given).
+/// A trigger left out (`None`) keeps the one held while the task stays
+/// Deferred; moving to any other status clears it. A status or trigger
+/// given blank is refused ([`AppError::Blank`]), and a trigger given with
+/// `clear_trigger` ([`AppError::TriggerAndClear`]).
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct StatusChange {
     pub project: Option<String>,
     pub harp_id: String,
-    pub status: String,
+    pub status: Option<String>,
     pub trigger: Option<String>,
+    pub clear_trigger: bool,
 }
 
 /// A task's text replaced whole; its status and trigger untouched.
@@ -384,6 +392,9 @@ where
             trigger: Some(trigger),
             tags,
             origin_session: Some(origin_session),
+            // PROPOSAL (L, red): resolved here; the domain reads them.
+            defers: view::DEFERS.to_string(),
+            initial: view::INITIAL.to_string(),
         };
         tasks::check(&template.clone().into()).map_err(|r| rejected(&r))?;
         let project = self
@@ -475,8 +486,10 @@ where
         // PROPOSAL (L, red): given as before; the implementation passes a
         // trigger left out as None, and the edges gain a way to clear one.
         let set: TaskCommand = SetStatus {
-            status: Some(change.status),
+            status: change.status,
             trigger: Some(given(change.trigger, "trigger")?.unwrap_or_default()),
+            defers: view::DEFERS.to_string(),
+            initial: view::INITIAL.to_string(),
         }
         .into();
         tasks::check(&set).map_err(|r| rejected(&r))?;

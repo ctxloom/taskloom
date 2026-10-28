@@ -99,8 +99,10 @@ pub(crate) async fn status(
     let change = StatusChange {
         project: ctx.project,
         harp_id: args.harp_id,
-        status: args.status,
+        // PROPOSAL (L, red): status still required, no --clear-trigger.
+        status: Some(args.status),
         trigger: args.trigger,
+        clear_trigger: false,
     };
     let written = service.set_status(change).await.map_err(CliError::App)?;
     wrote(

@@ -140,6 +140,8 @@ fn add(text: &str) -> AddTask {
         trigger: None,
         tags: Vec::new(),
         origin_session: Some("calm-otter".to_string()),
+        defers: DEFERRED.to_string(),
+        initial: TO_DO.to_string(),
     }
 }
 
@@ -149,6 +151,8 @@ fn status(status: &str, trigger: &str) -> SetStatus {
     SetStatus {
         status: given(status),
         trigger: given(trigger),
+        defers: DEFERRED.to_string(),
+        initial: TO_DO.to_string(),
     }
 }
 
@@ -157,6 +161,8 @@ fn set(status: Option<&str>, trigger: Option<&str>) -> SetStatus {
     SetStatus {
         status: status.map(str::to_string),
         trigger: trigger.map(str::to_string),
+        defers: DEFERRED.to_string(),
+        initial: TO_DO.to_string(),
     }
 }
 
@@ -280,28 +286,41 @@ fn test_set_status_moves_the_task_and_stamps_when() {
 }
 
 #[test]
-fn test_deferring_again_keeps_the_trigger_the_task_holds() {
+fn test_deferring_a_deferred_task_by_name_keeps_the_trigger_it_holds() {
     let mut task = Task::added("Revisit");
     task.run(status(DEFERRED, "after the release")).unwrap();
-    task.run(status(TO_DO, "")).unwrap();
     let events = task.run(status(DEFERRED, "")).unwrap();
     assert_eq!(
         events,
         vec![TaskEvent::StatusChanged(StatusChanged {
             status: DEFERRED.to_string(),
             trigger: "after the release".to_string(),
-            at: at(104),
-            deferred_since: Some(at(104)),
-            prior_status: String::new(),
+            at: at(103),
+            deferred_since: Some(at(103)),
+            prior_status: TO_DO.to_string(),
         })],
-        "the event carries the trigger held, unchanged or not"
+        "the event carries the trigger held, unchanged or not, and the status to return to"
     );
     assert_eq!(task.state().trigger, "after the release");
-    assert_eq!(task.state().deferred_since, Some(at(104)));
+    assert_eq!(task.state().deferred_since, Some(at(103)));
+}
+
+// Reverses the reviewed rule that leaving Deferred kept the trigger (the
+// human's ruling on L, 2026-10-27): a task holds a trigger exactly while it
+// is Deferred, so deferring it again needs a trigger again.
+#[test]
+fn test_deferring_again_after_leaving_deferred_needs_a_trigger_again() {
+    let mut task = Task::added("Revisit");
+    task.run(status(DEFERRED, "after the release")).unwrap();
+    task.run(status(TO_DO, "")).unwrap();
+    assert_eq!(
+        task.run(status(DEFERRED, "")),
+        Err(TaskRejection::TriggerRequired)
+    );
 }
 
 #[test]
-fn test_leaving_deferred_keeps_the_trigger_and_when_it_was_deferred() {
+fn test_leaving_deferred_clears_the_trigger_and_keeps_when_it_was_deferred() {
     let mut task = Task::added("Revisit");
     task.run(status(DEFERRED, "after the release")).unwrap();
     let events = task.run(status(TO_DO, "")).unwrap();
@@ -309,12 +328,13 @@ fn test_leaving_deferred_keeps_the_trigger_and_when_it_was_deferred() {
         events,
         vec![TaskEvent::StatusChanged(StatusChanged {
             status: TO_DO.to_string(),
-            trigger: "after the release".to_string(),
+            trigger: String::new(),
             at: at(103),
             deferred_since: Some(at(102)),
             prior_status: String::new(),
         })]
     );
+    assert_eq!(task.state().trigger, "");
     assert_eq!(task.state().deferred_since, Some(at(102)));
 }
 
@@ -897,11 +917,14 @@ fn test_a_tags_target_is_its_namespace_and_key() {
 
 // ------------------------------------- L: a trigger defers the task (red)
 //
-// PROPOSAL, for review (fix queue L, passthrough-os-review.plan.md): setting
-// a trigger MAKES the task Deferred, overriding its status, which is kept
-// and restored when the trigger is cleared. The wire's fields are optional,
-// so a status change tells a trigger left out (keep it) from one given
-// empty (clear it); a field given blank is refused.
+// Fix queue L (passthrough-os-review.plan.md), with the human's rulings of
+// 2026-10-27: setting a trigger MAKES the task Deferred, overriding its
+// status, which is kept and restored when the trigger is cleared; leaving
+// Deferred by a status clears the trigger, so a task holds one exactly
+// while it is Deferred; a trigger with another status is refused. The
+// wire's fields are optional, so a status change tells a trigger left out
+// (keep it) from one given empty (clear it); a field given blank is
+// refused.
 
 /// The single `StatusChanged` among `events`.
 fn changed(events: &[TaskEvent]) -> &StatusChanged {
@@ -964,13 +987,47 @@ fn test_deferring_by_name_keeps_the_status_to_return_to_too() {
 }
 
 #[test]
-fn test_a_trigger_given_with_another_status_defers_to_return_to_that_status() {
+fn test_a_trigger_given_with_another_status_is_refused() {
+    let refusal = TaskRejection::TriggerWithStatus {
+        status: "In Progress".to_string(),
+        defers: DEFERRED.to_string(),
+    };
+    let refused: Vec<TaskCommand> = vec![
+        set(Some("In Progress"), Some("after CI is green")).into(),
+        set(Some(" In Progress "), Some("after CI is green")).into(),
+        AddTask {
+            status: Some("In Progress".to_string()),
+            trigger: Some("after CI is green".to_string()),
+            ..add("Revisit")
+        }
+        .into(),
+    ];
+    for command in refused {
+        assert_eq!(check(&command), Err(refusal.clone()), "check {command:?}");
+        let mut task = match command {
+            TaskCommand::AddTask(_) => Task::new(),
+            _ => Task::added("Revisit"),
+        };
+        assert_eq!(
+            task.run(command.clone()),
+            Err(refusal.clone()),
+            "decide {command:?}"
+        );
+    }
+}
+
+#[test]
+fn test_a_trigger_given_with_the_deferring_status_defers_the_task() {
     let mut task = Task::added("Revisit");
+    task.run(status("In Progress", "")).unwrap();
     let events = task
-        .run(set(Some("In Progress"), Some("after CI is green")))
+        .run(set(Some(DEFERRED), Some("after CI is green")))
         .unwrap();
     let changed = changed(&events);
-    assert_eq!(changed.status, DEFERRED);
+    assert_eq!(
+        (changed.status.as_str(), changed.trigger.as_str()),
+        (DEFERRED, "after CI is green")
+    );
     assert_eq!(changed.prior_status, "In Progress");
 }
 
@@ -1006,22 +1063,62 @@ fn test_leaving_deferred_by_status_drops_the_status_to_return_to() {
     let events = task.run(status("Done", "")).unwrap();
     let changed = changed(&events);
     assert_eq!(
-        changed.trigger, "after v2",
-        "kept, so re-deferring needs none"
+        changed.trigger, "",
+        "cleared: only a Deferred task holds one"
     );
     assert_eq!(changed.prior_status, "");
 }
 
-#[test]
-fn test_clearing_a_trigger_kept_after_leaving_deferred_drops_it_alone() {
+/// `task` resumed from a snapshot of `state`: a history recorded under
+/// earlier rules, which today's commands could not make.
+fn resumed(task: &mut Task, state: &TaskState) {
+    use annals::next::State;
+
+    let snapshot = annals::next::v1::Snapshot {
+        sequence: 0,
+        state: Some(annals::next::pack(&state.to_snapshot())),
+        rules_version: "v1".to_string(),
+    };
+    task.store.write_snapshot(&cover(), &snapshot).unwrap();
+}
+
+/// A task that left Deferred before L: In Progress, still holding the
+/// trigger it had, as the rule then kept it.
+fn left_deferred_before_l() -> Task {
     let mut task = Task::added("Revisit");
-    task.run(status(DEFERRED, "after v2")).unwrap();
-    task.run(status("In Progress", "")).unwrap();
+    let mut before = task.state();
+    before.status = "In Progress".to_string();
+    before.trigger = "after v2".to_string();
+    resumed(&mut task, &before);
+    task
+}
+
+#[test]
+fn test_clearing_a_trigger_kept_after_leaving_deferred_before_l_drops_it_alone() {
+    let mut task = left_deferred_before_l();
     let events = task.run(set(None, Some(""))).unwrap();
     let changed = changed(&events);
     assert_eq!(
         (changed.status.as_str(), changed.trigger.as_str()),
         ("In Progress", "")
+    );
+}
+
+#[test]
+fn test_a_task_that_left_deferred_before_l_drops_its_trigger_on_a_status_change() {
+    let mut task = left_deferred_before_l();
+    let events = task.run(status("Done", "")).unwrap();
+    assert_eq!(changed(&events).trigger, "");
+}
+
+#[test]
+fn test_a_task_that_left_deferred_before_l_defers_again_on_the_trigger_it_holds() {
+    let mut task = left_deferred_before_l();
+    let events = task.run(status(DEFERRED, "")).unwrap();
+    let changed = changed(&events);
+    assert_eq!(
+        (changed.trigger.as_str(), changed.prior_status.as_str()),
+        ("after v2", "In Progress")
     );
 }
 
@@ -1032,9 +1129,7 @@ fn test_clearing_a_trigger_the_task_does_not_hold_changes_nothing() {
 }
 
 #[test]
-fn test_clearing_the_trigger_of_a_task_deferred_before_l_returns_it_to_to_do() {
-    use annals::next::State;
-
+fn test_clearing_the_trigger_of_a_task_deferred_before_l_returns_it_to_the_initial_status() {
     // A task deferred before the status to return to was recorded: Deferred,
     // a trigger, no prior status (a snapshot stands in for its history).
     let mut task = Task::added("Revisit");
@@ -1042,14 +1137,23 @@ fn test_clearing_the_trigger_of_a_task_deferred_before_l_returns_it_to_to_do() {
     before.status = DEFERRED.to_string();
     before.trigger = "after v2".to_string();
     before.prior_status = String::new();
-    let snapshot = annals::next::v1::Snapshot {
-        sequence: 0,
-        state: Some(annals::next::pack(&before.to_snapshot())),
-        rules_version: "v1".to_string(),
-    };
-    task.store.write_snapshot(&cover(), &snapshot).unwrap();
+    resumed(&mut task, &before);
     let events = task.run(set(None, Some(""))).unwrap();
     assert_eq!(changed(&events).status, TO_DO);
+    let events = {
+        let mut task = Task::added("Revisit");
+        resumed(&mut task, &before);
+        task.run(SetStatus {
+            initial: "Backlog".to_string(),
+            ..set(None, Some(""))
+        })
+        .unwrap()
+    };
+    assert_eq!(
+        changed(&events).status,
+        "Backlog",
+        "the command's, not To Do"
+    );
 }
 
 #[test]
@@ -1077,22 +1181,6 @@ fn test_a_task_added_with_a_trigger_is_added_deferred() {
     assert_eq!(added.status, DEFERRED);
     assert_eq!(added.deferred_since, Some(at(101)));
     assert_eq!(added.prior_status, TO_DO, "the status it returns to");
-}
-
-#[test]
-fn test_a_task_added_with_a_status_and_a_trigger_returns_to_that_status() {
-    let mut task = Task::new();
-    task.run(AddTask {
-        status: Some("In Progress".to_string()),
-        trigger: Some("after v2".to_string()),
-        ..add("Revisit")
-    })
-    .unwrap();
-    let state = task.state();
-    assert_eq!(state.status, DEFERRED);
-    assert_eq!(state.prior_status, "In Progress");
-    task.run(set(None, Some(""))).unwrap();
-    assert_eq!(task.state().status, "In Progress");
 }
 
 #[test]
@@ -1189,4 +1277,134 @@ fn test_a_status_change_giving_neither_a_status_nor_a_trigger_is_refused() {
         check(&set(None, None).into()),
         Err(TaskRejection::StatusRequired)
     );
+}
+
+// ------------------------------- the statuses the command carries (L, red)
+//
+// The domain names no status: which one a trigger defers a task to, and
+// which one a task starts in, are the command's, resolved by the
+// application from the configured taxonomy.
+
+/// An add under a taxonomy whose deferring status is Parked and whose
+/// initial one is Backlog.
+fn add_parked(text: &str) -> AddTask {
+    AddTask {
+        defers: "Parked".to_string(),
+        initial: "Backlog".to_string(),
+        ..add(text)
+    }
+}
+
+/// A status change under the same taxonomy.
+fn set_parked(status: Option<&str>, trigger: Option<&str>) -> SetStatus {
+    SetStatus {
+        defers: "Parked".to_string(),
+        initial: "Backlog".to_string(),
+        ..set(status, trigger)
+    }
+}
+
+#[test]
+fn test_an_add_takes_its_initial_and_deferring_statuses_from_the_command() {
+    let mut task = Task::new();
+    task.run(add_parked("Ship it")).unwrap();
+    assert_eq!(task.state().status, "Backlog");
+    let mut task = Task::new();
+    let events = task
+        .run(AddTask {
+            trigger: Some("after v2".to_string()),
+            ..add_parked("Revisit")
+        })
+        .unwrap();
+    let [TaskEvent::TaskAdded(added)] = events.as_slice() else {
+        panic!("{events:?}")
+    };
+    assert_eq!(
+        (added.status.as_str(), added.prior_status.as_str()),
+        ("Parked", "Backlog")
+    );
+    assert_eq!(added.deferred_since, Some(at(101)));
+}
+
+#[test]
+fn test_a_status_change_defers_to_and_needs_a_trigger_for_the_commands_deferring_status() {
+    let mut task = Task::new();
+    task.run(add_parked("Revisit")).unwrap();
+    assert_eq!(
+        task.run(set_parked(Some("Parked"), None)),
+        Err(TaskRejection::TriggerRequired)
+    );
+    let events = task.run(set_parked(Some(DEFERRED), None)).unwrap();
+    assert_eq!(
+        changed(&events).deferred_since,
+        None,
+        "Deferred is an ordinary status here"
+    );
+    let events = task.run(set_parked(None, Some("after v2"))).unwrap();
+    let changed = changed(&events);
+    assert_eq!(
+        (changed.status.as_str(), changed.prior_status.as_str()),
+        ("Parked", DEFERRED)
+    );
+    assert_eq!(changed.deferred_since, Some(at(104)));
+    assert_eq!(
+        task.run(set_parked(Some(DEFERRED), Some("after v3"))),
+        Err(TaskRejection::TriggerWithStatus {
+            status: DEFERRED.to_string(),
+            defers: "Parked".to_string(),
+        })
+    );
+}
+
+#[test]
+fn test_a_command_without_its_statuses_is_refused() {
+    let unresolved = |field: &str| TaskRejection::Unresolved {
+        field: field.to_string(),
+    };
+    let refused: Vec<(TaskCommand, TaskRejection)> = vec![
+        (
+            AddTask {
+                defers: String::new(),
+                ..add("Ship it")
+            }
+            .into(),
+            unresolved("defers"),
+        ),
+        (
+            AddTask {
+                initial: " ".to_string(),
+                ..add("Ship it")
+            }
+            .into(),
+            unresolved("initial"),
+        ),
+        (
+            SetStatus {
+                defers: String::new(),
+                ..status("Done", "")
+            }
+            .into(),
+            unresolved("defers"),
+        ),
+        (
+            SetStatus {
+                initial: String::new(),
+                ..status("Done", "")
+            }
+            .into(),
+            unresolved("initial"),
+        ),
+    ];
+    for (command, rejection) in refused {
+        assert_eq!(check(&command), Err(rejection.clone()), "check {command:?}");
+        let mut task = match command {
+            TaskCommand::AddTask(_) => Task::new(),
+            _ => Task::added("Ship it"),
+        };
+        assert_eq!(
+            task.run(command.clone()),
+            Err(rejection),
+            "decide {command:?}"
+        );
+    }
 }
