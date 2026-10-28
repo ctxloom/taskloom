@@ -73,7 +73,11 @@ an OS: no `cfg(unix|windows|target_os|target_family)`, `cfg!(`,
 (a test that needs a unix tool asks `os::host().flavor()` at run time).
 `just lint-os` checks it, with an allowlist (`scripts/os-cfg-allow.txt`),
 and `just lint` runs it. `just check-windows` compiles the crates that use
-it for Windows (not run: the repository has no Windows runner yet).
+it for Windows, a quick check from Linux; CI (`.github/workflows/ci.yml`)
+builds and tests the whole workspace natively on a Windows runner. So a
+test names a path that must be absolute through `os::fixture` (`/tree`,
+`C:\tree` on Windows), never a unix literal, and builds an expected path
+the way the code does, joined component by component.
 
 ## Architecture: hexagonal around CQRS/ES (checked in review)
 

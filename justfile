@@ -81,8 +81,9 @@ lint-os:
 
 # The platform crates' Windows implementors (os, and the seams over it),
 # and the driven adapters that use them, compiled for a Windows target but
-# not run: what a Linux host can check of them until a Windows runner tests
-# them (decision 5). Needs the x86_64-pc-windows-gnu target (`rustup target
+# not run: the quick check a Linux host can make of them before CI's Windows
+# runner builds and tests the whole workspace natively (decision 5; see
+# .github/workflows/ci.yml). Needs the x86_64-pc-windows-gnu target (`rustup target
 # add`); no linker, since nothing is linked. The rest of the workspace is
 # not checked: its C dependencies (psm, stacker) need a mingw C compiler.
 [no-exit-message]
