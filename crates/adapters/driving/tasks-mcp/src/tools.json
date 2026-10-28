@@ -127,6 +127,10 @@
           "description": "The task's harp ID (e.g. \"swift-amber-falcon\") as returned by task_list or task_add.",
           "type": "string"
         },
+        "request_id": {
+          "description": "An id you choose for this request; resend the same one when retrying it, and a request already applied is not applied again.",
+          "type": "string"
+        },
         "text": {
           "description": "The full replacement text for the task. The entire text is replaced (not patched); status and trigger are left unchanged. Keep the subject on the first line (~80 characters or fewer, since list views truncate there) and move provenance to a later line rather than overwriting the subject with it.",
           "type": "string"
@@ -479,6 +483,10 @@
           "description": "The task's harp ID (e.g. \"swift-amber-falcon\") as returned by task_list or task_add.",
           "type": "string"
         },
+        "request_id": {
+          "description": "An id you choose for this request; resend the same one when retrying it, and a request already applied is not applied again.",
+          "type": "string"
+        },
         "status": {
           "description": "Target status. Standard values: \"In Progress\", \"To Do\", \"Deferred\", \"Done\", \"Archived\". Omit it to only set or clear the trigger.",
           "type": "string"
@@ -598,6 +606,10 @@
             "null",
             "array"
           ]
+        },
+        "request_id": {
+          "description": "An id you choose for this request; resend the same one when retrying it, and a request already applied is not applied again.",
+          "type": "string"
         }
       },
       "required": [

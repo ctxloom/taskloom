@@ -30,7 +30,7 @@ mod watch;
 
 use std::future::Future;
 
-use annals::next::v1::{command_page, Command, CommandBook, CommandPage, Cover};
+use annals::next::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use annals::next::{
     ids, AsyncReadStore, AsyncReadUnit, Payload, Registry, Rulebook, Stream, Upcaster,
 };
@@ -364,16 +364,29 @@ where
         }
     }
 
-    /// Run `command` on the task `harp_id` in `project`'s store, under a
-    /// fresh command id, retried as annals says; the task after it.
+    /// The command id `operation` sends: derived from the request's key
+    /// when one is given ([`request_command_id`]), so a retry sends the
+    /// same; a fresh one when none is.
+    fn command_id(&mut self, operation: &str, request_id: Option<&str>) -> Uuid {
+        match request_id {
+            Some(key) => request_command_id(operation, key),
+            None => self.clock.command_id(),
+        }
+    }
+
+    /// Run `command` on the task `harp_id` in `project`'s store, under
+    /// `command_id`, retried as annals says; the task after it. A command
+    /// already applied under `command_id` is answered DUPLICATE and
+    /// applies nothing: the task is answered as it stands.
     async fn commit(
         &mut self,
         project: &Project,
         harp_id: &str,
         command: TaskCommand,
+        command_id: Uuid,
     ) -> Result<Task, AppError> {
         let unshaped: Option<&fn(&TaskState) -> Option<CommandBook>> = None;
-        self.commit_shaped(project, harp_id, command, unshaped)
+        self.commit_shaped(project, harp_id, command, command_id, unshaped)
             .await
     }
 
@@ -385,10 +398,10 @@ where
         project: &Project,
         harp_id: &str,
         command: TaskCommand,
+        command_id: Uuid,
         shape: Option<&F>,
     ) -> Result<Task, AppError> {
         let store = self.stores.open(project).await.map_err(failed)?;
-        let command_id = self.clock.command_id();
         let book = book(harp_id, command);
         let mut runner = retry::Runner {
             registry: &self.registry,
@@ -425,6 +438,9 @@ where
     G: Configuration,
 {
     async fn adding(&mut self, task: NewTask) -> Result<Written, AppError> {
+        if task.request_id.is_some() {
+            return Err(AppError::AddRequestIdNotYet);
+        }
         let status = given(task.status, "status")?;
         let trigger = given(task.trigger, "trigger")?;
         let origin_session = given(task.origin_session, "origin_session")?;
@@ -494,6 +510,7 @@ where
     }
 
     async fn tagging(&mut self, change: TagChange) -> Result<Written, AppError> {
+        let request_id = given(change.request_id, "request_id")?;
         // Nothing to add or remove is refused before anything is read.
         let add = tags::parse_all(&change.add).map_err(|r| refused(&r))?;
         let remove = tags::parse_all(&change.remove).map_err(|r| refused(&r))?;
@@ -520,8 +537,9 @@ where
             remove.extend(displaced);
             Some(book(&change.harp_id, Retag { add, remove }.into()))
         };
+        let command_id = self.command_id("tag", request_id.as_deref());
         let task = self
-            .commit_shaped(&project, &change.harp_id, retag, Some(&shape))
+            .commit_shaped(&project, &change.harp_id, retag, command_id, Some(&shape))
             .await?;
         Ok(Written {
             project,
@@ -532,6 +550,7 @@ where
     }
 
     async fn setting_status(&mut self, change: StatusChange) -> Result<Written, AppError> {
+        let request_id = given(change.request_id, "request_id")?;
         let status = given(change.status, "status")?;
         let trigger = given(change.trigger, "trigger")?;
         // SetStatus's trigger given empty is its clearing, which no edge
@@ -551,7 +570,10 @@ where
         tasks::check(&set).map_err(|r| rejected(&r))?;
         let schema = self.schema()?;
         let project = self.existing(change.project.as_deref()).await?;
-        let task = self.commit(&project, &change.harp_id, set).await?;
+        let command_id = self.command_id("set_status", request_id.as_deref());
+        let task = self
+            .commit(&project, &change.harp_id, set, command_id)
+            .await?;
         Ok(Written {
             project,
             task,
@@ -561,11 +583,15 @@ where
     }
 
     async fn editing(&mut self, edit: TextEdit) -> Result<Written, AppError> {
+        let request_id = given(edit.request_id, "request_id")?;
         let command: TaskCommand = EditText { text: edit.text }.into();
         tasks::check(&command).map_err(|r| rejected(&r))?;
         let schema = self.schema()?;
         let project = self.existing(edit.project.as_deref()).await?;
-        let task = self.commit(&project, &edit.harp_id, command).await?;
+        let command_id = self.command_id("edit", request_id.as_deref());
+        let task = self
+            .commit(&project, &edit.harp_id, command, command_id)
+            .await?;
         Ok(Written {
             project,
             task,

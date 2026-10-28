@@ -4,9 +4,6 @@
 //! resend. A retried request sends the same command id, and annals answers
 //! a command it has already applied DUPLICATE: the retry applies nothing,
 //! and answers with the task as it stands.
-//!
-//! PROPOSAL (red): the derivation is pinned by tests; its body is not
-//! written yet (the uuid crate's `v5` feature, approved 2026-10-27).
 
 use annals::next::v1::Uuid;
 
@@ -22,10 +19,9 @@ pub const REQUEST_NAMESPACE: [u8; 16] = [
 /// [`REQUEST_NAMESPACE`] of `<operation>\0<request_id>`, so one key reused
 /// for another operation is another command.
 pub fn request_command_id(operation: &str, request_id: &str) -> Uuid {
-    let _ = (operation, request_id);
-    todo!(
-        "PROPOSAL (idempotency, red): UUIDv5 of `<operation>\\0<request_id>` in REQUEST_NAMESPACE"
-    )
+    let namespace = uuid::Uuid::from_bytes(REQUEST_NAMESPACE);
+    let name = [operation.as_bytes(), b"\0", request_id.as_bytes()].concat();
+    Uuid::from_bytes(*uuid::Uuid::new_v5(&namespace, &name).as_bytes())
 }
 
 #[cfg(test)]

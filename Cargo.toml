@@ -108,7 +108,7 @@ rmcp = { version = "=3.5.1", default-features = false, features = ["server", "tr
 expr-lang = { version = "=2.1.0", default-features = false }
 # Display-width columns in text output.
 unicode-width = "0.2"
-uuid = { version = "1", features = ["v7"] }
+uuid = { version = "1", features = ["v5", "v7"] }
 
 [workspace.lints.clippy]
 invisible_characters = "deny"

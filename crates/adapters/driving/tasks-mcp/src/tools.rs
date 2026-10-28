@@ -54,6 +54,10 @@ struct AddArgs {
     trigger: Option<String>,
     #[serde(default)]
     tags: Option<Vec<String>>,
+    /// Not in the schema until fix O, but taken, so the use case refuses
+    /// it in its own words.
+    #[serde(default)]
+    request_id: Option<String>,
 }
 
 /// `task_set_status`'s arguments.
@@ -67,6 +71,8 @@ struct SetStatusArgs {
     trigger: Option<String>,
     #[serde(default)]
     clear_trigger: bool,
+    #[serde(default)]
+    request_id: Option<String>,
 }
 
 /// `task_edit`'s arguments.
@@ -75,6 +81,8 @@ struct SetStatusArgs {
 struct EditArgs {
     harp_id: String,
     text: String,
+    #[serde(default)]
+    request_id: Option<String>,
 }
 
 /// `task_tag`'s arguments.
@@ -86,6 +94,8 @@ struct TagArgs {
     add: Option<Vec<String>>,
     #[serde(default)]
     remove: Option<Vec<String>>,
+    #[serde(default)]
+    request_id: Option<String>,
 }
 
 fn arguments<T: DeserializeOwned>(tool: &str, arguments: Value) -> Result<T, McpError> {
@@ -146,8 +156,7 @@ pub fn new_task(arguments: Value, settings: &Settings) -> Result<NewTask, McpErr
         trigger: args.trigger,
         tags: args.tags.unwrap_or_default(),
         origin_session: settings.session(),
-        // PROPOSAL (red): passed on as given.
-        request_id: None,
+        request_id: args.request_id,
     })
 }
 
@@ -160,8 +169,7 @@ pub fn status_change(arguments: Value, settings: &Settings) -> Result<StatusChan
         status: args.status,
         trigger: args.trigger,
         clear_trigger: args.clear_trigger,
-        // PROPOSAL (red): passed on as given.
-        request_id: None,
+        request_id: args.request_id,
     })
 }
 
@@ -172,8 +180,7 @@ pub fn text_edit(arguments: Value, settings: &Settings) -> Result<TextEdit, McpE
         project: settings.project.clone(),
         harp_id: args.harp_id,
         text: args.text,
-        // PROPOSAL (red): passed on as given.
-        request_id: None,
+        request_id: args.request_id,
     })
 }
 
@@ -185,8 +192,7 @@ pub fn tag_change(arguments: Value, settings: &Settings) -> Result<TagChange, Mc
         harp_id: args.harp_id,
         add: args.add.unwrap_or_default(),
         remove: args.remove.unwrap_or_default(),
-        // PROPOSAL (red): passed on as given.
-        request_id: None,
+        request_id: args.request_id,
     })
 }
 

@@ -970,11 +970,7 @@ fn test_a_write_retried_under_its_request_id_applies_once() {
         "tasks-application-add-request-id-not-yet",
     );
     let listed = jq.ok(&["list", "--all", "--json"]);
-    assert_eq!(
-        listed["tasks"].as_array().map(Vec::len),
-        Some(1),
-        "{listed}"
-    );
+    assert_eq!(listed.as_array().map(Vec::len), Some(1), "{listed}");
 }
 
 #[test]

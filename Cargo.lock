@@ -2551,6 +2551,7 @@ dependencies = [
  "task-lists",
  "task-priority",
  "tasks",
+ "uuid",
 ]
 
 [[package]]

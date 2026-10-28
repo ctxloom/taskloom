@@ -16,6 +16,7 @@ tagma-core.workspace = true
 task-lists.workspace = true
 task-priority.workspace = true
 tasks.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 fluent-syntax.workspace = true

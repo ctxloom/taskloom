@@ -53,6 +53,10 @@ pub struct AddArgs {
     /// Tag to set at creation (repeatable).
     #[arg(long = "tag")]
     tags: Vec<String>,
+    /// Not yet: refused until fix O, which pins the harp an add mints by
+    /// its request id; without it a retried add would add the task again.
+    #[arg(long)]
+    request_id: Option<String>,
 }
 
 pub(crate) async fn add(
@@ -70,8 +74,7 @@ pub(crate) async fn add(
         trigger: args.trigger,
         tags: args.tags,
         origin_session,
-        // PROPOSAL (red): passed on as given.
-        request_id: None,
+        request_id: args.request_id,
     };
     let written = service.add(task).await.map_err(CliError::App)?;
     wrote(
@@ -106,6 +109,10 @@ pub struct StatusArgs {
     /// deferred from, or to the status given.
     #[arg(long)]
     clear_trigger: bool,
+    /// An id you choose for this request; resend the same one when retrying
+    /// it, and a request already applied is not applied again.
+    #[arg(long)]
+    request_id: Option<String>,
 }
 
 pub(crate) async fn status(
@@ -121,8 +128,7 @@ pub(crate) async fn status(
         status: args.status,
         trigger: args.trigger,
         clear_trigger: args.clear_trigger,
-        // PROPOSAL (red): passed on as given.
-        request_id: None,
+        request_id: args.request_id,
     };
     let written = service.set_status(change).await.map_err(CliError::App)?;
     wrote(
@@ -143,6 +149,10 @@ pub struct EditArgs {
     /// starting with '-' goes after `--`.
     #[arg(required = true, num_args = 1..)]
     text: Vec<String>,
+    /// An id you choose for this request; resend the same one when retrying
+    /// it, and a request already applied is not applied again.
+    #[arg(long)]
+    request_id: Option<String>,
 }
 
 pub(crate) async fn edit(
@@ -156,8 +166,7 @@ pub(crate) async fn edit(
         project: ctx.project,
         harp_id: args.harp_id,
         text: args.text.join(" "),
-        // PROPOSAL (red): passed on as given.
-        request_id: None,
+        request_id: args.request_id,
     };
     let written = service.edit(edit).await.map_err(CliError::App)?;
     wrote(
@@ -180,6 +189,10 @@ pub struct TagArgs {
     /// Tag to remove (repeatable).
     #[arg(long)]
     remove: Vec<String>,
+    /// An id you choose for this request; resend the same one when retrying
+    /// it, and a request already applied is not applied again.
+    #[arg(long)]
+    request_id: Option<String>,
 }
 
 pub(crate) async fn tag(
@@ -194,8 +207,7 @@ pub(crate) async fn tag(
         harp_id: args.harp_id,
         add: args.add,
         remove: args.remove,
-        // PROPOSAL (red): passed on as given.
-        request_id: None,
+        request_id: args.request_id,
     };
     let written = service.tag(change).await.map_err(CliError::App)?;
     let view = Tagged(&written.task, &written.shown);
