@@ -107,17 +107,18 @@ pub const TOOLS: &[(&str, &str)] = &[
         "Omit it for no cap; 0 is refused.",
     ),
     // 10. task_add: a trigger defers the task, and is refused with any
-    // other status (fix L).
+    // other status (fix L; tightened 2026-10-27).
     (
         r#""The revive condition for a Deferred task: a concrete description of what should bring it back (e.g. \"the v2 API ships\"). REQUIRED when status is \"Deferred\"; ignored otherwise.""#,
-        r#""The revive condition: a concrete description of what should bring the task back (e.g. \"the v2 API ships\"). Giving one adds the task Deferred, returning to \"To Do\" when its trigger is cleared. REQUIRED when status is \"Deferred\"; refused with any other status (tasks-trigger-with-status).""#,
+        r#""Revive condition. Adds the task Deferred, returning to \"To Do\" when cleared. Required with \"Deferred\"; refused with any other status.""#,
     ),
     // 11. task_set_status: a trigger alone defers the task, keeping its
     // status to return to; clear_trigger revives it; leaving Deferred by a
-    // status clears the trigger; status is no longer required (fix L).
+    // status clears the trigger; status is no longer required (fix L;
+    // tightened 2026-10-27).
     (
         r#"Use \"Deferred\" with a `trigger` to park a task on a named revive condition (it then hides from the active list until the condition fires).""#,
-        r#"Give a `trigger` (alone, or with \"Deferred\") to park a task on a named revive condition: it becomes Deferred and hides from the active list until the condition fires, and the status it held is kept. Pass clear_trigger=true to revive it: it returns to that status, or to `status` if given. Moving a Deferred task to any other status clears its trigger.""#,
+        r#"A `trigger` (alone, or with \"Deferred\") defers the task until its condition fires, keeping the status it held. `clear_trigger: true` returns it to that status, or to `status`. Moving a Deferred task to any other status clears its trigger.""#,
     ),
     (
         r#""properties": {
@@ -140,7 +141,7 @@ pub const TOOLS: &[(&str, &str)] = &[
       ],"#,
         r#""properties": {
         "clear_trigger": {
-          "description": "true clears the task's trigger: a Deferred task returns to the status it was deferred from, or to `status` if given (not \"Deferred\"). Refused together with `trigger` (tasks-application-trigger-and-clear). An empty `trigger` does not clear one: it is refused as blank.",
+          "description": "true revives a Deferred task to its prior status, or to `status`. Not with `trigger`.",
           "type": "boolean"
         },
         "harp_id": {
@@ -152,7 +153,7 @@ pub const TOOLS: &[(&str, &str)] = &[
           "type": "string"
         },
         "trigger": {
-          "description": "The revive condition: what should bring the task back. Giving one defers the task: its status becomes \"Deferred\", and the status it held is kept to return to. Refused with any status other than \"Deferred\" (tasks-trigger-with-status). REQUIRED for \"Deferred\" unless the task is already Deferred (then its trigger is preserved).",
+          "description": "Revive condition. Defers the task; give it alone or with \"Deferred\". Never blank.",
           "type": "string"
         }
       },

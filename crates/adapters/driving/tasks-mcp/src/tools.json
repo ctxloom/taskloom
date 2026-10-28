@@ -23,7 +23,7 @@
           "type": "string"
         },
         "trigger": {
-          "description": "The revive condition: a concrete description of what should bring the task back (e.g. \"the v2 API ships\"). Giving one adds the task Deferred, returning to \"To Do\" when its trigger is cleared. REQUIRED when status is \"Deferred\"; refused with any other status (tasks-trigger-with-status).",
+          "description": "Revive condition. Adds the task Deferred, returning to \"To Do\" when cleared. Required with \"Deferred\"; refused with any other status.",
           "type": "string"
         }
       },
@@ -471,12 +471,12 @@
     }
   },
   {
-    "description": "Move a task to a different status. Use \"Done\" to complete a task or \"Archived\" to drop it from the active list without losing history. Give a `trigger` (alone, or with \"Deferred\") to park a task on a named revive condition: it becomes Deferred and hides from the active list until the condition fires, and the status it held is kept. Pass clear_trigger=true to revive it: it returns to that status, or to `status` if given. Moving a Deferred task to any other status clears its trigger.",
+    "description": "Move a task to a different status. Use \"Done\" to complete a task or \"Archived\" to drop it from the active list without losing history. A `trigger` (alone, or with \"Deferred\") defers the task until its condition fires, keeping the status it held. `clear_trigger: true` returns it to that status, or to `status`. Moving a Deferred task to any other status clears its trigger.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "clear_trigger": {
-          "description": "true clears the task's trigger: a Deferred task returns to the status it was deferred from, or to `status` if given (not \"Deferred\"). Refused together with `trigger` (tasks-application-trigger-and-clear). An empty `trigger` does not clear one: it is refused as blank.",
+          "description": "true revives a Deferred task to its prior status, or to `status`. Not with `trigger`.",
           "type": "boolean"
         },
         "harp_id": {
@@ -492,7 +492,7 @@
           "type": "string"
         },
         "trigger": {
-          "description": "The revive condition: what should bring the task back. Giving one defers the task: its status becomes \"Deferred\", and the status it held is kept to return to. Refused with any status other than \"Deferred\" (tasks-trigger-with-status). REQUIRED for \"Deferred\" unless the task is already Deferred (then its trigger is preserved).",
+          "description": "Revive condition. Defers the task; give it alone or with \"Deferred\". Never blank.",
           "type": "string"
         }
       },
