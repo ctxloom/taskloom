@@ -117,7 +117,7 @@ const FLAGS: [&str; 7] = [
 fn moved(service: &mut Permits, harp_id: &str, status: &str) {
     ready(service.set_status(StatusChange {
         harp_id: harp_id.to_string(),
-        status: status.to_string(),
+        status: Some(status.to_string()),
         trigger: (status == "Deferred").then(|| "when it matters".to_string()),
         ..StatusChange::default()
     }))
@@ -616,7 +616,7 @@ fn test_a_finished_task_still_carrying_a_permit_blocks_its_revoke() {
     add(&mut service, &["area:mcp"]).unwrap();
     ready(service.set_status(StatusChange {
         harp_id: "swift-amber".to_string(),
-        status: "Done".to_string(),
+        status: Some("Done".to_string()),
         ..StatusChange::default()
     }))
     .unwrap();
