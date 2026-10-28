@@ -90,10 +90,7 @@ impl AgentConfigs for AgentConfigFiles {
         }
         match scope {
             Scope::User => {
-                let home = self
-                    .home
-                    .as_ref()
-                    .ok_or_else(|| Report::of(&ConfigError::NoHome))?;
+                let home = self.home.as_ref().ok_or_else(|| self.no_home())?;
                 Ok(go_join(home, ".claude.json"))
             }
             Scope::Project(dir) => Ok(go_join(dir, ".mcp.json")),
@@ -150,6 +147,13 @@ impl AgentConfigs for AgentConfigFiles {
 }
 
 impl AgentConfigFiles {
+    /// That there is no home, naming the variable this host reads it from.
+    fn no_home(&self) -> Report {
+        Report::of(&ConfigError::NoHome {
+            flavor: self.fs.os().flavor(),
+        })
+    }
+
     /// taskloom's application records, under the home.
     fn records(&self) -> Option<PathBuf> {
         Some(
@@ -171,10 +175,7 @@ impl AgentConfigFiles {
         server: Option<&McpServer>,
         dry_run: bool,
     ) -> Result<Rewritten, Report> {
-        let home = self
-            .home
-            .as_ref()
-            .ok_or_else(|| Report::of(&ConfigError::NoHome))?;
+        let home = self.home.as_ref().ok_or_else(|| self.no_home())?;
         let _locked =
             file_lock::lock_file(&*self.fs, home, path, self.waits).map_err(|e| Report::of(&e))?;
         self.rewrite_locked(path, name, owner, server, dry_run)

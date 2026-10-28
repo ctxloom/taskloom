@@ -660,6 +660,16 @@ fn test_without_a_home_there_is_no_store_and_no_registry() {
             .for_write(Some("pinned"))
             .unwrap_err();
         assert_eq!(error.code(), "project-registry-no-home");
+        // The variable read on this host: HOME, or USERPROFILE on Windows.
+        assert_eq!(named_var(&error), os::host().flavor().home_var());
+    }
+}
+
+/// The variable a no-home error names, as its `var` arg.
+fn named_var(error: &dyn Diagnostic) -> String {
+    match &error.args()[..] {
+        [("var", annals_diagnostic::Arg::Str(var))] => var.clone(),
+        other => panic!("no var: {other:?}"),
     }
 }
 
@@ -918,6 +928,7 @@ fn test_every_project_without_a_home_fails() {
         .every_project()
         .unwrap_err();
     assert_eq!(error.code(), "project-registry-no-home");
+    assert_eq!(named_var(&error), os::host().flavor().home_var());
 }
 
 // ------------------------------------------------------------ rootless

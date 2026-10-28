@@ -31,6 +31,20 @@ fn test_each_error_renders_its_english_fallback() {
 }
 
 #[test]
+fn test_no_home_names_the_variable_each_flavor_reads() {
+    let unix = RegistryError::NoHome {
+        flavor: os::Flavor::Unix,
+    };
+    let windows = RegistryError::NoHome {
+        flavor: os::Flavor::Windows,
+    };
+    assert_eq!(unix.to_string(), "no home directory: set HOME");
+    assert_eq!(windows.to_string(), "no home directory: set USERPROFILE");
+    assert!(matches!(&unix.args()[..], [("var", Arg::Str(v))] if v == "HOME"));
+    assert!(matches!(&windows.args()[..], [("var", Arg::Str(v))] if v == "USERPROFILE"));
+}
+
+#[test]
 fn test_each_error_gives_its_args_values() {
     let error = RegistryError::InvalidId {
         id: "a".to_string(),

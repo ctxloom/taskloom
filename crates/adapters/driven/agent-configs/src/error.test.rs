@@ -23,6 +23,29 @@ fn test_a_corrupt_configuration_says_where_its_copy_is() {
 }
 
 #[test]
+fn test_no_home_names_the_variable_each_flavor_reads() {
+    let unix = ConfigError::NoHome {
+        flavor: os::Flavor::Unix,
+    };
+    let windows = ConfigError::NoHome {
+        flavor: os::Flavor::Windows,
+    };
+    assert_eq!(
+        unix.to_string(),
+        "the home directory is not set (HOME), so the user's configuration cannot be found"
+    );
+    assert_eq!(
+        windows.to_string(),
+        "the home directory is not set (USERPROFILE), so the user's configuration cannot be found"
+    );
+    assert_eq!(arg_names(&windows), ["var"]);
+    assert!(matches!(
+        &windows.args()[..],
+        [("var", annals_diagnostic::Arg::Str(v))] if v == "USERPROFILE"
+    ));
+}
+
+#[test]
 fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
     use fluent_syntax::ast::{Entry, Expression, InlineExpression, PatternElement};
 

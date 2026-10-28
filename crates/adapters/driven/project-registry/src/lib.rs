@@ -145,7 +145,9 @@ impl<N> ProjectRegistry<N> {
             .home
             .as_deref()
             .filter(|h| !h.as_os_str().is_empty())
-            .ok_or(RegistryError::NoHome)
+            .ok_or(RegistryError::NoHome {
+                flavor: self.fs.os().flavor(),
+            })
     }
 
     /// The directory the work root's identity is kept in: the work root

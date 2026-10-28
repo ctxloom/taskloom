@@ -7,8 +7,9 @@ use annals_diagnostic::{Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum RegistryError {
-    /// HOME is not set, so there is no registry and no store.
-    NoHome,
+    /// The home directory's variable (HOME, or USERPROFILE on Windows:
+    /// `flavor`'s) is not set, so there is no registry and no store.
+    NoHome { flavor: os::Flavor },
     /// A file could not be read or written.
     Io { path: String, detail: String },
     /// An id that is not a clean path segment: from the flag, the
@@ -55,7 +56,9 @@ impl RegistryError {
 impl fmt::Display for RegistryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RegistryError::NoHome => f.write_str("no home directory: set HOME"),
+            RegistryError::NoHome { flavor } => {
+                write!(f, "no home directory: set {}", flavor.home_var())
+            }
             RegistryError::Io { path, detail } => write!(f, "{path}: {detail}"),
             RegistryError::InvalidId { id, origin, reason } => write!(
                 f,
@@ -99,7 +102,7 @@ impl fmt::Display for RegistryError {
 impl Diagnostic for RegistryError {
     fn code(&self) -> &'static str {
         match self {
-            RegistryError::NoHome => "project-registry-no-home",
+            RegistryError::NoHome { .. } => "project-registry-no-home",
             RegistryError::Io { .. } => "project-registry-io",
             RegistryError::InvalidId { .. } => "project-registry-invalid-id",
             RegistryError::Unreadable { .. } => "project-registry-unreadable",
@@ -116,7 +119,8 @@ impl Diagnostic for RegistryError {
 
     fn args(&self) -> Vec<(&'static str, Arg)> {
         match self {
-            RegistryError::NoHome | RegistryError::Changed => Vec::new(),
+            RegistryError::NoHome { flavor } => vec![("var", flavor.home_var().into())],
+            RegistryError::Changed => Vec::new(),
             RegistryError::Io { path, detail } | RegistryError::Unreadable { path, detail } => {
                 vec![
                     ("path", path.as_str().into()),
@@ -163,7 +167,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     let path = || "/home/u/.ctxloom/projects/index.yaml".to_string();
     let detail = || "permission denied".to_string();
     vec![
-        Box::new(RegistryError::NoHome),
+        Box::new(RegistryError::NoHome {
+            flavor: os::Flavor::Unix,
+        }),
         Box::new(RegistryError::Io {
             path: path(),
             detail: detail(),

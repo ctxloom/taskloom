@@ -49,7 +49,8 @@ impl JsonlTaskLogDir {
     }
 
     /// The logs under `home` on `fs`, `<home>/.ctxloom/tasks`; with no home
-    /// (HOME unset or empty), every read fails saying so.
+    /// (HOME, or USERPROFILE on Windows, unset or empty), every read fails
+    /// saying so.
     pub fn in_home(fs: Arc<dyn Fs>, home: Option<&Path>) -> Self {
         JsonlTaskLogDir {
             fs,
@@ -60,9 +61,11 @@ impl JsonlTaskLogDir {
     }
 
     fn dir(&self) -> Result<&Path, Report> {
-        self.dir
-            .as_deref()
-            .ok_or_else(|| Report::of(&LogError::NoHome))
+        self.dir.as_deref().ok_or_else(|| {
+            Report::of(&LogError::NoHome {
+                flavor: self.fs.os().flavor(),
+            })
+        })
     }
 }
 

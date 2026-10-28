@@ -7,8 +7,9 @@ use annals_diagnostic::{Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum LogError {
-    /// No home to find the logs in.
-    NoHome,
+    /// No home to find the logs in: the variable `flavor` reads it from
+    /// (HOME, or USERPROFILE on Windows) is not set.
+    NoHome { flavor: os::Flavor },
     /// The log, or the directory of logs, could not be read.
     Unreadable { path: String, detail: String },
     /// A line is not a JSON record the log's event decodes from.
@@ -26,7 +27,11 @@ pub enum LogError {
 impl fmt::Display for LogError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            LogError::NoHome => f.write_str("HOME is not set, so Go's task logs cannot be found"),
+            LogError::NoHome { flavor } => write!(
+                f,
+                "{} is not set, so Go's task logs cannot be found",
+                flavor.home_var()
+            ),
             LogError::Unreadable { path, detail } => write!(f, "cannot read {path}: {detail}"),
             LogError::Malformed { path, line, detail } => {
                 write!(f, "{path}:{line}: malformed task event: {detail}")
@@ -43,7 +48,7 @@ impl fmt::Display for LogError {
 impl Diagnostic for LogError {
     fn code(&self) -> &'static str {
         match self {
-            LogError::NoHome => "jsonl-task-log-no-home",
+            LogError::NoHome { .. } => "jsonl-task-log-no-home",
             LogError::Unreadable { .. } => "jsonl-task-log-unreadable",
             LogError::Malformed { .. } => "jsonl-task-log-malformed",
             LogError::NoOp { .. } => "jsonl-task-log-no-op",
@@ -53,7 +58,7 @@ impl Diagnostic for LogError {
 
     fn args(&self) -> Vec<(&'static str, Arg)> {
         match self {
-            LogError::NoHome => Vec::new(),
+            LogError::NoHome { flavor } => vec![("var", flavor.home_var().into())],
             LogError::Unreadable { path, detail } => vec![
                 ("path", path.as_str().into()),
                 ("detail", detail.as_str().into()),
@@ -86,7 +91,9 @@ pub const EN_US: (&str, &str) = (
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     let path = || "/home/u/.ctxloom/tasks/jolly-mute-magma.jsonl".to_string();
     vec![
-        Box::new(LogError::NoHome),
+        Box::new(LogError::NoHome {
+            flavor: os::Flavor::Unix,
+        }),
         Box::new(LogError::Unreadable {
             path: path(),
             detail: "permission denied".to_string(),

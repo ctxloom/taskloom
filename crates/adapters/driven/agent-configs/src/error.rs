@@ -7,8 +7,9 @@ use annals_diagnostic::{Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ConfigError {
-    /// HOME is not set: there is no user configuration to name.
-    NoHome,
+    /// The home directory's variable (HOME, or USERPROFILE on Windows:
+    /// `flavor`'s) is not set: there is no user configuration to name.
+    NoHome { flavor: os::Flavor },
     /// An agent this adapter does not know.
     UnknownEngine { engine: String },
     /// The configuration is there and could not be read.
@@ -40,8 +41,10 @@ pub enum ConfigError {
 impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ConfigError::NoHome => f.write_str(
-                "the home directory is not set (HOME), so the user's configuration cannot be found",
+            ConfigError::NoHome { flavor } => write!(
+                f,
+                "the home directory is not set ({}), so the user's configuration cannot be found",
+                flavor.home_var()
             ),
             ConfigError::UnknownEngine { engine } => write!(f, "no agent is named {engine}"),
             ConfigError::Read { path, detail } => write!(f, "cannot read {path}: {detail}"),
@@ -84,7 +87,7 @@ impl std::error::Error for ConfigError {}
 impl Diagnostic for ConfigError {
     fn code(&self) -> &'static str {
         match self {
-            ConfigError::NoHome => "agent-configs-no-home",
+            ConfigError::NoHome { .. } => "agent-configs-no-home",
             ConfigError::UnknownEngine { .. } => "agent-configs-unknown-engine",
             ConfigError::Read { .. } => "agent-configs-read",
             ConfigError::Corrupt { .. } => "agent-configs-corrupt",
@@ -99,7 +102,7 @@ impl Diagnostic for ConfigError {
     fn args(&self) -> Vec<(&'static str, Arg)> {
         let s = |v: &String| Arg::from(v.as_str());
         match self {
-            ConfigError::NoHome => Vec::new(),
+            ConfigError::NoHome { flavor } => vec![("var", flavor.home_var().into())],
             ConfigError::UnknownEngine { engine } => vec![("engine", s(engine))],
             ConfigError::Read { path, detail } | ConfigError::Write { path, detail } => {
                 vec![("path", s(path)), ("detail", s(detail))]
@@ -143,7 +146,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     let path = || "/home/me/.claude.json".to_string();
     let detail = || "expected a string key at line 3, column 1".to_string();
     vec![
-        Box::new(ConfigError::NoHome),
+        Box::new(ConfigError::NoHome {
+            flavor: os::Flavor::Unix,
+        }),
         Box::new(ConfigError::UnknownEngine {
             engine: "codex".to_string(),
         }),

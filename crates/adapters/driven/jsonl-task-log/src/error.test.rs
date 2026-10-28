@@ -43,13 +43,32 @@ fn test_each_error_gives_its_args_values() {
     assert_eq!(
         values,
         [
-            vec![],
+            vec!["HOME"],
             vec![path, "permission denied"],
             vec![path, "3", "expected value at line 1 column 1"],
             vec![path, "4"],
             vec![path, "5", "archive"],
         ]
     );
+}
+
+#[test]
+fn test_no_home_names_the_variable_each_flavor_reads() {
+    let unix = crate::LogError::NoHome {
+        flavor: os::Flavor::Unix,
+    };
+    let windows = crate::LogError::NoHome {
+        flavor: os::Flavor::Windows,
+    };
+    assert_eq!(
+        unix.to_string(),
+        "HOME is not set, so Go's task logs cannot be found"
+    );
+    assert_eq!(
+        windows.to_string(),
+        "USERPROFILE is not set, so Go's task logs cannot be found"
+    );
+    assert!(matches!(&windows.args()[..], [("var", Arg::Str(v))] if v == "USERPROFILE"));
 }
 
 #[test]

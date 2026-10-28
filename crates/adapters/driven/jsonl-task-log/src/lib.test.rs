@@ -307,6 +307,17 @@ fn test_without_a_home_every_read_says_so() {
             logs.records("able-calm-fox").unwrap_err().code(),
             "jsonl-task-log-no-home"
         );
+        // The variable read on this host: HOME, or USERPROFILE on Windows.
+        let error = logs.projects().unwrap_err();
+        assert_eq!(named_var(&error), os::host().flavor().home_var());
+    }
+}
+
+/// The variable a no-home error names, as its `var` arg.
+fn named_var(error: &dyn Diagnostic) -> String {
+    match &error.args()[..] {
+        [("var", annals_diagnostic::Arg::Str(var))] => var.clone(),
+        other => panic!("no var: {other:?}"),
     }
 }
 

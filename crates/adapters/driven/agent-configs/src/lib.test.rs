@@ -373,6 +373,16 @@ fn test_claude_code_is_the_one_agent_and_its_files_are_gos() {
         .config_path(CLAUDE_CODE, &Scope::User)
         .unwrap_err();
     assert_eq!(homeless.code(), "agent-configs-no-home");
+    // The variable read on this host: HOME, or USERPROFILE on Windows.
+    assert_eq!(named_var(&homeless), os::host().flavor().home_var());
+}
+
+/// The variable a no-home error names, as its `var` arg.
+fn named_var(error: &dyn Diagnostic) -> String {
+    match &error.args()[..] {
+        [("var", annals_diagnostic::Arg::Str(var))] => var.clone(),
+        other => panic!("no var: {other:?}"),
+    }
 }
 
 #[test]
