@@ -87,6 +87,10 @@ tempfile = "3"
 # weeks old when chosen (2026-10-22); same-file at 1.0.6 (2020-01-11).
 junction = "=2.1.0"
 same-file = "=1.0.6"
+# The os crate's Windows console calls (a Ctrl-Break sent to a child's
+# process group, in tests). Pinned exactly, at 0.61.2 (2025-10-06), the
+# version tokio already brings in.
+windows-sys = "=0.61.2"
 # The os crate's path logic for every flavor on every host: Windows paths
 # parsed on Linux, so their display and comparison keys are tested here.
 # Pinned exactly, at 0.12.3 (2026-02-11): 0.12.4 and 0.13.0 (2026-10-20)

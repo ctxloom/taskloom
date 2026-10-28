@@ -1313,6 +1313,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "typed-path",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -1,6 +1,7 @@
 //! Acceptance: `taskloom watch`, the real binary in a temporary home: its
 //! first line at once, a line for a task another process adds, one JSON
-//! document a line, and a clean exit at SIGINT or SIGTERM. Each watch runs
+//! document a line, and a clean exit at SIGINT or SIGTERM (on Windows, at
+//! a Ctrl-Break sent to its process group). Each watch runs
 //! with stdin from /dev/null, as the VS Code extension starts it, and a
 //! closed stdin never stops it; a test that ends with it still running
 //! kills it (its own child, by pid), and one whose stop a mutant broke is
@@ -30,7 +31,10 @@ pub(super) struct Watching {
 
 impl Watching {
     pub(super) fn start(env: &Env, args: &[&str]) -> Watching {
-        let mut child = Command::new(binary())
+        let mut command = Command::new(binary());
+        // A process group of its own on Windows, so a Ctrl-Break sent to
+        // it (`ctrl_break`) reaches the watch alone.
+        let mut child = os::own_group(&mut command)
             .arg("watch")
             .args(args)
             .current_dir(env.project.path())
@@ -88,6 +92,16 @@ impl Watching {
         assert!(sent.success(), "kill -{signal}");
         let status = child.wait().expect("watch ends");
         Some(self.finish(status))
+    }
+
+    /// Send a Ctrl-Break to the process's group (Windows) and wait for it
+    /// to end; whatever it wrote after the lines already read must be
+    /// nothing. Its status.
+    fn ctrl_break(mut self) -> ExitStatus {
+        let mut child = self.child.take().unwrap();
+        os::ctrl_break(&child).expect("a Ctrl-Break is sent");
+        let status = child.wait().expect("watch ends");
+        self.finish(status)
     }
 
     /// Whether the process is still running.
@@ -159,6 +173,24 @@ fn test_watch_ends_cleanly_at_sigterm_and_watches_a_pinned_project() {
     if let Some(status) = watching.stop("TERM") {
         assert!(status.success(), "SIGTERM is a clean end: {status}");
     }
+}
+
+/// Go's watch stops at os.Interrupt and SIGTERM, which on Windows are
+/// Ctrl-C and Ctrl-Break, and a console's close, logoff and shutdown. A
+/// Ctrl-Break is the one another process can send (to a process group):
+/// the watch stops at it cleanly rather than being ended by the default
+/// handler. Windows alone: unix has no console events.
+#[test]
+fn test_watch_ends_cleanly_at_a_ctrl_break_on_windows() {
+    if os::host().flavor() != os::Flavor::Windows {
+        return;
+    }
+    let env = Env::new("watch-break-harp");
+    env.seed("Seed");
+    let watching = Watching::start(&env, &[]);
+    assert_eq!(one_document(&watching.line())["event"], "changed");
+    let status = watching.ctrl_break();
+    assert!(status.success(), "a Ctrl-Break is a clean end: {status}");
 }
 
 #[test]
