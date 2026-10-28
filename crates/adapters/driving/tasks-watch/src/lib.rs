@@ -40,6 +40,18 @@ pub const DEBOUNCE: Duration = Duration::from_millis(100);
 /// debounces.
 pub const CEILING_TICKS: u32 = 10;
 
+/// `taskloom watch --help`'s long text as a host of `flavor` says it.
+pub fn long_about(_flavor: os::Flavor) -> String {
+    "Watch the project's task store and emit a JSONL event whenever it changes.\n\n\
+Long-lived: runs until interrupted (Ctrl-C / SIGTERM); a closed stdin does not\n\
+stop it. One line at once, then one per burst of changes, e.g.\n\
+{\"event\":\"changed\",\"kind\":\"tasks\",\"project\":\"swift-amber-falcon\"}. A GUI\n\
+subscribes to this and re-queries the task list on each event, so it stays live\n\
+without polling or watching the store files itself (the watch plumbing lives in\n\
+the backend, not the client)."
+        .to_string()
+}
+
 /// The command, for the binary to mount.
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
 pub enum Group {

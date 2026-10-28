@@ -10,6 +10,9 @@ publish.workspace = true
 [dependencies]
 annals-diagnostic.workspace = true
 clap.workspace = true
+# Flavor: what the help says stops the watch (Ctrl-C and SIGTERM, or on
+# Windows Ctrl-C, Ctrl-Break and the console's close, logoff or shutdown).
+os.workspace = true
 presentation.workspace = true
 serde.workspace = true
 tasks-application.workspace = true

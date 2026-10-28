@@ -16,7 +16,15 @@ use presentation::{Catalog, Format};
 use serde_json::Value;
 use tasks_application::{AppError, Changed, Project, Watch, WatchRequest, WatchService};
 
-use super::{run, ChangeLine, Debounce, Interval, Settings, Ticks, CEILING_TICKS, DEBOUNCE};
+use super::{
+    long_about, run, ChangeLine, Debounce, Group, Interval, Settings, Ticks, CEILING_TICKS,
+    DEBOUNCE,
+};
+
+/// What the long help says on each host, with the departures the human
+/// reviewed.
+#[path = "../fixtures/reviewed.rs"]
+mod reviewed;
 
 /// Run a future whose every await is ready at once.
 fn ready<F: Future>(future: F) -> F::Output {
@@ -337,4 +345,43 @@ fn test_an_interval_ticks_no_sooner_than_its_period() {
         interval.tick().await;
     });
     assert!(started.elapsed() >= 2 * period, "{:?}", started.elapsed());
+}
+
+// ------------------------------------------------------------ help
+
+#[test]
+fn test_the_long_help_names_unixs_stops_on_unix() {
+    assert_eq!(long_about(os::Flavor::Unix), reviewed::ON_UNIX);
+}
+
+/// A departure from Go's words (reviewed, 2026-10-28): on Windows the
+/// help names what stops the watch there, not SIGTERM.
+#[test]
+fn test_the_long_help_names_windows_stops_on_windows() {
+    let said = reviewed::said(os::Flavor::Windows);
+    assert!(
+        said.contains(
+            "(Ctrl-C or Ctrl-Break, or the console's\nclose, the user's logoff or the system's shutdown)"
+        ),
+        "{said}"
+    );
+    assert_eq!(long_about(os::Flavor::Windows), said);
+}
+
+/// The binary's `watch --help` says this host's long help.
+#[test]
+fn test_the_mounted_command_says_the_hosts_long_help() {
+    use clap::CommandFactory;
+
+    #[derive(clap::Parser)]
+    struct Cli {
+        #[command(subcommand)]
+        group: Group,
+    }
+    let mut cli = Cli::command();
+    let watch = cli.find_subcommand_mut("watch").expect("watch is mounted");
+    assert_eq!(
+        watch.get_long_about().map(ToString::to_string),
+        Some(reviewed::said(os::host().flavor()))
+    );
 }
