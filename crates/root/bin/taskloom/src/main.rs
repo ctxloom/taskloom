@@ -116,7 +116,8 @@ fn watch<W: tasks_application::WatchService>(
     catalog: &presentation::Catalog,
 ) -> ExitCode {
     let code = runtime.block_on(async {
-        // SIGINT or SIGTERM (Ctrl-C on Windows), listened for from here,
+        // SIGINT or SIGTERM (on Windows Ctrl-C, Ctrl-Break, or the
+        // console's close, logoff or shutdown), listened for from here,
         // made on the runtime.
         let stop = match os.stop_signal() {
             Ok(stop) => stop,

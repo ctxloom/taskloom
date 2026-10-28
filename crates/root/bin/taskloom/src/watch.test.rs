@@ -73,10 +73,10 @@ impl Watching {
     /// Send `signal` and wait for the process to end; whatever it wrote
     /// after the lines already read must be nothing. Its status, on unix.
     ///
-    /// Windows has no signal to send another process (its stop is a
-    /// console's Ctrl-C, which reaches only the processes sharing the
-    /// console): there the process is killed, its status says nothing of a
-    /// clean end, and `None` says so.
+    /// Windows has no signal to send one process: there the process is
+    /// killed, its status says nothing of a clean end, and `None` says so.
+    /// (Its clean stop at a Ctrl-Break sent to its group is
+    /// `ctrl_break`'s.)
     pub(super) fn stop(mut self, signal: &str) -> Option<ExitStatus> {
         let mut child = self.child.take().unwrap();
         if os::host().flavor() != os::Flavor::Unix {
