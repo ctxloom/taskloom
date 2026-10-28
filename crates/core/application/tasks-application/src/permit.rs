@@ -185,8 +185,9 @@ impl Permit {
             permit: trimmed.to_string(),
         };
         // A namespace's permit is its tag with the key left out, which
-        // tagma does not parse: it is parsed with a key put in, and that
-        // key must come back as put, so nothing else was given.
+        // tagma does not parse: it is parsed with a key put in. Anything
+        // after the namespace but that key (`a:b:`, `a:b=c:`) is not a tag
+        // tagma parses, or carries a value, and is refused below.
         let (spelling, namespace_only) = match trimmed.strip_suffix(':') {
             Some(namespace) => (format!("{namespace}:{PLACEHOLDER}"), true),
             None => (trimmed.to_string(), false),
@@ -211,13 +212,13 @@ impl Permit {
             }
         }
         match (tag.namespace, namespace_only) {
-            (Some(namespace), true) if tag.key == PLACEHOLDER => Ok(Permit::Namespace(namespace)),
+            (Some(namespace), true) => Ok(Permit::Namespace(namespace)),
             (Some(namespace), false) => Ok(Permit::Key {
                 namespace,
                 key: tag.key,
             }),
             (None, false) => Ok(Permit::Flat(tag.key)),
-            _ => Err(malformed()),
+            (None, true) => Err(malformed()),
         }
     }
 

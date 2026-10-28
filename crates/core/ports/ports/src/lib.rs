@@ -204,9 +204,8 @@ pub trait Configuration {
     /// (`tag_permits`): `None` when it declares none, and then every tag
     /// the schema admits is permitted, as before permits existed.
     ///
-    /// PROPOSAL (tag permits, open question 2, opt-in): the default
-    /// answers `None`, so a configuration that knows nothing of permits
-    /// (ctxloom's, a test's) stays permissive.
+    /// Opt-in: the default answers `None`, so a configuration that knows
+    /// nothing of permits (ctxloom's, a test's) stays permissive.
     fn tag_permits(&mut self) -> Result<Option<TagPermits>, Report> {
         Ok(None)
     }
