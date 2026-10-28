@@ -650,7 +650,10 @@ fn test_a_revoke_of_what_is_not_among_the_permits_is_refused() {
 
 // Lint sees what admission cannot: a stored tag the permits do not permit
 // (written before them, or imported). Ruling 15: only on the rows still
-// in play, open and Deferred; closed rows are the next test's.
+// in play, open and Deferred; closed rows are the next test's. Ruling
+// (2026-10-27): a key the permits refuse still counts toward "more than
+// one area", so a task carrying one refused and one permitted area gets
+// both findings.
 #[test]
 fn test_lint_reports_a_stored_tag_the_permits_do_not_permit() {
     let mut service = under(None, &["swift-amber", "calm-otter"]);
@@ -671,6 +674,13 @@ fn test_lint_reports_a_stored_tag_the_permits_do_not_permit() {
             ),
             (
                 "swift-amber".to_string(),
+                Finding::ManyKeys {
+                    namespace: "area".to_string(),
+                    keys: vec!["cli".to_string(), "host-hardening".to_string()],
+                }
+            ),
+            (
+                "swift-amber".to_string(),
                 Finding::NotPermitted {
                     tag: "area:host-hardening".to_string(),
                     permit: "area:host-hardening".to_string(),
@@ -679,6 +689,7 @@ fn test_lint_reports_a_stored_tag_the_permits_do_not_permit() {
         ]
     );
     assert_eq!(found[0].1.code(), "tasks-application-lint-not-permitted");
+    assert_eq!(found[1].1.code(), "tasks-application-lint-many-keys");
 }
 
 // Ruling 15: a closed row's tags are its history (nothing is stripped from

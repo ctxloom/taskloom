@@ -245,7 +245,7 @@ pub(crate) fn lint(
         findings.extend(scalar_findings(schema, &values));
         if !is_terminal(&row.task.status) {
             findings.extend(permit_findings(&row.task.tags, permits, schema));
-            findings.extend(many_key_findings(&row.task.tags, permits, schema));
+            findings.extend(many_key_findings(&row.task.tags));
         }
         found.extend(findings.into_iter().map(|finding| Violation {
             project: Some(row.project.id.clone()),
@@ -345,21 +345,17 @@ fn permit_findings(
 
 /// Each namespace a task takes one key of ([`ONE_KEY`]) carrying more
 /// than one: its distinct keys, in the order its tags hold them. A key
-/// the permits do not permit is not counted: it is reported as that
-/// ([`permit_findings`]), and retagging it is what settles it.
-fn many_key_findings(
-    held: &[crate::Tag],
-    permits: Option<&TagPermits>,
-    schema: &TagSchema,
-) -> Vec<Finding> {
+/// the permits do not permit still counts (ruling, 2026-10-27): it is
+/// reported as that too ([`permit_findings`]), so a task carrying one
+/// refused and one permitted area gets both findings.
+fn many_key_findings(held: &[crate::Tag]) -> Vec<Finding> {
     ONE_KEY
         .iter()
         .filter_map(|namespace| {
             let mut keys: Vec<String> = Vec::new();
-            let under = held.iter().filter(|tag| {
-                tag.namespace.as_deref() == Some(*namespace)
-                    && tags::permitted(tag, permits, schema).is_ok()
-            });
+            let under = held
+                .iter()
+                .filter(|tag| tag.namespace.as_deref() == Some(*namespace));
             for tag in under {
                 if !keys.contains(&tag.key) {
                     keys.push(tag.key.clone());
