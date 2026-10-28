@@ -915,7 +915,7 @@ fn test_a_tags_target_is_its_namespace_and_key() {
     assert_eq!(tag(None, "urgent").target(), "urgent");
 }
 
-// ------------------------------------- L: a trigger defers the task (red)
+// ------------------------------------------- L: a trigger defers the task
 //
 // Fix queue L (passthrough-os-review.plan.md), with the human's rulings of
 // 2026-10-27: setting a trigger MAKES the task Deferred, overriding its
@@ -1279,7 +1279,7 @@ fn test_a_status_change_giving_neither_a_status_nor_a_trigger_is_refused() {
     );
 }
 
-// ------------------------------- the statuses the command carries (L, red)
+// ------------------------------------- the statuses the command carries
 //
 // The domain names no status: which one a trigger defers a task to, and
 // which one a task starts in, are the command's, resolved by the
