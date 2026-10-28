@@ -36,7 +36,7 @@ const PRESENCE_NAMESPACE: &str = "taskloom.internal";
 const TYPE_CONFIG_ITEM: &str = "taskloom.internal:type-config";
 
 /// How to write a query, postfix or infix, said with every malformed one.
-pub const QUERY_GRAMMAR: &str = "queries are postfix, tags first and the operator after (urgent/release/and, urgent/not), and an and/or/not needs enough operands before it; or infix (urgent and not release)";
+pub const QUERY_GRAMMAR: &str = "queries are postfix, tags first and the operator after (human:decision/area:cli/and, human:decision/not), and an and/or/not needs enough operands before it; or infix (human:decision and not area:cli)";
 
 /// A malformed query.
 #[derive(Clone, PartialEq, Eq, Debug)]
