@@ -1,5 +1,5 @@
-//! The resources: the tag schema a write is held to, and the tags in use,
-//! each read fresh through the use cases, its JSON indented two spaces a
+//! The resources: the tag schema a write is held to, the tags in use, and
+//! the tags the project permits, each read fresh through the use cases, its JSON indented two spaces a
 //! level with `<`, `>` and `&` escaped.
 
 use std::collections::BTreeMap;
@@ -9,15 +9,26 @@ use presentation::Catalog;
 use rmcp::model::Resource;
 use serde::Serialize;
 use serde_json::ser::{Formatter, PrettyFormatter};
-use tasks_application::{ListQuery, Reach, TagSchema, Vocabulary};
-use tasks_presentation::{project_dir, TagCountJson};
+use tasks_application::{ListQuery, PermitList, Reach, TagSchema, Vocabulary};
+use tasks_presentation::{project_dir, PermitsJson, TagCountJson};
 
 use crate::{McpNotice, Settings};
 
 pub const TAG_SCHEMA: &str = "taskloom://tag-schema";
 pub const TAG_VOCABULARY: &str = "taskloom://tag-vocabulary";
+/// What the project permits (tag permits, ruling 9): a resource of its
+/// own, not a part of the vocabulary's. The vocabulary is the tags IN USE,
+/// counted from the project's store, Go's document byte for byte; the
+/// permits are CONFIGURATION, read from the work root's config with no
+/// project resolved, as the tag schema is. Folded into the vocabulary,
+/// "in use" and "permitted" would read alike to an agent, though a tag in
+/// use may not be permitted (stored before the permits, and lint says
+/// so), and Go's document would no longer be Go's.
+// RED: neither offered nor read yet.
+#[allow(dead_code)]
+pub const TAG_PERMITS: &str = "taskloom://tag-permits";
 
-/// The MIME type both resources are read as.
+/// The MIME type every resource is read as.
 pub const JSON: &str = "application/json";
 
 /// The resources this server offers, as `resources/list` answers: URI,
@@ -139,6 +150,14 @@ pub fn vocabulary_text(vocabulary: &Vocabulary, catalog: &Catalog) -> String {
         warning,
         tags: vocabulary.tags.iter().map(TagCountJson::of).collect(),
     })
+}
+
+/// `list` as the tag-permits resource reads: tasks-presentation's
+/// [`PermitsJson`], the document `taskloom permits --format json` prints.
+// RED: read() does not serve it yet.
+#[allow(dead_code)]
+pub fn permits_text(list: &PermitList) -> String {
+    go_indented(&PermitsJson::of(list))
 }
 
 /// `value` indented two spaces a level, with no prefix.

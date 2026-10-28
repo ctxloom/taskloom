@@ -149,6 +149,13 @@ pub enum Command {
     /// them, while any task (whatever its status) still carries a tag it
     /// permits.
     Revoke(commands::PermitArgs),
+    /// List what this project permits (its .taskloom/config.yaml's
+    /// tag_permits): each namespace, open to any key or closed to its keys;
+    /// the flat tags; and the targets the tag schema declares, which are
+    /// permitted without a permit. A project that declares none permits
+    /// every tag the schema admits. Read-only; the MCP server's
+    /// taskloom://tag-permits resource says the same.
+    Permits,
     /// Print the taskloom version.
     Version,
     /// Print the context, commands, hooks and MCP servers taskloom
@@ -272,6 +279,7 @@ pub async fn run<S: TaskService + PruneService + PermitService>(
         Command::Prune(args) => commands::prune(args, ctx, service, out, err).await,
         Command::Permit(args) => commands::permit(args, ctx, service, out).await,
         Command::Revoke(args) => commands::revoke(args, ctx, service, out).await,
+        Command::Permits => commands::permits(ctx, service, out).await,
         Command::Version => version(context, format, out),
         // Answered above: it has its own format.
         Command::Loadout => Ok(()),

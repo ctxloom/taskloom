@@ -43,8 +43,8 @@ pub use dead_letter::DeadLetter;
 pub use error::{diagnostic_samples, AppError, CATALOGS, EN_US};
 pub use import::{ImportReport, ImportRequest, ImportService, Importer, Lost, ProjectImport, Why};
 pub use lint::{Finding, LintReport, Violation};
-pub use permit::{PermitChange, PermitService, Permitted};
-pub use ports::Project;
+pub use permit::{PermitChange, PermitList, PermitService, Permitted};
+pub use ports::{NamespacePermit, Project, TagPermits};
 pub use priority::{PriorityNote, PriorityWarning};
 pub use prune::{
     Dangling, PruneRequest, PruneService, Pruned, Pruning, Via, DEFAULT_OLDER_THAN,
@@ -203,6 +203,13 @@ pub trait TaskService {
     /// The tag schema a write is held to: the default one, extended by
     /// what is configured. No project is resolved.
     fn tag_schema(&mut self) -> impl Future<Output = Result<TagSchema, AppError>> + Send;
+    /// What the project's tag permits permit, read-only: its permits as
+    /// configured (none, where it declares none), and the targets the
+    /// resolved tag schema declares, which are permitted without one. No
+    /// project is resolved and no store opened: permits are configuration.
+    /// Granting and revoking are [`PermitService`]'s, which no MCP server
+    /// is handed; reading them is here, so an agent can see them.
+    fn permits(&mut self) -> impl Future<Output = Result<PermitList, AppError>> + Send;
 }
 
 /// The registry the tasks domain runs under.
@@ -575,6 +582,11 @@ where
 
     async fn tag_schema(&mut self) -> Result<TagSchema, AppError> {
         self.schema()
+    }
+
+    // RED stub: no permits, and no schema targets.
+    async fn permits(&mut self) -> Result<PermitList, AppError> {
+        Ok(PermitList::default())
     }
 }
 

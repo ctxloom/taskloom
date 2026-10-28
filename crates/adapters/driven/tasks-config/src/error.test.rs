@@ -26,6 +26,7 @@ fn test_each_error_renders_its_english_fallback() {
             format!("{path} sets tag_permits, which only a project's own .taskloom/config.yaml sets"),
             "--config-set sets tag_permits, which only the project's .taskloom/config.yaml sets (taskloom permit and revoke change it)".to_string(),
             "there is no work root here, so no project config to write tag permits to".to_string(),
+            format!("{path} was left as it was: editing its tag_permits would not have read back as meant (schema_version changed); this is a bug in taskloom"),
         ]
     );
 }

@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 
 use serde::Serialize;
-use tasks_application::{Project, Summary, Tag, TagCount, Task, Timestamp};
+use tasks_application::{PermitList, Project, Summary, Tag, TagCount, Task, Timestamp};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
@@ -177,6 +177,47 @@ impl TagCountJson {
             active: count.active,
             total: count.total,
         }
+    }
+}
+
+/// What a project permits, as JSON, the same from `taskloom permits
+/// --format json` and the `taskloom://tag-permits` resource:
+///
+/// ```json
+/// {"declared": true,
+///  "namespaces": [{"namespace": "area", "open": false, "keys": ["cli", "mcp"]},
+///                 {"namespace": "relates", "open": true, "keys": []}],
+///  "tags": ["urgent"],
+///  "schema_targets": ["triage:audited", "triage:blind-gate", "..."]}
+/// ```
+///
+/// `declared` false is a project declaring no permits, so every tag the
+/// schema admits is permitted (its namespaces and tags empty); true with
+/// both empty is one permitting nothing but its schema's targets.
+/// Namespaces and keys are sorted; `schema_targets` are permitted as keys
+/// whatever the permits say of their namespace.
+#[derive(Serialize, Default)]
+pub struct PermitsJson {
+    declared: bool,
+    namespaces: Vec<NamespaceJson>,
+    tags: Vec<String>,
+    schema_targets: Vec<String>,
+}
+
+/// One permitted namespace: open (any key; `keys` empty) or closed to its
+/// `keys`.
+#[derive(Serialize)]
+pub struct NamespaceJson {
+    namespace: String,
+    open: bool,
+    keys: Vec<String>,
+}
+
+impl PermitsJson {
+    // RED stub: says nothing is declared and nothing permitted.
+    pub fn of(list: &PermitList) -> PermitsJson {
+        let _ = list;
+        PermitsJson::default()
     }
 }
 

@@ -2,8 +2,9 @@
 //! admits under them, how a permit and a revoke change them, and what
 //! lint says of a stored tag they do not permit.
 //!
-//! Tests marked PROPOSAL pin an answer to one of the plan's open
-//! questions (tag-permits.plan.md), for the human to accept or change.
+//! The rulings cited are tag-permits.plan.md's (session
+//! inept-sixth-stick); a test marked PROPOSAL pins an answer no ruling
+//! has given yet, for the human to accept or change.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -12,21 +13,23 @@ use ports::{NamespacePermit, TagPermits};
 
 use crate::fakes::{ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores};
 use crate::{
-    AppError, Finding, NewTask, PermitChange, PermitService, Permitted, Scope, Service,
+    AppError, Finding, NewTask, PermitChange, PermitList, PermitService, Permitted, Scope, Service,
     StatusChange, TagChange, TaskService, Written,
 };
 
-/// The project's permits as configured (`None`: it declares none), and
+/// The project's permits as configured (`None`: it declares none), the
+/// tag_schema declarations configured beside the default schema, and
 /// every set of permits written, in order.
 #[derive(Default)]
 struct FakeConfig {
     permits: Option<TagPermits>,
+    schema: Vec<String>,
     written: Vec<TagPermits>,
 }
 
 impl ports::Configuration for FakeConfig {
     fn tag_schema(&mut self) -> Result<Vec<String>, Report> {
-        Ok(Vec::new())
+        Ok(self.schema.clone())
     }
 
     fn tag_permits(&mut self) -> Result<Option<TagPermits>, Report> {
@@ -81,8 +84,54 @@ fn under(permits: Option<TagPermits>, names: &[&str]) -> Permits {
     )
     .with_configuration(FakeConfig {
         permits,
-        written: Vec::new(),
+        ..FakeConfig::default()
     })
+}
+
+/// The targets the default schema declares, sorted: every one is
+/// permitted without a permit.
+const DEFAULT_TARGETS: [&str; 8] = [
+    "triage:audited",
+    "triage:blind-gate",
+    "triage:blocks-release",
+    "triage:effort",
+    "triage:exposed",
+    "triage:kind",
+    "triage:level",
+    "triage:verdict",
+];
+
+/// The factual flags (ruling 14): bare keys of `triage:`, scored by
+/// nothing, permitted by a project through a closed `triage:` list.
+const FLAGS: [&str; 7] = [
+    "security",
+    "data-loss",
+    "crashes",
+    "no-workaround",
+    "regression",
+    "silent-no-op",
+    "flaky",
+];
+
+/// `harp_id` moved to `status` (Deferred given a trigger).
+fn moved(service: &mut Permits, harp_id: &str, status: &str) {
+    ready(service.set_status(StatusChange {
+        harp_id: harp_id.to_string(),
+        status: status.to_string(),
+        trigger: (status == "Deferred").then(|| "when it matters".to_string()),
+        ..StatusChange::default()
+    }))
+    .unwrap();
+}
+
+/// Lint's violations, by harp id.
+fn lint_findings(service: &mut Permits) -> Vec<(String, Finding)> {
+    let report = ready(service.lint(Scope::default())).unwrap();
+    report
+        .violations
+        .into_iter()
+        .map(|v| (v.harp_id, v.finding))
+        .collect()
 }
 
 fn tagged(tags: &[&str]) -> NewTask {
@@ -191,8 +240,8 @@ fn test_what_the_permits_permit_is_admitted() {
     );
 }
 
-// PROPOSAL (open question 5): a permit is of a target, never a value, so a
-// closed namespace's key carries any value the schema admits.
+// Ruling 6 (kept from the first proposal): a permit is of a target, never
+// a value, so a closed namespace's key carries any value the schema admits.
 #[test]
 fn test_a_closed_namespaces_key_may_carry_a_value() {
     let mut service = under(Some(usual()), &["swift-amber"]);
@@ -200,10 +249,10 @@ fn test_a_closed_namespaces_key_may_carry_a_value() {
     assert_eq!(spelled(&written), ["area:cli=x"]);
 }
 
-// PROPOSAL (open question 3): a target the resolved schema declares (the
-// built-in triage:* among them) is permitted without a permit, as a KEY:
-// its namespace is not opened by it. triage:was-release is declared
-// nowhere, so it is refused.
+// Ruling 14: a target the resolved schema declares (the built-in
+// triage:* among them) is permitted without a permit, as a KEY: its
+// namespace is not opened by it. triage:was-release is declared nowhere,
+// so it is refused.
 #[test]
 fn test_the_schemas_declared_targets_are_permitted_without_a_permit() {
     let mut service = under(Some(TagPermits::default()), &["swift-amber", "calm-otter"]);
@@ -241,8 +290,8 @@ fn test_release_has_one_form_and_permits_do_not_break_it() {
     }
 }
 
-// PROPOSAL (open question 2, opt-in): a project whose config declares no
-// permits admits every tag the schema does, as before.
+// Ruling 6 (opt-in): a project whose config declares no permits admits
+// every tag the schema does, as before.
 #[test]
 fn test_a_project_declaring_no_permits_stays_permissive() {
     let mut service = under(None, &["swift-amber"]);
@@ -265,6 +314,125 @@ fn test_a_tag_held_from_before_the_permits_is_never_checked() {
     };
     let written = ready(service.tag(change)).unwrap();
     assert_eq!(spelled(&written), ["area:host-hardening", "urgent"]);
+}
+
+// Ruling 14: the factual flags stay bare keys, permitted by a closed
+// `triage:` list in the project's permits. That list closes `triage:` to
+// its keys, yet the targets the schema declares (kind, level,
+// blind-gate, ...) stay permitted beside it, each still held to its
+// declaration; a key neither lists nor declares is refused.
+#[test]
+fn test_a_closed_triage_list_coexists_with_the_schemas_declared_targets() {
+    let mut service = under(
+        Some(permits(&[("triage", &FLAGS)], &[], &[])),
+        &[
+            "swift-amber",
+            "calm-otter",
+            "brisk-oak",
+            "lone-elm",
+            "tall-oak",
+        ],
+    );
+    let written = add(
+        &mut service,
+        &[
+            "triage:security",
+            "triage:silent-no-op",
+            "triage:kind=defect",
+            "triage:level=2",
+            "triage:blind-gate=mutation",
+        ],
+    )
+    .unwrap();
+    assert_eq!(written.task.tags.len(), 5, "{:?}", spelled(&written));
+    for (tag, named) in [
+        ("triage:fact=security", "triage:fact"),
+        ("triage:was-release=1.0.0", "triage:was-release"),
+        ("triage:flake", "triage:flake"),
+    ] {
+        let error = add(&mut service, &[tag]).unwrap_err();
+        assert_eq!(error.code(), "tasks-application-tag-not-permitted", "{tag}");
+        assert_eq!(arg(&error, "permit"), named, "{tag}");
+    }
+    let error = add(&mut service, &["triage:kind=bug"]).unwrap_err();
+    assert_eq!(error.code(), "tasks-application-tag-not-in-enum");
+}
+
+// Ruling 14: triage:blind-gate is declared by the default schema (see
+// schema.test.rs), so a project permitting nothing admits it, more than
+// one gate at once (it is repeatable), and refuses a gate not in its enum.
+#[test]
+fn test_blind_gate_is_permitted_by_its_declaration_and_held_to_its_enum() {
+    let mut service = under(Some(TagPermits::default()), &["swift-amber", "calm-otter"]);
+    let written = add(
+        &mut service,
+        &["triage:blind-gate=mutation", "triage:blind-gate=ci"],
+    )
+    .unwrap();
+    assert_eq!(
+        spelled(&written),
+        ["triage:blind-gate=ci", "triage:blind-gate=mutation"]
+    );
+    let error = add(&mut service, &["triage:blind-gate=vibes"]).unwrap_err();
+    assert_eq!(error.code(), "tasks-application-tag-not-in-enum");
+}
+
+// Ruling 13: the core vocabulary is COPIED into each project's permits;
+// nothing is built in. A project permitting nothing refuses every core
+// target the schema does not declare, and its permits list none.
+#[test]
+fn test_no_vocabulary_is_built_in_the_config_is_the_only_source() {
+    let mut service = under(Some(TagPermits::default()), &["swift-amber"]);
+    for tag in [
+        "human:decision",
+        "relates:calm-otter",
+        "area:cli",
+        "repo:annals",
+        "queue:20261027",
+        "platform:linux",
+        "triage:security",
+    ] {
+        let error = add(&mut service, &[tag]).unwrap_err();
+        assert_eq!(error.code(), "tasks-application-tag-not-permitted", "{tag}");
+    }
+    let listed = ready(service.permits()).unwrap();
+    assert_eq!(listed.permits, Some(TagPermits::default()));
+}
+
+// ------------------------------------------------------------ the list
+
+// Ruling 9: what is permitted is readable, by a person (`taskloom
+// permits`) and an agent (`taskloom://tag-permits`) alike: the permits as
+// configured, and every target the resolved schema declares, sorted, a
+// project's own declarations among them. It is configuration, so no
+// project is resolved and no store opened.
+#[test]
+fn test_the_permits_are_listed_with_the_targets_the_schema_permits() {
+    let mut service = under(Some(usual()), &[]);
+    service.configuration.schema = vec![r#"tagma.enum:"area:x"="a,b""#.to_string()];
+    let listed = ready(service.permits()).unwrap();
+    let mut targets = vec!["area:x".to_string()];
+    targets.extend(DEFAULT_TARGETS.iter().map(|t| t.to_string()));
+    assert_eq!(
+        listed,
+        PermitList {
+            permits: Some(usual()),
+            schema_targets: targets,
+        }
+    );
+    assert!(service.identity.pins.is_empty(), "no project resolved");
+    assert!(service.stores.opened.is_empty() && service.stores.looked.is_empty());
+}
+
+// Ruling 6 (opt-in), as the list says it: no permits declared is `None`
+// (everything the schema admits is permitted), not an empty set (nothing
+// is).
+#[test]
+fn test_a_project_declaring_no_permits_lists_none() {
+    let mut service = under(None, &[]);
+    let listed = ready(service.permits()).unwrap();
+    assert_eq!(listed.permits, None);
+    assert_eq!(listed.schema_targets, DEFAULT_TARGETS);
 }
 
 // ------------------------------------------------------------ permit
@@ -436,8 +604,10 @@ fn test_a_revoke_of_what_tasks_still_carry_is_refused_listing_them() {
     }
 }
 
-// PROPOSAL: a task carries a tag whatever its status, so a finished one
-// still carrying it blocks the revoke too: retag it, or prune it.
+// Ruling 6 (revoke refused while in use): a task carries a tag whatever
+// its status, so a finished one still carrying it blocks the revoke too:
+// retag it, or prune it. (Lint, unlike revoke, leaves a closed row's tags
+// alone: they are its history, not a vocabulary in use.)
 #[test]
 fn test_a_finished_task_still_carrying_a_permit_blocks_its_revoke() {
     let mut service = under(Some(usual()), &["swift-amber"]);
@@ -477,21 +647,102 @@ fn test_a_revoke_of_what_is_not_among_the_permits_is_refused() {
 // ------------------------------------------------------------ lint
 
 // Lint sees what admission cannot: a stored tag the permits do not permit
-// (written before them, or imported).
+// (written before them, or imported). Ruling 15: only on the rows still
+// in play, open and Deferred; closed rows are the next test's.
 #[test]
 fn test_lint_reports_a_stored_tag_the_permits_do_not_permit() {
-    let mut service = under(None, &["swift-amber"]);
+    let mut service = under(None, &["swift-amber", "calm-otter"]);
     add(&mut service, &["area:host-hardening", "area:cli", "urgent"]).unwrap();
+    add(&mut service, &["wibble"]).unwrap();
+    moved(&mut service, "calm-otter", "Deferred");
     service.configuration.permits = Some(usual());
-    let report = ready(service.lint(Scope::default())).unwrap();
-    let findings: Vec<&Finding> = report.violations.iter().map(|v| &v.finding).collect();
+    let found = lint_findings(&mut service);
     assert_eq!(
-        findings,
-        [&Finding::NotPermitted {
-            tag: "area:host-hardening".to_string(),
-            permit: "area:host-hardening".to_string(),
-        }]
+        found,
+        [
+            (
+                "calm-otter".to_string(),
+                Finding::NotPermitted {
+                    tag: "wibble".to_string(),
+                    permit: "wibble".to_string(),
+                }
+            ),
+            (
+                "swift-amber".to_string(),
+                Finding::NotPermitted {
+                    tag: "area:host-hardening".to_string(),
+                    permit: "area:host-hardening".to_string(),
+                }
+            ),
+        ]
     );
-    assert_eq!(report.violations[0].harp_id, "swift-amber");
-    assert_eq!(findings[0].code(), "tasks-application-lint-not-permitted");
+    assert_eq!(found[0].1.code(), "tasks-application-lint-not-permitted");
+}
+
+// Ruling 15: a closed row's tags are its history (nothing is stripped from
+// a closed row), so lint does not report them, Done or Archived. The open
+// row beside them shows the lint did look.
+#[test]
+fn test_lint_leaves_a_closed_rows_tags_alone() {
+    let mut service = under(None, &["swift-amber", "calm-otter", "brisk-oak"]);
+    add(&mut service, &["area:host-hardening"]).unwrap();
+    add(&mut service, &["wibble", "area:cli", "area:mcp"]).unwrap();
+    add(&mut service, &["wibble"]).unwrap();
+    moved(&mut service, "swift-amber", "Done");
+    moved(&mut service, "calm-otter", "Archived");
+    service.configuration.permits = Some(usual());
+    let found = lint_findings(&mut service);
+    let subjects: Vec<&str> = found.iter().map(|(harp, _)| harp.as_str()).collect();
+    assert_eq!(subjects, ["brisk-oak"], "{found:?}");
+}
+
+// Ruling 15: a task takes one `area:` and one `repo:`. Arity binds only
+// `ns:key=value` targets, so this is a lint, never a write refusal: the
+// write is admitted and lint reports it, on open and Deferred rows, with
+// the distinct keys (a key carried with and without a value is one key).
+#[test]
+fn test_lint_reports_a_task_carrying_more_than_one_area_or_repo() {
+    let both = permits(
+        &[("area", &["cli", "mcp"]), ("repo", &["annals", "tagma"])],
+        &[],
+        &[],
+    );
+    let mut service = under(
+        Some(both),
+        &["swift-amber", "calm-otter", "brisk-oak", "lone-elm"],
+    );
+    add(&mut service, &["area:cli", "area:mcp"]).unwrap();
+    add(&mut service, &["repo:annals", "repo:tagma", "area:cli"]).unwrap();
+    add(&mut service, &["area:cli", "area:cli=x", "repo:annals"]).unwrap();
+    add(&mut service, &["area:cli", "area:mcp"]).unwrap();
+    moved(&mut service, "calm-otter", "Deferred");
+    moved(&mut service, "lone-elm", "Done");
+    let found = lint_findings(&mut service);
+    let many = |namespace: &str, keys: &[&str]| Finding::ManyKeys {
+        namespace: namespace.to_string(),
+        keys: keys.iter().map(|k| k.to_string()).collect(),
+    };
+    assert_eq!(
+        found,
+        [
+            ("calm-otter".to_string(), many("repo", &["annals", "tagma"])),
+            ("swift-amber".to_string(), many("area", &["cli", "mcp"])),
+        ]
+    );
+    assert_eq!(found[0].1.code(), "tasks-application-lint-many-keys");
+    assert_eq!(
+        found[1].1.to_string(),
+        "area: carries 2 keys (cli, mcp), but a task takes one"
+    );
+}
+
+// PROPOSAL (opt-in, ruling 6): the one-area rule comes with the permits,
+// so a project declaring none sees no new finding from it; its lint says
+// what it said before permits existed. (Paired with the test above, which
+// fails while the rule is not there at all.)
+#[test]
+fn test_lint_holds_a_task_to_one_area_only_where_the_project_declares_permits() {
+    let mut service = under(None, &["swift-amber"]);
+    add(&mut service, &["area:cli", "area:mcp", "repo:a", "repo:b"]).unwrap();
+    assert_eq!(lint_findings(&mut service), []);
 }

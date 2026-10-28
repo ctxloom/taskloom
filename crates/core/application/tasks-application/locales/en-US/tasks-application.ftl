@@ -53,6 +53,7 @@ tasks-application-lint-not-in-enum = { $target }={ $value } is not one of the de
 tasks-application-lint-not-a-number = { $target }={ $value } does not parse as a finite number
 tasks-application-lint-out-of-range = { $target }={ $value } is outside the declared range [{ $min }, { $max }]
 tasks-application-lint-not-permitted = { $tag } is not permitted in this project (`taskloom permit { $permit }` permits it)
+tasks-application-lint-many-keys = { $namespace }: carries { $count } keys ({ $keys }), but a task takes one
 tasks-application-lint-scalar = { $target } carries { $count } distinct values ({ $values }) but is declared arity=scalar
 tasks-application-lint-formula-enum = { $facet } on { $target } references the placeholder { $placeholder }, but { $value } is not one of { $reference }'s declared enum values: { $members }
 tasks-application-prune-no-status = a prune needs at least one status to select by: an empty status set is never read as every status

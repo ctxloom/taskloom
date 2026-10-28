@@ -1,0 +1,28 @@
+# A TEST FIXTURE, not this repository's config: taskloom's proposed tag
+# vocabulary (tag-vocabulary.proposal.md, section 5, session
+# inept-sixth-stick), adapted to the rulings of 2026-10-27. The core is
+# copied here, not built in (ruling 13); the factual flags are bare keys of
+# a closed triage: list (ruling 14). The targets the tag schema declares
+# (triage:level, kind, effort, blocks-release, exposed, verdict, audited,
+# blind-gate) need no permit.
+schema_version: 1
+
+tag_permits:
+  namespaces:
+    # Where in this project: one per task (lint says so).
+    area: [domain, read-model, tasks, tags, projects, store, import, config,
+           integration, cli, mcp, platform, build, docs]
+    human: [decision, voice, authority, verify, prerequisite, action]
+    # The sibling checkout a task edits.
+    repo: [ctxloom, ctxloom-rs, annals, tagma, harp, angzarr-cli, angzarr-project]
+    platform: [linux, macos, windows]
+    ctxloom: [plan]
+    # Facts, searchable, scored by nothing.
+    triage: [security, data-loss, crashes, no-workaround, regression,
+             silent-no-op, flaky]
+    relates: open
+    touches: open
+    sig: open
+    queue: open
+    landed: open
+  # No flat tags.

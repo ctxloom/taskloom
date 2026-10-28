@@ -20,7 +20,9 @@
 
 use std::future::Future;
 
-use ports::{Clock, CommandIds, Configuration, ConfigurationWriter, ProjectIdentity, TaskStores};
+use ports::{
+    Clock, CommandIds, Configuration, ConfigurationWriter, ProjectIdentity, TagPermits, TaskStores,
+};
 
 use crate::{AppError, Service};
 
@@ -39,6 +41,19 @@ pub struct PermitChange {
 pub struct Permitted {
     pub permit: String,
     pub changed: bool,
+}
+
+/// What a project permits, as [`crate::TaskService::permits`] reads it
+/// for `taskloom permits` and the `taskloom://tag-permits` resource.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct PermitList {
+    /// The work root's `tag_permits`; `None` where it declares none, and
+    /// then every tag the schema admits is permitted.
+    pub permits: Option<TagPermits>,
+    /// Every target the resolved tag schema declares (any facet), sorted:
+    /// permitted as a key without a permit, whatever the permits say of
+    /// its namespace.
+    pub schema_targets: Vec<String>,
 }
 
 /// Granting and revoking tag permits. Apart from [`crate::TaskService`]

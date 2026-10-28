@@ -37,6 +37,12 @@ pub enum ConfigError {
     /// Tag permits written where there is no work root, so no project
     /// config file to write them to.
     NoWorkRoot,
+    /// An edit of the config file at `path` that does not read back (with
+    /// serde_norway, the reader) as the file before it with only its
+    /// `tag_permits` replaced by those meant: refused, nothing written.
+    /// `detail` says how it differs. A bug in the editing, never the
+    /// person's.
+    EditRefused { path: String, detail: String },
 }
 
 impl fmt::Display for ConfigError {
@@ -80,6 +86,10 @@ impl fmt::Display for ConfigError {
             ConfigError::NoWorkRoot => f.write_str(
                 "there is no work root here, so no project config to write tag permits to",
             ),
+            ConfigError::EditRefused { path, detail } => write!(
+                f,
+                "{path} was left as it was: editing its tag_permits would not have read back as meant ({detail}); this is a bug in taskloom"
+            ),
         }
     }
 }
@@ -97,13 +107,16 @@ impl Diagnostic for ConfigError {
             ConfigError::PermitsOutsideProject { .. } => "tasks-config-permits-outside-project",
             ConfigError::FileOnly { .. } => "tasks-config-file-only",
             ConfigError::NoWorkRoot => "tasks-config-no-work-root",
+            ConfigError::EditRefused { .. } => "tasks-config-edit-refused",
         }
     }
 
     fn args(&self) -> Vec<(&'static str, Arg)> {
         let s = |v: &String| Arg::from(v.as_str());
         match self {
-            ConfigError::Unreadable { path, detail } | ConfigError::Malformed { path, detail } => {
+            ConfigError::Unreadable { path, detail }
+            | ConfigError::Malformed { path, detail }
+            | ConfigError::EditRefused { path, detail } => {
                 vec![("path", s(path)), ("detail", s(detail))]
             }
             ConfigError::Newer {
@@ -177,6 +190,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             key: "tag_permits".to_string(),
         }),
         Box::new(ConfigError::NoWorkRoot),
+        Box::new(ConfigError::EditRefused {
+            path: path(),
+            detail: "schema_version changed".to_string(),
+        }),
     ]
 }
 

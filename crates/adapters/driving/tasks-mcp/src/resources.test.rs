@@ -4,15 +4,21 @@
 use std::path::PathBuf;
 
 use serde_json::json;
-use tasks_application::{Project, Reach, TagCount, TagSchema, Vocabulary};
+use tasks_application::{
+    NamespacePermit, PermitList, Project, Reach, TagCount, TagPermits, TagSchema, Vocabulary,
+};
 
-use super::{go_float, go_indented, offered, schema_text, vocabulary_text, TAG_SCHEMA};
+use super::{
+    go_float, go_indented, offered, permits_text, schema_text, vocabulary_text, TAG_PERMITS,
+    TAG_SCHEMA,
+};
+use crate::tests::reviewed;
 
 /// What the reference resources read, as
-/// `scripts/go-companion-fixtures.sh` extracted them: the tag schema with
-/// nothing configured, and the vocabulary of a project seeded with four
-/// tasks (its id and directory left as PROJECT_ID and PROJECT_DIR).
-const GO_TAG_SCHEMA: &str = include_str!("../fixtures/go/tag-schema.json");
+/// `scripts/go-companion-fixtures.sh` extracted them: the vocabulary of a
+/// project seeded with four tasks (its id and directory left as
+/// PROJECT_ID and PROJECT_DIR). The tag schema with nothing configured is
+/// `reviewed::tag_schema()`: Go's, with Rust's triage:blind-gate.
 const GO_TAG_VOCABULARY: &str = include_str!("../fixtures/go/tag-vocabulary.json");
 
 fn catalog() -> presentation::Catalog {
@@ -36,17 +42,18 @@ fn count(tag: &str, active: usize, total: usize) -> TagCount {
 }
 
 #[test]
-fn test_the_resources_offered_are_the_tag_schema_and_vocabulary() {
+fn test_the_resources_offered_are_the_tag_schema_vocabulary_and_permits() {
     let uris: Vec<String> = offered().into_iter().map(|r| r.uri).collect();
-    assert_eq!(uris, [TAG_SCHEMA, super::TAG_VOCABULARY]);
+    assert_eq!(uris, [TAG_SCHEMA, super::TAG_VOCABULARY, TAG_PERMITS]);
 }
 
+// Go's, reviewed: Rust's default schema declares triage:blind-gate too.
 #[test]
-fn test_the_default_tag_schema_reads_as_gos_byte_for_byte() {
+fn test_the_default_tag_schema_reads_as_gos_reviewed_byte_for_byte() {
     let text = schema_text(&TagSchema::resolved(&[]).unwrap());
     assert!(
-        text == GO_TAG_SCHEMA,
-        "the tag schema differs from Go's:\n{text}"
+        text == reviewed::tag_schema(),
+        "the tag schema differs from Go's, reviewed:\n{text}"
     );
 }
 
@@ -173,4 +180,53 @@ fn test_a_string_is_escaped_as_gos_encoder_escapes_it() {
         go_indented(&json!({"a": [], "b": {}})),
         "{\n  \"a\": [],\n  \"b\": {}\n}"
     );
+}
+
+// ------------------------------------------------------------ tag permits
+
+// Ruling 9: an agent reads what the project permits as the CLI's JSON
+// shows it, indented as the other resources are: each namespace open or
+// closed to its sorted keys, the flat tags, and the schema's targets.
+#[test]
+fn test_the_permits_read_as_namespaces_flat_tags_and_schema_targets() {
+    let list = PermitList {
+        permits: Some(TagPermits {
+            namespaces: [
+                (
+                    "area".to_string(),
+                    NamespacePermit::Closed(["mcp", "cli"].map(String::from).into()),
+                ),
+                ("relates".to_string(), NamespacePermit::Open),
+            ]
+            .into(),
+            flat: ["urgent".to_string()].into(),
+        }),
+        schema_targets: vec!["triage:kind".to_string()],
+    };
+    let text = permits_text(&list);
+    assert_eq!(
+        text,
+        "{\n  \"declared\": true,\n  \"namespaces\": [\n    {\n      \"namespace\": \"area\",\n      \"open\": false,\n      \"keys\": [\n        \"cli\",\n        \"mcp\"\n      ]\n    },\n    {\n      \"namespace\": \"relates\",\n      \"open\": true,\n      \"keys\": []\n    }\n  ],\n  \"tags\": [\n    \"urgent\"\n  ],\n  \"schema_targets\": [\n    \"triage:kind\"\n  ]\n}"
+    );
+}
+
+// Opt-in: a project declaring no permits reads as undeclared, its schema's
+// targets still listed; one declaring an empty set reads as declared.
+#[test]
+fn test_permits_never_declared_read_as_undeclared() {
+    let undeclared = PermitList {
+        permits: None,
+        schema_targets: vec!["triage:kind".to_string()],
+    };
+    let doc: serde_json::Value = serde_json::from_str(&permits_text(&undeclared)).unwrap();
+    assert_eq!(
+        doc,
+        json!({"declared": false, "namespaces": [], "tags": [], "schema_targets": ["triage:kind"]})
+    );
+    let empty = PermitList {
+        permits: Some(TagPermits::default()),
+        schema_targets: Vec::new(),
+    };
+    let doc: serde_json::Value = serde_json::from_str(&permits_text(&empty)).unwrap();
+    assert_eq!(doc["declared"], true);
 }

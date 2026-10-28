@@ -416,7 +416,7 @@ fn test_a_work_root_found_on_reading_is_not_sought_until_then() {
 
 // ------------------------------------------------------------ tag permits
 //
-// The proposed shape, in the work root's .taskloom/config.yaml alone:
+// The shape, in the work root's .taskloom/config.yaml alone:
 //
 //     tag_permits:
 //       namespaces:
@@ -459,6 +459,15 @@ mod permits {
     #[test]
     fn test_the_work_roots_tag_permits_are_read() {
         let dirs = Dirs::new(None, Some(PERMITS));
+        assert_eq!(dirs.config(&[]).tag_permits(), Ok(Some(usual())));
+    }
+
+    // Lists in flow style read as in block style: the proposed vocabulary
+    // (tag-vocabulary.proposal.md, section 5) is written so.
+    #[test]
+    fn test_tag_permits_in_flow_style_are_read() {
+        let flow = "tag_permits:\n  namespaces:\n    area: [cli, mcp]\n    relates: open\n  tags: [urgent]\n";
+        let dirs = Dirs::new(None, Some(flow));
         assert_eq!(dirs.config(&[]).tag_permits(), Ok(Some(usual())));
     }
 
@@ -527,21 +536,132 @@ mod permits {
         }
     }
 
-    // Open question 4: the write keeps everything outside the tag_permits
-    // block byte for byte (comments, other keys, their order and layout),
-    // and replaces the block whole, in its place, in one canonical form:
-    // keys sorted, one per line. A comment INSIDE the block is not kept.
+    // A config file a person wrote: comments above, beside and inside
+    // the tag_permits block, a blank line, and keys on either side.
+    const COMMENTED: &str = "# Taskloom, for this project.\nschema_version: 1   # pinned\n\n# What tags may be used:\ntag_permits:\n  namespaces:\n    # Where in the code.\n    area:\n      - cli    # the command line\n      - mcp\n      - store  # state.db\n    queue: open  # nightly runs\n  # Flat tags, kept few.\n  tags:\n    - urgent  # rare\n    - wibble\n\n# The schema.\ntag_schema:\n  - 'tagma.arity:\"area:x\"=scalar'\n";
+
+    fn closed(keys: &[&str]) -> NamespacePermit {
+        NamespacePermit::Closed(keys.iter().map(|k| k.to_string()).collect())
+    }
+
+    fn flat(keys: &[&str]) -> BTreeSet<String> {
+        keys.iter().map(|k| k.to_string()).collect()
+    }
+
+    /// COMMENTED's permits, as read.
+    fn commented() -> TagPermits {
+        TagPermits {
+            namespaces: BTreeMap::from([
+                ("area".to_string(), closed(&["cli", "mcp", "store"])),
+                ("queue".to_string(), NamespacePermit::Open),
+            ]),
+            flat: flat(&["urgent", "wibble"]),
+        }
+    }
+
+    // Ruling 11 (yaml-rt-core): a permit is the fewest edits to the block,
+    // so every comment survives, INSIDE the block too. A key joins the end
+    // of its namespace's list, a namespace the end of `namespaces`, a flat
+    // tag the end of `tags`: the person's order is kept, nothing sorted.
     #[test]
-    fn test_writing_tag_permits_keeps_the_rest_of_the_file_as_written() {
-        let before = "# Taskloom, for this project.\nschema_version: 1   # pinned\n\n# What tags may be used:\ntag_permits:\n  tags: [old]\n\n# The schema.\ntag_schema:\n  - 'tagma.arity:\"area:x\"=scalar'\n";
-        let dirs = Dirs::new(None, Some(before));
-        dirs.config(&[]).write_tag_permits(&usual()).unwrap();
-        let expected = format!(
-            "# Taskloom, for this project.\nschema_version: 1   # pinned\n\n# What tags may be used:\n{PERMITS}\n# The schema.\ntag_schema:\n  - 'tagma.arity:\"area:x\"=scalar'\n"
+    fn test_a_permit_added_keeps_every_comment_in_the_file() {
+        let dirs = Dirs::new(None, Some(COMMENTED));
+        let mut permits = commented();
+        permits.namespaces.insert(
+            "area".to_string(),
+            closed(&["cli", "config", "mcp", "store"]),
         );
+        permits
+            .namespaces
+            .insert("sig".to_string(), NamespacePermit::Open);
+        permits.flat.insert("blocked".to_string());
+        dirs.config(&[]).write_tag_permits(&permits).unwrap();
+        let expected = COMMENTED
+            .replace(
+                "      - store  # state.db\n",
+                "      - store  # state.db\n      - config\n",
+            )
+            .replace(
+                "    queue: open  # nightly runs\n",
+                "    queue: open  # nightly runs\n    sig: open\n",
+            )
+            .replace("    - wibble\n", "    - wibble\n    - blocked\n");
         assert_eq!(file(&dirs), expected);
-        assert_eq!(dirs.config(&[]).tag_permits(), Ok(Some(usual())));
-        assert_eq!(schema(&dirs.config(&[]), &[]).unwrap().len(), 1);
+        assert_eq!(dirs.config(&[]).tag_permits(), Ok(Some(permits)));
+    }
+
+    // A revoke removes the entry and the comment on its own line, and
+    // nothing else: the comments above and beside the entries left stay.
+    #[test]
+    fn test_a_permit_removed_keeps_the_comments_around_it() {
+        let dirs = Dirs::new(None, Some(COMMENTED));
+        let mut permits = commented();
+        permits
+            .namespaces
+            .insert("area".to_string(), closed(&["cli", "store"]));
+        permits.namespaces.remove("queue");
+        permits.flat.remove("urgent");
+        dirs.config(&[]).write_tag_permits(&permits).unwrap();
+        let expected = COMMENTED
+            .replace("      - mcp\n", "")
+            .replace("    queue: open  # nightly runs\n", "")
+            .replace("    - urgent  # rare\n", "");
+        assert_eq!(file(&dirs), expected);
+        assert_eq!(dirs.config(&[]).tag_permits(), Ok(Some(permits)));
+    }
+
+    // A namespace turning open or closed is rewritten as one entry
+    // (closing an open one is a removal and an addition: yaml-rt-core
+    // cannot turn a scalar into a block list in place). Its own comments
+    // may go with it; every other line of the file stays.
+    #[test]
+    fn test_opening_or_closing_a_namespace_keeps_the_rest_of_the_file() {
+        let dirs = Dirs::new(None, Some(COMMENTED));
+        let mut permits = commented();
+        permits
+            .namespaces
+            .insert("area".to_string(), NamespacePermit::Open);
+        permits
+            .namespaces
+            .insert("queue".to_string(), closed(&["nightly"]));
+        dirs.config(&[]).write_tag_permits(&permits).unwrap();
+        assert_eq!(dirs.config(&[]).tag_permits(), Ok(Some(permits)));
+        let written = file(&dirs);
+        for kept in [
+            "# Taskloom, for this project.\nschema_version: 1   # pinned\n\n# What tags may be used:\ntag_permits:\n  namespaces:\n",
+            "  # Flat tags, kept few.\n  tags:\n    - urgent  # rare\n    - wibble\n\n# The schema.\ntag_schema:\n  - 'tagma.arity:\"area:x\"=scalar'\n",
+        ] {
+            assert!(written.contains(kept), "{written}");
+        }
+    }
+
+    // A list written in flow style (`[a, b]`) is edited in its own style,
+    // its comment kept.
+    #[test]
+    fn test_a_flow_list_is_edited_in_its_own_style() {
+        let dirs = Dirs::new(
+            None,
+            Some("tag_permits:\n  namespaces:\n    area: [cli, mcp, store]  # ours\n"),
+        );
+        let permits = TagPermits {
+            namespaces: BTreeMap::from([("area".to_string(), closed(&["cli", "config", "store"]))]),
+            flat: BTreeSet::new(),
+        };
+        dirs.config(&[]).write_tag_permits(&permits).unwrap();
+        assert_eq!(
+            file(&dirs),
+            "tag_permits:\n  namespaces:\n    area: [cli, store, config]  # ours\n"
+        );
+    }
+
+    // Permits already as meant are not written: the file is left byte
+    // for byte.
+    #[test]
+    fn test_writing_the_permits_already_there_leaves_the_file_alone() {
+        let dirs = Dirs::new(None, Some(COMMENTED));
+        dirs.config(&[]).write_tag_permits(&commented()).unwrap();
+        assert_eq!(file(&dirs), COMMENTED);
+        assert_eq!(dirs.config(&[]).tag_permits(), Ok(Some(commented())));
     }
 
     #[test]

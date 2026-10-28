@@ -318,6 +318,19 @@ pub(crate) async fn revoke(
     Ok(())
 }
 
+/// List what the project permits: in text, its namespaces (open, or
+/// closed with their keys), its flat tags and the schema's targets, or
+/// that it declares none; in JSON, [`tasks_presentation::PermitsJson`],
+/// the `taskloom://tag-permits` resource's document.
+// RED stub: asks the service nothing and says nothing.
+pub(crate) async fn permits(
+    _ctx: Ctx<'_>,
+    _service: &mut impl TaskService,
+    _out: &mut dyn Write,
+) -> Result<(), CliError> {
+    Ok(())
+}
+
 #[derive(Args, Debug)]
 pub struct GlobalArgs {
     /// Every project, not just this one.

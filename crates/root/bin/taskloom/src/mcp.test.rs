@@ -15,19 +15,14 @@ use serde_json::{json, Value};
 
 use super::{binary, disk, Env, Temp};
 
-/// The reference capabilities, tools and resources as initialize,
-/// tools/list and resources/list answer them, and the tag-schema resource
-/// with nothing configured, as `scripts/go-companion-fixtures.sh`
-/// extracted them. The tools are served with the reviewed factual changes
-/// applied (`reviewed`).
+/// The reference capabilities as initialize answers them, as
+/// `scripts/go-companion-fixtures.sh` extracted them. The instructions,
+/// tools, resources and the tag-schema resource with nothing configured
+/// are served with the reviewed factual changes applied (`reviewed`).
 const GO_CAPABILITIES: &str =
     include_str!("../../../../adapters/driving/tasks-mcp/fixtures/go/capabilities.json");
 #[path = "../../../../adapters/driving/tasks-mcp/fixtures/reviewed.rs"]
 mod reviewed;
-const GO_RESOURCES: &str =
-    include_str!("../../../../adapters/driving/tasks-mcp/fixtures/go/resources.json");
-const GO_TAG_SCHEMA: &str =
-    include_str!("../../../../adapters/driving/tasks-mcp/fixtures/go/tag-schema.json");
 
 /// A running `taskloom mcp`, spoken to one JSON-RPC message per line.
 struct Server {
@@ -177,16 +172,16 @@ fn test_mcp_offers_gos_capabilities_tools_and_resources_over_stdio() {
         "the tools are Go's, reviewed"
     );
     let resources = server.ask("resources/list", json!({}));
-    let go_resources: Value = serde_json::from_str(GO_RESOURCES).unwrap();
+    let go_resources: Value = serde_json::from_str(&reviewed::resources()).unwrap();
     assert_eq!(
         resources["result"]["resources"], go_resources,
-        "the resources are Go's"
+        "the resources are Go's, reviewed"
     );
 
     let schema = server.read("taskloom://tag-schema");
     assert!(
-        schema == GO_TAG_SCHEMA,
-        "the tag schema differs from Go's:\n{schema}"
+        schema == reviewed::tag_schema(),
+        "the tag schema differs from Go's, reviewed:\n{schema}"
     );
     let (ok, stderr) = server.finish();
     assert!(ok, "{stderr}");

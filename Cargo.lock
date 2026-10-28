@@ -2578,6 +2578,7 @@ dependencies = [
  "ports",
  "serde",
  "serde_norway",
+ "yaml-rt-core",
 ]
 
 [[package]]
@@ -3207,6 +3208,12 @@ name = "writeable"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
+
+[[package]]
+name = "yaml-rt-core"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "30657c2c0be66de29081777cade70b290e257a6756f51a2c81c36ad42a00ced5"
 
 [[package]]
 name = "yoke"

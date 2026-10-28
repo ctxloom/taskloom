@@ -50,6 +50,12 @@ pub enum Finding {
     /// before they did, or imported. `permit` is what `taskloom permit`
     /// takes to permit it.
     NotPermitted { tag: String, permit: String },
+    /// A task carrying more than one key of a namespace a task takes one
+    /// of (`area:`, `repo:`): `keys` the distinct keys, in its tags' order.
+    ManyKeys {
+        namespace: String,
+        keys: Vec<String>,
+    },
     /// A formula's placeholder naming a value its target's enum does not
     /// declare.
     FormulaEnum {
@@ -95,6 +101,12 @@ impl fmt::Display for Finding {
                 f,
                 "{tag} is not permitted in this project (`taskloom permit {permit}` permits it)"
             ),
+            Finding::ManyKeys { namespace, keys } => write!(
+                f,
+                "{namespace}: carries {} keys ({}), but a task takes one",
+                keys.len(),
+                keys.join(", ")
+            ),
             Finding::FormulaEnum {
                 facet,
                 target,
@@ -118,6 +130,7 @@ impl Diagnostic for Finding {
             Finding::OutOfRange { .. } => "tasks-application-lint-out-of-range",
             Finding::Scalar { .. } => "tasks-application-lint-scalar",
             Finding::NotPermitted { .. } => "tasks-application-lint-not-permitted",
+            Finding::ManyKeys { .. } => "tasks-application-lint-many-keys",
             Finding::FormulaEnum { .. } => "tasks-application-lint-formula-enum",
         }
     }
@@ -154,6 +167,11 @@ impl Diagnostic for Finding {
                 ("values", values.join(", ").into()),
             ],
             Finding::NotPermitted { tag, permit } => vec![("tag", s(tag)), ("permit", s(permit))],
+            Finding::ManyKeys { namespace, keys } => vec![
+                ("namespace", s(namespace)),
+                ("count", keys.len().into()),
+                ("keys", keys.join(", ").into()),
+            ],
             Finding::FormulaEnum {
                 facet,
                 target,
@@ -352,6 +370,10 @@ pub(crate) fn samples() -> Vec<Finding> {
         Finding::NotPermitted {
             tag: x(),
             permit: x(),
+        },
+        Finding::ManyKeys {
+            namespace: x(),
+            keys: vec![x(), x()],
         },
         Finding::FormulaEnum {
             facet: x(),

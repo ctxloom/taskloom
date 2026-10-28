@@ -14,17 +14,14 @@ use super::{Settings, TaskTools, INSTRUCTIONS};
 use crate::fakes::World;
 
 #[path = "../fixtures/reviewed.rs"]
-mod reviewed;
+pub(crate) mod reviewed;
 
-/// taskloom's capabilities as initialize answers them, its tools and
-/// resources as tools/list and resources/list answer them, and what its
-/// tag-schema resource reads with nothing configured, as
+/// taskloom's capabilities as initialize answers them, as
 /// `scripts/go-companion-fixtures.sh` extracted them from the reference
-/// source; run it again to regenerate them. The instructions and tools are
+/// source; run it again to regenerate them. The instructions, tools,
+/// resources and the tag-schema resource with nothing configured are
 /// served with the reviewed factual changes applied (`reviewed`).
 const GO_CAPABILITIES: &str = include_str!("../fixtures/go/capabilities.json");
-const GO_RESOURCES: &str = include_str!("../fixtures/go/resources.json");
-const GO_TAG_SCHEMA: &str = include_str!("../fixtures/go/tag-schema.json");
 
 fn catalog() -> presentation::Catalog {
     let mut sources = vec![crate::EN_US];
@@ -803,9 +800,10 @@ fn content(answer: &Value, uri: &str) -> String {
     contents[0]["text"].as_str().unwrap().to_string()
 }
 
+// Go's, reviewed: taskloom://tag-permits after Go's two.
 #[test]
-fn test_the_resources_are_gos() {
-    let go: Value = serde_json::from_str(GO_RESOURCES).unwrap();
+fn test_the_resources_are_gos_reviewed() {
+    let go: Value = serde_json::from_str(&reviewed::resources()).unwrap();
     run(async {
         let (mut client, _) = connect(Arc::default(), settings()).await;
         let listed = client.ask("resources/list", json!({})).await;
@@ -814,14 +812,42 @@ fn test_the_resources_are_gos() {
 }
 
 #[test]
-fn test_the_tag_schema_reads_as_gos_byte_for_byte() {
+fn test_the_tag_schema_reads_as_gos_reviewed_byte_for_byte() {
     run(async {
         let (mut client, _) = connect(Arc::default(), settings()).await;
         let answer = read(&mut client, "taskloom://tag-schema").await;
         let text = content(&answer, "taskloom://tag-schema");
         assert!(
-            text == GO_TAG_SCHEMA,
-            "the tag schema differs from Go's:\n{text}"
+            text == reviewed::tag_schema(),
+            "the tag schema differs from Go's, reviewed:\n{text}"
+        );
+    });
+}
+
+// Ruling 9: the agent reads what the project permits, read fresh through
+// the use cases like the other resources. With nothing configured the
+// project declares none, and the default schema's targets are listed.
+#[test]
+fn test_the_tag_permits_resource_reads_what_the_project_permits() {
+    run(async {
+        let (mut client, _) = connect(Arc::default(), settings()).await;
+        let answer = read(&mut client, "taskloom://tag-permits").await;
+        let doc: Value = serde_json::from_str(&content(&answer, "taskloom://tag-permits")).unwrap();
+        assert_eq!(doc["declared"], false, "{doc}");
+        assert_eq!(doc["namespaces"], json!([]));
+        assert_eq!(doc["tags"], json!([]));
+        assert_eq!(
+            doc["schema_targets"],
+            json!([
+                "triage:audited",
+                "triage:blind-gate",
+                "triage:blocks-release",
+                "triage:effort",
+                "triage:exposed",
+                "triage:kind",
+                "triage:level",
+                "triage:verdict"
+            ])
         );
     });
 }
@@ -1021,6 +1047,11 @@ impl<S: tasks_application::TaskService + Send> tasks_application::TaskService fo
         &mut self,
     ) -> Result<tasks_application::TagSchema, tasks_application::AppError> {
         self.0.tag_schema().await
+    }
+    async fn permits(
+        &mut self,
+    ) -> Result<tasks_application::PermitList, tasks_application::AppError> {
+        self.0.permits().await
     }
 }
 

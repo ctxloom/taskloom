@@ -20,6 +20,7 @@
 //! are known and ignored. Nothing is written: there is no older version to
 //! upgrade from.
 
+mod edit;
 mod error;
 
 use std::ffi::OsString;

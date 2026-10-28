@@ -11,10 +11,10 @@ use std::task::{Context as TaskContext, Poll, Waker};
 use annals_diagnostic::Report;
 use tasks_application::{
     AppError, Details, Finding, Hidden, ImportReport, ImportRequest, ImportService, LintReport,
-    ListQuery, Listing, NewTask, PermitChange, PermitService, Permitted, PriorityNote,
-    PriorityWarning, Project, ProjectImport, PruneRequest, PruneService, Pruning, Reach, Row,
-    Scope, ShowQuery, StatusChange, StatusInfo, Statuses, Summary, TagChange, TagCount, TagSchema,
-    Task, TaskService, TextEdit, Violation, Vocabulary, Written,
+    ListQuery, Listing, NamespacePermit, NewTask, PermitChange, PermitList, PermitService,
+    Permitted, PriorityNote, PriorityWarning, Project, ProjectImport, PruneRequest, PruneService,
+    Pruning, Reach, Row, Scope, ShowQuery, StatusChange, StatusInfo, Statuses, Summary, TagChange,
+    TagCount, TagPermits, TagSchema, Task, TaskService, TextEdit, Violation, Vocabulary, Written,
 };
 
 use presentation::Catalog;
@@ -84,6 +84,8 @@ struct Fake {
     permits: Vec<PermitChange>,
     revokes: Vec<PermitChange>,
     permitted: Option<Result<Permitted, AppError>>,
+    permit_list: Option<Result<PermitList, AppError>>,
+    permit_lists: usize,
 }
 
 impl TaskService for Fake {
@@ -140,6 +142,11 @@ impl TaskService for Fake {
     // The command line reads no schema through this; the MCP server does.
     async fn tag_schema(&mut self) -> Result<TagSchema, AppError> {
         unreachable!("no command reads the tag schema")
+    }
+
+    async fn permits(&mut self) -> Result<PermitList, AppError> {
+        self.permit_lists += 1;
+        self.permit_list.clone().expect("a permit list scripted")
     }
 }
 
@@ -2255,4 +2262,105 @@ fn test_a_refused_revoke_names_the_tasks_still_carrying_it() {
         ran.err,
         "taskloom: area:cli cannot be revoked: these tasks still carry it: \"calm-otter\", \"swift-amber\" (retag them first)\n"
     );
+}
+
+// ------------------------------------------------------------ permits
+
+/// `area:` closed to cli and mcp, `relates:` open and the flat `urgent`,
+/// with two schema targets.
+fn listed(permits: Option<TagPermits>) -> Option<Result<PermitList, AppError>> {
+    Some(Ok(PermitList {
+        permits,
+        schema_targets: vec!["triage:kind".to_string(), "triage:level".to_string()],
+    }))
+}
+
+fn usual_permits() -> TagPermits {
+    TagPermits {
+        namespaces: [
+            (
+                "area".to_string(),
+                NamespacePermit::Closed(["cli", "mcp"].map(String::from).into()),
+            ),
+            ("relates".to_string(), NamespacePermit::Open),
+        ]
+        .into(),
+        flat: ["urgent".to_string()].into(),
+    }
+}
+
+// Ruling 9: a person reads what the project permits, one line a
+// namespace (its keys, or that it is open), then the flat tags and the
+// targets the schema permits without a permit.
+#[test]
+fn test_permits_lists_the_namespaces_flat_tags_and_schema_targets() {
+    let mut fake = Fake {
+        permit_list: listed(Some(usual_permits())),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["permits"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(fake.permit_lists, 1);
+    assert_eq!(
+        ran.out,
+        "Namespaces:\n  area:     cli, mcp\n  relates:  (open: any key)\nFlat tags: urgent\nPermitted by the tag schema: triage:kind, triage:level\n"
+    );
+    let mut fake = Fake {
+        permit_list: listed(Some(TagPermits::default())),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["permits"]);
+    assert_eq!(
+        ran.out,
+        "Namespaces: (none)\nFlat tags: (none)\nPermitted by the tag schema: triage:kind, triage:level\n"
+    );
+}
+
+// Opt-in (ruling 6), as a person reads it: no permits declared is not
+// "nothing permitted", and the listing says which, and how to start.
+#[test]
+fn test_permits_where_none_are_declared_says_every_tag_is_permitted() {
+    let mut fake = Fake {
+        permit_list: listed(None),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["permits"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(
+        ran.out,
+        "No tag permits: this project declares none, so every tag the tag schema admits is permitted (`taskloom permit <permit>` starts them).\nPermitted by the tag schema: triage:kind, triage:level\n"
+    );
+}
+
+// In JSON, the taskloom://tag-permits resource's document
+// (tasks-presentation's PermitsJson), so one jq filter reads both.
+#[test]
+fn test_permits_in_json_is_the_resources_document() {
+    let mut fake = Fake {
+        permit_list: listed(Some(usual_permits())),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, false, &["permits"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "declared": true,
+            "namespaces": [
+                {"namespace": "area", "open": false, "keys": ["cli", "mcp"]},
+                {"namespace": "relates", "open": true, "keys": []},
+            ],
+            "tags": ["urgent"],
+            "schema_targets": ["triage:kind", "triage:level"],
+        })
+    );
+    let mut fake = Fake {
+        permit_list: listed(None),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, false, &["permits"]);
+    let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
+    assert_eq!(json["declared"], false);
+    assert_eq!(json["namespaces"], serde_json::json!([]));
 }

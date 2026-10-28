@@ -71,6 +71,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # serde_yaml's maintained fork: serde_yaml's libyaml is unmaintained (RustSec).
 serde_norway = "0.9"
+# Editing a config file in place, its comments and layout kept: the
+# tag_permits block `taskloom permit` and `revoke` change. No dependencies of
+# its own; it needs Rust 1.96. serde_norway stays the reader, and every edit
+# is read back with it before it is written. Pinned exactly: 0.3.2.
+yaml-rt-core = "=0.3.2"
 sha2 = "0.10"
 tempfile = "3"
 # The file-system seam on Windows: directory links as junctions (as Go's

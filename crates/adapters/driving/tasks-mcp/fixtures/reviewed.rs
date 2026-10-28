@@ -16,6 +16,16 @@ pub fn instructions() -> String {
     applied(include_str!("go/instructions.txt"), INSTRUCTIONS)
 }
 
+/// The reference resources, as resources/list answers them, reviewed.
+pub fn resources() -> String {
+    applied(include_str!("go/resources.json"), RESOURCES)
+}
+
+/// The reference tag-schema resource with nothing configured, reviewed.
+pub fn tag_schema() -> String {
+    applied(include_str!("go/tag-schema.json"), TAG_SCHEMA)
+}
+
 /// The reference tools, as tools/list answers them, reviewed.
 pub fn tools() -> String {
     let tools = applied(include_str!("go/tools.json"), TOOLS);
@@ -39,7 +49,28 @@ pub const INSTRUCTIONS: &[(&str, &str)] = &[
         "and is refused as blank.",
         "and is refused as blank.\nA failed write's tool error may add, after its JSON envelope, a text block of DEAD LETTER lines: each almost certainly marks a bug in taskloom, so show them to the user.",
     ),
+    // Tag permits (ruling 9): the agent is pointed at what the project
+    // permits, and told that only a person permits more.
+    (
+        "read the `taskloom://tag-schema` and `taskloom://tag-vocabulary` resources before choosing one; a project may declare enums, numeric ranges, and scalar (at-most-one-value) targets that are enforced on write.",
+        "read the `taskloom://tag-schema`, `taskloom://tag-vocabulary` and `taskloom://tag-permits` resources before choosing one; a project may declare enums, numeric ranges, and scalar (at-most-one-value) targets that are enforced on write, and may permit only the tags in its tag permits, refusing any other on write. Only a person permits a tag (`taskloom permit`): when one you need is refused, propose it to the user rather than coining a near-twin.",
+    ),
 ];
+
+/// Tag permits: the resource listing what a project permits, after Go's
+/// two (ruling 9).
+pub const RESOURCES: &[(&str, &str)] = &[(
+    "    \"uri\": \"taskloom://tag-vocabulary\"\n  }\n]",
+    "    \"uri\": \"taskloom://tag-vocabulary\"\n  },\n  {\n    \"description\": \"What the project's tag permits permit (its .taskloom/config.yaml's tag_permits; the MCP twin of `taskloom permits`): each permitted namespace, open (any key) or closed to its keys, the permitted flat tags, and schema_targets, the targets the tag schema declares, which are permitted without a permit. \\\"declared\\\": false means the project declares no permits, and every tag the schema admits is permitted. Where it declares them, a write adding a tag they do not permit is refused: choose a permitted tag, or propose the one you need to the user, who permits it with `taskloom permit`. No tool permits or revokes a tag.\",\n    \"mimeType\": \"application/json\",\n    \"name\": \"tag-permits\",\n    \"uri\": \"taskloom://tag-permits\"\n  }\n]",
+)];
+
+/// triage:blind-gate, declared by Rust's default schema alone (tag
+/// permits, ruling 14: decay_fn reads it, so a permitting project must
+/// admit it, and the enum refuses a typo on write).
+pub const TAG_SCHEMA: &[(&str, &str)] = &[(
+    "    {\n      \"target\": \"triage:blocks-release\",",
+    "    {\n      \"target\": \"triage:blind-gate\",\n      \"enum\": [\n        \"unit\",\n        \"integration\",\n        \"acceptance\",\n        \"mutation\",\n        \"lint\",\n        \"ci\"\n      ]\n    },\n    {\n      \"target\": \"triage:blocks-release\",",
+)];
 
 pub const TOOLS: &[(&str, &str)] = &[
     // 2. task_list: repo homing is dropped, and no notice says so.

@@ -230,6 +230,38 @@ fn test_the_default_schema_parses_and_a_project_extends_it() {
     assert!(extended.is_scalar("area:x") && extended.is_scalar("triage:kind"));
 }
 
+// Tag permits, ruling 3: decay_fn reads {{triage:blind-gate=*}}, so the
+// default schema declares the target, as a REPEATABLE enum of the gates a
+// green run can be blind in (a task may name more than one), so that a
+// permitting project admits it and a typo is refused on write. A project
+// with more gates re-declares the enum in its tag_schema (a later
+// declaration replaces this one).
+#[test]
+fn test_the_default_schema_declares_blind_gate_a_repeatable_enum() {
+    let schema = TagSchema::resolved(&[]).unwrap();
+    let gates: Vec<String> = [
+        "unit",
+        "integration",
+        "acceptance",
+        "mutation",
+        "lint",
+        "ci",
+    ]
+    .iter()
+    .map(|g| g.to_string())
+    .collect();
+    assert_eq!(schema.enum_of("triage:blind-gate"), Some(gates.as_slice()));
+    assert!(!schema.is_scalar("triage:blind-gate"));
+    let extended = TagSchema::resolved(&[
+        r#"tagma.enum:"triage:blind-gate"="unit,ci,conformance""#.to_string(),
+    ])
+    .unwrap();
+    assert_eq!(
+        extended.enum_of("triage:blind-gate").map(<[String]>::len),
+        Some(3)
+    );
+}
+
 #[test]
 fn test_each_refusal_has_its_code_and_args() {
     for sample in super::samples() {

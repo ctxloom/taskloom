@@ -716,3 +716,55 @@ fn test_a_projects_permits_refuse_a_tag_until_it_is_permitted() {
     assert!(file.contains("area:"), "{file}");
     block_on(taskloom.tasks().add(task())).unwrap();
 }
+
+/// taskloom's proposed tag permits (tag-vocabulary.proposal.md, section 5,
+/// adapted to the rulings): a fixture, not this repository's live config.
+const TASKLOOM_PERMITS: &[u8] = include_bytes!("../fixtures/taskloom-tag-permits.yaml");
+
+// Tag permits end to end, under taskloom's own proposed vocabulary: an
+// invented area (the agent's `area:host-hardening`, the problem permits
+// exist to fix) is refused, naming the command a person would run; a
+// declared area is admitted, beside a closed namespace's key, a factual
+// flag from the closed triage: list, an open namespace's key, and the
+// schema's declared targets (blind-gate among them), none of which the
+// fixture lists. The read-only list says what the file says.
+#[test]
+fn test_taskloom_s_proposed_permits_refuse_an_invented_area_and_admit_a_declared_one() {
+    let dirs = Dirs::new();
+    dirs.write(
+        "/project/.taskloom/config.yaml",
+        TASKLOOM_PERMITS,
+        Mode::FILE,
+    );
+    let taskloom = dirs.taskloom();
+    let tagged = |tags: &[&str]| NewTask {
+        tags: tags.iter().map(|t| t.to_string()).collect(),
+        ..new_task("Harden the host")
+    };
+    let error = block_on(taskloom.tasks().add(tagged(&["area:host-hardening"]))).unwrap_err();
+    assert_eq!(error.code(), "tasks-application-tag-not-permitted");
+    assert!(
+        error
+            .to_string()
+            .contains("`taskloom permit area:host-hardening`"),
+        "{error}"
+    );
+    let written = block_on(taskloom.tasks().add(tagged(&[
+        "area:platform",
+        "platform:windows",
+        "triage:security",
+        "relates:crispy-woof",
+        "triage:kind=defect",
+        "triage:level=2",
+        "triage:blind-gate=ci",
+    ])))
+    .unwrap();
+    assert_eq!(written.task.tags.len(), 7);
+    let listed = block_on(taskloom.tasks().permits()).unwrap();
+    let permits = listed.permits.expect("the fixture declares permits");
+    assert_eq!(permits.namespaces.len(), 11);
+    assert!(permits.flat.is_empty());
+    assert!(listed
+        .schema_targets
+        .contains(&"triage:blind-gate".to_string()));
+}
