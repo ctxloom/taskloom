@@ -10,9 +10,10 @@
 //! A burst of commits is one line, written once a tick finds nothing new,
 //! or after [`CEILING_TICKS`] ticks of a burst that does not stop. The
 //! stream runs until its stop future resolves (the binary's: SIGINT or
-//! SIGTERM; never its stdin closing, since a subscriber such as the VS
-//! Code extension starts it with stdin from /dev/null), or a line cannot
-//! be written.
+//! SIGTERM, or on Windows Ctrl-C, Ctrl-Break or the console's close,
+//! logoff or shutdown, as its long help says; never its stdin closing,
+//! since a subscriber such as the VS Code extension starts it with stdin
+//! from /dev/null), or a line cannot be written.
 //!
 //! Both formats are the stream: text and JSON alike write JSON Lines. An
 //! error is reported as every command's is.
@@ -40,16 +41,28 @@ pub const DEBOUNCE: Duration = Duration::from_millis(100);
 /// debounces.
 pub const CEILING_TICKS: u32 = 10;
 
-/// `taskloom watch --help`'s long text as a host of `flavor` says it.
-pub fn long_about(_flavor: os::Flavor) -> String {
-    "Watch the project's task store and emit a JSONL event whenever it changes.\n\n\
-Long-lived: runs until interrupted (Ctrl-C / SIGTERM); a closed stdin does not\n\
+/// `taskloom watch --help`'s long text as a host of `flavor` says it: what
+/// stops the watch is what the os crate's stop signal hears there, Ctrl-C
+/// and SIGTERM on unix (Go's words); on Windows (a reviewed departure from
+/// Go's words, 2026-10-28) Ctrl-C and Ctrl-Break, and the console's close,
+/// the user's logoff and the system's shutdown.
+pub fn long_about(flavor: os::Flavor) -> String {
+    let stops = match flavor {
+        os::Flavor::Unix => "(Ctrl-C / SIGTERM)",
+        os::Flavor::Windows => {
+            "(Ctrl-C or Ctrl-Break, or the console's\n\
+             close, the user's logoff or the system's shutdown)"
+        }
+    };
+    format!(
+        "Watch the project's task store and emit a JSONL event whenever it changes.\n\n\
+Long-lived: runs until interrupted {stops}; a closed stdin does not\n\
 stop it. One line at once, then one per burst of changes, e.g.\n\
-{\"event\":\"changed\",\"kind\":\"tasks\",\"project\":\"swift-amber-falcon\"}. A GUI\n\
+{{\"event\":\"changed\",\"kind\":\"tasks\",\"project\":\"swift-amber-falcon\"}}. A GUI\n\
 subscribes to this and re-queries the task list on each event, so it stays live\n\
 without polling or watching the store files itself (the watch plumbing lives in\n\
 the backend, not the client)."
-        .to_string()
+    )
 }
 
 /// The command, for the binary to mount.
@@ -58,13 +71,7 @@ pub enum Group {
     /// Stream task-store change events as JSONL (one line per change)
     #[command(
         hide = true,
-        long_about = "Watch the project's task store and emit a JSONL event whenever it changes.\n\n\
-Long-lived: runs until interrupted (Ctrl-C / SIGTERM); a closed stdin does not\n\
-stop it. One line at once, then one per burst of changes, e.g.\n\
-{\"event\":\"changed\",\"kind\":\"tasks\",\"project\":\"swift-amber-falcon\"}. A GUI\n\
-subscribes to this and re-queries the task list on each event, so it stays live\n\
-without polling or watching the store files itself (the watch plumbing lives in\n\
-the backend, not the client)."
+        long_about = long_about(os::host().flavor())
     )]
     Watch,
 }

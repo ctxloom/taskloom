@@ -8,8 +8,9 @@
 //! task logs, for `import`; the project use cases for the `project`
 //! group; a maker of tasks use cases for `mcp`, which serves each call on
 //! a service of its own; and the registrations for `manage`. `watch`
-//! streams the project's changes until SIGINT or SIGTERM (never at a
-//! closed stdin). It holds no logic of its own, and wires no adapter.
+//! streams the project's changes until SIGINT or SIGTERM (on Windows
+//! Ctrl-C, Ctrl-Break, or the console's close, logoff or shutdown; never
+//! at a closed stdin). It holds no logic of its own, and wires no adapter.
 
 use std::io::{self, IsTerminal};
 use std::process::ExitCode;

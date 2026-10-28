@@ -225,8 +225,9 @@ cutover ("What remains").
   of commits: the use case is polled each tick (100ms, Go's
   `watchDebounce`) and a burst gets its line at its first quiet tick, or
   ten ticks in when it does not stop, as Go's debounce and ceiling. It
-  ends at SIGINT or SIGTERM (tokio's `signal` feature), as Go's, never
-  at a closed stdin (the VS Code extension starts it with stdin from
+  ends at SIGINT or SIGTERM (tokio's `signal` feature), as Go's (on
+  Windows at Ctrl-C, Ctrl-Break, or the console's close, logoff or
+  shutdown, as Go's os.Interrupt and SIGTERM there), never at a closed stdin (the VS Code extension starts it with stdin from
   /dev/null), and with why when a line cannot be written. Its tests drive
   every tick and script every poll; the binary's run it with stdin from
   /dev/null and see a second line from a live process.
@@ -867,8 +868,11 @@ restarted on a freed harp is under "Where it stands".
     2026-10-28), `manage`'s unresolvable-command warning names the search
     path `%PATH%` where Go's unix recording says `$PATH`
     (`fixtures/reviewed.rs` in registration-cli, applied on Windows
-    alone), and the no-home errors name USERPROFILE, the variable read
-    there, where they said HOME.
+    alone), the no-home errors name USERPROFILE, the variable read
+    there, where they said HOME, and `watch --help` names what stops the
+    watch there (Ctrl-C or Ctrl-Break, or the console's close, the user's
+    logoff or the system's shutdown) where unix's says `Ctrl-C / SIGTERM`
+    (`fixtures/reviewed.rs` in tasks-watch, applied on Windows alone).
 12. **`manage` keeps no hew records; no hew port for now** (decided
     2026-10-21). `manage` edits with its own byte-preserving JSON patcher
     and reads Go's newest record for one fact (whether Go created
