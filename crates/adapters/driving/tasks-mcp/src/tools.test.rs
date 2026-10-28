@@ -263,6 +263,7 @@ fn test_each_change_asks_for_its_task_by_harp_in_the_pinned_project() {
             status: Some("Deferred".to_string()),
             trigger: Some("later".to_string()),
             clear_trigger: false,
+            request_id: None,
         }
     );
     assert_eq!(
@@ -277,6 +278,7 @@ fn test_each_change_asks_for_its_task_by_harp_in_the_pinned_project() {
             project: Some("pinned-proj-id".to_string()),
             harp_id: "swift-amber".to_string(),
             text: "New".to_string(),
+            request_id: None,
         }
     );
     assert_eq!(
@@ -290,6 +292,7 @@ fn test_each_change_asks_for_its_task_by_harp_in_the_pinned_project() {
             harp_id: "swift-amber".to_string(),
             add: vec!["a".to_string()],
             remove: vec!["b".to_string()],
+            request_id: None,
         }
     );
     let bare = tag_change(json!({"harp_id": "h", "add": null}), &settings()).unwrap();
@@ -579,4 +582,63 @@ fn test_a_status_change_takes_a_trigger_alone_or_a_clearing_of_it() {
         status_change(json!({"harp_id": "h", "clear_trigger": "yes"}), &settings()),
         Err(McpError::Arguments { tool, .. }) if tool == "task_set_status"
     ));
+}
+
+// A write's `request_id` argument is the request's key, passed on as
+// given; left out or null, none. task_add's schema offers none until fix O,
+// but one sent is taken and passed on, for the use case to refuse in its
+// catalogued words, never refused as an unknown argument nor dropped.
+#[test]
+fn test_a_writes_request_id_is_passed_on_as_given() {
+    let task = new_task(json!({"text": "x", "request_id": "r-1"}), &settings()).unwrap();
+    assert_eq!(task.request_id.as_deref(), Some("r-1"));
+    let status = |arguments| status_change(arguments, &settings()).unwrap().request_id;
+    let tag = |arguments| tag_change(arguments, &settings()).unwrap().request_id;
+    let edit = |arguments| text_edit(arguments, &settings()).unwrap().request_id;
+    assert_eq!(
+        status(json!({"harp_id": "h", "status": "Done", "request_id": "r-2"})).as_deref(),
+        Some("r-2")
+    );
+    assert_eq!(
+        tag(json!({"harp_id": "h", "add": ["x"], "request_id": "r-3"})).as_deref(),
+        Some("r-3")
+    );
+    assert_eq!(
+        edit(json!({"harp_id": "h", "text": "y", "request_id": ""})).as_deref(),
+        Some(""),
+        "given blank, for the use case to refuse"
+    );
+    let bare = new_task(json!({"text": "x", "request_id": null}), &settings()).unwrap();
+    assert_eq!(bare.request_id, None);
+    assert_eq!(status(json!({"harp_id": "h", "status": "Done"})), None);
+    assert_eq!(tag(json!({"harp_id": "h", "add": ["x"]})), None);
+    assert_eq!(
+        edit(json!({"harp_id": "h", "text": "y", "request_id": null})),
+        None
+    );
+}
+
+// The request_id argument, in the human's reviewed words, on the three
+// writes it is kept by; task_add offers none until fix O.
+#[test]
+fn test_the_writes_that_keep_a_request_id_offer_it_and_task_add_does_not() {
+    let tools = offered();
+    let described = |name: &str| {
+        let tool = tools.iter().find(|t| t.name == name).expect("offered");
+        tool.input_schema
+            .get("properties")
+            .and_then(|p| p.get("request_id"))
+            .cloned()
+    };
+    for name in ["task_set_status", "task_tag", "task_edit"] {
+        assert_eq!(
+            described(name),
+            Some(json!({
+                "description": "An id you choose for this request; resend the same one when retrying it, and a request already applied is not applied again.",
+                "type": "string"
+            })),
+            "{name}"
+        );
+    }
+    assert_eq!(described("task_add"), None);
 }

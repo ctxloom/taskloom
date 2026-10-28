@@ -160,6 +160,56 @@ pub const TOOLS: &[(&str, &str)] = &[
         "harp_id"
       ],"#,
     ),
+    // 12. task_set_status, task_tag and task_edit: a request's key, so a
+    // retried request applies once (2026-10-27). task_add offers none until
+    // fix O pins the harp an add mints by it; one sent is refused
+    // (tasks-application-add-request-id-not-yet).
+    (
+        r#"        "status": {
+          "description": "Target status."#,
+        r#"        "request_id": {
+          "description": "An id you choose for this request; resend the same one when retrying it, and a request already applied is not applied again.",
+          "type": "string"
+        },
+        "status": {
+          "description": "Target status."#,
+    ),
+    (
+        r#"least one of add/remove is required; a tag named in both ends up removed.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        }
+      },"#,
+        r#"least one of add/remove is required; a tag named in both ends up removed.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "request_id": {
+          "description": "An id you choose for this request; resend the same one when retrying it, and a request already applied is not applied again.",
+          "type": "string"
+        }
+      },"#,
+    ),
+    (
+        r#"        "text": {
+          "description": "The full replacement text for the task."#,
+        r#"        "request_id": {
+          "description": "An id you choose for this request; resend the same one when retrying it, and a request already applied is not applied again.",
+          "type": "string"
+        },
+        "text": {
+          "description": "The full replacement text for the task."#,
+    ),
 ];
 
 /// Changes made to each of the five tools' output schemas alike.

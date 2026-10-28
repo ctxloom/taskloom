@@ -477,3 +477,44 @@ fn test_mcp_calls_are_served_under_the_config_set_given_it() {
     let (ok, stderr) = server.finish();
     assert!(ok, "{stderr}");
 }
+
+// A write retried under its request_id applies once, as on the command
+// line; task_add's is refused until fix O, in its catalogued words.
+#[test]
+fn test_mcp_applies_a_write_retried_under_its_request_id_once() {
+    let env = Env::new("mcp-test-harp");
+    let mut server = Server::start(&env);
+    server.initialize();
+    let added = server.call("task_add", json!({"text": "Ship it"}));
+    let harp = added["task"]["harp_id"].clone();
+    let moving = json!({"harp_id": harp, "status": "In Progress", "request_id": "r-1"});
+    let first = server.call("task_set_status", moving.clone());
+    server.call(
+        "task_set_status",
+        json!({"harp_id": harp, "status": "Done"}),
+    );
+    let again = server.call("task_set_status", moving);
+    assert_eq!(again["task"]["status"], "Done", "not applied again");
+    assert_eq!(first["task"]["status"], "In Progress");
+    let refused = server.ask(
+        "tools/call",
+        json!({"name": "task_add", "arguments": {"text": "Again", "request_id": "r-2"}}),
+    );
+    let result = &refused["result"];
+    assert_eq!(result["isError"], true, "{refused}");
+    let envelope: Value =
+        serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        envelope["code"], "tasks-application-add-request-id-not-yet",
+        "{envelope}"
+    );
+    assert_eq!(
+        envelope["message"],
+        "not yet: an add's request id needs fix O (the harp position pinned by the key)",
+        "{envelope}"
+    );
+    let listing = server.call("task_list", json!({"include_completed": true}));
+    assert_eq!(listing["tasks"].as_array().unwrap().len(), 1, "{listing}");
+    let (ok, stderr) = server.finish();
+    assert!(ok, "{stderr}");
+}

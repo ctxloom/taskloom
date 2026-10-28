@@ -316,6 +316,7 @@ fn test_add_joins_its_words_and_passes_its_flags_and_the_session() {
             trigger: Some("later".to_string()),
             tags: vec!["a".to_string(), "b".to_string()],
             origin_session: Some("cross-proc-harp".to_string()),
+            request_id: None,
         }]
     );
     assert_eq!(ran.err, "taskloom: project /work/tree (jolly-mute-magma)\n");
@@ -486,6 +487,7 @@ fn test_tag_passes_its_adds_and_removes_and_answers_with_the_tags() {
             harp_id: "swift-amber".to_string(),
             add: vec!["a".to_string(), "b".to_string()],
             remove: vec!["c".to_string()],
+            request_id: None,
         }]
     );
     assert_eq!(ran.err, "taskloom: project /work/tree (jolly-mute-magma)\n");
@@ -553,6 +555,7 @@ fn test_status_passes_its_id_status_and_trigger_and_answers_like_add() {
             status: Some("Deferred".to_string()),
             trigger: Some("the release".to_string()),
             clear_trigger: false,
+            request_id: None,
         }]
     );
     assert_eq!(ran.out, "swift-amber\tDeferred\tShip it\n");
@@ -583,6 +586,7 @@ fn test_status_passes_a_trigger_alone_and_a_clearing_of_the_trigger() {
         status: status.map(str::to_string),
         trigger: trigger.map(str::to_string),
         clear_trigger,
+        request_id: None,
     };
     for (args, expected) in [
         (
@@ -660,6 +664,7 @@ fn test_edit_joins_its_words_and_answers_like_add() {
             project: Some("p".to_string()),
             harp_id: "swift-amber".to_string(),
             text: "Ship it --now".to_string(),
+            request_id: None,
         }]
     );
     assert_eq!(ran.out, "swift-amber\tTo Do\tShip it\n");
@@ -2385,5 +2390,62 @@ fn test_permits_says_a_namespace_closed_to_no_key_permits_none() {
     assert_eq!(
         ran.out,
         "Namespaces:\n  area:  (no key)\nFlat tags: (none)\nPermitted by the tag schema: triage:kind, triage:level\n"
+    );
+}
+
+// `--request-id <id>` on every write names the request's key, passed on
+// as given (a blank one, and any on an add until fix O, for the use case
+// to refuse); left out, none. Nothing on the command line mints one.
+#[test]
+fn test_a_write_passes_its_request_id_on_as_given() {
+    let mut fake = Fake {
+        written: written(shapes::task("swift-amber", "To Do")),
+        ..Fake::default()
+    };
+    for args in [
+        &["add", "Ship it", "--request-id", "r-1"][..],
+        &["status", "swift-amber", "Done", "--request-id", "r-2"],
+        &["tag", "swift-amber", "--add", "x", "--request-id", "r-3"],
+        &["edit", "swift-amber", "New", "--request-id", ""],
+        &["add", "Ship it"],
+        &["status", "swift-amber", "Done"],
+        &["tag", "swift-amber", "--add", "x"],
+        &["edit", "swift-amber", "New"],
+    ] {
+        let ran = run_on(&mut fake, true, args);
+        assert_eq!(ran.code, 0, "{args:?}: {}", ran.err);
+    }
+    let added: Vec<_> = fake.added.iter().map(|t| t.request_id.as_deref()).collect();
+    assert_eq!(added, [Some("r-1"), None]);
+    let moved: Vec<_> = fake.moved.iter().map(|c| c.request_id.as_deref()).collect();
+    assert_eq!(moved, [Some("r-2"), None]);
+    let tagged: Vec<_> = fake
+        .tagged
+        .iter()
+        .map(|c| c.request_id.as_deref())
+        .collect();
+    assert_eq!(tagged, [Some("r-3"), None]);
+    let edited: Vec<_> = fake.edits.iter().map(|e| e.request_id.as_deref()).collect();
+    assert_eq!(edited, [Some(""), None]);
+}
+
+// The help says what a request id does, and that an add's is refused
+// until fix O.
+#[test]
+fn test_the_help_says_what_a_request_id_does_and_that_an_adds_is_not_yet() {
+    for write in ["status", "tag", "edit"] {
+        let help = run_on(&mut Fake::default(), true, &[write, "--help"]);
+        assert!(
+            help.out
+                .contains("resend the same one when retrying it, and a request already applied is not applied again"),
+            "{write}: {}",
+            help.out
+        );
+    }
+    let help = run_on(&mut Fake::default(), true, &["add", "--help"]);
+    assert!(
+        help.out.contains("Not yet: refused until fix O"),
+        "{}",
+        help.out
     );
 }

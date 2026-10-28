@@ -70,6 +70,8 @@ pub(crate) async fn add(
         trigger: args.trigger,
         tags: args.tags,
         origin_session,
+        // PROPOSAL (red): passed on as given.
+        request_id: None,
     };
     let written = service.add(task).await.map_err(CliError::App)?;
     wrote(
@@ -119,6 +121,8 @@ pub(crate) async fn status(
         status: args.status,
         trigger: args.trigger,
         clear_trigger: args.clear_trigger,
+        // PROPOSAL (red): passed on as given.
+        request_id: None,
     };
     let written = service.set_status(change).await.map_err(CliError::App)?;
     wrote(
@@ -152,6 +156,8 @@ pub(crate) async fn edit(
         project: ctx.project,
         harp_id: args.harp_id,
         text: args.text.join(" "),
+        // PROPOSAL (red): passed on as given.
+        request_id: None,
     };
     let written = service.edit(edit).await.map_err(CliError::App)?;
     wrote(
@@ -188,6 +194,8 @@ pub(crate) async fn tag(
         harp_id: args.harp_id,
         add: args.add,
         remove: args.remove,
+        // PROPOSAL (red): passed on as given.
+        request_id: None,
     };
     let written = service.tag(change).await.map_err(CliError::App)?;
     let view = Tagged(&written.task, &written.shown);

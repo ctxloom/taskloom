@@ -934,6 +934,49 @@ fn test_in_json_each_change_writes_one_document_and_errors_an_envelope() {
     );
 }
 
+// A write retried under its request id applies once: the retry answers
+// with the task as it stands, a later change by another request kept. An
+// add's request id is refused until fix O, and nothing is added for it.
+#[test]
+fn test_a_write_retried_under_its_request_id_applies_once() {
+    let jq = Jq::new("jq-request-harp");
+    let harp = jq.harp.as_str();
+    let moving = [
+        "status",
+        harp,
+        "In Progress",
+        "--request-id",
+        "r-1",
+        "--json",
+    ];
+    let first = jq.ok(&moving);
+    assert_eq!(jq.ok(&moving), first, "its time of change included");
+    jq.ok(&["status", harp, "Done", "--json"]);
+    assert_eq!(jq.ok(&moving)["status"], "Done", "not applied again");
+    let tagging = ["tag", harp, "--add", "x", "--request-id", "r-1", "--json"];
+    jq.ok(&tagging);
+    jq.ok(&["tag", harp, "--remove", "x", "--json"]);
+    assert_eq!(jq.ok(&tagging)["tags"], serde_json::json!([]));
+    let editing = ["edit", harp, "First", "--request-id", "r-1", "--json"];
+    jq.ok(&editing);
+    jq.ok(&["edit", harp, "Second", "--json"]);
+    assert_eq!(jq.ok(&editing)["text"], "Second");
+    jq.refused(
+        &["status", harp, "Done", "--request-id", " ", "--json"],
+        "tasks-application-blank",
+    );
+    jq.refused(
+        &["add", "Again", "--request-id", "r-2", "--json"],
+        "tasks-application-add-request-id-not-yet",
+    );
+    let listed = jq.ok(&["list", "--all", "--json"]);
+    assert_eq!(
+        listed["tasks"].as_array().map(Vec::len),
+        Some(1),
+        "{listed}"
+    );
+}
+
 #[test]
 fn test_in_json_each_read_writes_one_document_and_errors_an_envelope() {
     let jq = Jq::new("jq-read-harp");

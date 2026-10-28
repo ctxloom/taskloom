@@ -20,6 +20,7 @@ mod priority;
 mod prune;
 mod query;
 mod read;
+mod request;
 mod retry;
 mod schema;
 mod semver;
@@ -53,6 +54,7 @@ pub use prune::{
     DEFAULT_PRUNE_STATUSES,
 };
 pub use read::{Details, Hidden, Listing, Reach, Statuses, Summary, TagCount, Vocabulary};
+pub use request::{request_command_id, REQUEST_NAMESPACE};
 pub use retry::Backoff;
 pub use schema::{Range, TagSchema};
 pub use semver::{Semver, Version};
@@ -85,6 +87,12 @@ pub struct NewTask {
     pub tags: Vec<String>,
     /// The session adding it, if one is.
     pub origin_session: Option<String>,
+    /// The request's key: refused, given at all, until fix O pins the
+    /// harp an add mints by it ([`AppError::AddRequestIdNotYet`]). An
+    /// add's stream is its minted harp's, and annals deduplicates within a
+    /// stream, so a retried add would mint another harp and add the task
+    /// twice: the key would promise what it cannot keep.
+    pub request_id: Option<String>,
 }
 
 /// Tags to add to and remove from a task: the adds first, then the
@@ -98,6 +106,12 @@ pub struct TagChange {
     pub harp_id: String,
     pub add: Vec<String>,
     pub remove: Vec<String>,
+    /// The request's key: the id the caller gave the request, and gives
+    /// again when it retries it (no edge mints one). The command id derives
+    /// from it ([`request_command_id`]), so a retry is answered DUPLICATE
+    /// and applies nothing, answering with the task as it stands. `None`, a
+    /// fresh command id. Given blank, refused ([`AppError::Blank`]).
+    pub request_id: Option<String>,
 }
 
 /// A task's status, its trigger, or both, changed. A trigger given defers
@@ -115,6 +129,12 @@ pub struct StatusChange {
     pub status: Option<String>,
     pub trigger: Option<String>,
     pub clear_trigger: bool,
+    /// The request's key: the id the caller gave the request, and gives
+    /// again when it retries it (no edge mints one). The command id derives
+    /// from it ([`request_command_id`]), so a retry is answered DUPLICATE
+    /// and applies nothing, answering with the task as it stands. `None`, a
+    /// fresh command id. Given blank, refused ([`AppError::Blank`]).
+    pub request_id: Option<String>,
 }
 
 /// A task's text replaced whole; its status and trigger untouched.
@@ -123,6 +143,12 @@ pub struct TextEdit {
     pub project: Option<String>,
     pub harp_id: String,
     pub text: String,
+    /// The request's key: the id the caller gave the request, and gives
+    /// again when it retries it (no edge mints one). The command id derives
+    /// from it ([`request_command_id`]), so a retry is answered DUPLICATE
+    /// and applies nothing, answering with the task as it stands. `None`, a
+    /// fresh command id. Given blank, refused ([`AppError::Blank`]).
+    pub request_id: Option<String>,
 }
 
 /// The tasks to show, by id, every one of which must be found: in the

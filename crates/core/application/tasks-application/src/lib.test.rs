@@ -110,6 +110,7 @@ fn test_an_add_mints_a_harp_and_answers_with_the_task_and_its_project() {
         trigger: None,
         tags: vec!["b".to_string(), "a".to_string()],
         origin_session: Some("calm-otter-fox".to_string()),
+        request_id: None,
     };
     let written = add(&mut service, task).unwrap();
     assert_eq!(written.project, project());
@@ -300,6 +301,7 @@ fn change(harp: &str, add: &[&str], remove: &[&str]) -> TagChange {
         harp_id: harp.to_string(),
         add: add.iter().map(|s| s.to_string()).collect(),
         remove: remove.iter().map(|s| s.to_string()).collect(),
+        request_id: None,
     }
 }
 
@@ -731,6 +733,7 @@ fn moved(harp: &str, status: &str, trigger: Option<&str>) -> StatusChange {
         status: Some(status.to_string()),
         trigger: trigger.map(str::to_string),
         clear_trigger: false,
+        request_id: None,
     }
 }
 
@@ -953,6 +956,7 @@ fn edited(harp: &str, text: &str) -> TextEdit {
         project: Some("pinned-id".to_string()),
         harp_id: harp.to_string(),
         text: text.to_string(),
+        request_id: None,
     }
 }
 
@@ -1343,4 +1347,143 @@ fn test_a_dead_letter_renders_its_line() {
     assert_eq!(letter.code(), "tasks-application-dead-letter");
     assert_eq!(letter.to_string(), "DEAD LETTER: x");
     assert_eq!(letter.args().len(), 1);
+}
+
+// ------------------------------------------- idempotency: a request's key
+//
+// The command id is given FAR earlier, at the edge, as the request's key:
+// a request retried under its key sends the same command id, so annals
+// answers what already applied DUPLICATE and nothing applies twice.
+
+#[test]
+fn test_a_status_change_retried_under_its_request_id_applies_once() {
+    let mut service = service(&["swift-amber"]);
+    add(&mut service, new_task("Ship it")).unwrap();
+    let change = StatusChange {
+        request_id: Some("r-1".to_string()),
+        ..moved("swift-amber", "In Progress", None)
+    };
+    let first = ready(service.set_status(change.clone())).unwrap();
+    let again = ready(service.set_status(change)).unwrap();
+    assert_eq!(again.task, first.task, "its time of change included");
+    let ids = command_ids(&mut service, "swift-amber");
+    assert_eq!(ids.len(), 2, "the add, and the status change once");
+    assert_eq!(ids[1], crate::request_command_id("set_status", "r-1"));
+}
+
+// DUPLICATE answers with the task as it stands: a later change by another
+// request is not undone, and the retried one is not applied over it.
+#[test]
+fn test_an_edit_retried_after_another_change_is_not_applied_again() {
+    let mut service = service(&["swift-amber"]);
+    add(&mut service, new_task("Ship it")).unwrap();
+    let first = TextEdit {
+        request_id: Some("r-1".to_string()),
+        ..edited("swift-amber", "First")
+    };
+    ready(service.edit(first.clone())).unwrap();
+    ready(service.edit(edited("swift-amber", "Second"))).unwrap();
+    let retried = ready(service.edit(first)).unwrap();
+    assert_eq!(retried.task.text, "Second");
+    let ids = command_ids(&mut service, "swift-amber");
+    assert_eq!(ids.len(), 3, "the add and the two edits, once each");
+    assert_eq!(ids[1], crate::request_command_id("edit", "r-1"));
+}
+
+#[test]
+fn test_a_tag_change_retried_under_its_request_id_derives_its_command_id() {
+    let mut service = service(&["swift-amber"]);
+    add(&mut service, new_task("Ship it")).unwrap();
+    let tagging = TagChange {
+        request_id: Some("r-1".to_string()),
+        ..change("swift-amber", &["x"], &[])
+    };
+    ready(service.tag(tagging.clone())).unwrap();
+    ready(service.tag(tagging)).unwrap();
+    let ids = command_ids(&mut service, "swift-amber");
+    assert_eq!(
+        ids,
+        [ids[0].clone(), crate::request_command_id("tag", "r-1")]
+    );
+}
+
+// Until O, an add's request id is refused, given at all and before
+// anything is read or written: an add's stream is its minted harp's, and
+// annals deduplicates within a stream, so a retried add would mint another
+// harp and add the task twice. The refusal says so, rather than the key
+// promising what it cannot keep.
+#[test]
+fn test_an_add_given_a_request_id_is_refused_until_o() {
+    let mut service = configured(&["unreadable"]);
+    for key in ["r-1", ""] {
+        let task = NewTask {
+            request_id: Some(key.to_string()),
+            ..new_task("Ship it")
+        };
+        let error = ready(service.add(task)).unwrap_err();
+        assert_eq!(error, AppError::AddRequestIdNotYet, "{key:?}");
+        assert_eq!(error.code(), "tasks-application-add-request-id-not-yet");
+        assert_eq!(
+            error.to_string(),
+            "not yet: an add's request id needs fix O (the harp position pinned by the key)"
+        );
+    }
+    assert!(service.configuration.asked == 0, "no configuration read");
+    assert!(service.identity.pins.is_empty(), "no project resolved");
+}
+
+// O's starting point: once the key pins the harp an add mints, a retried
+// add finds its first on that harp's stream and answers with it.
+#[test]
+#[ignore = "fix O: the harp position pinned by the request's key; until then an add's request id is refused"]
+fn test_an_add_retried_under_its_request_id_answers_with_the_first_task() {
+    let mut service = service(&["swift-amber", "calm-otter"]);
+    let task = NewTask {
+        request_id: Some("r-1".to_string()),
+        ..new_task("Ship it")
+    };
+    let first = add(&mut service, task.clone()).unwrap();
+    let again = add(&mut service, task).unwrap();
+    assert_eq!(again.task.harp_id, first.task.harp_id);
+    assert_eq!(listed(&mut service, ListQuery::default()), ["swift-amber"]);
+}
+
+#[test]
+fn test_without_a_request_id_each_request_is_its_own() {
+    let mut service = service(&["swift-amber"]);
+    add(&mut service, new_task("Ship it")).unwrap();
+    let change = moved("swift-amber", "In Progress", None);
+    ready(service.set_status(change.clone())).unwrap();
+    ready(service.set_status(change)).unwrap();
+    assert_eq!(command_ids(&mut service, "swift-amber").len(), 3);
+}
+
+// A key given blank is given: refused, never read as none (which would
+// make the retry a second request), before anything is read.
+#[test]
+fn test_a_blank_request_id_is_refused_before_anything_is_read() {
+    let mut service = configured(&["unreadable"]);
+    let blank = AppError::Blank {
+        field: "request_id",
+    };
+    for key in ["", " "] {
+        let key = Some(key.to_string());
+        let moving = StatusChange {
+            request_id: key.clone(),
+            ..moved("swift-amber", "Done", None)
+        };
+        assert_eq!(ready(service.set_status(moving)).unwrap_err(), blank);
+        let tagging = TagChange {
+            request_id: key.clone(),
+            ..change("swift-amber", &["x"], &[])
+        };
+        assert_eq!(ready(service.tag(tagging)).unwrap_err(), blank);
+        let editing = TextEdit {
+            request_id: key,
+            ..edited("swift-amber", "New")
+        };
+        assert_eq!(ready(service.edit(editing)).unwrap_err(), blank);
+    }
+    assert!(service.configuration.asked == 0, "no configuration read");
+    assert!(service.identity.pins.is_empty(), "no project resolved");
 }
