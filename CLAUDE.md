@@ -170,22 +170,18 @@ fmt-check` cover this workspace's crates only, never the path dependencies
 session started here runs it as its MCP server and CLI. Run `taskloom` and
 not `~/go/bin/taskloom`, which writes a log the Rust store never reads.
 
-## The pre-commit gates are shared; taskloom gives their parameters
+## The pre-commit gates are in gates/; the justfile gives their parameters
 
-The gates and their recipes live in the shared gates repository
-(`gates.just`, `lefthook.yml`), checked out at `gates_dir` (justfile,
-`../../gates`) relative to taskloom's main checkout, so every worktree
-finds the same one. The justfile imports `.gates/gates.just` and
-lefthook.yml extends `.gates/lefthook.yml`; `.gates` is a gitignored link
-made by `just gates-link`, once per checkout (worktrees included). `just
-hooks-install` links and installs the hooks, once per clone: every worktree
-shares them. A commit without the link is refused by `just gates-check`
-(which makes the link, so the next commit goes through); a commit with no
-gates checkout at `gates_dir` is refused, saying where to clone it. Change a
-gate there, not here; taskloom keeps only its parameters
+The gates and their recipes are `gates/gates.just` and
+`gates/lefthook.yml`: the justfile imports the one and lefthook.yml extends
+the other. The justfile keeps taskloom's parameters for them
 (`mutation_thresholds`, `workspace_wide`, `staged_tree`, `feature_rules`,
-`features_prepare`), its `build` and `lint`, `deny.toml`, `.gitleaks.toml`
-and `.cargo/mutants.toml`.
+`features_prepare`) and its own `build` and `lint`; their tool configs are
+`deny.toml`, `.gitleaks.toml` and `.cargo/mutants.toml`. `just
+hooks-install` installs the hooks, once per clone (every worktree shares
+them), and again after a change to the gates names a new hook
+(`gates/MIGRATING.md`). They came from the shared gates repository that
+annals and ctxloom-rs still link; a change here does not reach them.
 
 lefthook runs the gates one at a time, stopping at the first failure, and
 shows each gate's pass line and any failure's extract. A failing gate is a
