@@ -9,7 +9,7 @@
           "type": "string"
         },
         "tags": {
-          "description": "Optional tags to set on the task at creation, each shaped (namespace:)key(=value) -- e.g. \"triage:kind=defect\", \"triage:effort=3\", or a bare flat tag like \"urgent\" with no namespace. Read the taskloom://tag-schema and taskloom://tag-vocabulary MCP resources first for this project's actual declared/used vocabulary -- do not assume tags are flat labels. Add more later with task_tag.",
+          "description": "Optional tags to set on the task at creation, each shaped (namespace:)key(=value) -- e.g. \"triage:kind=defect\", \"triage:effort=3\", or a namespaced key with no value like \"area:cli\". Read the taskloom://tag-schema and taskloom://tag-vocabulary MCP resources first for this project's actual declared/used vocabulary -- do not assume tags are flat labels. Add more later with task_tag.",
           "items": {
             "type": "string"
           },

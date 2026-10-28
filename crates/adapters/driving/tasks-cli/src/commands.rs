@@ -312,7 +312,7 @@ pub(crate) async fn show(
 #[derive(Args, Debug)]
 pub struct PermitArgs {
     /// The permit: `area:` (a namespace, any key), `area:cli` (a key of a
-    /// namespace) or `urgent` (a flat tag); never a value.
+    /// namespace) or a flat tag (a key with no namespace); never a value.
     permit: String,
 }
 

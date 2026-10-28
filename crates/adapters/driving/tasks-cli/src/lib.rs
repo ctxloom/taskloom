@@ -143,7 +143,7 @@ pub enum Command {
     /// Permit a tag in this project, in its .taskloom/config.yaml
     /// (tag_permits): a namespace, open to any key (`area:`); a key of a
     /// namespace, which closes it to its permitted keys (`area:cli`); or a
-    /// flat tag (`urgent`). Once a project permits anything, a write adding
+    /// flat tag, a key with no namespace. Once a project permits anything, a write adding
     /// a tag it does not permit is refused. A person's command: the MCP
     /// server does not offer it.
     Permit(commands::PermitArgs),

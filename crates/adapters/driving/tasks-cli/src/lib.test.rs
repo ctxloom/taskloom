@@ -2449,3 +2449,23 @@ fn test_the_help_says_what_a_request_id_does_and_that_an_adds_is_not_yet() {
         help.out
     );
 }
+
+// No help teaches a retired tag (the human's ruling of 2026-10-27): urgent
+// is retired, priority being derived.
+#[test]
+fn test_no_help_teaches_the_retired_urgent_tag() {
+    for command in [
+        &["--help"][..],
+        &["add", "--help"],
+        &["tag", "--help"],
+        &["list", "--help"],
+        &["tags", "--help"],
+        &["prune", "--help"],
+        &["permit", "--help"],
+        &["revoke", "--help"],
+    ] {
+        let help = run_on(&mut Fake::default(), true, command);
+        assert!(!help.out.is_empty(), "{command:?}");
+        assert!(!help.out.contains("urgent"), "{command:?}: {}", help.out);
+    }
+}

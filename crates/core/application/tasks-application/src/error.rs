@@ -169,7 +169,7 @@ impl fmt::Display for AppError {
             ),
             AppError::PermitMalformed { permit } => write!(
                 f,
-                "{permit} is not a permit: give a namespace (area:), a namespace's key (area:cli) or a flat tag (urgent), with no value"
+                "{permit} is not a permit: give a namespace (area:), a namespace's key (area:cli) or a flat tag (a key with no namespace), with no value"
             ),
             AppError::PermitNotDeclared { permit } => write!(
                 f,
