@@ -402,7 +402,11 @@ Where the port differs from Go:
   a status that is empty or starts with `@`, a blank harp) is reported,
   not imported, as is every later record to a task whose add was refused.
   A Go status is kept raw and a Rust one trimmed, so `" Done "` imports as
-  `Done` unreported. An unresolved displaced add is reported and not
+  `Done` unreported. Go's empty strings are values left out. Go keeps a
+  trigger given with any status and re-defers on the one held; here a task
+  holds a trigger only while Deferred, so a trigger logged with another
+  status is left out of the command and given to a later deferral that
+  names none. An unresolved displaced add is reported and not
   imported: Go's `taskloom repair`, then a re-import, brings it (Decided
   5 drops `repair` here). Go decodes JSON keys case-insensitively; the
   importer reads them as Go writes them. It takes no lock on a Go log, so
@@ -610,6 +614,20 @@ order.
    the aggregate guards no invariant about parked tasks. And: is a status
    absent from the config refused (recommended, naming the configured
    ones) or allowed with default attributes, as Go allows any?
+
+   Landed with fix L (a trigger defers the task, 2026-10-27): the domain's
+   part of (a). AddTask and SetStatus carry `defers` (the one status a
+   trigger defers a task to, which needs a trigger; config marks it
+   `defers: true`, exactly one) and `initial`; decide names no status. The
+   application resolves both from the default taxonomy (`view::DEFERS`,
+   `view::INITIAL`) until the taxonomy is configured. What remains of
+   step 8: the configured taxonomy itself (its keys, the validation of
+   exactly one `defers` and one `initial`, and refusing a status absent
+   from it), resolving `defers` and `initial` from it, and the other
+   readers of the built-in names (`tasks::TO_DO`/`DEFERRED`, `view`'s
+   constants, `is_terminal`, `is_active`, `StatusInfo::requires_trigger`,
+   `task_priority`'s Deferred-skips-decay rule, and the Deferred named in
+   `tasks-trigger-required`'s message).
 
 ### Priority as configuration (to plan)
 

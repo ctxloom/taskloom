@@ -18,13 +18,10 @@ use tasks::{RemovalReason, TaskEvent, TaskState, Tasks, TASK_DOMAIN};
 
 /// One change to a list.
 #[derive(Clone, Debug, PartialEq)]
-#[allow(
-    clippy::large_enum_variant,
-    reason = "PROPOSAL (L, red): TaskState grew a field; boxing Upsert is the implementation's call"
-)]
 pub enum Change {
-    /// A task entered the list, or a listed task changed: its state now.
-    Upsert(TaskState),
+    /// A task entered the list, or a listed task changed: its state now
+    /// (boxed: a state is far larger than a removal).
+    Upsert(Box<TaskState>),
     /// A task left the list.
     Remove { harp_id: String },
 }
@@ -197,7 +194,7 @@ impl Projection<Tasks> for TaskList {
         if listed {
             if self.entries.get(&task.harp_id) != Some(task) {
                 self.entries.insert(task.harp_id.clone(), task.clone());
-                self.record(Change::Upsert(task.clone()));
+                self.record(Change::Upsert(Box::new(task.clone())));
             }
         } else if self.entries.remove(&task.harp_id).is_some() {
             self.record(Change::Remove {

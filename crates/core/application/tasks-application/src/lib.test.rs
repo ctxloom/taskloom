@@ -911,8 +911,14 @@ fn test_a_status_change_of_no_task_or_where_there_is_none_is_refused() {
 #[test]
 fn test_a_status_change_or_edit_the_domain_refuses_alone_resolves_nothing() {
     let mut service = configured(&["unreadable"]);
-    for status in [" ", "@open"] {
-        let error = ready(service.set_status(moved("swift-amber", status, None))).unwrap_err();
+    // Neither a status nor a trigger (a status given blank is refused as
+    // blank, before the domain sees it), and a reserved status.
+    for status in [None, Some("@open")] {
+        let change = StatusChange {
+            status: status.map(str::to_string),
+            ..moved("swift-amber", "", None)
+        };
+        let error = ready(service.set_status(change)).unwrap_err();
         assert!(matches!(error, AppError::Rejected(_)), "{error:?}");
     }
     let error = ready(service.edit(edited("swift-amber", " "))).unwrap_err();

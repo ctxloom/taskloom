@@ -61,9 +61,12 @@ struct AddArgs {
 #[serde(deny_unknown_fields)]
 struct SetStatusArgs {
     harp_id: String,
-    status: String,
+    #[serde(default)]
+    status: Option<String>,
     #[serde(default)]
     trigger: Option<String>,
+    #[serde(default)]
+    clear_trigger: bool,
 }
 
 /// `task_edit`'s arguments.
@@ -152,10 +155,9 @@ pub fn status_change(arguments: Value, settings: &Settings) -> Result<StatusChan
     Ok(StatusChange {
         project: settings.project.clone(),
         harp_id: args.harp_id,
-        // PROPOSAL (L, red): status still required, no clear_trigger.
-        status: Some(args.status),
+        status: args.status,
         trigger: args.trigger,
-        clear_trigger: false,
+        clear_trigger: args.clear_trigger,
     })
 }
 

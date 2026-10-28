@@ -16,6 +16,13 @@
 //!   ignored.
 //! - a tag or untag that changes no tag records nothing.
 //!
+//! Go's empty string is a value left out. Go keeps a trigger given with any
+//! status, and re-defers a task on the one it holds; here a trigger is
+//! held only while a task is Deferred, and refused with another status. So
+//! a trigger logged with another status is left out of its record's
+//! command, and kept, as Go keeps it, for a later deferral that names
+//! none, which is given it.
+//!
 //! What the tasks domain refuses that the log's fold accepts (empty text,
 //! a Deferred status with no trigger, a status starting with `@`) is not
 //! imported, and is reported; so is every later record to a task whose add
@@ -47,6 +54,7 @@ use tasks::{
 use crate::dead_letter::{DeadLetter, DeadLetters};
 use crate::retry::Backoff;
 use crate::tags::{self, Tag, TagRefusal};
+use crate::view::{DEFERS, INITIAL};
 use crate::{book, cover, registry, retry, text_hash, AppError};
 
 /// What to import: every project with a log, or the one named.
@@ -422,6 +430,8 @@ enum Step {
 struct Fold {
     issued: BTreeSet<String>,
     live: BTreeMap<String, BTreeSet<String>>,
+    /// The trigger Go holds for each live task, whatever its status.
+    triggers: BTreeMap<String, String>,
     repaired: BTreeSet<String>,
     /// Harps whose add was not imported.
     missing: BTreeSet<String>,
@@ -437,6 +447,7 @@ impl Fold {
         Fold {
             issued: BTreeSet::new(),
             live: BTreeMap::new(),
+            triggers: BTreeMap::new(),
             repaired: records
                 .iter()
                 .filter(|r| r.op == JsonlOp::Add && !r.repair_of.is_empty())
@@ -519,18 +530,22 @@ impl Fold {
                 }
                 Some(Retag { add, remove }.into())
             }
-            JsonlOp::Status => Some(
-                // PROPOSAL (L, red): Go's empty string kept as given; the
-                // implementation reads Go's "" as left out (Go's empty
-                // trigger keeps the held one, never clears it).
-                SetStatus {
-                    status: Some(record.status.clone()),
-                    trigger: Some(record.trigger.clone()),
-                    defers: crate::view::DEFERS.to_string(),
-                    initial: crate::view::INITIAL.to_string(),
+            JsonlOp::Status => {
+                // Go's empty trigger keeps the one held, never clears it.
+                let go_held = self.triggers.entry(harp.clone()).or_default();
+                if let Some(trigger) = left_out(&record.trigger) {
+                    *go_held = trigger.trim().to_string();
                 }
-                .into(),
-            ),
+                Some(
+                    SetStatus {
+                        status: left_out(&record.status),
+                        trigger: deferring_on(&record.status, go_held),
+                        defers: DEFERS.to_string(),
+                        initial: INITIAL.to_string(),
+                    }
+                    .into(),
+                )
+            }
             JsonlOp::Text => Some(
                 EditText {
                     text: record.text.clone(),
@@ -540,6 +555,7 @@ impl Fold {
             // An add was taken above.
             JsonlOp::Remove | JsonlOp::Add => {
                 self.live.remove(harp);
+                self.triggers.remove(harp);
                 Some(
                     RemoveTask {
                         reason: RemovalReason::Removed,
@@ -571,20 +587,38 @@ impl Fold {
             };
         }
         self.live.insert(harp.clone(), normalized(&record.tags));
+        let go_held = record.trigger.trim().to_string();
+        let trigger = deferring_on(&record.status, &go_held);
+        self.triggers.insert(harp.clone(), go_held);
         let tags = self.parsed(&record.tags);
         Step::Run(
             AddTask {
                 harp_id: harp.clone(),
                 text: record.text.clone(),
-                status: Some(record.status.clone()),
-                trigger: Some(record.trigger.clone()),
+                status: left_out(&record.status),
+                trigger,
                 tags,
-                origin_session: Some(record.session.clone()),
-                defers: crate::view::DEFERS.to_string(),
-                initial: crate::view::INITIAL.to_string(),
+                origin_session: left_out(&record.session),
+                defers: DEFERS.to_string(),
+                initial: INITIAL.to_string(),
             }
             .into(),
         )
+    }
+}
+
+/// Go's `value`, its empty string read as left out.
+fn left_out(value: &str) -> Option<String> {
+    (!value.is_empty()).then(|| value.to_string())
+}
+
+/// The trigger a record's command gives: Go's held one, `go_held`, when the
+/// record's `status` defers the task (none, if Go holds none); otherwise
+/// none, since a trigger is refused with another status.
+fn deferring_on(status: &str, go_held: &str) -> Option<String> {
+    match status == DEFERS {
+        true => left_out(go_held),
+        false => None,
     }
 }
 

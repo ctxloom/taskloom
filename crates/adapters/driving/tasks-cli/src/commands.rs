@@ -42,7 +42,9 @@ pub struct AddArgs {
     /// Initial status (default: "To Do").
     #[arg(long)]
     status: Option<String>,
-    /// Revive condition for a Deferred task (required when --status Deferred).
+    /// Revive condition: the task is added Deferred, returning to "To Do"
+    /// when the trigger is cleared (required when --status Deferred;
+    /// refused with any other status).
     #[arg(long)]
     trigger: Option<String>,
     /// Tag to set at creation (repeatable).
@@ -78,15 +80,27 @@ pub(crate) async fn add(
 }
 
 #[derive(Args, Debug)]
+#[command(group(
+    clap::ArgGroup::new("change")
+        .args(["status", "trigger", "clear_trigger"])
+        .required(true)
+        .multiple(true)
+))]
 pub struct StatusArgs {
     /// The task's id.
     harp_id: String,
     /// The status: any name not starting with '@' (see `taskloom statuses`).
-    status: String,
-    /// Revive condition, when the status is Deferred; a task re-deferred
-    /// keeps the one it has.
+    /// Moving a Deferred task to another status clears its trigger.
+    status: Option<String>,
+    /// Revive condition: defers the task (alone, or with Deferred), keeping
+    /// the status it held to return to; a Deferred task keeps the one it
+    /// has when none is given.
     #[arg(long)]
     trigger: Option<String>,
+    /// Clear the trigger: a Deferred task returns to the status it was
+    /// deferred from, or to the status given.
+    #[arg(long)]
+    clear_trigger: bool,
 }
 
 pub(crate) async fn status(
@@ -99,10 +113,9 @@ pub(crate) async fn status(
     let change = StatusChange {
         project: ctx.project,
         harp_id: args.harp_id,
-        // PROPOSAL (L, red): status still required, no --clear-trigger.
-        status: Some(args.status),
+        status: args.status,
         trigger: args.trigger,
-        clear_trigger: false,
+        clear_trigger: args.clear_trigger,
     };
     let written = service.set_status(change).await.map_err(CliError::App)?;
     wrote(

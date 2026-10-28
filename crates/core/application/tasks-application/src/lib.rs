@@ -370,12 +370,9 @@ where
     G: Configuration,
 {
     async fn adding(&mut self, task: NewTask) -> Result<Written, AppError> {
-        // The wire's AddTask carries no absence but an empty string, so
-        // what is left out is spelled so only here, past the refusal of
-        // what is given blank.
-        let status = given(task.status, "status")?.unwrap_or_else(|| tasks::TO_DO.to_string());
-        let trigger = given(task.trigger, "trigger")?.unwrap_or_default();
-        let origin_session = given(task.origin_session, "origin_session")?.unwrap_or_default();
+        let status = given(task.status, "status")?;
+        let trigger = given(task.trigger, "trigger")?;
+        let origin_session = given(task.origin_session, "origin_session")?;
         let schema = self.schema()?;
         let tags = tags::admit_all(&task.tags, &schema).map_err(|r| refused(&r))?;
         tags::check_scalars(&schema, &tags).map_err(|r| refused(&r))?;
@@ -386,13 +383,10 @@ where
         let template = AddTask {
             harp_id: String::new(),
             text: task.text,
-            // PROPOSAL (L, red): given as before; the implementation passes
-            // what is left out as None, and a trigger alone defers.
-            status: Some(status),
-            trigger: Some(trigger),
+            status,
+            trigger,
             tags,
-            origin_session: Some(origin_session),
-            // PROPOSAL (L, red): resolved here; the domain reads them.
+            origin_session,
             defers: view::DEFERS.to_string(),
             initial: view::INITIAL.to_string(),
         };
@@ -481,13 +475,18 @@ where
     }
 
     async fn setting_status(&mut self, change: StatusChange) -> Result<Written, AppError> {
-        // SetStatus's empty trigger, the wire's only absence, keeps the
-        // one the task holds.
-        // PROPOSAL (L, red): given as before; the implementation passes a
-        // trigger left out as None, and the edges gain a way to clear one.
+        let status = given(change.status, "status")?;
+        let trigger = given(change.trigger, "trigger")?;
+        // SetStatus's trigger given empty is its clearing, which no edge
+        // spells so: a trigger given blank is refused above.
+        let trigger = match (trigger, change.clear_trigger) {
+            (Some(_), true) => return Err(AppError::TriggerAndClear),
+            (None, true) => Some(String::new()),
+            (trigger, false) => trigger,
+        };
         let set: TaskCommand = SetStatus {
-            status: change.status,
-            trigger: Some(given(change.trigger, "trigger")?.unwrap_or_default()),
+            status,
+            trigger,
             defers: view::DEFERS.to_string(),
             initial: view::INITIAL.to_string(),
         }

@@ -22,9 +22,11 @@ use annals::next::{ids, Domain, IngestCtx, Tx};
 pub use generated::*;
 pub use rejection::{diagnostic_samples, TaskRejection, EN_US};
 
-/// The status a task gets when none is given.
+/// The default taxonomy's initial status: the one a task gets when none is
+/// given. Decide never reads it: a command carries its own (`initial`).
 pub const TO_DO: &str = "To Do";
-/// The status whose tasks wait on a revive trigger.
+/// The default taxonomy's deferring status, whose tasks wait on a revive
+/// trigger. Decide never reads it: a command carries its own (`defers`).
 pub const DEFERRED: &str = "Deferred";
 /// The prefix reserved for status classes (`@open`); no status starts with it.
 pub const STATUS_CLASS_SIGIL: char = '@';
@@ -47,32 +49,21 @@ impl Domain for Tasks {
             TaskCommand::AddTask(add) => decide_add(add, tx),
             TaskCommand::SetStatus(set) => {
                 let held = live(tx.state())?;
-                let status = target(set)?;
-                // PROPOSAL (L, red): decide still reads a left-out field
-                // as the old empty string; the reviewed tests say what it
-                // becomes.
-                let given = given(&set.trigger).trim();
-                let trigger = if given.is_empty() {
-                    held.trigger.clone()
-                } else {
-                    given.to_string()
+                let Some(after) = moved(held, &changed(set)?)? else {
+                    return Ok(());
                 };
-                if status == DEFERRED && trigger.is_empty() {
-                    return Err(TaskRejection::TriggerRequired);
-                }
                 let at = tx.recorded_at();
-                let deferred_since = if status == DEFERRED {
-                    Some(at)
-                } else {
-                    held.deferred_since
+                let deferred_since = match after.deferred {
+                    true => Some(at),
+                    false => held.deferred_since,
                 };
                 tx.emit(
                     StatusChanged {
-                        status,
-                        trigger,
+                        status: after.status,
+                        trigger: after.trigger,
                         at,
                         deferred_since,
-                        prior_status: String::new(),
+                        prior_status: after.prior_status,
                     }
                     .into(),
                 );
@@ -162,9 +153,11 @@ fn decide_add(add: &AddTask, tx: &mut Tx<'_, Tasks>) -> Result<(), TaskRejection
         status,
         trigger,
         origin_session,
+        prior_status,
+        deferred,
     } = added(add)?;
     let at = tx.recorded_at();
-    let deferred_since = (status == DEFERRED).then_some(at);
+    let deferred_since = deferred.then_some(at);
     tx.emit(
         TaskAdded {
             harp_id: harp_id.to_string(),
@@ -175,7 +168,7 @@ fn decide_add(add: &AddTask, tx: &mut Tx<'_, Tasks>) -> Result<(), TaskRejection
             origin_session,
             at,
             deferred_since,
-            prior_status: String::new(),
+            prior_status,
         }
         .into(),
     );
@@ -201,16 +194,17 @@ fn belongs(domain: &str, harp_id: &str, root: Option<&Uuid>) -> Result<(), TaskR
 }
 
 /// Whether `command` keeps the rules decide holds it to by what it carries
-/// alone, whatever its stream holds: an add's text, status and trigger
-/// (not its harp id, which is its stream's address), a status change's
-/// status, an edit's text, and a retag's having a tag. Decide holds every
-/// command to these same rules, through the same functions; a caller runs
-/// them first so that a command they refuse is refused before anything is
-/// bound, created or written for it.
+/// alone, whatever its stream holds: an add's text, status, trigger, origin
+/// session and statuses (not its harp id, which is its stream's address),
+/// a status change's status, trigger and statuses, an edit's text, and a
+/// retag's having a tag. Decide holds every command to these same rules,
+/// through the same functions; a caller runs them first so that a command
+/// they refuse is refused before anything is bound, created or written for
+/// it.
 pub fn check(command: &TaskCommand) -> Result<(), TaskRejection> {
     match command {
         TaskCommand::AddTask(add) => added(add).map(drop),
-        TaskCommand::SetStatus(set) => target(set).map(drop),
+        TaskCommand::SetStatus(set) => changed(set).map(drop),
         TaskCommand::EditText(edit) => required_text(&edit.text).map(drop),
         TaskCommand::Retag(retag) => retagging(retag),
         TaskCommand::RemoveTask(_) => Ok(()),
@@ -223,37 +217,193 @@ struct Added {
     status: String,
     trigger: String,
     origin_session: String,
+    prior_status: String,
+    /// Whether it is added deferred.
+    deferred: bool,
 }
 
-/// An add's text trimmed, its status (To Do when it gives none), its
-/// trigger and its origin session trimmed; refused without text, with a reserved status, or
-/// Deferred with no trigger.
+/// An add's text trimmed; its status (`initial` when it gives none, and
+/// `defers` when it gives only a trigger); its trigger and origin session
+/// trimmed; and, added `defers`, `initial` to return to. Refused without
+/// text, with a field given blank, without its statuses, with a reserved
+/// status, `defers` with no trigger, or a trigger with another status.
 fn added(add: &AddTask) -> Result<Added, TaskRejection> {
     let text = required_text(&add.text)?;
-    let status = valid_status(given(&add.status))?.unwrap_or_else(|| TO_DO.to_string());
-    let trigger = given(&add.trigger).trim().to_string();
-    if status == DEFERRED && trigger.is_empty() {
+    let statuses = statuses(&add.defers, &add.initial)?;
+    let status = valid_status(add.status.as_deref())?;
+    let trigger = present(add.trigger.as_deref(), "trigger")?;
+    let origin_session = present(add.origin_session.as_deref(), "origin_session")?;
+    let status = match (status, &trigger) {
+        (None, Some(_)) => statuses.defers.to_string(),
+        (None, None) => statuses.initial.to_string(),
+        (Some(status), _) => status,
+    };
+    let deferred = status == statuses.defers;
+    if trigger.is_some() && !deferred {
+        return Err(statuses.with_status(status));
+    }
+    if deferred && trigger.is_none() {
         return Err(TaskRejection::TriggerRequired);
     }
     Ok(Added {
         text,
         status,
-        trigger,
-        origin_session: given(&add.origin_session).trim().to_string(),
+        trigger: trigger.unwrap_or_default(),
+        origin_session: origin_session.unwrap_or_default(),
+        prior_status: match deferred {
+            true => statuses.initial.to_string(),
+            false => String::new(),
+        },
+        deferred,
     })
 }
 
-/// The status a status change moves to: refused when it gives none, or a
-/// reserved one.
-fn target(set: &SetStatus) -> Result<String, TaskRejection> {
-    valid_status(given(&set.status))?.ok_or(TaskRejection::StatusRequired)
+/// The statuses a command carries, which rule what it does: `defers`, the
+/// status a trigger defers a task to, the one that needs a trigger; and
+/// `initial`, a task's status when none is given.
+struct Statuses<'a> {
+    defers: &'a str,
+    initial: &'a str,
 }
 
-/// A field left out, read as the empty string the wire had before it was
-/// optional. PROPOSAL (L, red): goes with the implementation, which reads
-/// left out, given and given blank apart.
-fn given(field: &Option<String>) -> &str {
-    field.as_deref().unwrap_or("")
+impl Statuses<'_> {
+    /// The refusal of a trigger given with `status`, which is not `defers`.
+    fn with_status(&self, status: String) -> TaskRejection {
+        TaskRejection::TriggerWithStatus {
+            status,
+            defers: self.defers.to_string(),
+        }
+    }
+}
+
+/// A command's `defers` and `initial`, trimmed: refused when either is
+/// empty, since decide names no status to fall back on.
+fn statuses<'a>(defers: &'a str, initial: &'a str) -> Result<Statuses<'a>, TaskRejection> {
+    let resolved = |status: &'a str, field: &str| match status.trim() {
+        "" => Err(TaskRejection::Unresolved {
+            field: field.to_string(),
+        }),
+        status => Ok(status),
+    };
+    Ok(Statuses {
+        defers: resolved(defers, "defers")?,
+        initial: resolved(initial, "initial")?,
+    })
+}
+
+/// What a status change asks for of the trigger.
+enum Trigger {
+    /// Left out: the one held is kept while the task stays deferred.
+    Kept,
+    /// Given empty: the one held is cleared.
+    Cleared,
+    /// Given: the task is deferred on it.
+    Set(String),
+}
+
+/// What a status change asks for: its status (if it gives one), its
+/// trigger, and its statuses.
+struct Change<'a> {
+    status: Option<String>,
+    trigger: Trigger,
+    statuses: Statuses<'a>,
+}
+
+/// What `set` asks for, checked by what it carries alone. Refused with a
+/// field given blank, without its statuses, giving neither a status nor a
+/// trigger, with a reserved status, a trigger with a status other than
+/// `defers`, or a clearing with `defers`.
+fn changed(set: &SetStatus) -> Result<Change<'_>, TaskRejection> {
+    let statuses = statuses(&set.defers, &set.initial)?;
+    let status = valid_status(set.status.as_deref())?;
+    let trigger = match set.trigger.as_deref() {
+        None => Trigger::Kept,
+        Some("") => Trigger::Cleared,
+        Some(given) => Trigger::Set(present(Some(given), "trigger")?.unwrap_or_default()),
+    };
+    match (&status, &trigger) {
+        (None, Trigger::Kept) => return Err(TaskRejection::StatusRequired),
+        (Some(status), Trigger::Set(_)) if status != statuses.defers => {
+            return Err(statuses.with_status(status.clone()))
+        }
+        (Some(status), Trigger::Cleared) if status == statuses.defers => {
+            return Err(TaskRejection::TriggerRequired)
+        }
+        _ => {}
+    }
+    Ok(Change {
+        status,
+        trigger,
+        statuses,
+    })
+}
+
+/// What a status change leaves the task holding.
+struct Moved {
+    status: String,
+    trigger: String,
+    prior_status: String,
+    /// Whether it defers the task, now.
+    deferred: bool,
+}
+
+/// What `change` makes of the task `held`: `None` when it changes nothing
+/// (a trigger cleared that the task does not hold). Refused when it defers
+/// the task with no trigger, given or held.
+fn moved(held: &TaskState, change: &Change<'_>) -> Result<Option<Moved>, TaskRejection> {
+    let defers = change.statuses.defers;
+    let was_deferred = held.status == defers;
+    // The status a task deferred now returns to: the one it was deferred
+    // from, kept while it stays deferred.
+    let to_return_to = || match was_deferred {
+        true => held.prior_status.clone(),
+        false => held.status.clone(),
+    };
+    let deferring = |trigger: String| Moved {
+        status: defers.to_string(),
+        trigger,
+        prior_status: to_return_to(),
+        deferred: true,
+    };
+    let after = match (&change.status, &change.trigger) {
+        (_, Trigger::Set(trigger)) => deferring(trigger.clone()),
+        (None, Trigger::Cleared) if held.trigger.is_empty() => return Ok(None),
+        (status, Trigger::Cleared) => Moved {
+            status: match status {
+                Some(status) => status.clone(),
+                None if was_deferred && !held.prior_status.is_empty() => held.prior_status.clone(),
+                None if was_deferred => change.statuses.initial.to_string(),
+                None => held.status.clone(),
+            },
+            trigger: String::new(),
+            prior_status: String::new(),
+            deferred: false,
+        },
+        (Some(status), Trigger::Kept) if status == defers => match held.trigger.as_str() {
+            "" => return Err(TaskRejection::TriggerRequired),
+            trigger => deferring(trigger.to_string()),
+        },
+        (Some(status), Trigger::Kept) => Moved {
+            status: status.clone(),
+            trigger: String::new(),
+            prior_status: String::new(),
+            deferred: false,
+        },
+        (None, Trigger::Kept) => unreachable!("a change giving nothing is refused (changed)"),
+    };
+    Ok(Some(after))
+}
+
+/// `value` trimmed, `None` when it is left out, refused when it is given
+/// blank: a value given is never read as one left out. `field` names it.
+fn present(value: Option<&str>, field: &str) -> Result<Option<String>, TaskRejection> {
+    match value.map(str::trim) {
+        None => Ok(None),
+        Some("") => Err(TaskRejection::Blank {
+            field: field.to_string(),
+        }),
+        Some(trimmed) => Ok(Some(trimmed.to_string())),
+    }
 }
 
 /// Refused when a retag adds and removes nothing.
@@ -284,15 +434,14 @@ fn required_text(text: &str) -> Result<String, TaskRejection> {
     }
 }
 
-/// The trimmed status, `None` when there is none, refused when it claims
-/// the status-class sigil.
-fn valid_status(status: &str) -> Result<Option<String>, TaskRejection> {
-    match status.trim() {
-        "" => Ok(None),
-        s if s.starts_with(STATUS_CLASS_SIGIL) => Err(TaskRejection::StatusReserved {
-            status: s.to_string(),
-        }),
-        s => Ok(Some(s.to_string())),
+/// The trimmed status, `None` when it is left out, refused when it is given
+/// blank or claims the status-class sigil.
+fn valid_status(status: Option<&str>) -> Result<Option<String>, TaskRejection> {
+    match present(status, "status")? {
+        Some(s) if s.starts_with(STATUS_CLASS_SIGIL) => {
+            Err(TaskRejection::StatusReserved { status: s })
+        }
+        status => Ok(status),
     }
 }
 

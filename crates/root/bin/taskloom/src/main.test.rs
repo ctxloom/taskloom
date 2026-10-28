@@ -858,8 +858,39 @@ fn test_in_json_each_change_writes_one_document_and_errors_an_envelope() {
         (&task["status"], &task["trigger"]),
         (&"Deferred".into(), &"later".into())
     );
+    // Reverses the reviewed "kept" (the human's ruling on L, 2026-10-27):
+    // leaving Deferred by a status clears the trigger.
     let back = jq.ok(&["status", harp, "To Do", "--json"]);
-    assert_eq!(back["trigger"], "later", "kept");
+    assert_eq!(back["trigger"], "", "cleared on leaving Deferred");
+    jq.ok(&["status", harp, "In Progress", "--json"]);
+    let deferred = jq.ok(&["status", harp, "--trigger", "later", "--json"]);
+    assert_eq!(
+        (&deferred["status"], &deferred["trigger"]),
+        (&"Deferred".into(), &"later".into()),
+        "a trigger alone defers"
+    );
+    let revived = jq.ok(&["status", harp, "--clear-trigger", "--json"]);
+    assert_eq!(
+        (&revived["status"], &revived["trigger"]),
+        (&"In Progress".into(), &"".into()),
+        "back to the status it was deferred from"
+    );
+    jq.refused(
+        &["status", harp, "Done", "--trigger", "later", "--json"],
+        "tasks-trigger-with-status",
+    );
+    jq.refused(
+        &[
+            "status",
+            harp,
+            "--trigger",
+            "x",
+            "--clear-trigger",
+            "--json",
+        ],
+        "tasks-application-trigger-and-clear",
+    );
+    jq.ok(&["status", harp, "To Do", "--json"]);
     jq.refused(
         &["status", harp, "@open", "--json"],
         "tasks-status-reserved",

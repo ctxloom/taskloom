@@ -96,8 +96,9 @@ pub enum Command {
     /// where the working directory is in no project, no git repository and
     /// no CTXLOOM_ROOT, saying so on stderr).
     List(commands::ListArgs),
-    /// Change the status of a task; Deferred needs a revive trigger, which
-    /// hides the task from the default list until it fires.
+    /// Change the status of a task, or its trigger: a revive trigger defers
+    /// the task, hiding it from the default list until it fires, and
+    /// clearing it returns the task to the status it held.
     Status(commands::StatusArgs),
     /// Replace a task's text whole; its status and trigger are kept.
     Edit(commands::EditArgs),

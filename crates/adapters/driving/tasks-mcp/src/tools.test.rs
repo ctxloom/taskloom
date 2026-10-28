@@ -286,7 +286,7 @@ fn test_each_change_without_what_its_schema_requires_is_refused_by_name() {
     for (tool, arguments) in [
         (
             "task_set_status",
-            status_change(json!({"harp_id": "h"}), &settings()).err(),
+            status_change(json!({"status": "Done"}), &settings()).err(),
         ),
         (
             "task_edit",
