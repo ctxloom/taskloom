@@ -588,8 +588,8 @@ fn test_a_task_moved_since_the_selection_is_not_pruned() {
     let mut service = seeded();
     later(&mut service);
     let reopen: TaskCommand = SetStatus {
-        status: "In Progress".to_string(),
-        trigger: String::new(),
+        status: Some("In Progress".to_string()),
+        trigger: None,
     }
     .into();
     service.stores.store.meanwhile = Some(Box::new(move |store| run(store, "done-one", reopen)));

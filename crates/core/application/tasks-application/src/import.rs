@@ -520,9 +520,12 @@ impl Fold {
                 Some(Retag { add, remove }.into())
             }
             JsonlOp::Status => Some(
+                // PROPOSAL (L, red): Go's empty string kept as given; the
+                // implementation reads Go's "" as left out (Go's empty
+                // trigger keeps the held one, never clears it).
                 SetStatus {
-                    status: record.status.clone(),
-                    trigger: record.trigger.clone(),
+                    status: Some(record.status.clone()),
+                    trigger: Some(record.trigger.clone()),
                 }
                 .into(),
             ),
@@ -571,10 +574,10 @@ impl Fold {
             AddTask {
                 harp_id: harp.clone(),
                 text: record.text.clone(),
-                status: record.status.clone(),
-                trigger: record.trigger.clone(),
+                status: Some(record.status.clone()),
+                trigger: Some(record.trigger.clone()),
                 tags,
-                origin_session: record.session.clone(),
+                origin_session: Some(record.session.clone()),
             }
             .into(),
         )

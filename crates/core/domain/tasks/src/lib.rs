@@ -48,7 +48,10 @@ impl Domain for Tasks {
             TaskCommand::SetStatus(set) => {
                 let held = live(tx.state())?;
                 let status = target(set)?;
-                let given = set.trigger.trim();
+                // PROPOSAL (L, red): decide still reads a left-out field
+                // as the old empty string; the reviewed tests say what it
+                // becomes.
+                let given = given(&set.trigger).trim();
                 let trigger = if given.is_empty() {
                     held.trigger.clone()
                 } else {
@@ -69,6 +72,7 @@ impl Domain for Tasks {
                         trigger,
                         at,
                         deferred_since,
+                        prior_status: String::new(),
                     }
                     .into(),
                 );
@@ -125,12 +129,14 @@ impl Domain for Tasks {
                 state.created_at = added.at;
                 state.status_set_at = added.at;
                 state.deferred_since = added.deferred_since;
+                state.prior_status = added.prior_status.clone();
             }
             TaskEvent::StatusChanged(changed) => {
                 state.status = changed.status.clone();
                 state.trigger = changed.trigger.clone();
                 state.status_set_at = changed.at;
                 state.deferred_since = changed.deferred_since;
+                state.prior_status = changed.prior_status.clone();
             }
             TaskEvent::TextEdited(edited) => state.text = edited.text.clone(),
             TaskEvent::Retagged(retagged) => state.tags = retagged.tags.clone(),
@@ -169,6 +175,7 @@ fn decide_add(add: &AddTask, tx: &mut Tx<'_, Tasks>) -> Result<(), TaskRejection
             origin_session,
             at,
             deferred_since,
+            prior_status: String::new(),
         }
         .into(),
     );
@@ -223,8 +230,8 @@ struct Added {
 /// Deferred with no trigger.
 fn added(add: &AddTask) -> Result<Added, TaskRejection> {
     let text = required_text(&add.text)?;
-    let status = valid_status(&add.status)?.unwrap_or_else(|| TO_DO.to_string());
-    let trigger = add.trigger.trim().to_string();
+    let status = valid_status(given(&add.status))?.unwrap_or_else(|| TO_DO.to_string());
+    let trigger = given(&add.trigger).trim().to_string();
     if status == DEFERRED && trigger.is_empty() {
         return Err(TaskRejection::TriggerRequired);
     }
@@ -232,14 +239,21 @@ fn added(add: &AddTask) -> Result<Added, TaskRejection> {
         text,
         status,
         trigger,
-        origin_session: add.origin_session.trim().to_string(),
+        origin_session: given(&add.origin_session).trim().to_string(),
     })
 }
 
 /// The status a status change moves to: refused when it gives none, or a
 /// reserved one.
 fn target(set: &SetStatus) -> Result<String, TaskRejection> {
-    valid_status(&set.status)?.ok_or(TaskRejection::StatusRequired)
+    valid_status(given(&set.status))?.ok_or(TaskRejection::StatusRequired)
+}
+
+/// A field left out, read as the empty string the wire had before it was
+/// optional. PROPOSAL (L, red): goes with the implementation, which reads
+/// left out, given and given blank apart.
+fn given(field: &Option<String>) -> &str {
+    field.as_deref().unwrap_or("")
 }
 
 /// Refused when a retag adds and removes nothing.

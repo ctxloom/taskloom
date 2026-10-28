@@ -29,6 +29,11 @@ pub enum TaskRejection {
     TriggerRequired,
     /// A retag with no tag once trimmed.
     TagRequired,
+    /// A field given blank (`field` names it as the wire does: `status`,
+    /// `trigger`, `origin_session`): a value given is never read as left
+    /// out. A status change's trigger given empty is no such field: it
+    /// clears the trigger.
+    Blank { field: String },
 }
 
 impl fmt::Display for TaskRejection {
@@ -55,6 +60,9 @@ impl fmt::Display for TaskRejection {
                 f.write_str("a Deferred task needs a trigger: the condition that should revive it")
             }
             TaskRejection::TagRequired => f.write_str("a retag needs at least one tag"),
+            TaskRejection::Blank { field } => {
+                write!(f, "the {field} given is blank: give one, or leave it out")
+            }
         }
     }
 }
@@ -73,6 +81,7 @@ impl Diagnostic for TaskRejection {
             TaskRejection::StatusReserved { .. } => "tasks-status-reserved",
             TaskRejection::TriggerRequired => "tasks-trigger-required",
             TaskRejection::TagRequired => "tasks-tag-required",
+            TaskRejection::Blank { .. } => "tasks-blank",
         }
     }
 
@@ -88,6 +97,7 @@ impl Diagnostic for TaskRejection {
                 ("cause", cause.as_str().into()),
             ],
             TaskRejection::StatusReserved { status } => vec![("status", status.as_str().into())],
+            TaskRejection::Blank { field } => vec![("field", field.as_str().into())],
             _ => Vec::new(),
         }
     }
@@ -117,5 +127,8 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         }),
         Box::new(TaskRejection::TriggerRequired),
         Box::new(TaskRejection::TagRequired),
+        Box::new(TaskRejection::Blank {
+            field: "trigger".to_string(),
+        }),
     ]
 }

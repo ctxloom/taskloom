@@ -320,10 +320,10 @@ mod ticked {
                     let add = AddTask {
                         harp_id: harp.clone(),
                         text,
-                        status: String::new(),
-                        trigger: String::new(),
+                        status: None,
+                        trigger: None,
                         tags: Vec::new(),
-                        origin_session: String::new(),
+                        origin_session: None,
                     };
                     command(store, &harp, add.into(), 0xdd).await;
                 }

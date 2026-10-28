@@ -555,10 +555,10 @@ fn add_unchecked(service: &mut Configured, tag: &str) {
     let add = tasks::AddTask {
         harp_id: "swift-amber".to_string(),
         text: "Ship it".to_string(),
-        status: String::new(),
-        trigger: String::new(),
+        status: None,
+        trigger: None,
         tags: vec![parse(tag).unwrap().unwrap()],
-        origin_session: String::new(),
+        origin_session: None,
     };
     let mut runner = crate::retry::Runner {
         registry: &service.registry,

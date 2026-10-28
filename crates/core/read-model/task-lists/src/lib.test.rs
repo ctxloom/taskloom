@@ -89,17 +89,18 @@ fn add(harp: &str, text: &str) -> AddTask {
     AddTask {
         harp_id: harp.to_string(),
         text: text.to_string(),
-        status: String::new(),
-        trigger: String::new(),
+        status: None,
+        trigger: None,
         tags: Vec::new(),
-        origin_session: String::new(),
+        origin_session: None,
     }
 }
 
 fn status(status: &str, trigger: &str) -> SetStatus {
+    let given = |s: &str| (!s.is_empty()).then(|| s.to_string());
     SetStatus {
-        status: status.to_string(),
-        trigger: trigger.to_string(),
+        status: given(status),
+        trigger: given(trigger),
     }
 }
 

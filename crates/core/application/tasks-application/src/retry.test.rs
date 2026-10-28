@@ -70,10 +70,10 @@ fn run_as(
     let add = AddTask {
         harp_id: "swift-amber".to_string(),
         text: "Ship it".to_string(),
-        status: String::new(),
-        trigger: String::new(),
+        status: None,
+        trigger: None,
         tags: Vec::new(),
-        origin_session: String::new(),
+        origin_session: None,
     };
     let book = book("swift-amber", add.into());
     let mut runner = Runner {

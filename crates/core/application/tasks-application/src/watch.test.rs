@@ -156,10 +156,10 @@ fn add_elsewhere(store: &mut InMemoryStore, harp: &str) {
     let command: TaskCommand = AddTask {
         harp_id: harp.to_string(),
         text: "Elsewhere".to_string(),
-        status: String::new(),
-        trigger: String::new(),
+        status: None,
+        trigger: None,
         tags: Vec::new(),
-        origin_session: String::new(),
+        origin_session: None,
     }
     .into();
     let registry = registry();

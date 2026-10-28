@@ -9,3 +9,4 @@ tasks-status-required = a status change needs a status
 tasks-status-reserved = the status { $status } is not allowed: '@' is reserved for status classes
 tasks-trigger-required = a Deferred task needs a trigger: the condition that should revive it
 tasks-tag-required = a retag needs at least one tag
+tasks-blank = the { $field } given is blank: give one, or leave it out

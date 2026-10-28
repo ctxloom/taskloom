@@ -378,10 +378,12 @@ where
         let template = AddTask {
             harp_id: String::new(),
             text: task.text,
-            status,
-            trigger,
+            // PROPOSAL (L, red): given as before; the implementation passes
+            // what is left out as None, and a trigger alone defers.
+            status: Some(status),
+            trigger: Some(trigger),
             tags,
-            origin_session,
+            origin_session: Some(origin_session),
         };
         tasks::check(&template.clone().into()).map_err(|r| rejected(&r))?;
         let project = self
@@ -470,9 +472,11 @@ where
     async fn setting_status(&mut self, change: StatusChange) -> Result<Written, AppError> {
         // SetStatus's empty trigger, the wire's only absence, keeps the
         // one the task holds.
+        // PROPOSAL (L, red): given as before; the implementation passes a
+        // trigger left out as None, and the edges gain a way to clear one.
         let set: TaskCommand = SetStatus {
-            status: change.status,
-            trigger: given(change.trigger, "trigger")?.unwrap_or_default(),
+            status: Some(change.status),
+            trigger: Some(given(change.trigger, "trigger")?.unwrap_or_default()),
         }
         .into();
         tasks::check(&set).map_err(|r| rejected(&r))?;
