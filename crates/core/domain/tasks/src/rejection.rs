@@ -126,6 +126,30 @@ impl Diagnostic for TaskRejection {
     }
 }
 
+/// The same key and args, as angzarr-embedded's markup refuses with them
+/// (`TaskAggregate`): a key and its args, never English (decision 14.37).
+impl angzarr_embedded_diagnostic::Diagnostic for TaskRejection {
+    fn code(&self) -> &'static str {
+        Diagnostic::code(self)
+    }
+
+    fn args(&self) -> Vec<(&'static str, angzarr_embedded_diagnostic::Arg)> {
+        use angzarr_embedded_diagnostic::Arg as Embedded;
+        Diagnostic::args(self)
+            .into_iter()
+            .map(|(name, arg)| {
+                let arg = match arg {
+                    Arg::Int(n) => Embedded::Int(n),
+                    Arg::Uint(n) => Embedded::Uint(n),
+                    Arg::Str(s) => Embedded::Str(s),
+                    Arg::Nested(cause) => Embedded::Str(cause.code().to_string()),
+                };
+                (name, arg)
+            })
+            .collect()
+    }
+}
+
 /// This crate's en-US messages, its name first: what an edge's catalog
 /// embeds to render its diagnostics.
 pub const EN_US: (&str, &str) = ("tasks", include_str!("../locales/en-US/tasks.ftl"));

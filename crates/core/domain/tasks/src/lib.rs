@@ -10,6 +10,8 @@
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/ctxloom.tasks.v1.domain.rs"));
 }
+mod aggregate;
+mod markup;
 mod rejection;
 
 use std::collections::BTreeMap;
@@ -19,6 +21,7 @@ use std::fmt;
 use annals::next::v1::Uuid;
 use annals::next::{ids, Domain, IngestCtx, Tx};
 
+pub use aggregate::TaskAggregate;
 pub use generated::*;
 pub use rejection::{diagnostic_samples, TaskRejection, EN_US};
 

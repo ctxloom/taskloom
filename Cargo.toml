@@ -24,6 +24,25 @@ angzarr-proto = { version = "0.1", git = "https://github.com/angzarr-io/angzarr-
 annals = { git = "https://github.com/benjaminabbitt/annals", rev = "ed00923e915c7fc9b832eba30d32115168ab7c35" }
 annals-diagnostic = { git = "https://github.com/benjaminabbitt/annals", rev = "ed00923e915c7fc9b832eba30d32115168ab7c35" }
 angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "0277731bc9b5e46596633da9786fd5b5e6e993f2" }
+
+# angzarr-embedded, angzarr's in-app runtime, which taskloom is moving onto
+# from annals (taskloom-on-angzarr-embedded.plan.md; the annals pins above
+# stay until the rest of the workspace moves, step 3). Pinned by rev, not
+# by a branch: c2e7ae8 is the tip of branch feat/errors-key-map (spec
+# 14.37: errors are a key and args, four classes, capped retry,
+# recorded_at), not yet on angzarr-embedded's main. Its merge of main,
+# 9dd600b, changes no crate and was not pushed when pinned. Re-pin to main
+# once it and feat/handler-bug land there.
+angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "c2e7ae8212a486bca268f44c2c58e3816ca33439" }
+angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "c2e7ae8212a486bca268f44c2c58e3816ca33439" }
+angzarr-embedded-diagnostic = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "c2e7ae8212a486bca268f44c2c58e3816ca33439" }
+angzarr-store-sqlite = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "c2e7ae8212a486bca268f44c2c58e3816ca33439" }
+# angzarr's storage contract, at the spec rev angzarr-embedded pins
+# (a1293ea), so the embedded side of the graph holds one spec: its
+# in-memory store, for the domain's tests. angzarr-embedded brings
+# angzarr-proto at the same rev; the workspace's angzarr-proto above stays
+# at annals' until step 3.
+angzarr-ports = { git = "https://github.com/angzarr-io/angzarr-project", rev = "a1293eae1da37a95b58eb6081b066846876b5cca" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
 annals-store-sql = { git = "https://github.com/benjaminabbitt/annals", rev = "ed00923e915c7fc9b832eba30d32115168ab7c35", features = ["sqlite"] }
 tasks = { path = "crates/core/domain/tasks" }

@@ -782,3 +782,100 @@ fn test_the_store_purges_a_stream_in_a_unit_of_work_as_a_prune_needs() {
         );
     });
 }
+
+// ------------------------------------- a store from before angzarr-embedded
+//
+// RED, the owner's ruling D2 (taskloom-on-angzarr-embedded.plan.md): a
+// store written before taskloom moved onto angzarr-embedded (annals-store-
+// sql's, its events under annals' rules) is not migrated. Opened, it is
+// refused, keyed `task-store-sqlite-predates-embedded` with its path and
+// the path to back it up to (`state.db.pre-embedded`), so the user moves it
+// aside and starts afresh; and it is left exactly as it was, never
+// migrated in place (angzarr-store-sqlite's open would migrate it, one
+// way). Its fixture is made by annals-store-sql itself, which stays a
+// dev-dependency for it when the store moves onto angzarr-store-sqlite
+// (step 3b), or is frozen into testdata then.
+
+/// The key a store from before angzarr-embedded is refused with.
+const PREDATES: &str = "task-store-sqlite-predates-embedded";
+
+/// A store as taskloom wrote one before angzarr-embedded, at `path`:
+/// annals-store-sql's, holding one task stream of two events under annals'
+/// rules (`v1`), closed so the file holds everything.
+fn pre_embedded(home: &Home, path: &Path) {
+    home.mkdir(path.parent().unwrap());
+    let real = home.real(path);
+    let stream = Cover {
+        domain: "tasks".to_string(),
+        root: Some(Uuid::from_bytes([1; 16])),
+        edition: None,
+    };
+    block_on(async {
+        let mut store = SqliteStore::open(&real).await.unwrap();
+        store
+            .append(&stream, 0, &[event(0, 1), event(1, 2)])
+            .await
+            .unwrap();
+    });
+    let mut wal = path.as_os_str().to_owned();
+    wal.push("-wal");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while home.exists(Path::new(&wal)) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the store's connection never closed: its log is still beside the file"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
+/// The args of the diagnostic keyed `code` in `diagnostic` or the causes
+/// nested in it, each as text, by name; `None` if none is keyed `code`.
+fn keyed(diagnostic: &dyn Diagnostic, code: &str) -> Option<Vec<(&'static str, String)>> {
+    use annals_diagnostic::Arg;
+    let args = diagnostic.args();
+    if diagnostic.code() == code {
+        let text = |arg: &Arg| match arg {
+            Arg::Int(n) => n.to_string(),
+            Arg::Uint(n) => n.to_string(),
+            Arg::Str(s) => s.clone(),
+            Arg::Nested(cause) => cause.code().to_string(),
+        };
+        return Some(args.iter().map(|(name, arg)| (*name, text(arg))).collect());
+    }
+    args.iter().find_map(|(_, arg)| match arg {
+        Arg::Nested(cause) => keyed(cause.as_ref(), code),
+        _ => None,
+    })
+}
+
+#[test]
+fn test_a_store_that_predates_angzarr_embedded_is_refused_naming_its_backup() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    pre_embedded(&home, &path);
+    let before = home.read(&path);
+    let project = project("jolly-mute-magma", path.clone());
+    let mut backup = path.as_os_str().to_owned();
+    backup.push(".pre-embedded");
+    let expected = vec![
+        ("backup", PathBuf::from(backup).display().to_string()),
+        ("path", path.display().to_string()),
+    ];
+    let args = |refusal: Option<annals::next::StoreError>| {
+        let refusal = refusal.expect("refused, never opened");
+        let mut args =
+            keyed(&refusal, PREDATES).unwrap_or_else(|| panic!("keyed {PREDATES}: {refusal:?}"));
+        args.sort();
+        args
+    };
+
+    let mut stores = home.stores();
+    let written = block_on(stores.open(&project)).map(drop).err();
+    assert_eq!(args(written), expected, "to write");
+    let read = block_on(stores.open_existing(&project)).map(drop).err();
+    assert_eq!(args(read), expected, "to read");
+    assert!(stores.held.is_none(), "nothing held");
+    drop(stores);
+    assert_eq!(home.read(&path), before, "the file as it was: not migrated");
+}

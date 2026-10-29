@@ -1,7 +1,7 @@
 [package]
 name = "tasks"
 version = "0.1.0"
-description = "The tasks domain: one task per aggregate, decided and folded on annals"
+description = "The tasks domain: one task per aggregate, decided and folded on annals, and moving onto angzarr-embedded (TaskAggregate)"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -10,6 +10,12 @@ publish.workspace = true
 [dependencies]
 annals.workspace = true
 annals-diagnostic.workspace = true
+# The task aggregate on angzarr-embedded's markup (`TaskAggregate`), beside
+# the annals domain until the workspace moves (step 3 of
+# taskloom-on-angzarr-embedded.plan.md).
+angzarr-embedded.workspace = true
+angzarr-embedded-diagnostic.workspace = true
+angzarr-embedded-macros.workspace = true
 # The generated domain layer names prost::Name and the wire types.
 prost.workspace = true
 tagma-core.workspace = true
@@ -22,6 +28,8 @@ angzarr-build.workspace = true
 tagma-proto.workspace = true
 
 [dev-dependencies]
+# The in-memory store the aggregate's tests run the kernel over.
+angzarr-ports = { workspace = true, features = ["memory"] }
 fluent-syntax = "0.11"
 mutants.workspace = true
 

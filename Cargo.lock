@@ -53,7 +53,7 @@ version = "0.1.0"
 source = "git+https://github.com/angzarr-io/angzarr-cli?rev=0277731bc9b5e46596633da9786fd5b5e6e993f2#0277731bc9b5e46596633da9786fd5b5e6e993f2"
 dependencies = [
  "angzarr-codegen",
- "angzarr-proto",
+ "angzarr-proto 0.1.0 (git+https://github.com/angzarr-io/angzarr-project?rev=672ed768aa1c8a8e05818c457c757cd406105e55)",
  "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=8a328c8d0fd70a0b43fbfb428250e946ebd273c4)",
  "prost-build",
 ]
@@ -72,6 +72,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "angzarr-embedded"
+version = "0.1.0"
+source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=c2e7ae8212a486bca268f44c2c58e3816ca33439#c2e7ae8212a486bca268f44c2c58e3816ca33439"
+dependencies = [
+ "angzarr-embedded-diagnostic",
+ "angzarr-ports",
+ "angzarr-proto 0.1.0 (git+https://github.com/angzarr-io/angzarr-project?rev=a1293eae1da37a95b58eb6081b066846876b5cca)",
+ "angzarr-router",
+ "prost",
+ "prost-types",
+]
+
+[[package]]
+name = "angzarr-embedded-diagnostic"
+version = "0.1.0"
+source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=c2e7ae8212a486bca268f44c2c58e3816ca33439#c2e7ae8212a486bca268f44c2c58e3816ca33439"
+
+[[package]]
+name = "angzarr-embedded-macros"
+version = "0.1.0"
+source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=c2e7ae8212a486bca268f44c2c58e3816ca33439#c2e7ae8212a486bca268f44c2c58e3816ca33439"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "angzarr-ports"
+version = "0.1.0"
+source = "git+https://github.com/angzarr-io/angzarr-project?rev=a1293eae1da37a95b58eb6081b066846876b5cca#a1293eae1da37a95b58eb6081b066846876b5cca"
+dependencies = [
+ "angzarr-proto 0.1.0 (git+https://github.com/angzarr-io/angzarr-project?rev=a1293eae1da37a95b58eb6081b066846876b5cca)",
+ "prost",
+ "prost-types",
+]
+
+[[package]]
 name = "angzarr-proto"
 version = "0.1.0"
 source = "git+https://github.com/angzarr-io/angzarr-project?rev=672ed768aa1c8a8e05818c457c757cd406105e55#672ed768aa1c8a8e05818c457c757cd406105e55"
@@ -84,11 +122,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "angzarr-proto"
+version = "0.1.0"
+source = "git+https://github.com/angzarr-io/angzarr-project?rev=a1293eae1da37a95b58eb6081b066846876b5cca#a1293eae1da37a95b58eb6081b066846876b5cca"
+dependencies = [
+ "bytes",
+ "prost",
+ "prost-build",
+ "prost-types",
+ "uuid",
+]
+
+[[package]]
+name = "angzarr-router"
+version = "0.1.0"
+source = "git+https://github.com/angzarr-io/angzarr-router?rev=3b1ad294d1a67ec94e90282c76b8a4eca40e13ab#3b1ad294d1a67ec94e90282c76b8a4eca40e13ab"
+dependencies = [
+ "angzarr-proto 0.1.0 (git+https://github.com/angzarr-io/angzarr-project?rev=a1293eae1da37a95b58eb6081b066846876b5cca)",
+ "heck 0.5.0",
+ "prost",
+ "prost-build",
+ "prost-types",
+ "tracing",
+]
+
+[[package]]
 name = "annals"
 version = "0.1.0"
 source = "git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35#ed00923e915c7fc9b832eba30d32115168ab7c35"
 dependencies = [
- "angzarr-proto",
+ "angzarr-proto 0.1.0 (git+https://github.com/angzarr-io/angzarr-project?rev=672ed768aa1c8a8e05818c457c757cd406105e55)",
  "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "prost",
  "prost-types",
@@ -2531,6 +2594,10 @@ name = "tasks"
 version = "0.1.0"
 dependencies = [
  "angzarr-build",
+ "angzarr-embedded",
+ "angzarr-embedded-diagnostic",
+ "angzarr-embedded-macros",
+ "angzarr-ports",
  "annals",
  "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "fluent-syntax",
@@ -2647,7 +2714,7 @@ name = "tasks-proto"
 version = "0.1.0"
 dependencies = [
  "angzarr-build",
- "angzarr-proto",
+ "angzarr-proto 0.1.0 (git+https://github.com/angzarr-io/angzarr-project?rev=672ed768aa1c8a8e05818c457c757cd406105e55)",
  "prost",
  "prost-types",
  "tagma-proto",
