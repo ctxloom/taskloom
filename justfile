@@ -1,5 +1,5 @@
-# The pre-commit gates and their recipes (fmt, fmt-check, fmt-staged, test,
-# test-staged, mutants-staged, lint-deps, secrets-scan-staged and the `_run`
+# The git-hook gates and their recipes (fmt, fmt-check, fmt-staged, test,
+# test-staged, mutants-push, mutants-staged, lint-deps, secrets-scan-staged and the `_run`
 # machinery and extractors) are gates/gates.just, imported below; this file
 # gives them taskloom's parameters and keeps its own recipes (`build`, `lint`).
 # cargo-deny's duplicate-version warnings stay in target/logs/lint-deps.log,
