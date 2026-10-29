@@ -427,7 +427,7 @@ mutants-push remote *lefthook:
         echo "FAIL mutants-push: red tests cannot be pushed to $remote/$target" >&2
         exit 1
     done
-    [ "$pushed" = 1 ] || echo "ok   mutants-push (nothing pushed but deletions: nothing to mutate)"
+    [ "$pushed" = 1 ] || echo "ok   mutants-push (no commit pushed, only deletions or nothing: nothing to mutate)"
 
 # The commit a pushed ref's diff starts from, printed: the merge base of the
 # commit pushed and the remote's current tip of that ref, when the remote has
