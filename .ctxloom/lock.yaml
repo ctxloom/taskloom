@@ -1,65 +1,65 @@
 schema_version: 3
 bundles:
   ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/agent-ensemble:
-    sha: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    sha: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     url: https://github.com/benjaminabbitt/ctxloom-personal
     requested_version: branch:main
     kind: branch
   ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/ast-grep:
-    sha: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    sha: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     url: https://github.com/benjaminabbitt/ctxloom-personal
-    requested_version: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    requested_version: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     kind: sha
   ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/containers:
-    sha: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    sha: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     url: https://github.com/benjaminabbitt/ctxloom-personal
-    requested_version: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    requested_version: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     kind: sha
   ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/core-practices:
-    sha: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    sha: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     url: https://github.com/benjaminabbitt/ctxloom-personal
-    requested_version: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    requested_version: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     kind: sha
   ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/developer-mindset:
-    sha: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    sha: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     url: https://github.com/benjaminabbitt/ctxloom-personal
-    requested_version: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    requested_version: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     kind: sha
   ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/just:
-    sha: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    sha: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     url: https://github.com/benjaminabbitt/ctxloom-personal
-    requested_version: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    requested_version: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     kind: sha
   ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/rtk:
-    sha: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    sha: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     url: https://github.com/benjaminabbitt/ctxloom-personal
-    requested_version: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    requested_version: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     kind: sha
   ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/rust-development:
-    sha: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    sha: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     url: https://github.com/benjaminabbitt/ctxloom-personal
     requested_version: branch:main
     kind: branch
   ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/rust-test-support-pattern:
-    sha: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    sha: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     url: https://github.com/benjaminabbitt/ctxloom-personal
-    requested_version: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    requested_version: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     kind: sha
   ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/serena:
-    sha: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    sha: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     url: https://github.com/benjaminabbitt/ctxloom-personal
     kind: branch
   ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/source-organization:
-    sha: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    sha: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     url: https://github.com/benjaminabbitt/ctxloom-personal
-    requested_version: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    requested_version: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     kind: sha
   ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/tdd:
-    sha: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    sha: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     url: https://github.com/benjaminabbitt/ctxloom-personal
     kind: branch
   ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/unattended:
-    sha: 2fb59a42da246a4fd32f960b8f6bcd9d627279cb
+    sha: 05a10523bf6f2e4fd4d9af4d9b3fe82b3addae96
     url: https://github.com/benjaminabbitt/ctxloom-personal
     kind: branch
   ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/agent-roles:
