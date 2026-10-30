@@ -151,6 +151,19 @@ fn test_an_add_gives_up_once_every_harp_it_mints_is_taken() {
     assert_eq!(service.names.minted, HARP_ATTEMPTS);
 }
 
+/// Only a taken harp is tried again: any other refusal of a minted harp is
+/// the add's answer, at once.
+#[test]
+fn test_an_add_refused_for_anything_but_a_taken_harp_is_not_tried_again() {
+    let mut service = service(&[" ", "calm-otter"]);
+    let error = add(&mut service, new_task("First")).unwrap_err();
+    let AppError::Rejected(rejection) = &error else {
+        panic!("{error:?}");
+    };
+    assert_eq!(rejection.code(), "tasks-harp-id-required");
+    assert_eq!(service.names.minted, 1, "no second harp minted");
+}
+
 // A refused add writes nothing: the domain's rules are held before a
 // project is bound, a store opened or a harp minted.
 #[test]
