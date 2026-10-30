@@ -286,7 +286,6 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     samples.push(Box::new(crate::QueryError {
         query: "and".to_string(),
         postfix: "x".to_string(),
-        infix: "x".to_string(),
     }));
     samples
 }

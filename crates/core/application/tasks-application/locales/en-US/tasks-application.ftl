@@ -49,7 +49,7 @@ tasks-application-schema-no-value = tag_schema: { $declaration } has no value
 tasks-application-schema-arity-target = tag_schema: { $declaration } targets { $target }, but an arity's target must be namespace:key
 tasks-application-schema-enum-empty = tag_schema: { $declaration } lists no enum member in { $value }
 tasks-application-schema-range = tag_schema: { $declaration }'s range { $value } is not min,max: two finite numbers, the least first
-tasks-application-tag-query = the tag query { $query } is malformed (as postfix: { $postfix }; as infix: { $infix }): { $grammar }
+tasks-application-tag-query = the tag query { $query } is malformed ({ $postfix }): { $grammar }
 tasks-application-lint-not-in-enum = { $target }={ $value } is not one of the declared enum values: { $members }
 tasks-application-lint-not-a-number = { $target }={ $value } does not parse as a finite number
 tasks-application-lint-out-of-range = { $target }={ $value } is outside the declared range [{ $min }, { $max }]

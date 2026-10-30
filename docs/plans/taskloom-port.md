@@ -352,8 +352,8 @@ cutover ("What remains").
     `tasks-config`: `~/.taskloom/config.yaml`, then the work root's, then
     `TASKLOOM_CONFIG_*`, then `--config-set`, a layer's `tag_schema`
     replacing the list below it, as Go's does.
-  - `list --tag-query`: tagma-core's postfix engine, then its infix one
-    when postfix cannot read the query, over the listing's candidates
+  - `list --tag-query`: tagma-core's postfix engine (postfix only, as
+    Go's; an infix query is refused), over the listing's candidates
     with Go's presence tag, type declarations and SemVer comparator.
     Every operator agrees with Go's: `fixtures/tag-queries/cases.tsv` is
     answered by Go's own `filterTasks` (`scripts/compare-go-tag-queries.sh`,
@@ -498,8 +498,7 @@ Where the port differs from Go:
   environment or `--config-set` list does not split inside double quotes
   (Go split an enum declaration's members apart), and an override naming
   no key is refused (Go wrote it, and then its schema refused it).
-  `--tag-query` takes infix as well as Go's postfix. `--write-upgrades` is
-  not ported: there is no config version to upgrade from.
+  `--write-upgrades` is not ported: there is no config version to upgrade from.
 - `watch` sources changes from the store, not the filesystem: each tick
   reads the store's change token (annals-store-sql's `PRAGMA
   data_version` with `total_changes()`, on the one connection the watch

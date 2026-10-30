@@ -1,11 +1,8 @@
 //! Tag queries: tagma-core's engines over a listing's tasks.
 //!
-//! A query is postfix (`urgent/release/and`, `urgent/not`), or infix
-//! (`urgent and not release`, `(a or b) c`): postfix is tried first, and
-//! infix when postfix cannot read it. No string reads as both with two
-//! meanings: postfix separates its tokens with `/`, which no infix atom
-//! holds, and infix with spaces and parentheses, which no postfix atom
-//! holds unquoted, so a string both read is a single atom. The operators
+//! A query is postfix only (`urgent/release/and`, `urgent/not`): tags
+//! first and the operator after, tokens separated by `/`. A query postfix
+//! cannot read is refused, whatever else it might read as. The operators
 //! `and`, `or` and `not` are matched in any case.
 //!
 //! The index holds only the tasks the listing admits (its candidates), so
@@ -35,8 +32,8 @@ const PRESENCE_NAMESPACE: &str = "taskloom.internal";
 /// since a harp has no colon.
 const TYPE_CONFIG_ITEM: &str = "taskloom.internal:type-config";
 
-/// How to write a query, postfix or infix, said with every malformed one.
-pub const QUERY_GRAMMAR: &str = "queries are postfix, tags first and the operator after (human:decision/area:cli/and, human:decision/not), and an and/or/not needs enough operands before it; or infix (human:decision and not area:cli)";
+/// How to write a query, said with every malformed one.
+pub const QUERY_GRAMMAR: &str = "queries are postfix, tags first and the operator after (human:decision/area:cli/and, human:decision/not), and an and/or/not needs enough operands before it";
 
 /// A malformed query.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -44,8 +41,6 @@ pub struct QueryError {
     pub query: String,
     /// Why postfix cannot read it.
     pub postfix: String,
-    /// Why infix cannot read it.
-    pub infix: String,
 }
 
 impl fmt::Display for QueryError {
@@ -63,7 +58,6 @@ impl Diagnostic for QueryError {
         vec![
             ("query", self.query.as_str().into()),
             ("postfix", self.postfix.as_str().into()),
-            ("infix", self.infix.as_str().into()),
             ("grammar", QUERY_GRAMMAR.into()),
         ]
     }
@@ -101,14 +95,10 @@ pub fn select<'a>(
     let Some(query) = query else {
         return Ok(ids);
     };
-    let matched = match index.query_postfix(query) {
-        Ok(matched) => matched,
-        Err(postfix) => index.query(query).map_err(|infix| QueryError {
-            query: query.to_string(),
-            postfix,
-            infix,
-        })?,
-    };
+    let matched = index.query_postfix(query).map_err(|postfix| QueryError {
+        query: query.to_string(),
+        postfix,
+    })?;
     Ok(matched.into_iter().filter(|id| ids.contains(id)).collect())
 }
 

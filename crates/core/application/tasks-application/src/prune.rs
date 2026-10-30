@@ -55,7 +55,7 @@ pub struct PruneRequest {
     /// least: an offset back from now (`30d`, `12w`, `720h`: durations
     /// with days and weeks), or a date (`2026-01-01`, midnight UTC).
     pub older_than: String,
-    /// A tag query, postfix or infix; given blank, it is refused
+    /// A postfix tag query; given blank, it is refused
     /// ([`AppError::Blank`]), never read as none.
     pub tag_query: Option<String>,
     /// Remove and purge what is selected; without it, only report.
