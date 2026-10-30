@@ -792,41 +792,24 @@ fn test_the_store_purges_a_stream_in_a_unit_of_work_as_a_prune_needs() {
 // the path to back it up to (`state.db.pre-embedded`), so the user moves it
 // aside and starts afresh; and it is left exactly as it was, never
 // migrated in place (angzarr-store-sqlite's open would migrate it, one
-// way). Its fixture is made by annals-store-sql itself, which stays a
-// dev-dependency for it when the store moves onto angzarr-store-sqlite
-// (step 3b), or is frozen into testdata then.
+// way). Its fixture is annals-store-sql's file, frozen in testdata.
 
 /// The key a store from before angzarr-embedded is refused with.
 const PREDATES: &str = "task-store-sqlite-predates-embedded";
 
-/// A store as taskloom wrote one before angzarr-embedded, at `path`:
-/// annals-store-sql's, holding one task stream of two events under annals'
-/// rules (`v1`), closed so the file holds everything.
+/// A store as taskloom wrote one before angzarr-embedded: annals-store-
+/// sql's (rev ed00923), holding one task stream of two events under
+/// annals' rules (`v1`), its only migration annals' first. Frozen from what
+/// annals-store-sql wrote (`SqliteStore::open`, then an append of this
+/// file's `event(0, 1)` and `event(1, 2)` to a `tasks` stream rooted at
+/// `[1; 16]`, closed so the file holds everything), so the test needs no
+/// annals once the store leaves it.
+const PRE_EMBEDDED: &[u8] = include_bytes!("../testdata/pre-embedded.db");
+
+/// [`PRE_EMBEDDED`], at `path`.
 fn pre_embedded(home: &Home, path: &Path) {
     home.mkdir(path.parent().unwrap());
-    let real = home.real(path);
-    let stream = Cover {
-        domain: "tasks".to_string(),
-        root: Some(Uuid::from_bytes([1; 16])),
-        edition: None,
-    };
-    block_on(async {
-        let mut store = SqliteStore::open(&real).await.unwrap();
-        store
-            .append(&stream, 0, &[event(0, 1), event(1, 2)])
-            .await
-            .unwrap();
-    });
-    let mut wal = path.as_os_str().to_owned();
-    wal.push("-wal");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while home.exists(Path::new(&wal)) {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "the store's connection never closed: its log is still beside the file"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
+    home.write(path, PRE_EMBEDDED);
 }
 
 /// The args of the diagnostic keyed `code` in `diagnostic` or the causes
