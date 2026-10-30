@@ -147,6 +147,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "angzarr-store-sqlite"
+version = "0.1.0"
+source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=882ba3c5553eb83c4a5bc61869dc22d43eb704f1#882ba3c5553eb83c4a5bc61869dc22d43eb704f1"
+dependencies = [
+ "angzarr-ports",
+ "prost",
+ "prost-types",
+ "sea-query",
+ "sea-query-binder",
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
 name = "annals"
 version = "0.1.0"
 source = "git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35#ed00923e915c7fc9b832eba30d32115168ab7c35"
@@ -1652,7 +1666,7 @@ version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03da047801ff44bb6a4d407d4860c05fd70bb81714e6b2f3812603d5b145b042"
 dependencies = [
- "heck 0.5.0",
+ "heck 0.4.1",
  "itertools",
  "log",
  "multimap",
@@ -2542,6 +2556,9 @@ dependencies = [
 name = "task-store-sqlite"
 version = "0.1.0"
 dependencies = [
+ "angzarr-embedded-diagnostic",
+ "angzarr-ports",
+ "angzarr-store-sqlite",
  "annals",
  "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "annals-store-sql",
@@ -2549,6 +2566,7 @@ dependencies = [
  "fluent-syntax",
  "os",
  "ports",
+ "prost-types",
  "tokio",
 ]
 
@@ -2744,7 +2762,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -3135,7 +3153,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

@@ -20,7 +20,7 @@ use annals_store_sql::sqlite::SqliteStore;
 use super::SqliteStores;
 
 #[path = "damage.test.rs"]
-mod damage;
+pub(crate) mod damage;
 
 fn block_on<F: Future>(future: F) -> F::Output {
     tokio::runtime::Builder::new_current_thread()
@@ -781,84 +781,4 @@ fn test_the_store_purges_a_stream_in_a_unit_of_work_as_a_prune_needs() {
             "the stream starts again from expected 0"
         );
     });
-}
-
-// ------------------------------------- a store from before angzarr-embedded
-//
-// RED, the owner's ruling D2 (taskloom-on-angzarr-embedded.plan.md): a
-// store written before taskloom moved onto angzarr-embedded (annals-store-
-// sql's, its events under annals' rules) is not migrated. Opened, it is
-// refused, keyed `task-store-sqlite-predates-embedded` with its path and
-// the path to back it up to (`state.db.pre-embedded`), so the user moves it
-// aside and starts afresh; and it is left exactly as it was, never
-// migrated in place (angzarr-store-sqlite's open would migrate it, one
-// way). Its fixture is annals-store-sql's file, frozen in testdata.
-
-/// The key a store from before angzarr-embedded is refused with.
-const PREDATES: &str = "task-store-sqlite-predates-embedded";
-
-/// A store as taskloom wrote one before angzarr-embedded: annals-store-
-/// sql's (rev ed00923), holding one task stream of two events under
-/// annals' rules (`v1`), its only migration annals' first. Frozen from what
-/// annals-store-sql wrote (`SqliteStore::open`, then an append of this
-/// file's `event(0, 1)` and `event(1, 2)` to a `tasks` stream rooted at
-/// `[1; 16]`, closed so the file holds everything), so the test needs no
-/// annals once the store leaves it.
-const PRE_EMBEDDED: &[u8] = include_bytes!("../testdata/pre-embedded.db");
-
-/// [`PRE_EMBEDDED`], at `path`.
-fn pre_embedded(home: &Home, path: &Path) {
-    home.mkdir(path.parent().unwrap());
-    home.write(path, PRE_EMBEDDED);
-}
-
-/// The args of the diagnostic keyed `code` in `diagnostic` or the causes
-/// nested in it, each as text, by name; `None` if none is keyed `code`.
-fn keyed(diagnostic: &dyn Diagnostic, code: &str) -> Option<Vec<(&'static str, String)>> {
-    use annals_diagnostic::Arg;
-    let args = diagnostic.args();
-    if diagnostic.code() == code {
-        let text = |arg: &Arg| match arg {
-            Arg::Int(n) => n.to_string(),
-            Arg::Uint(n) => n.to_string(),
-            Arg::Str(s) => s.clone(),
-            Arg::Nested(cause) => cause.code().to_string(),
-        };
-        return Some(args.iter().map(|(name, arg)| (*name, text(arg))).collect());
-    }
-    args.iter().find_map(|(_, arg)| match arg {
-        Arg::Nested(cause) => keyed(cause.as_ref(), code),
-        _ => None,
-    })
-}
-
-#[test]
-fn test_a_store_that_predates_angzarr_embedded_is_refused_naming_its_backup() {
-    let home = Home::new();
-    let path = store_in(home.path(), "jolly-mute-magma");
-    pre_embedded(&home, &path);
-    let before = home.read(&path);
-    let project = project("jolly-mute-magma", path.clone());
-    let mut backup = path.as_os_str().to_owned();
-    backup.push(".pre-embedded");
-    let expected = vec![
-        ("backup", PathBuf::from(backup).display().to_string()),
-        ("path", path.display().to_string()),
-    ];
-    let args = |refusal: Option<annals::next::StoreError>| {
-        let refusal = refusal.expect("refused, never opened");
-        let mut args =
-            keyed(&refusal, PREDATES).unwrap_or_else(|| panic!("keyed {PREDATES}: {refusal:?}"));
-        args.sort();
-        args
-    };
-
-    let mut stores = home.stores();
-    let written = block_on(stores.open(&project)).map(drop).err();
-    assert_eq!(args(written), expected, "to write");
-    let read = block_on(stores.open_existing(&project)).map(drop).err();
-    assert_eq!(args(read), expected, "to read");
-    assert!(stores.held.is_none(), "nothing held");
-    drop(stores);
-    assert_eq!(home.read(&path), before, "the file as it was: not migrated");
 }

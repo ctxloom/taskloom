@@ -23,6 +23,7 @@
 //! read-only: damage is reported as the store's diagnostic, never
 //! repaired, and no database is no damage.
 
+pub mod embedded;
 mod error;
 
 use std::path::{Path, PathBuf};

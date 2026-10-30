@@ -11,6 +11,11 @@ publish.workspace = true
 annals.workspace = true
 annals-diagnostic.workspace = true
 annals-store-sql.workspace = true
+# The store on angzarr-store-sqlite (`embedded`), beside annals-store-sql's
+# until the application moves (step 4 of taskloom-on-angzarr-embedded.plan.md).
+angzarr-embedded-diagnostic.workspace = true
+angzarr-ports.workspace = true
+angzarr-store-sqlite.workspace = true
 file-system.workspace = true
 os.workspace = true
 ports.workspace = true
@@ -20,6 +25,8 @@ tokio.workspace = true
 
 [dev-dependencies]
 fluent-syntax.workspace = true
+# The embedded store's test pages: their payloads and instants.
+prost-types.workspace = true
 
 [lints]
 workspace = true
