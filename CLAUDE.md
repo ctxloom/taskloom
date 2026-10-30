@@ -227,8 +227,10 @@ annals and ctxloom-rs still link; a change here does not reach them.
 
 lefthook runs the gates one at a time, stopping at the first failure, and
 shows each gate's pass line and any failure's extract. Gates 1 to 5 run at
-pre-commit; mutation (6) is too slow for every commit and runs at pre-push,
-after the push's tests (`just push-check`). A failing gate is a
+pre-commit, and pre-push runs the push's tests (`just push-check`).
+Mutation (6) runs in no git hook: it runs while tests are written and
+judged, at the end of an unattended run, and in the scheduled CI full pass.
+A failing gate is a
 finding: fix the cause and commit again; never `--no-verify`, and never
 weaken a gate to get through.
 
@@ -247,8 +249,9 @@ weaken a gate to get through.
    dependents in the staged tree (HEAD plus the staged diff, a sibling
    worktree of the checkout); a staged `workspace_wide` file tests the whole
    workspace.
-6. **mutants** (pre-push): `just mutants-push` mutation-tests what each
-   pushed ref adds (`cargo mutants --in-diff` over the diff from the
+6. **mutants** (no hook; by hand and in scheduled CI): `just mutants-push`
+   mutation-tests what each ref given on stdin, as git's pre-push refs,
+   adds (`cargo mutants --in-diff` over the diff from the
    remote's tip of that ref, or for a new branch from its merge base with
    the default branch, to the commit pushed), holding new logic to its
    tier: every
@@ -266,9 +269,9 @@ weaken a gate to get through.
    session of its own (`setsid`), and whatever it leaves running (a
    process a test spawned whose stop a mutant broke) is killed and named
    in the gate's log; the verdict does not change. The last run's mutants.out (each
-   mutant's log, outcomes.json) is kept in target/logs/mutants-push/. A
-   push of red tests to a branch other than the default one is not judged
-   (no mutant can be, against failing tests) and passes with a warning.
+   mutant's log, outcomes.json) is kept in target/logs/mutants-push/. Red
+   tests bound for a branch other than the default one are not judged
+   (no mutant can be, against failing tests) and pass with a warning.
    `just mutants-staged` runs the same judgement over the staged diff, by
    hand, before committing, and `just mutants-all` over the whole workspace
    at HEAD (the full pass; weekly in CI, `.github/workflows/mutation.yml`).

@@ -1,7 +1,8 @@
 # The mutation full pass, weekly and by hand: `just mutants-all` mutates the
 # whole workspace and judges each tier by the justfile's mutation_thresholds
-# (gates/gates.just). The pre-push gate (`mutants-push`) judges only what a
-# push adds; this pass catches what has drifted under it. Set up as ci.yml's
+# (gates/gates.just). No git hook runs mutation; `mutants-push` and
+# `mutants-staged` judge a change's diff by hand, and this pass catches what
+# has drifted under them. Set up as ci.yml's
 # linux job is, plus cargo-mutants.
 #
 # Every action is pinned to a commit, its release in the comment; every tool
