@@ -88,6 +88,8 @@ struct Fake {
     permitted: Option<Result<Permitted, AppError>>,
     permit_list: Option<Result<PermitList, AppError>>,
     permit_lists: usize,
+    schema: Option<Result<TagSchema, AppError>>,
+    schemas: usize,
 }
 
 impl TaskService for Fake {
@@ -141,9 +143,9 @@ impl TaskService for Fake {
         self.report_of_lint.clone().expect("a lint answer scripted")
     }
 
-    // The command line reads no schema through this; the MCP server does.
     async fn tag_schema(&mut self) -> Result<TagSchema, AppError> {
-        unreachable!("no command reads the tag schema")
+        self.schemas += 1;
+        self.schema.clone().expect("a tag schema scripted")
     }
 
     async fn permits(&mut self) -> Result<PermitList, AppError> {
@@ -2403,6 +2405,118 @@ fn test_permits_says_a_namespace_closed_to_no_key_permits_none() {
         ran.out,
         "Namespaces:\n  area:  (no key)\nFlat tags: (none)\nPermitted by the tag schema: triage:kind, triage:level\n"
     );
+}
+
+// ------------------------------------------------------------ schema
+
+/// A target of every facet the schema command reports, one of formulas
+/// alone, and one only hidden, which it leaves out.
+fn declared() -> Option<Result<TagSchema, AppError>> {
+    Some(Ok(TagSchema::parse([
+        r#"tagma.arity:"a:x"=scalar"#,
+        r#"tagma.enum:"a:x"="p,q""#,
+        r#"tagma.range:"b:long-name"="0.5,2""#,
+        r#"tagma.type:"b:long-name"=semver"#,
+        r#"tagma.arity:"b:long-name"=multi"#,
+        r#"tagma.priority_fn:"c:y"="{{age_days}} > 1 ? 2 : 1""#,
+        r#"tagma.decay_fn:"c:y"="1""#,
+        r#"tagma.hide:"d:z"=true"#,
+    ])
+    .unwrap()))
+}
+
+// The tag schema a write is held to, as a person (or an agent choosing a
+// tag) reads it: one line a target, its facets after it, and its formulas
+// on lines of their own beneath; a hidden-only target is not vocabulary.
+#[test]
+fn test_schema_lists_each_target_with_its_facets_and_formulas() {
+    let mut fake = Fake {
+        schema: declared(),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["schema"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(fake.schemas, 1);
+    assert_eq!(
+        ran.out,
+        "a:x          scalar; enum: p, q\n\
+         b:long-name  range: 0.5 to 2; type: semver\n\
+         c:y\n    priority_fn: {{age_days}} > 1 ? 2 : 1\n    decay_fn: 1\n"
+    );
+}
+
+// `schema` is a group whose default is `show`, so a later `schema export`
+// sits beside it: both spellings print the same.
+#[test]
+fn test_schema_show_is_what_schema_alone_prints() {
+    let mut bare = Fake {
+        schema: declared(),
+        ..Fake::default()
+    };
+    let mut shown = Fake {
+        schema: declared(),
+        ..Fake::default()
+    };
+    let bare = run_on(&mut bare, true, &["schema"]);
+    let shown = run_on(&mut shown, true, &["schema", "show"]);
+    assert_eq!(shown.code, 0, "{}", shown.err);
+    assert_eq!(shown.out, bare.out);
+}
+
+// In JSON, one entry a target with every facet it declares, as the
+// retired taskloom://tag-schema resource read, and its type: a write is
+// held to it.
+#[test]
+fn test_schema_in_json_is_one_entry_per_target_with_every_facet() {
+    let mut fake = Fake {
+        schema: declared(),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, false, &["schema", "show"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({"targets": [
+            {"target": "a:x", "scalar": true, "enum": ["p", "q"]},
+            {"target": "b:long-name", "range": {"min": 0.5, "max": 2.0}, "type": "semver"},
+            {"target": "c:y", "priority_fn": "{{age_days}} > 1 ? 2 : 1", "decay_fn": "1"},
+        ]})
+    );
+}
+
+// A schema declaring no target says so, in text, and is an empty list in
+// JSON.
+#[test]
+fn test_schema_declaring_nothing_says_so() {
+    let mut fake = Fake {
+        schema: Some(Ok(TagSchema::default())),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["schema"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(ran.out, "No tag schema: no target is declared.\n");
+    let mut fake = Fake {
+        schema: Some(Ok(TagSchema::default())),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, false, &["schema"]);
+    let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
+    assert_eq!(json, serde_json::json!({"targets": []}));
+}
+
+// A schema that cannot be read is the command's error, and nothing is
+// printed on stdout.
+#[test]
+fn test_schema_unread_is_an_error() {
+    let mut fake = Fake {
+        schema: Some(Err(AppError::NoProject)),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["schema"]);
+    assert_eq!(ran.code, 1);
+    assert_eq!(ran.out, "");
+    assert!(ran.err.starts_with("taskloom: "), "{}", ran.err);
 }
 
 // `--request-id <id>` on every write names the request's key, passed on
