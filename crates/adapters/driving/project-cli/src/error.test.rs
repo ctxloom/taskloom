@@ -65,6 +65,13 @@ fn test_each_diagnostic_renders_its_catalog_message_and_displays_as_its_key() {
         .into_iter()
         .chain(project_application::diagnostic_samples());
     for sample in samples {
+        // Display is the key and args, never English (decision 14.37).
+        assert_eq!(
+            sample.to_string(),
+            angzarr_embedded_diagnostic::Report::of(&*sample).to_string(),
+            "{}",
+            sample.code()
+        );
         let message = catalog.render(&*sample).expect("a catalog message");
         assert!(!message.is_empty(), "{}", sample.code());
         assert!(

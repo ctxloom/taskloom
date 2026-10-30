@@ -757,6 +757,15 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
         .collect();
     samples.sort();
     assert_eq!(catalog, samples);
+    for sample in super::diagnostic_samples() {
+        // Display is the key and args, never English (decision 14.37).
+        assert_eq!(
+            sample.to_string(),
+            angzarr_embedded_diagnostic::Report::of(&*sample).to_string(),
+            "{}",
+            sample.code()
+        );
+    }
 }
 
 #[test]

@@ -137,6 +137,13 @@ fn test_every_rejection_has_a_catalog_message_with_exactly_its_args() {
     sampled.sort_unstable();
     assert_eq!(catalog, sampled, "catalog messages and samples");
     for sample in samples {
+        // Display is the key and args, never English (decision 14.37).
+        assert_eq!(
+            sample.to_string(),
+            angzarr_embedded_diagnostic::Report::of(&*sample).to_string(),
+            "{}",
+            sample.code()
+        );
         let message = resource
             .body
             .iter()
@@ -232,5 +239,45 @@ fn test_a_rejection_displays_as_its_key_and_args() {
     assert_eq!(
         TaskRejection::TriggerRequired.to_string(),
         "tasks-trigger-required"
+    );
+}
+
+#[test]
+fn test_a_task_state_round_trips_through_its_wire_form() {
+    let state = crate::TaskState {
+        harp_id: HARP.to_string(),
+        text: "Ship it".to_string(),
+        status: DEFERRED.to_string(),
+        trigger: "after the release".to_string(),
+        origin_session: "calm-otter".to_string(),
+        tags: tags(&["urgent", "area:x=1"]),
+        created_at: Timestamp {
+            seconds: 5,
+            nanos: 0,
+        },
+        status_set_at: Timestamp {
+            seconds: 6,
+            nanos: 0,
+        },
+        deferred_since: Some(Timestamp {
+            seconds: 6,
+            nanos: 0,
+        }),
+        removed: true,
+        prior_status: TO_DO.to_string(),
+    };
+    let wire = tasks_proto::v1::TaskState::from(state.clone());
+    assert_eq!(wire.harp_id, HARP);
+    assert_eq!(crate::TaskState::try_from(wire.clone()), Ok(state));
+    let missing = tasks_proto::v1::TaskState {
+        created_at: None,
+        ..wire
+    };
+    assert_eq!(
+        crate::TaskState::try_from(missing),
+        Err(angzarr_embedded::next::WireError::Missing {
+            message: "ctxloom.tasks.v1.TaskState",
+            field: "created_at"
+        })
     );
 }
