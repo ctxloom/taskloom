@@ -257,4 +257,5 @@ weaken a gate to get through.
    push of red tests to a branch other than the default one is not judged
    (no mutant can be, against failing tests) and passes with a warning.
    `just mutants-staged` runs the same judgement over the staged diff, by
-   hand, before committing.
+   hand, before committing, and `just mutants-all` over the whole workspace
+   at HEAD (the full pass; weekly in CI, `.github/workflows/mutation.yml`).

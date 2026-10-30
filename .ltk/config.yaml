@@ -33,4 +33,4 @@ rules:
   - id: mutants-via-just
     match: { command: [cargo, mutants] }
     message: "Mutation-test through the task runner: it judges the staged diff against each tier's threshold."
-    suggest: "just mutants-staged"
+    suggest: "just mutants-staged   # or `just mutants-all`, the whole workspace"

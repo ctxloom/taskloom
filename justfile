@@ -1,7 +1,8 @@
 # The git-hook gates and their recipes (fmt, fmt-check, fmt-staged, test,
-# test-staged, mutants-push, mutants-staged, lint-deps, secrets-scan-staged and the `_run`
-# machinery and extractors) are gates/gates.just, imported below; this file
-# gives them taskloom's parameters and keeps its own recipes (`build`, `lint`).
+# test-staged, mutants-push, mutants-staged, mutants-all, lint-deps,
+# secrets-scan-staged and the `_run` machinery and extractors) are
+# gates/gates.just, imported below; this file gives them taskloom's
+# parameters and keeps its own recipes (`build`, `lint`).
 # cargo-deny's duplicate-version warnings stay in target/logs/lint-deps.log,
 # not silenced in deny.toml: one (angzarr-proto) is angzarr-build's own
 # build-time pin (55eab0f), older than this workspace's spec rev.
