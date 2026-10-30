@@ -321,7 +321,7 @@ where
         let Some(store) = self.stores.open_existing(project).await.map_err(failed)? else {
             return Ok(None);
         };
-        let mut list = crate::read_list();
+        let mut list = task_lists::TaskList::new();
         list.catch_up(store, &self.registry)
             .await
             .map_err(|e| AppError::Failed(Report::of(&*e)))?;

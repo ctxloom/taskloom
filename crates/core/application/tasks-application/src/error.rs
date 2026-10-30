@@ -25,7 +25,7 @@ pub enum AppError {
     Identity(Report),
     /// The configuration could not be read, or its tag schema is malformed.
     Configuration(Report),
-    /// A malformed tag query ([`crate::QueryError`]).
+    /// A malformed tag query ([`crate::query::QueryError`]).
     TagQuery(Report),
     /// A prune refused before it read anything ([`crate::PruneRefusal`]).
     Prune(Report),
@@ -215,6 +215,7 @@ pub const CATALOGS: [(&str, &str); 3] = [tasks::EN_US, task_priority::EN_US, EN_
 /// One value of every error this crate defines, of every reason a tag is
 /// refused, and of every reason an import gives for leaving a record behind (not the wrappers, whose codes
 /// are their causes'), for the catalog test.
+#[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     let tags = crate::tags::samples().into_iter();
     let schema = crate::schema::samples().into_iter();
@@ -283,7 +284,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             .into_iter()
             .map(|n| Box::new(n) as Box<dyn Diagnostic>),
     );
-    samples.push(Box::new(crate::QueryError {
+    samples.push(Box::new(crate::query::QueryError {
         query: "and".to_string(),
         postfix: "x".to_string(),
     }));

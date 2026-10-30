@@ -46,7 +46,9 @@ use file_system::Fs;
 use os::Mode;
 use ports::{Checked, HeldToken, Project, StoreCheck, TaskStores, WatchedStores};
 
-pub use error::{diagnostic_samples, StoreOpenError, EN_US};
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::{StoreOpenError, EN_US};
 
 /// How many of angzarr-store-sqlite's migrations a store from before
 /// angzarr-embedded lacks: annals-store-sql applied only the first, which

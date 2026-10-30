@@ -18,7 +18,9 @@ use std::path::{Path, PathBuf};
 use angzarr_embedded_diagnostic::Report;
 pub use ports::{AgentConfigs, McpServer, Rewritten, Scope};
 
-pub use error::{diagnostic_samples, RegistrationError, EN_US};
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::{RegistrationError, EN_US};
 
 /// The name taskloom's server is registered under.
 pub const TASKLOOM: &str = "taskloom";

@@ -29,5 +29,10 @@ ports.workspace = true
 # oneshot holds a call open; rmcp's transport turns both on already.
 tokio = { workspace = true, features = ["io-util", "sync"] }
 
+[features]
+# `diagnostic_samples`, for other crates' catalog tests: their
+# dev-dependency turns it on, and no build of a binary does.
+test-support = []
+
 [lints]
 workspace = true

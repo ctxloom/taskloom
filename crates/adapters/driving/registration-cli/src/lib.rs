@@ -23,7 +23,9 @@ use registration_application::{
 };
 use serde::Serialize;
 
-pub use error::{diagnostic_samples, ManageError, ManageNotice, EN_US};
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::{ManageError, ManageNotice, EN_US};
 
 /// The command, its words left for [`run`] to read.
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]

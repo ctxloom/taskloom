@@ -391,6 +391,7 @@ pub fn collapse(schema: &TagSchema, held: &[Tag], add: Vec<Tag>) -> (Vec<Tag>, V
 }
 
 /// One of every refusal, for the catalog test.
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn samples() -> Vec<TagRefusal> {
     let x = || "x".to_string();
     vec![

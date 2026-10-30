@@ -6,7 +6,10 @@
 //! current state with no separate first query to race.
 //!
 //! Changes come from the store, not the filesystem: the watch use case
-//! polled on every tick of a [`Ticks`] (every [`DEBOUNCE`] in the binary).
+//! polled on every tick of a [`Ticks`] (every [`DEBOUNCE`] in the binary),
+//! a tick finding a change when the store's change token moved. Any
+//! commit moves it, so a commit no task sees (a purge after its removal)
+//! is a line too; the subscriber re-queries and finds the same tasks.
 //! A burst of commits is one line, written once a tick finds nothing new,
 //! or after [`CEILING_TICKS`] ticks of a burst that does not stop. The
 //! stream runs until its stop future resolves (the binary's: SIGINT or
@@ -29,9 +32,11 @@ use std::time::Duration;
 use clap::Subcommand;
 use presentation::{Catalog, Format};
 use serde::Serialize;
-use tasks_application::{Changed, Polled, Task, WatchRequest, WatchService};
+use tasks_application::{WatchRequest, WatchService};
 
-pub use error::{diagnostic_samples, WatchError, EN_US};
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::{WatchError, EN_US};
 
 /// The quiet a burst of commits waits for before its line, and the
 /// binary's tick.
@@ -212,14 +217,6 @@ async fn stream<W: WatchService>(
         .map_err(WatchError::App)?
         .ok_or(WatchError::NoProject)?;
     let project = watch.project.id.clone();
-    // Where this stream is: the list's cursor, and its tasks, as of its
-    // last poll. A token that moves with nothing new for it (a purge of
-    // nothing) writes no line; a resync (a purge bumps the list's
-    // instance) is a change only if the tasks differ from those it held.
-    let (mut cursor, mut held) = match watch.since(None) {
-        Polled::Snapshot { tasks, cursor } => (cursor, tasks),
-        Polled::Changes { cursor, .. } => (cursor, Vec::new()),
-    };
     let emit = |out: &mut dyn Write| {
         presentation::write_json_line(out, &ChangeLine::of(&project)).map_err(|e| {
             WatchError::Output {
@@ -244,50 +241,9 @@ async fn stream<W: WatchService>(
         if let Woken::Stop = woken {
             return Ok(());
         }
-        let polled = service
-            .poll(&mut watch, Some(&cursor))
-            .await
-            .map_err(WatchError::App)?;
-        let changed = match polled {
-            Polled::Changes {
-                changes,
-                cursor: after,
-            } => {
-                cursor = after;
-                apply(&mut held, &changes);
-                !changes.is_empty()
-            }
-            Polled::Snapshot {
-                tasks,
-                cursor: after,
-            } => {
-                cursor = after;
-                let changed = tasks != held;
-                held = tasks;
-                changed
-            }
-        };
+        let changed = service.poll(&mut watch).await.map_err(WatchError::App)?;
         if debounce.tick(changed) {
             emit(out)?;
-        }
-    }
-}
-
-/// `held`, the tasks a watcher holds by harp id, with `changes` made.
-fn apply(held: &mut Vec<Task>, changes: &[Changed]) {
-    for change in changes {
-        let harp = match change {
-            Changed::Task(task) => &task.harp_id,
-            Changed::Removed { harp_id } => harp_id,
-        };
-        let at = held.binary_search_by(|t| t.harp_id.as_str().cmp(harp));
-        match (change, at) {
-            (Changed::Task(task), Ok(i)) => held[i] = task.clone(),
-            (Changed::Task(task), Err(i)) => held.insert(i, task.clone()),
-            (Changed::Removed { .. }, Ok(i)) => {
-                held.remove(i);
-            }
-            (Changed::Removed { .. }, Err(_)) => {}
         }
     }
 }

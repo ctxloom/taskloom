@@ -360,6 +360,7 @@ impl Diagnostic for SchemaError {
 }
 
 /// One of every refusal, for the catalog test.
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn samples() -> Vec<SchemaError> {
     let s = |why| SchemaError {
         declaration: "tagma.x:y=z".to_string(),

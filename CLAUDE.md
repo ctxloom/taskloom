@@ -76,7 +76,8 @@ and `just lint` runs it. `just check-windows` compiles the crates that use
 it for Windows, a quick check from Linux; CI (`.github/workflows/ci.yml`)
 builds and tests the whole workspace natively on a Windows runner. So a
 test names a path that must be absolute through `os::fixture` (`/tree`,
-`C:\tree` on Windows), never a unix literal, and builds an expected path
+`C:\tree` on Windows; os's `test-support` feature, on through a
+dev-dependency), never a unix literal, and builds an expected path
 the way the code does, joined component by component.
 
 ## Architecture: hexagonal around CQRS/ES (checked in review)
@@ -107,11 +108,10 @@ Dependencies point inward; a review refuses a change that breaks these:
   projection); a read model never depends on the application layer (a query
   issues no command).
 - Entities are aggregates; anything listed is a projector's read model,
-  never an aggregate. A UI watches one stream per watch. Nothing numbers
-  across streams (ruling D7): a list's cursor is per stream, each task
-  stream's sequence by harp id, of the list's instance; a purge bumps the
-  instance, and a cursor from before it is resynced whole, never resumed
-  (`task_lists::ListCursor`).
+  never an aggregate. Nothing numbers across streams (ruling D7). A watch
+  keeps no cursor (the owner's cut of D7, 2026-10-30): it holds only the
+  store's change token, and a poll answers whether it moved, so any
+  commit, even one no task sees, is a change the subscriber re-queries.
 
 ## Generated code is never committed
 
@@ -167,6 +167,19 @@ variant needs a stable code (prefixed with
 the crate's name), an en-US message in `locales/en-US/<crate>.ftl` using
 exactly its args, and a sample in the crate's `diagnostic_samples()`. The
 crate's catalog test checks messages and samples both ways.
+
+`diagnostic_samples()` is test-only API, so it is no part of a binary:
+`#[cfg(any(test, feature = "test-support"))]` on the function and its
+re-export, where `test-support` is the crate's own feature (declared in
+its Cargo.toml, enabling nothing else). The crate's tests see it through
+`cfg(test)`; another crate's tests (tasks-lib's and the binary's
+every-diagnostic catalog tests) list the crate again under
+`[dev-dependencies]` with `features = ["test-support"]`, which no build of
+a binary turns on. Any other API only tests use goes behind the same
+gate: `#[cfg(test)]` when only its own crate's tests use it, the
+crate's `test-support` feature when another crate's do (os's `fixture`,
+`Mode::PRIVATE_DIR`, `Flavor::program_file`, `Flavor::startup_vars`,
+`own_group` and `ctrl_break`).
 
 Each crate with diagnostics exports its embedded en-US catalog as `EN_US`
 (its name and its `.ftl`). The composition root assembles the binary's

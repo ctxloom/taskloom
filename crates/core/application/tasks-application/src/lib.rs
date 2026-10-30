@@ -44,7 +44,9 @@ use tasks::{
 };
 
 pub use dead_letter::DeadLetter;
-pub use error::{diagnostic_samples, AppError, CATALOGS, EN_US};
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::{AppError, CATALOGS, EN_US};
 pub use import::{ImportReport, ImportRequest, ImportService, Importer, Lost, ProjectImport, Why};
 pub use lint::{Finding, LintReport, Violation};
 pub use permit::{PermitChange, PermitList, PermitService, Permitted};
@@ -64,10 +66,9 @@ pub use tags::{parse as parse_tag, schema_free as schema_free_tag, Tag};
 pub use view::{text_hash, Row, Shown, StatusInfo, Task};
 
 // Used across the crate's modules by these paths; nothing outside uses them.
-pub(crate) use query::QueryError;
 pub(crate) use tags::TagRefusal;
 pub(crate) use view::DONE;
-pub use watch::{Changed, Polled, Watch, WatchCursor, WatchRequest, WatchService};
+pub use watch::{Watch, WatchRequest, WatchService};
 
 /// How many task ids an add mints before giving up, each refused because a
 /// task already holds it.
@@ -721,12 +722,6 @@ async fn read<S: ReadStore>(
     // with none) is no task, never a blank one.
     let state = stream.state().state();
     Ok((!state.harp_id.is_empty()).then(|| Task::of(state)))
-}
-
-/// A list read once and dropped: no watcher resumes from its cursor, so its
-/// instance is none in particular.
-pub(crate) fn read_list() -> task_lists::TaskList {
-    task_lists::TaskList::new(Uuid::from_bytes([0; 16]))
 }
 
 /// A store's failure, as the kernel reports one: its key and args.

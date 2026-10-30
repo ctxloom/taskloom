@@ -73,6 +73,7 @@ pub const EN_US: (&str, &str) = (
 );
 
 /// One value of every error, for the catalog test.
+#[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     let path = || "/home/u/.ctxloom/tasks/jolly-mute-magma.jsonl".to_string();
     vec![

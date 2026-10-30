@@ -49,6 +49,7 @@ use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+#[cfg(any(test, feature = "test-support"))]
 use std::process::{Child, Command};
 use std::sync::Arc;
 
@@ -64,7 +65,8 @@ pub struct Mode(u32);
 impl Mode {
     /// A file only its owner may read or write.
     pub const PRIVATE_FILE: Mode = Mode(0o600);
-    /// A directory only its owner may enter.
+    /// A directory only its owner may enter. Test support.
+    #[cfg(any(test, feature = "test-support"))]
     pub const PRIVATE_DIR: Mode = Mode(0o700);
     /// A file anyone may read, its owner write.
     pub const FILE: Mode = Mode(0o644);
@@ -178,21 +180,25 @@ pub fn not_unicode(prefix: &str) -> OsString {
 /// to that group ([`ctrl_break`]) reaches the child alone, never the
 /// process starting it: CREATE_NEW_PROCESS_GROUP on Windows. Nothing on
 /// unix, whose stop signals are sent to one process by pid. For tests
-/// that stop a child as a console would.
+/// that stop a child as a console would. Test support.
+#[cfg(any(test, feature = "test-support"))]
 pub fn own_group(command: &mut Command) -> &mut Command {
     host::own_group(command)
 }
 
 /// Send a Ctrl-Break to `child`'s process group, which [`own_group`]
 /// started it in: GenerateConsoleCtrlEvent on Windows. Unix has no console
-/// events: `Unsupported`.
+/// events: `Unsupported`. Test support.
+#[cfg(any(test, feature = "test-support"))]
 pub fn ctrl_break(child: &Child) -> io::Result<()> {
     host::ctrl_break(child)
 }
 
 /// A test fixture's absolute path, written the unix way (`/home/u`), as
 /// the host spells it ([`Flavor::from_top`]: `C:\home\u` on Windows): the
-/// one way a test names a path that is absolute on every host.
+/// one way a test names a path that is absolute on every host. Test
+/// support.
+#[cfg(any(test, feature = "test-support"))]
 pub fn fixture(path: &str) -> PathBuf {
     PathBuf::from(host().flavor().from_top(path))
 }

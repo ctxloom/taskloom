@@ -24,5 +24,10 @@ mutants.workspace = true
 ports.workspace = true
 serde_json.workspace = true
 
+[features]
+# `diagnostic_samples`, for other crates' catalog tests: their
+# dev-dependency turns it on, and no build of a binary does.
+test-support = []
+
 [lints]
 workspace = true

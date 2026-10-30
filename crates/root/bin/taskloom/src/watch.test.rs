@@ -524,7 +524,9 @@ mod ticked {
     }
 
     #[test]
-    fn test_a_poll_between_a_prunes_removal_and_its_purge_is_one_line() {
+    fn test_a_poll_between_a_prunes_removal_and_its_purge_is_a_line_for_each() {
+        // The purge moves the store's token though no task changes: a
+        // line of its own (the owner's ruling on D7, 2026-10-30).
         let (lines, tasks) = watched(|harp| {
             vec![
                 Step::Prune(harp.to_string()),
@@ -533,36 +535,23 @@ mod ticked {
                 Step::Quiet,
             ]
         });
-        // Read once between, at the removal; the quiet tick after has
-        // nothing to read, and the purge's read finds nothing new.
-        assert_eq!(lines, 2, "the first line, and the removal's");
+        assert_eq!(lines, 3, "the first line, the removal's, the purge's");
         assert_eq!(tasks, ["Kept"]);
     }
 
     #[test]
-    fn test_a_second_read_between_a_prunes_removal_and_its_purge_is_no_line() {
-        // The store read again after the removal, before the purge (its
-        // token moved for a commit no task sees): the pruned stream is the
-        // one already projected, so nothing is new.
-        let (lines, tasks) = watched(|harp| {
-            vec![
-                Step::Prune(harp.to_string()),
-                Step::Quiet,
-                Step::Elsewhere,
-                Step::Quiet,
-                Step::Purge(harp.to_string()),
-                Step::Quiet,
-                Step::Quiet,
-            ]
-        });
-        assert_eq!(lines, 2, "the first, and the removal's");
-        assert_eq!(tasks, ["Kept"]);
-    }
-
-    #[test]
-    fn test_a_commit_no_task_sees_is_no_line() {
-        let (lines, tasks) = watched(|_| vec![Step::Elsewhere, Step::Quiet, Step::Elsewhere]);
+    fn test_quiet_ticks_write_nothing() {
+        let (lines, tasks) = watched(|_| vec![Step::Quiet, Step::Quiet, Step::Quiet]);
         assert_eq!(lines, 1, "only the first");
+        assert_eq!(tasks, ["Pruned", "Kept"]);
+    }
+
+    #[test]
+    fn test_a_commit_no_task_sees_is_a_line() {
+        // The watch keeps no tasks to compare: any commit moves the token,
+        // and the subscriber re-queries to find the same tasks.
+        let (lines, tasks) = watched(|_| vec![Step::Elsewhere, Step::Quiet]);
+        assert_eq!(lines, 2, "the first, and the commit's");
         assert_eq!(tasks, ["Pruned", "Kept"]);
     }
 

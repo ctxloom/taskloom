@@ -114,7 +114,7 @@ pub trait WatchedStores: TaskStores {
     ) -> impl Future<Output = Result<Option<HeldToken>, StoreError>> + Send;
 }
 
-/// Fresh command ids, and list instances: UUIDv7 (RFC 9562), as
+/// Fresh command ids: UUIDv7 (RFC 9562), as
 /// angzarr-embedded expects of an application.
 pub trait CommandIds {
     fn command_id(&mut self) -> Uuid;

@@ -29,7 +29,9 @@ use serde::Serialize;
 
 pub use catalog::{Catalog, Source};
 pub use envelope::Envelope;
-pub use error::{diagnostic_samples, CatalogError, UnknownFormat, Unrendered, EN_US};
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::{CatalogError, UnknownFormat, Unrendered, EN_US};
 pub use format::Format;
 
 /// A value a driving adapter answers with, in both formats.

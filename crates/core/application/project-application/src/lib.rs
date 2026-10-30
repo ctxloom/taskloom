@@ -21,7 +21,9 @@ use std::path::PathBuf;
 
 use angzarr_embedded_diagnostic::Report;
 
-pub use error::{diagnostic_samples, ProjectError, EN_US};
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::{ProjectError, EN_US};
 pub use ports::{Change, Checked, IdSource, ProjectAdmin, Registered, StoreCheck, Survey};
 
 /// Something about a directory's identity, or the registry, that is not as

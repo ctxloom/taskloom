@@ -16,8 +16,8 @@ use angzarr_embedded_diagnostic::Diagnostic;
 use file_system::{CwdError, Entry, Meta, Open, Perms, Rooted};
 use os::Mode;
 use tasks_application::{
-    Changed, ImportRequest, ImportService, ListQuery, NewTask, PermitChange, PermitService, Polled,
-    PruneService, Reach, TaskService, WatchRequest, WatchService,
+    ImportRequest, ImportService, ListQuery, NewTask, PermitChange, PermitService, PruneService,
+    Reach, TaskService, WatchRequest, WatchService,
 };
 
 use super::*;
@@ -302,8 +302,7 @@ fn test_a_calls_future_can_be_spawned_on_a_runtime() {
     assert_eq!(added.unwrap().task.text, "spawned");
 }
 
-// A change event is a typed value: a watch on one service sees what
-// another service wrote.
+// A watch on one service sees what another service wrote.
 #[test]
 fn test_a_watch_sees_what_another_service_writes() {
     let dirs = Dirs::new();
@@ -319,23 +318,10 @@ fn test_a_watch_sees_what_another_service_writes() {
     let mut watch = block_on(watcher.watch(WatchRequest::default()))
         .unwrap()
         .expect("the project the add minted");
-    let Polled::Snapshot { cursor, .. } = watch.since(None) else {
-        panic!("a first answer is the list whole");
-    };
+    assert!(!block_on(watcher.poll(&mut watch)).unwrap(), "nothing yet");
     block_on(taskloom.tasks().add(new_task("second"))).unwrap();
-    let Polled::Changes { changes, .. } =
-        block_on(watcher.poll(&mut watch, Some(&cursor))).unwrap()
-    else {
-        panic!("resumed from the cursor");
-    };
-    let texts: Vec<_> = changes
-        .iter()
-        .map(|c| match c {
-            Changed::Task(task) => task.text.clone(),
-            Changed::Removed { harp_id } => format!("removed {harp_id}"),
-        })
-        .collect();
-    assert_eq!(texts, ["second"]);
+    assert!(block_on(watcher.poll(&mut watch)).unwrap(), "the add seen");
+    assert!(!block_on(watcher.poll(&mut watch)).unwrap(), "once");
 }
 
 // CTXLOOM_PROJECT_ID, given to the builder, beats the working directory's

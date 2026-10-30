@@ -21,7 +21,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use prost_types::Timestamp;
 use tasks::{Tag, DEFERRED};
 
-pub use error::{diagnostic_samples, PriorityError, EN_US};
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::{PriorityError, EN_US};
 use formula::Failure;
 pub use formula::{placeholders, Facet, Formula};
 

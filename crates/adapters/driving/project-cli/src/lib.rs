@@ -20,7 +20,9 @@ use clap::Subcommand;
 use presentation::{Catalog, Format};
 use project_application::{ProjectAdmin, Projects, StoreCheck};
 
-pub use error::{diagnostic_samples, CliError, EN_US};
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::{CliError, EN_US};
 use render::{Orphans, Planned, Show};
 
 /// The group, mounted as `project`.

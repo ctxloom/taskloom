@@ -6,6 +6,7 @@ use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 use presentation::UnknownFormat;
 use tasks_application::AppError;
 
+#[cfg(any(test, feature = "test-support"))]
 use crate::Notice;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -74,6 +75,7 @@ pub const EN_US: (&str, &str) = ("tasks-cli", include_str!("../locales/en-US/tas
 
 /// One value of every error and notice this crate defines (not the
 /// wrapper), for the catalog test.
+#[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     vec![
         Box::new(CliError::Output {

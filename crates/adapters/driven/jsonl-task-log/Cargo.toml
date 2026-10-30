@@ -22,6 +22,12 @@ time.workspace = true
 # Rendering catalogs' English, for the tests that hold it to Go's.
 fluent-bundle.workspace = true
 fluent-syntax.workspace = true
+os = { workspace = true, features = ["test-support"] }
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests: their
+# dev-dependency turns it on, and no build of a binary does.
+test-support = []
 
 [lints]
 workspace = true

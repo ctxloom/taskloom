@@ -39,7 +39,9 @@ use system::System;
 use task_store_sqlite::SqliteStores;
 use tasks_config::TaskloomConfig;
 
-pub use error::{diagnostic_samples, BuildError, EN_US};
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::{BuildError, EN_US};
 
 /// The tasks use cases (commands, queries, prune and watch) over the
 /// default adapters: what a command, or one server call, runs on.

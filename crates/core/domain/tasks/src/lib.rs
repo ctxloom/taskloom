@@ -24,7 +24,9 @@ use angzarr_embedded::next::{ids, Timestamp};
 
 pub use aggregate::TaskAggregate;
 pub use generated::*;
-pub use rejection::{diagnostic_samples, TaskRejection, EN_US};
+#[cfg(any(test, feature = "test-support"))]
+pub use rejection::diagnostic_samples;
+pub use rejection::{TaskRejection, EN_US};
 pub use state::{TaskState, TASK_DOMAIN};
 
 /// The default taxonomy's initial status: the one a task gets when none is

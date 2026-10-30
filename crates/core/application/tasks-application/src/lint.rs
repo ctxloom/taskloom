@@ -359,6 +359,7 @@ fn formula_findings(schema: &TagSchema, enums: &BTreeMap<&str, &[String]>) -> Ve
 }
 
 /// One of every finding, for the catalog test.
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn samples() -> Vec<Finding> {
     let x = || "x".to_string();
     vec![

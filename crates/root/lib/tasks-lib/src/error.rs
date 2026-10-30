@@ -38,6 +38,7 @@ impl Diagnostic for BuildError {
 pub const EN_US: (&str, &str) = ("tasks-lib", include_str!("../locales/en-US/tasks-lib.ftl"));
 
 /// One value of every error, for the catalog test.
+#[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     vec![Box::new(BuildError::RelativeCwd {
         cwd: "work/taskloom".to_string(),

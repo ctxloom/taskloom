@@ -8,28 +8,17 @@
 //!   and [`TaskList::catch_up`] reads every task stream the store holds in
 //!   one read-only unit ([`ReadStore`]: its `covers` lists them, its reads
 //!   read them, all at one moment), as a process that did not run the
-//!   command does. What wakes a catch-up ([`Watch`](angzarr_embedded::next::Watch)'s
-//!   change token) is the application's to wire (step 4).
+//!   command does.
 //! - A list holds every live task (none removed), and the tasks a prune
 //!   removed whose streams are not yet purged ([`TaskList::unpurged`]). A
 //!   stream purged and minted again on its freed harp is a new stream, told
 //!   from the old by its first event (its cause and when it was recorded),
 //!   never by its sequence: each starts at 0.
-//! - **No cross-stream number, anywhere** (the owner's ruling D7). A
-//!   watcher resumes from a [`ListCursor`]: the list's instance, and for
-//!   each stream, by harp id, the sequence of the last event of it the
-//!   watcher has seen. [`TaskList::since`] answers what a watcher at a
-//!   cursor is missing: each task whose stream moved past the cursor, as it
-//!   is now, and each task the cursor holds that has left the list.
-//!   Level-based (Kubernetes rule 1): the state now, never each step
-//!   between.
-//! - **A purge bumps the list's instance** (the owner's ruling on D7): a
-//!   stream gone from the store, or started again on its harp, can leave
-//!   a sequence a watcher holds meaning another stream, so every cursor of
-//!   an earlier instance is resynced whole ([`TaskList::since`] is `None`),
-//!   never resumed. A list's instance is the caller's (the application
-//!   mints one per list it builds), so a cursor from another list, another
-//!   process's, is resynced too.
+//! - A list keeps no cursor: the application reads one and drops it (a
+//!   listing's, a prune's), and a watch asks the store's change token,
+//!   never a list (the owner's ruling on D7, 2026-10-30). A list kept
+//!   across catch-ups still projects each stream by its own sequence:
+//!   nothing numbers across streams.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -40,78 +29,9 @@ use angzarr_embedded::next::{
 };
 use tasks::{RemovalReason, TaskAggregate, TaskEvent, TaskState, TASK_DOMAIN};
 
-/// What a watcher at a cursor is missing of one task.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Change {
-    /// A task entered the list, or a listed task changed: its state now
-    /// (boxed: a state is far larger than a removal).
-    Upsert(Box<TaskState>),
-    /// A task left the list.
-    Remove { harp_id: String },
-}
-
-/// Which list, as it stood between two purges: the instance the caller
-/// gave it, and how many purges it has seen since.
-#[derive(Clone, Debug, PartialEq)]
-struct Instance {
-    id: Uuid,
-    purges: u64,
-}
-
-impl Instance {
-    /// As a cursor carries it, on the wire too: `<id>/<purges>`.
-    fn spelled(&self) -> String {
-        format!("{}/{}", self.id, self.purges)
-    }
-}
-
-/// Where a watcher of a list is: the list's instance it read, and for each
-/// task stream it has seen, by harp id, the sequence of that stream's last
-/// event it has seen. A vector, one entry per stream: there is no number
-/// across streams. An empty cursor ([`ListCursor::default`]) has seen
-/// nothing, of any instance.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct ListCursor {
-    instance: Option<String>,
-    seen: BTreeMap<String, u64>,
-}
-
-impl ListCursor {
-    /// The sequence of the last event of `harp_id`'s stream this cursor
-    /// has seen; `None` for a stream it has not.
-    pub fn sequence(&self, harp_id: &str) -> Option<u64> {
-        self.seen.get(harp_id).copied()
-    }
-
-    /// Every stream the cursor has seen, by harp id, with the sequence of
-    /// its last event seen, in harp id order.
-    pub fn streams(&self) -> Vec<(&str, u64)> {
-        self.seen.iter().map(|(h, s)| (h.as_str(), *s)).collect()
-    }
-    /// The instance the cursor read, as its wire form spells it, opaque to
-    /// a watcher (`<instance id>/<purges seen>`); `None` for an empty
-    /// cursor.
-    pub fn instance(&self) -> Option<String> {
-        self.instance.clone()
-    }
-
-    /// A cursor read back from its wire form: `instance` as
-    /// [`ListCursor::instance`] spells it, and the streams seen. An
-    /// instance that names no list's is resynced by every list.
-    pub fn of(
-        instance: Option<&str>,
-        streams: impl IntoIterator<Item = (String, u64)>,
-    ) -> ListCursor {
-        ListCursor {
-            instance: instance.map(str::to_string),
-            seen: streams.into_iter().collect(),
-        }
-    }
-}
-
 /// One list of a project's tasks: every live task (none removed).
+#[derive(Default)]
 pub struct TaskList {
-    instance: Instance,
     /// The listed tasks, by harp id.
     entries: BTreeMap<String, TaskState>,
     /// How far each task stream (by harp id) is projected, and which
@@ -123,18 +43,9 @@ pub struct TaskList {
 }
 
 impl TaskList {
-    /// An empty list, of instance `instance`: the caller's, one per list it
-    /// builds, so no cursor of another list is taken for this one's.
-    pub fn new(instance: Uuid) -> TaskList {
-        TaskList {
-            instance: Instance {
-                id: instance,
-                purges: 0,
-            },
-            entries: BTreeMap::new(),
-            projected: BTreeMap::new(),
-            unpurged: BTreeMap::new(),
-        }
+    /// An empty list.
+    pub fn new() -> TaskList {
+        TaskList::default()
     }
 
     /// The listed tasks, by harp id.
@@ -152,67 +63,13 @@ impl TaskList {
         self.unpurged.values().collect()
     }
 
-    /// Where a watcher that has seen this list as it is now is: its
-    /// instance, and every stream it has projected, by harp id, with its
-    /// last projected sequence.
-    pub fn cursor(&self) -> ListCursor {
-        ListCursor {
-            instance: Some(self.instance.spelled()),
-            seen: self
-                .projected
-                .iter()
-                .map(|(harp, seen)| (harp.clone(), seen.last))
-                .collect(),
-        }
-    }
-
-    /// What a watcher at `cursor` is missing, by harp id: each listed task
-    /// whose stream the cursor has not seen, or has seen less of, as it is
-    /// now ([`Change::Upsert`]); each task the cursor holds that is not
-    /// listed now ([`Change::Remove`]). A stream the cursor has seen
-    /// further than the list is not sent backwards. Nothing, at the list's
-    /// own cursor. `None` for a cursor of another instance (another list's,
-    /// or this one's before a purge): the watcher takes the list whole
-    /// ([`TaskList::entries`]).
-    pub fn since(&self, cursor: &ListCursor) -> Option<Vec<Change>> {
-        if cursor
-            .instance
-            .as_ref()
-            .is_some_and(|seen| *seen != self.instance.spelled())
-        {
-            return None;
-        }
-        let mut changes: BTreeMap<&str, Change> = BTreeMap::new();
-        for (harp, seen) in &self.projected {
-            let behind = cursor.seen.get(harp).is_none_or(|&had| had < seen.last);
-            if !behind {
-                continue;
-            }
-            match self.entries.get(harp) {
-                Some(task) => {
-                    changes.insert(harp, Change::Upsert(Box::new(task.clone())));
-                }
-                None if cursor.seen.contains_key(harp) => {
-                    changes.insert(harp, removal(harp));
-                }
-                None => {}
-            }
-        }
-        for harp in cursor.seen.keys() {
-            if !self.projected.contains_key(harp) {
-                changes.insert(harp, removal(harp));
-            }
-        }
-        Some(changes.into_values().collect())
-    }
-
     /// Project every task stream `store` holds that is not yet projected,
     /// listed and read in one read-only unit, so what is projected is one
     /// moment of the store: a write or a purge landing meanwhile, through
     /// any handle, is not seen. A task whose stream the store no longer
     /// holds (pruned whole since the last catch-up) leaves the list, its
     /// stream is forgotten (so a task minted on its harp later is seen from
-    /// its start), and the purge bumps the list's instance.
+    /// its start).
     pub async fn catch_up<S: ReadStore>(
         &mut self,
         store: &S,
@@ -237,8 +94,7 @@ impl TaskList {
 
     /// Forget every task whose stream the store no longer holds (`held`
     /// are the streams it does, by root): a prune that landed whole since
-    /// this list last read. Each such task leaves the list, and the purge
-    /// bumps its instance.
+    /// this list last read. Each such task leaves the list.
     fn forget_gone(&mut self, held: &BTreeSet<Vec<u8>>) {
         let gone: Vec<String> = self
             .projected
@@ -251,14 +107,6 @@ impl TaskList {
             self.entries.remove(harp);
             self.unpurged.remove(harp);
         }
-        if !gone.is_empty() {
-            self.purged();
-        }
-    }
-
-    /// A purge seen: every cursor of the instance before it is resynced.
-    fn purged(&mut self) {
-        self.instance.purges += 1;
     }
 }
 
@@ -275,16 +123,12 @@ impl Projection<TaskAggregate> for TaskList {
         // starts it again from sequence 0, perhaps all between two
         // catch-ups: a first event not the one seen first is a new stream,
         // projected from its start (its first state replaces the old
-        // task's), not skipped as already seen, and the purge it shows
-        // bumps the instance.
+        // task's), not skipped as already seen.
         let first = (sequence == 0).then(|| Fingerprint::of(committed));
         if let Some(seen) = self.projected.get(&harp) {
             let restarted = first.is_some() && first != seen.first;
             if !restarted && sequence <= seen.last {
                 return;
-            }
-            if restarted {
-                self.purged();
             }
         }
         let first = first.or_else(|| self.projected.get(&harp)?.first.clone());
@@ -321,8 +165,7 @@ struct Seen {
 /// What tells one stream on a harp from another: its first event's cause
 /// (the command that minted the task) and when it was recorded. The
 /// sequence cannot tell them apart (each starts at 0), nor the payload (a
-/// task minted again may be the same). The list's own: a cursor never
-/// carries it.
+/// task minted again may be the same).
 #[derive(Clone, PartialEq, Debug)]
 struct Fingerprint {
     cause: Uuid,
@@ -336,12 +179,6 @@ impl Fingerprint {
             cause: envelope.command_id().clone(),
             recorded_at: envelope.recorded_at(),
         }
-    }
-}
-
-fn removal(harp: &str) -> Change {
-    Change::Remove {
-        harp_id: harp.to_string(),
     }
 }
 

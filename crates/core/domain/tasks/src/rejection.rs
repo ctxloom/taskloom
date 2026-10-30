@@ -99,6 +99,7 @@ impl Diagnostic for TaskRejection {
 pub const EN_US: (&str, &str) = ("tasks", include_str!("../locales/en-US/tasks.ftl"));
 
 /// One value of every rejection, for the catalog test.
+#[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     let harp_id = || "swift-amber".to_string();
     vec![
