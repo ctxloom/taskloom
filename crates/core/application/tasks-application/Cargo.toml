@@ -10,6 +10,9 @@ publish.workspace = true
 [dependencies]
 annals.workspace = true
 annals-diagnostic.workspace = true
+# The use cases on angzarr-embedded (`embedded`), beside annals' until they
+# replace them (step 4 of taskloom-on-angzarr-embedded.plan.md).
+angzarr-embedded.workspace = true
 ports.workspace = true
 sha2.workspace = true
 tagma-core.workspace = true
@@ -19,6 +22,7 @@ tasks.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+angzarr-ports = { workspace = true, features = ["memory"] }
 fluent-syntax.workspace = true
 mutants.workspace = true
 

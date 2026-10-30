@@ -1541,6 +1541,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 name = "ports"
 version = "0.1.0"
 dependencies = [
+ "angzarr-ports",
  "annals",
  "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
 ]
@@ -2633,6 +2634,8 @@ dependencies = [
 name = "tasks-application"
 version = "0.1.0"
 dependencies = [
+ "angzarr-embedded",
+ "angzarr-ports",
  "annals",
  "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "fluent-syntax",

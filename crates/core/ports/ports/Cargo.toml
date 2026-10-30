@@ -9,6 +9,9 @@ publish.workspace = true
 
 [dependencies]
 annals.workspace = true
+# The ports on angzarr's types (`embedded`), beside annals' until the
+# application moves (step 4 of taskloom-on-angzarr-embedded.plan.md).
+angzarr-ports.workspace = true
 annals-diagnostic.workspace = true
 
 [lints]

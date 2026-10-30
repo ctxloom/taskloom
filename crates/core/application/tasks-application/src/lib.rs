@@ -12,6 +12,7 @@
 //! clock and starts no runtime.
 
 mod dead_letter;
+pub mod embedded;
 mod error;
 mod import;
 mod lint;

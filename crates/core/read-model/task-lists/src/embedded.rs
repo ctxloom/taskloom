@@ -81,6 +81,23 @@ impl ListCursor {
     pub fn streams(&self) -> Vec<(&str, u64)> {
         self.seen.iter().map(|(h, s)| (h.as_str(), *s)).collect()
     }
+    /// RED (step 4): the instance the cursor read, as its wire form spells
+    /// it, opaque to a watcher (`<instance id>/<purges seen>`); `None` for
+    /// an empty cursor.
+    pub fn instance(&self) -> Option<String> {
+        todo!("step 4: a cursor's instance, on the wire")
+    }
+
+    /// RED (step 4): a cursor read back from its wire form: `instance` as
+    /// [`ListCursor::instance`] spells it, and the streams seen. An
+    /// instance that names no list's is resynced by every list.
+    pub fn of(
+        instance: Option<&str>,
+        streams: impl IntoIterator<Item = (String, u64)>,
+    ) -> ListCursor {
+        let _ = (instance, streams.into_iter());
+        todo!("step 4: a cursor from its wire form")
+    }
 }
 
 /// One list of a project's tasks: every live task (none removed).

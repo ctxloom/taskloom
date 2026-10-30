@@ -23,6 +23,7 @@ use annals::next::{
 use annals_diagnostic::Report;
 
 mod agents;
+pub mod embedded;
 mod project;
 
 pub use agents::{AgentConfigs, McpServer, Rewritten, Scope};

@@ -740,3 +740,49 @@ fn test_a_task_minted_again_live_after_a_purge_resyncs_the_watcher() {
     project.run(&mut list, FIRST, add(FIRST, "Again"));
     assert_eq!(list.since(&cursor), None);
 }
+
+// ------------------------------------------------------------ on the wire (step 4, RED)
+
+/// `cursor` as the wire carries it, and read back.
+fn round_trip(cursor: &ListCursor) -> ListCursor {
+    let streams: Vec<(String, u64)> = cursor
+        .streams()
+        .into_iter()
+        .map(|(harp, sequence)| (harp.to_string(), sequence))
+        .collect();
+    ListCursor::of(cursor.instance().as_deref(), streams)
+}
+
+#[test]
+fn test_a_cursor_read_back_from_its_wire_form_resumes_as_it_did() {
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    project.run(&mut list, SECOND, add(SECOND, "Second"));
+    let cursor = list.cursor();
+    project.run(&mut list, FIRST, status("Done", ""));
+    let read_back = round_trip(&cursor);
+    assert_eq!(read_back, cursor);
+    assert_eq!(said(&list.since(&read_back)), [(FIRST, "First", "Done")]);
+}
+
+#[test]
+fn test_an_empty_cursors_wire_form_names_no_instance() {
+    assert_eq!(ListCursor::default().instance(), None);
+    assert_eq!(round_trip(&ListCursor::default()), ListCursor::default());
+}
+
+#[test]
+fn test_a_cursor_of_an_instance_no_list_has_is_resynced() {
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    let made_up = ListCursor::of(Some("not-an-instance"), [(FIRST.to_string(), 0)]);
+    assert_eq!(list.since(&made_up), None);
+    let other = project.rebuilt().cursor();
+    assert_ne!(
+        other.instance(),
+        list.cursor().instance(),
+        "each list its own"
+    );
+}
