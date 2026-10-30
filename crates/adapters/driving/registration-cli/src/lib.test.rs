@@ -84,8 +84,16 @@ struct Ran {
     err: String,
 }
 
+/// The fake configurations' failures' messages, as the binary's catalog
+/// holds agent-configs' (no English crosses without one).
+const AGENT_CONFIGS: presentation::Source = (
+    "agent-configs-fake",
+    "agent-configs-read = cannot read it\nagent-configs-parse = parse config: { $detail }\n",
+);
+
 fn catalog() -> Catalog {
-    Catalog::en_us(&[crate::EN_US, registration_application::EN_US]).expect("the catalog loads")
+    Catalog::en_us(&[crate::EN_US, registration_application::EN_US, AGENT_CONFIGS])
+        .expect("the catalog loads")
 }
 
 fn manage(fake: &mut Registrations<Fake>, format: Format, words: &[&str]) -> Ran {
@@ -327,7 +335,9 @@ fn test_a_check_is_gos_table() {
         ran.out,
         "binary: taskloom on PATH\nclaude-code  user     not registered (/home/.claude.json)\n"
     );
-    r.configs.installed = Some(Err(Report::new("agent-configs-parse", "parse config: bad")));
+    r.configs.installed = Some(Err(
+        Report::new("agent-configs-parse", "parse config: bad").arg("detail", "bad")
+    ));
     let ran = manage(&mut r, Format::Text, &["check"]);
     assert!(
         ran.out.ends_with(

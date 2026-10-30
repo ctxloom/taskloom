@@ -1650,10 +1650,12 @@ fn test_a_json_error_is_an_envelope_on_stderr_with_its_cause_nested() {
                 "error": {
                     "code": "annals-store-sql-unavailable",
                     "args": {"detail": "locked"},
-                    "message": "the database failed: locked",
+                    // No catalog of this test's knows the store's key: its
+                    // key and args, never its English.
+                    "message": "annals-store-sql-unavailable detail=locked",
                 },
             },
-            "message": "gave up after 10 attempts: the database failed: locked",
+            "message": "gave up after 10 attempts: annals-store-sql-unavailable detail=locked",
         })
     );
 }

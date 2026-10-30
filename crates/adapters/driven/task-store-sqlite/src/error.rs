@@ -1,5 +1,6 @@
-//! Why a project's store could not be opened, beyond what annals-store-sql
-//! reports itself.
+//! Why a project's store could not be opened, beyond what the store reports
+//! itself. A third party's text (the OS's, through std's `io::Error`) is
+//! the arg `ext_err_txt`, verbatim.
 
 use std::fmt;
 
@@ -21,23 +22,18 @@ pub enum StoreOpenError {
     PredatesEmbedded { path: String, backup: String },
 }
 
+/// Its key, then each arg as ` name=value`, a value quoted where it would
+/// not parse back: never English (angzarr decision 14.37), as
+/// angzarr-embedded-diagnostic's errors display themselves.
 impl fmt::Display for StoreOpenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            StoreOpenError::CreateDir { path, detail } => {
-                write!(f, "cannot create the store's directory {path}: {detail}")
+        f.write_str(self.code())?;
+        for (name, arg) in self.args() {
+            if let Arg::Str(value) = arg {
+                write!(f, " {name}={}", angzarr_embedded_diagnostic::quote(&value))?;
             }
-            StoreOpenError::Unplaced { path, detail } => {
-                write!(f, "cannot find where the store {path} is on disk: {detail}")
-            }
-            StoreOpenError::NoRuntime { detail } => {
-                write!(f, "cannot start a runtime to check the store: {detail}")
-            }
-            StoreOpenError::PredatesEmbedded { path, backup } => write!(
-                f,
-                "the store {path} predates angzarr-embedded: move it to {backup} to start afresh"
-            ),
         }
+        Ok(())
     }
 }
 
@@ -56,9 +52,9 @@ impl Diagnostic for StoreOpenError {
             StoreOpenError::CreateDir { path, detail }
             | StoreOpenError::Unplaced { path, detail } => vec![
                 ("path", path.as_str().into()),
-                ("detail", detail.as_str().into()),
+                ("ext_err_txt", detail.as_str().into()),
             ],
-            StoreOpenError::NoRuntime { detail } => vec![("detail", detail.as_str().into())],
+            StoreOpenError::NoRuntime { detail } => vec![("ext_err_txt", detail.as_str().into())],
             StoreOpenError::PredatesEmbedded { path, backup } => vec![
                 ("path", path.as_str().into()),
                 ("backup", backup.as_str().into()),

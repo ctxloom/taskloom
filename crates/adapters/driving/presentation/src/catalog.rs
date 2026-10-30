@@ -77,10 +77,10 @@ impl Catalog {
         }
     }
 
-    /// `d`'s message, or its English `Display` where no catalog has one
-    /// (an annals error, say, whose catalog is not embedded).
+    /// `d`'s message, or its key and args ([`keyed`]) where no catalog has
+    /// one: never the English an error's `Display` may carry.
     pub fn message(&self, d: &dyn Diagnostic) -> String {
-        self.render(d).unwrap_or_else(|_| d.to_string())
+        self.render(d).unwrap_or_else(|_| keyed(d))
     }
 
     /// `d` as JSON: its code, args and message, a nested cause an envelope
@@ -96,6 +96,33 @@ impl Catalog {
             Arg::Str(s) => s.into(),
             Arg::Nested(cause) => self.message(&*cause).into(),
         }
+    }
+}
+
+/// `d` as its key and args (angzarr decision 14.37, as
+/// angzarr-embedded-diagnostic's `display` writes it): its code, then
+/// ` name=value` for each arg in order, a text value quoted where it would
+/// not parse back, a nested cause as its code under the arg's name and each
+/// of its own args under `<name>.`.
+fn keyed(d: &dyn Diagnostic) -> String {
+    let mut out = d.code().to_string();
+    write_args(&mut out, d, "");
+    out
+}
+
+fn write_args(out: &mut String, d: &dyn Diagnostic, prefix: &str) {
+    for (name, arg) in d.args() {
+        let value = match arg {
+            Arg::Int(n) => n.to_string(),
+            Arg::Uint(n) => n.to_string(),
+            Arg::Str(s) => angzarr_embedded_diagnostic::quote(&s).into_owned(),
+            Arg::Nested(cause) => {
+                out.push_str(&format!(" {prefix}{name}={}", cause.code()));
+                write_args(out, &*cause, &format!("{prefix}{name}."));
+                continue;
+            }
+        };
+        out.push_str(&format!(" {prefix}{name}={value}"));
     }
 }
 

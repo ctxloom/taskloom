@@ -65,7 +65,7 @@ fn test_text_names_every_count_and_every_record_left_behind() {
          2 not imported\n  \
          not imported: line 12, add swift-amber \"Ship it\": another task holds this harp in Go's log: run Go's `taskloom repair`, then import again\n  \
          not imported: line 13, status calm-otter: a Deferred task needs a trigger: the condition that should revive it\n  \
-         stopped: the store failed\n"
+         stopped: x-bad\n"
     );
 }
 
@@ -109,7 +109,7 @@ fn test_json_carries_the_whole_report() {
             "complete": false,
             "projects": [{
                 "project_id": "jolly-mute-magma",
-                "failed": {"code": "x-bad", "args": {}, "message": "the store failed"},
+                "failed": {"code": "x-bad", "args": {}, "message": "x-bad"},
                 "records": 9,
                 "repeated": 1,
                 "tasks": 2,

@@ -12,6 +12,9 @@ agent-configs.workspace = true
 annals.workspace = true
 annals-diagnostic.workspace = true
 annals-store-sql.workspace = true
+# Their catalogs, in the wiring's (`catalog`).
+angzarr-embedded.workspace = true
+angzarr-store-sqlite.workspace = true
 file-lock.workspace = true
 file-system.workspace = true
 harp-names.workspace = true
@@ -27,9 +30,7 @@ tasks-application.workspace = true
 tasks-config.workspace = true
 
 [dev-dependencies]
-# The runtime's and its store's keys, for the catalog's red test (step 3c of
-# taskloom-on-angzarr-embedded.plan.md), until the wiring links them.
-angzarr-embedded.workspace = true
+# The runtime's and its store's keys, for the catalog's test.
 angzarr-embedded-diagnostic.workspace = true
 angzarr-ports.workspace = true
 angzarr-store-sqlite.workspace = true

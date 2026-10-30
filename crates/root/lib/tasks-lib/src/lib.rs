@@ -65,14 +65,23 @@ pub type Projects = project_application::Projects<ProjectRegistry<()>, SqliteSto
 pub type Registrations = registration_application::Registrations<AgentConfigFiles>;
 
 /// The en-US catalog of every diagnostic the wiring can raise (its own,
-/// annals', the use cases', every driven and platform adapter's), then
+/// annals', angzarr-embedded's and the angzarr-ports errors it forwards,
+/// angzarr-store-sqlite's, the use cases', every driven and platform
+/// adapter's), then
 /// `frontends'`, each frontend's own (the CLI's, the MCP server's, ...),
 /// which only the frontend knows. The types are presentation's, which a
 /// caller depends on directly.
 pub fn catalog(
     frontends: &[presentation::Source],
 ) -> Result<presentation::Catalog, presentation::CatalogError> {
-    let mut sources = vec![EN_US, annals::EN_US, annals_store_sql::EN_US];
+    let mut sources = vec![
+        EN_US,
+        annals::EN_US,
+        annals_store_sql::EN_US,
+        angzarr_embedded::EN_US,
+        angzarr_embedded::ANGZARR_PORTS_EN_US,
+        angzarr_store_sqlite::EN_US,
+    ];
     sources.extend(tasks_application::CATALOGS);
     sources.extend([
         project_application::EN_US,
