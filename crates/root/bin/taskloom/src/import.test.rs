@@ -104,9 +104,9 @@ struct Compared {
     /// The tags of the live tasks in the reference fold, each task's
     /// counted.
     go_tags: usize,
-    /// Those of them that are not tags in tagma's grammar: the import
-    /// reports each and leaves it out.
-    unparseable_tags: usize,
+    /// Those of them the import refuses, reports and leaves out: not tags
+    /// in tagma's grammar, or in its reserved namespaces.
+    refused_tags: usize,
     /// `<harp>: <field>` for every field that disagrees: values are left
     /// out, since a real log's are private.
     mismatches: Vec<String>,
@@ -125,6 +125,14 @@ fn trigger_left_behind(task: &Value, state: &TaskState) -> bool {
     state.status != "Deferred"
         && state.trigger.is_empty()
         && task["trigger"].as_str().is_some_and(|t| !t.is_empty())
+}
+
+/// `spelled`, in its canonical spelling, if the import brings it over: a
+/// tag in tagma's grammar, outside its reserved namespaces.
+fn importable(spelled: &str) -> Option<String> {
+    let tag = tasks::Tag::from(tagma_core::Tag::parse(spelled).ok()?);
+    tasks_application::unreserved_tag(&tag).ok()?;
+    Some(tag.to_string())
 }
 
 /// Compare the reference fold of one project with the store the import
@@ -147,19 +155,16 @@ fn compare(go: &Value, rust: &BTreeMap<String, TaskState>) -> Compared {
             }
         } else {
             // The folded tags as tagma parses them, each in its canonical
-            // spelling; one that does not parse is left out, as the import
+            // spelling; one the import refuses is left out, as the import
             // leaves it out.
             let go_tags = task["tags"].as_array().unwrap();
             compared.go_tags += go_tags.len();
-            let tags: BTreeSet<String> = go_tags
+            let kept: Vec<String> = go_tags
                 .iter()
-                .filter_map(|t| tagma_core::Tag::parse(t.as_str().unwrap()).ok())
-                .map(|t| t.to_string())
+                .filter_map(|t| importable(t.as_str().unwrap()))
                 .collect();
-            compared.unparseable_tags += go_tags
-                .iter()
-                .filter(|t| tagma_core::Tag::parse(t.as_str().unwrap()).is_err())
-                .count();
+            compared.refused_tags += go_tags.len() - kept.len();
+            let tags: BTreeSet<String> = kept.into_iter().collect();
             let tags: Vec<String> = tags.into_iter().collect();
             let ours: Vec<String> = state.tags.iter().map(ToString::to_string).collect();
             let checks = [
@@ -392,7 +397,7 @@ fn test_the_import_agrees_with_gos_fold_of_every_fixture() {
         "each names its tag"
     );
     assert_eq!(compared["unparseable-tags"].go_tags, 5);
-    assert_eq!(compared["unparseable-tags"].unparseable_tags, 3);
+    assert_eq!(compared["unparseable-tags"].refused_tags, 3);
     assert_the_rest_agree(&compared);
 
     let counts = |p: &str, field: &str| reported(&report, p)[field].as_u64().unwrap();
@@ -472,10 +477,10 @@ fn test_the_import_agrees_with_gos_fold_of_real_logs() {
     let (ran, report) = import(home.path());
     let compared = check(&go, home.path(), &report);
     let mut mismatched = 0;
-    let (mut tags, mut unparseable) = (0, 0);
+    let (mut tags, mut refused) = (0, 0);
     for (project, compared) in &compared {
         tags += compared.go_tags;
-        unparseable += compared.unparseable_tags;
+        refused += compared.refused_tags;
         let ours = reported(&report, project);
         println!(
             "{project}: {} Go tasks, {} agree, {} triggers left behind; {} records, {} imported, {} repeated, {} unchanged, {} ignored, {} repaired, {} not imported",
@@ -499,12 +504,13 @@ fn test_the_import_agrees_with_gos_fold_of_real_logs() {
         mismatched += compared.mismatches.len();
     }
     println!(
-        "tags of live tasks: {tags}, {} parse, {unparseable} do not",
-        tags - unparseable
+        "tags of live tasks: {tags}, {} imported, {refused} refused",
+        tags - refused
     );
     assert_idempotent(home.path(), &report);
     assert_eq!(mismatched, 0, "every task agrees");
-    // What is left behind is only what tagma cannot parse, if anything.
+    // What is left behind is only tags refused, if anything: those tagma
+    // cannot parse, or in its reserved namespaces.
     let all_lost: Vec<String> = report["projects"]
         .as_array()
         .unwrap()
@@ -514,7 +520,8 @@ fn test_the_import_agrees_with_gos_fold_of_real_logs() {
     assert!(
         all_lost
             .iter()
-            .all(|why| why == "tasks-application-tag-unparseable"),
+            .all(|why| why == "tasks-application-tag-unparseable"
+                || why == "tasks-application-tag-reserved-namespace"),
         "everything else imported: {}",
         ran.stderr
     );

@@ -26,9 +26,10 @@
 //! What the tasks domain refuses that the log's fold accepts (empty text,
 //! a Deferred status with no trigger, a status starting with `@`) is not
 //! imported, and is reported; so is every later record to a task whose add
-//! was not imported. A logged tag that is not a tag in tagma's grammar is
-//! left out of its record's command, and reported; the rest of the record
-//! is imported. The fold still counts it, so a later record is judged
+//! was not imported. A logged tag that is not a tag in tagma's grammar, or
+//! is one in tagma's reserved namespaces ([`tags::unreserved`]), which
+//! tagma would read as its config, is left out of its record's command,
+//! and reported; the rest of the record is imported. The fold still counts it, so a later record is judged
 //! against the log's tags as written.
 //!
 //! Re-running an import duplicates nothing: a record's command id derives
@@ -139,8 +140,8 @@ pub enum Why {
     HarpTaken,
     /// A record to a task whose add was not imported.
     TaskNotImported,
-    /// One of the record's tags, not a tag in tagma's grammar; the rest of
-    /// the record was imported.
+    /// One of the record's tags, not a tag in tagma's grammar or in its
+    /// reserved namespaces; the rest of the record was imported.
     Tag(TagRefusal),
 }
 
@@ -287,7 +288,7 @@ where
         let mut fold = Fold::new(&records);
         for record in &records {
             let step = fold.step(record);
-            for refusal in fold.unparsed.drain(..) {
+            for refusal in fold.refused.drain(..) {
                 report.lost.push(lost(record, Why::Tag(refusal)));
             }
             let command = match step {
@@ -404,7 +405,7 @@ enum Step {
     /// It cannot be brought over.
     Lost(Why),
     /// A retag that changed the logged tags only by tags left out,
-    /// unparseable.
+    /// refused.
     NothingLeft,
 }
 
@@ -418,9 +419,10 @@ struct Fold {
     repaired: BTreeSet<String>,
     /// Harps whose add was not imported.
     missing: BTreeSet<String>,
-    /// The tags of the last record stepped that are not tags in tagma's
-    /// grammar, left out of its command.
-    unparsed: Vec<TagRefusal>,
+    /// The tags of the last record stepped that are refused: not tags in
+    /// tagma's grammar, or in its reserved namespaces; left out of its
+    /// command.
+    refused: Vec<TagRefusal>,
 }
 
 impl Fold {
@@ -437,29 +439,29 @@ impl Fold {
                 .map(|r| r.repair_of.clone())
                 .collect(),
             missing: BTreeSet::new(),
-            unparsed: Vec::new(),
+            refused: Vec::new(),
         }
     }
 
-    /// `spelled` as tags, those that do not parse left out and kept in
-    /// [`Fold::unparsed`].
+    /// `spelled` as tags, those refused left out and kept in
+    /// [`Fold::refused`].
     fn parsed<'a>(&mut self, spelled: impl IntoIterator<Item = &'a String>) -> Vec<Tag> {
         let mut parsed = Vec::new();
-        for result in spelled.into_iter().filter_map(|s| tags::parse(s)) {
+        for result in spelled.into_iter().filter_map(|s| importable(s)) {
             match result {
                 Ok(tag) => parsed.push(tag),
-                Err(refusal) => self.unparsed.push(refusal),
+                Err(refusal) => self.refused.push(refusal),
             }
         }
         parsed
     }
 
-    /// Keep in [`Fold::unparsed`] those of `spelled` that do not parse;
+    /// Keep in [`Fold::refused`] those of `spelled` that are refused;
     /// whether there were any.
-    fn unparsed_of(&mut self, spelled: &BTreeSet<String>) -> bool {
-        let before = self.unparsed.len();
+    fn refused_of(&mut self, spelled: &BTreeSet<String>) -> bool {
+        let before = self.refused.len();
         self.parsed(spelled);
-        self.unparsed.len() > before
+        self.refused.len() > before
     }
 
     /// The task `harp_id`'s add was not imported.
@@ -492,7 +494,7 @@ impl Fold {
                 let before = parsed_set(held);
                 let now = parsed_set(&after);
                 *held = after;
-                let unparsed = self.unparsed_of(&given);
+                let refused = self.refused_of(&given);
                 let add: Vec<Tag> = now
                     .iter()
                     .filter(|(spelled, _)| !before.contains_key(*spelled))
@@ -504,7 +506,7 @@ impl Fold {
                     .map(|(_, tag)| tag.clone())
                     .collect();
                 if add.is_empty() && remove.is_empty() {
-                    let step = if unparsed {
+                    let step = if refused {
                         Step::NothingLeft
                     } else {
                         Step::Unchanged
@@ -553,7 +555,7 @@ impl Fold {
     /// `step`, unless `harp`'s add was not imported.
     fn unless_missing(&mut self, harp: &str, step: Step) -> Step {
         if self.missing.contains(harp) {
-            self.unparsed.clear();
+            self.refused.clear();
             return Step::Lost(Why::TaskNotImported);
         }
         step
@@ -605,11 +607,18 @@ fn deferring_on(status: &str, go_held: &str) -> Option<String> {
     }
 }
 
-/// The tags of `spelled` that parse, by their canonical spelling.
+/// `spelled` as a tag an import may bring over: one in tagma's grammar,
+/// outside its reserved namespaces; `None` when it is blank.
+fn importable(spelled: &str) -> Option<Result<Tag, TagRefusal>> {
+    Some(tags::parse(spelled)?.and_then(|tag| tags::unreserved(&tag).map(|()| tag)))
+}
+
+/// The tags of `spelled` an import may bring over, by their canonical
+/// spelling.
 fn parsed_set(spelled: &BTreeSet<String>) -> BTreeMap<String, Tag> {
     spelled
         .iter()
-        .filter_map(|s| tags::parse(s)?.ok())
+        .filter_map(|s| importable(s)?.ok())
         .map(|tag| (tag.to_string(), tag))
         .collect()
 }

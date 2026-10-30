@@ -60,7 +60,7 @@ pub use request::{request_command_id, REQUEST_NAMESPACE};
 pub use retry::{Backoff, KERNEL_RETRY};
 pub use schema::{Range, TagSchema};
 pub use semver::{Semver, Version};
-pub use tags::{parse as parse_tag, Tag};
+pub use tags::{parse as parse_tag, unreserved as unreserved_tag, Tag};
 pub use view::{text_hash, Row, Shown, StatusInfo, Task};
 
 // Used across the crate's modules by these paths; nothing outside uses them.

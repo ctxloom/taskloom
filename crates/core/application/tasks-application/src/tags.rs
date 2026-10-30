@@ -198,6 +198,25 @@ pub fn parse_all(spelled: &[String]) -> Result<Vec<Tag>, TagRefusal> {
         .collect()
 }
 
+/// Whether `tag` stays out of tagma's reserved namespaces (`tagma`,
+/// `tagma.*`), where tagma reads a tag as its own config, whatever item
+/// carries it: never a task's tag, written or imported.
+pub fn unreserved(tag: &Tag) -> Result<(), TagRefusal> {
+    let Some(namespace) = &tag.namespace else {
+        return Ok(());
+    };
+    let under = namespace
+        .strip_prefix(FACET_NAMESPACE)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'));
+    if under {
+        return Err(TagRefusal::ReservedNamespace {
+            tag: tag.to_string(),
+            namespace: namespace.clone(),
+        });
+    }
+    Ok(())
+}
+
 /// Whether `tag` may be written under `schema`: it could be queried, it
 /// stays out of tagma's namespace, and its value is one its target's
 /// declared enum, range and type allow.
@@ -207,17 +226,7 @@ pub fn admit(tag: &Tag, schema: &TagSchema) -> Result<(), TagRefusal> {
     if bare && OPERATOR_WORDS.contains(&tag.key.to_ascii_lowercase().as_str()) {
         return Err(TagRefusal::OperatorWord { tag: spelled() });
     }
-    if let Some(namespace) = &tag.namespace {
-        let under = namespace
-            .strip_prefix(FACET_NAMESPACE)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'));
-        if under {
-            return Err(TagRefusal::ReservedNamespace {
-                tag: spelled(),
-                namespace: namespace.clone(),
-            });
-        }
-    }
+    unreserved(tag)?;
     let Some(value) = &tag.value else {
         return Ok(());
     };
