@@ -196,11 +196,6 @@ impl Fs for Recording {
         self.inner.exists(path)
     }
 
-    fn absolute(&self, path: &Path) -> io::Result<PathBuf> {
-        self.record("absolute", path);
-        self.inner.absolute(path)
-    }
-
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
         self.record("canonicalize", path);
         self.inner.canonicalize(path)

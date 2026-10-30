@@ -703,9 +703,6 @@ impl Fs for Unplaceable {
     fn exists(&self, path: &Path) -> std::io::Result<bool> {
         self.0.exists(path)
     }
-    fn absolute(&self, path: &Path) -> std::io::Result<PathBuf> {
-        self.0.absolute(path)
-    }
     fn canonicalize(&self, path: &Path) -> std::io::Result<PathBuf> {
         self.0.canonicalize(path)
     }
