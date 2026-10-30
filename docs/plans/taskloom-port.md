@@ -11,10 +11,20 @@ angzarr-embedded and angzarr-store-sqlite
 kernel, annals-store-sql, units of work and `PurgingStore` describes the
 port as it was; the crates' docs and CLAUDE.md describe it as it is.
 
+Superseded in part (2026-10-30, the owner's ruling): taskloom is CLI-only.
+It serves no MCP and registers nothing: `taskloom mcp` (tasks-mcp) and
+`taskloom manage` (registration-cli, registration-application,
+agent-configs and the `AgentConfigs` port) are gone, and with them their
+Go parity fixtures. Agents use the CLI; the loadout's fragment carries the
+rules the MCP instructions did, and `taskloom schema` prints the tag
+schema the `taskloom://tag-schema` resource did. What this plan says of
+them below is struck where it described the port, and left in "Decided"
+as the record of what was decided then.
+
 The port lives in `github.com/ctxloom/taskloom` (Decided 16). Steps 1 to 7
-are done: the importer, healing and repointing, tags on tagma, MCP and the
-companion contract, the remaining commands and tools, priority, and
-`manage` and `watch` (`run` was dropped: picking a task and launching an
+are done: the importer, healing and repointing, tags on tagma, the
+companion contract, the remaining commands, priority, and `watch` (MCP and
+`manage` were done and then dropped, 2026-10-30; `run` was dropped: picking a task and launching an
 agent on it is ctxloom's). What remains, in order: project and team data
 out of the code, a local build, git dependencies, then parity and the
 cutover ("What remains").
@@ -48,8 +58,7 @@ cutover ("What remains").
   implement annals' opt-in `AsyncPurge`, as SQLite's do), `WatchedStores`
   (a store's change token), names, the clock, command ids, waiting with
   jitter, configuration, Go's task logs (`JsonlTaskLogs`), the store's
-  integrity check (`StoreCheck`) and agents' MCP configurations
-  (`AgentConfigs`). Every port future, and every use case's, is `Send`, so
+  integrity check (`StoreCheck`). Every port future, and every use case's, is `Send`, so
   a server can spawn them; project identity is synchronous and blocks on
   the registry's lock, so an async server calls it through
   `spawn_blocking`.
@@ -120,9 +129,6 @@ cutover ("What remains").
   `StoreCheck` port and reports damage as an unresolved finding (the
   store's diagnostic), never repaired; no database is no damage, and a
   check that cannot run fails the heal before anything changes.
-- `core/application/registration-application`, over the `AgentConfigs`
-  port: `manage install|uninstall|check` (Go's `manage`), choosing the
-  agent `--engine` names or every one in use at the scope.
 - `adapters/driven/project-registry`: the work root, `.project-id` (adopting
   Go's `.ctxloom/project-id` on a write), the registry in Go's schema, and a
   mint under `index.yaml.lock` that re-checks first, so racing first writes
@@ -137,7 +143,7 @@ cutover ("What remains").
   `~/.ctxloom/projects/<id>/`, never through a link).
 - `adapters/driven/file-lock`: ctxloom's advisory locks, taken as Go's
   `safefs` takes them, for any adapter to use (it is no port's: the
-  registry and agent-configs each take it inside their own operations).
+  registry takes it inside its own operations).
   `flock(2)` on a lock file, shared or exclusive, refused when it is not a
   regular file; taken again when what it was granted is no longer the file
   at its path (Go's `takeCurrent`, 16 tries: lock protocol 2); waited for
@@ -148,7 +154,8 @@ cutover ("What remains").
   directory), recording the path it guards when it creates it, taken with
   the reap interlock (`~/.ctxloom/locks/reap.interlock`) held shared when
   it is in the home lock directory, a reap that holds it past 30s refusing
-  the lock. Its paths are held to Go's own `HomePathFor`'s output.
+  the lock. Its paths are held to Go's own `HomePathFor`'s output. Only
+  `manage` took the sidecar lock (`lock_file`); with it gone, nothing does.
 - `adapters/driven/harp-names`: harp-core behind the names port.
 - `adapters/driven/jsonl-task-log`: Go's `~/.ctxloom/tasks/<project-id>.jsonl`
   behind the `JsonlTaskLogs` port, read only (not even its lock file). A line
@@ -168,27 +175,17 @@ cutover ("What remains").
   jitter.
 - `adapters/driven/tasks-config`: taskloom's configuration behind the
   `Configuration` port, as far as the tag schema needs it.
-- `adapters/driven/agent-configs`: Claude Code's `~/.claude.json` and
-  `<dir>/.mcp.json` behind `AgentConfigs`. One member is written or taken
-  out by splicing bytes as hew (Go's patcher) does, so every other byte
-  stays; an entry already there is taken out first only when it runs
-  taskloom (Go's `exectoken`), and one running anything else is refused.
-  A file that is not JSON is copied to `<path>.corrupt-<unix>` and left
-  alone. The whole read-modify-write, a dry run's included, runs under
-  file-lock's `lock_file` on the file, the lock Go's confpatch takes, so
-  Rust and Go writers of one file take turns. `scripts/go-manage-fixtures.sh` runs Go's binary over 29 files in
-  temporary homes (`fixtures/go-manage`); the parity tests hold the adapter
-  to Go's bytes, refusals and copies, for install, recordless uninstall,
-  uninstall after Go's install, and check.
 - `adapters/driving/presentation`: the driving edge's presentation for any
   domain (Decided 9 and 10, "Driving adapters").
 - `adapters/driving/tasks-presentation`: the tasks domain's shapes on the
   driving edge (`TaskJson`, each tag in its canonical spelling, hidden ones
   kept, and RFC 3339 instants; a compact row, a task with its project, a
-  summary and a tag count, each Go's), shared by the CLI and the MCP
-  server, so one jq filter reads both.
+  summary and a tag count, each Go's), and the tag schema's document
+  (`SchemaJson`), written by the CLI.
 - `adapters/driving/tasks-cli`: `add`, `status`, `edit`, `list`, `show`,
-  `summary`, `statuses`, `tag`, `tags`, `lint`, `prune` (Go's flags and
+  `summary`, `statuses`, `tag`, `tags`, `lint`, `permit`, `revoke`,
+  `permits`, `schema` (the resolved tag schema; a group whose default is
+  `show`), `prune` (Go's flags and
   defaults, `--yes` to act; Go's report in text, one JSON document in Go's
   `pruneReport` shape, and on stderr, after a report that would take
   something, the exact command that applies it) and `import`, with
@@ -201,34 +198,10 @@ cutover ("What remains").
   Go does. Also the companion contract: `version` (`--format json` is
   Go's `{name, version, lock_protocol}`, the lock protocol file-lock's
   `LOCK_PROTOCOL`, 2, true of every lock file taskloom takes: the
-  registry's and `manage`'s, each re-checked as Go's `takeCurrent` does) and
+  registry's, re-checked as Go's `takeCurrent` does) and
   `loadout`, Go's `cmd/taskloom/loadout.yaml` with the reviewed factual
   changes (Decided 11), printed in yaml alone (`--format yaml` is accepted by
   `loadout` only).
-- `adapters/driving/tasks-mcp`: `taskloom mcp`, over rmcp (the official
-  Rust MCP SDK, pinned at 3.5.1: the newest release at least two weeks old
-  on 2026-10-21; server and stdio transport only, no macros). It serves
-  Go's five tools (`task_add`, `task_edit`, `task_list`,
-  `task_set_status`, `task_tag`) and two resources
-  (`taskloom://tag-schema`, `taskloom://tag-vocabulary`), with Go's
-  instructions, capabilities (logging, and `listChanged` on tools and
-  resources; a logging level is accepted and nothing is logged), tool
-  descriptions and input and output schemas and resource descriptions
-  copied from Go (the instructions and tool descriptions with the reviewed
-  factual changes, Decided 11; the rest verbatim), and Go's result shapes
-  on tasks-presentation's.
-  `task_list` serves every parameter Go's does; outside a work root with
-  no project it reads every project, with Go's `global`, `project_count`
-  and `notice` (the command line's stderr notice, word for word). The
-  resources are read fresh each time, through `tag_schema` and `tags`,
-  and their documents are Go's byte for byte (indented as Go's encoder
-  indents, its float form and HTML escaping included). Writes' tags are
-  parsed and admitted under the configured tag schema as the CLI's are.
-  An error is a tool error whose text is the diagnostic's envelope; an
-  unknown tool is a protocol error carrying it, an unknown resource a
-  resource-not-found one, and a resource that cannot be read an internal
-  one. Each call runs on a service of its own, made by the composition
-  root, on a blocking thread (Decided 7).
 - `adapters/driving/tasks-watch`: `taskloom watch` (hidden, as Go's), Go's
   line `{"event":"changed","kind":"tasks","project":<id>}` as JSON Lines
   (presentation's `write_json_line`), once at the start and once per burst
@@ -243,11 +216,6 @@ cutover ("What remains").
   /dev/null and see a second line from a live process.
 - `taskloom run` was dropped (decided 2026-10-22): picking a task and
   launching an agent session on it is ctxloom's, not taskloom's.
-- `adapters/driving/registration-cli`: the `manage` group. The binary
-  mounts it with its words unparsed, and it reads them with its own
-  parser: Go's `--project` is a switch there and a project id elsewhere.
-  Notices on stderr as Go's (text and JSON); in JSON one document on
-  stdout; `check` Go's table in text.
 - `adapters/driving/project-cli`: the `project` group (`show`, `heal
   [--yes]`, `repoint <project-id> [--share] [--yes]`, `orphans`, `orphans
   remove <id>... [--yes]`), text or one JSON document each, its errors and
@@ -258,34 +226,25 @@ cutover ("What remains").
   owns the parser (the global flags, the task commands, and each group's
   `Subcommand` flattened beside them), parses first, and builds only what
   the command parsed uses: the tasks service for the task commands and
-  `watch`, `Projects` for the `project` group. It mounts the `project` group over the project registry, `mcp` (served
-  once the command line is read, each call's service the CLI's own wiring
-  made fresh), and `watch` and `manage`. Its tests are Go's
+  `watch`, `Projects` for the `project` group. It mounts the `project` group over the project registry, and `watch`. Its tests are Go's
   `crossprocess_test.go` ported, each process separate on one database,
   and they build the binary themselves: 40 concurrent adds at a project's
   first sight (racing the mint and the migration; one registry entry), 20
   adds among 10 listings of a seeded project (every row a whole task of
   the final listing), the same at first sight, and 40 concurrent tags of
   one task. Reads create nothing: `list --project tpyo` leaves no trace,
-  and `tag` where there is no project binds none. `taskloom mcp` is run as
-  a client runs it, in a temporary home: initialize, tools/list and
-  resources/list against Go's, every tool called, both resources read (the
-  tag schema against Go's document), the fallback outside a work root with
-  the CLI's notice, and the CLI reading the same store; `version --format
+  and `tag` where there is no project binds none. `version --format
   json` is fed to a port of Go ctxloom's boot-probe parse and its lock
   reaper's check, and `loadout --format yaml` is compared with Go's byte
   for byte. `prune` reports, then with `--yes` removes and purges, naming
   what dangles, each answer one JSON document.
-- The companion text: the MCP instructions, the capabilities, the tools
-  and resources as Go's tools/list and resources/list answer them, both
-  resources' documents (the tag schema with nothing configured, the
-  vocabulary of a seeded project), and the loadout document are fixtures
+- The companion text: the loadout document is a fixture
   `scripts/go-companion-fixtures.sh` extracts from the Go source (a Go
-  test laid into `cmd/taskloom` with `go test -overlay`); the parity tests
-  hold Rust's copies to them byte for byte (the instructions, tool
-  descriptions and loadout with the reviewed changes applied, Decided
-  11), so a change in Go fails a test until the copy is taken up
-  deliberately.
+  test laid into `cmd/taskloom` with `go test -overlay`); the parity test
+  holds Rust's copy to it byte for byte with the reviewed changes applied
+  (Decided 11; since 2026-10-30 they include dropping its MCP server and
+  carrying the MCP instructions' rules in its fragment), so a change in
+  Go fails a test until the copy is taken up deliberately.
 - The importer (`taskloom import`, Decided 2): each Go record becomes the
   command that did what it did, run at the instant Go recorded it (annals'
   `Sampled.now`), so `created_at`, `status_set_at` and `deferred_since`
@@ -379,7 +338,7 @@ Where the port differs from Go:
 - A linked worktree opts out of its primary checkout's project with a
   marker of its own (`.project-id`, or Go's `.ctxloom/project-id`); in Go,
   with a `.ctxloom` directory of its own.
-- Every lock (the registry's, `manage`'s) is waited for at most 10s; Go waits without end.
+- Every lock (the registry's) is waited for at most 10s; Go waits without end.
 - Concurrent writers are serialized by SQLite itself: `BEGIN IMMEDIATE` per
   unit of work and sqlx's default 5s busy timeout. With retries switched off
   the acceptance tests still pass, so the backoff is a guard, not what makes
@@ -434,29 +393,9 @@ Where the port differs from Go:
   one of `priority_warning`'s lines. Every task's JSON, the CLI's too,
   carries `derived_priority`, null unless sorted by it, a whole number
   written without a fraction as Go writes it.
-- `taskloom mcp`, against Go's: no result carries Go's `path` (its jsonl
-  log; where a project's store lies is the binary's business, decided
-  2026-10-22), so neither do the output schemas; there is no `refused` (no
-  `--degraded`) and no project-resolution `warning` but "no project
-  here". An explicit `global` carries no `notice`: Go's always names
-  repo-homed projects as out of its reach, and there are none here
-  (Decided 3), as the CLI's `--global` says nothing either. The
-  vocabulary resource reads as `tags` does, so outside a work root with
-  no project it counts every project and says why in its `warning`;
-  Go's counts nothing there. The tools and the resources take the
-  launch's `--config-set`, as Go's handlers see the launch flags: it is
-  bound once, in the configuration the composition root makes
-  (`TaskloomConfig::new`), so each call's configuration is the files',
-  the environment's and the launch's overrides. A tool
-  result's text is serde_json's, escaping no HTML (see "Open"); the
-  resources' documents escape as Go's do. Go's MCP results happen to
-  have their keys sorted; Rust's do too (serde_json's map), though
-  nothing depends on it.
-- The loadout is Go's document with the reviewed factual changes
-  (Decided 11), its `command: taskloom` included. Its two install texts
-  are placeholders until the human writes them ("Then parity and the
-  cutover"). Every tool and resource it and the MCP instructions name is
-  served.
+- The loadout is Go's document with the reviewed changes (Decided 11),
+  without Go's MCP server: taskloom is CLI-only. Its install text is a
+  placeholder until the human writes it ("Parity and the cutover").
 - Prune, against Go: `--status` refuses `@open`/`@terminal`, which `list`
   takes, until prune takes the classes too. A report counts each task's
   events plus the removal a prune records before it purges, which is what
@@ -505,19 +444,6 @@ Where the port differs from Go:
   token that moves with nothing new answers nothing, so no line. A
   burst's line comes 100-200ms after its last commit (Go's: 100ms after
   its last file event).
-- `manage` writes no application records (hew's §9.7 records, Go's
-  memory of what it wrote): Rust has no hew. It reads Go's newest record
-  for one fact, whether Go made the `mcpServers` object itself, and then
-  an uninstall that empties it takes it out, as Go's would. Without that,
-  Go's next install refuses the file as drifted (shown against Go's
-  binary). With no Go record, an install and an uninstall leave
-  `"mcpServers": {}` where the file had none, as Go's does without its
-  record. It takes Go's lock on the file (file-lock's `lock_file`), waited
-  for at most 10s where Go waits without end. An entry under the name that runs another
-  program is refused (Go replaces it in place, then usually refuses on a
-  byte mismatch). A parse error's detail is this parser's words, not
-  Go's `encoding/json`'s, and names the file's own name where Go's says
-  `.mcp.json` for every file.
 - angzarr-build maps only angzarr's own packages by absolute path
   (`extern_path`), so `tasks-proto` nests its generated module as its
   package is (`ctxloom::tasks::v1`) and re-exports tagma-proto's `v1` at
@@ -527,8 +453,8 @@ Where the port differs from Go:
 - A local build (step 9): `just install` installs the binary into a cargo
   root on no PATH (`install_root`, `~/.local/share/taskloom-rs`), so it
   never shadows the Go taskloom other projects run. ctxloom registers a
-  companion by name only and resolves it, and the engine its MCP command
-  (`taskloom mcp`), on the PATH a session starts with; the first binary of
+  companion by name only and resolves it on the PATH a session starts
+  with; the first binary of
   that name on PATH is the one that runs. So this repository's `.envrc`
   (direnv) puts the install root's `bin` first, and a session or shell
   started here runs the Rust taskloom; elsewhere nothing changes.
@@ -676,13 +602,13 @@ To settle while planning:
 Parity and the cutover:
 
 - Port the behavior Go's tests pin: concurrent processes (no lost write, no
-  duplicate harp), CLI/MCP notice parity, every project-scoped read taking
-  `--global`, degraded mode, and launch flags reaching MCP handlers.
+  duplicate harp), every project-scoped read taking `--global`, and
+  degraded mode.
 - Run both binaries on the same inputs and compare.
 - Run the importer over every existing log, then switch the companion
-  registration to the Rust binary (the human's). Risk retired: ctxloom loading the Rust binary
+  to the Rust binary on PATH (the human's). Risk retired: ctxloom loading the Rust binary
   as its companion.
-- Fill the install placeholders; un-ignore the placeholder test
+- Fill the install placeholder; un-ignore the placeholder test
   (`test_no_served_text_carries_a_placeholder`, Decided 11).
 - Reword or delete the served text that names Go (decided 2026-10-21):
   the `import` help, the JSONL importer's and the application's
@@ -761,8 +687,7 @@ restarted on a freed harp is under "Where it stands".
   embedded en-US `.ftl` as `EN_US`; the composition root hands the driven
   adapters' to the CLI's), the diagnostic envelope, and display-width text
   helpers (`unicode-width`). Domain shapes and views stay out of it: a
-  task's JSON (`TaskJson`) is `tasks-presentation`'s, which the CLI and the
-  MCP server share; the task table and a written task's line are
+  task's JSON (`TaskJson`) is `tasks-presentation`'s; the task table and a written task's line are
   `tasks-cli`'s, and the project group's (`ShowJson`, `PlanJson`, the
   orphans) `project-cli`'s, each implementing `Render`; each group is
   handed the binary's catalog by the composition root, so its errors
@@ -770,15 +695,10 @@ restarted on a freed harp is under "Where it stands".
   annals' crates export their catalogs as ctxloom's do (`annals::EN_US`,
   `annals_store_sql::EN_US`), and the binary's catalog embeds those it
   links, so an annals error renders from its catalog too.
-- MCP over stdio (`tasks-mcp`): the tools `task_list`, `task_add`,
-  `task_set_status`, `task_edit` and `task_tag`, the resources
-  `taskloom://tag-schema` and `taskloom://tag-vocabulary`, and the server
-  instructions, which are normative (add only once the user agrees, and
-  so on). A service per call (Decided 7).
-- Companion: `loadout --format yaml` (hooks, the MCP server, the `taskloom`
-  fragment), and `version --format json` with `lock_protocol`, which
+- No MCP (the owner's ruling, 2026-10-30): agents use the CLI.
+- Companion: `loadout --format yaml` (hooks, the `taskloom` fragment), and `version --format json` with `lock_protocol`, which
   ctxloom's boot probe parses.
-- `manage install|uninstall|check` and `watch` (a JSONL change stream,
+- `watch` (a JSONL change stream,
   debounced). Go's `run` is dropped: launching an agent on a task is
   ctxloom's.
 
@@ -824,7 +744,8 @@ restarted on a freed harp is under "Where it stands".
    in annals").
 
 7. **`TaskService` keeps `&mut self`; a server makes a service per call**
-   (decided 2026-10-21, step 4). The MCP server holds a factory, not a
+   (decided 2026-10-21, step 4; the MCP server it was decided for was
+   dropped 2026-10-30, and `Taskloom::services` stays for a later one). The MCP server holds a factory, not a
    service: each tool call gets a `Service` of its own (the registry, a
    fresh SQLite opener, names, the system), run to its end on a blocking
    thread (`spawn_blocking`, its future driven there by the runtime's
@@ -883,7 +804,7 @@ restarted on a freed harp is under "Where it stands".
     logoff or the system's shutdown) where unix's says `Ctrl-C / SIGTERM`
     (`fixtures/reviewed.rs` in tasks-watch, applied on Windows alone).
 12. **`manage` keeps no hew records; no hew port for now** (decided
-    2026-10-21). `manage` edits with its own byte-preserving JSON patcher
+    2026-10-21; moot since 2026-10-30, when `manage` was dropped). `manage` edits with its own byte-preserving JSON patcher
     and reads Go's newest record for one fact (whether Go created
     `mcpServers`). Accepted cost: after a Rust-only install then uninstall,
     an empty `"mcpServers": {}` stays behind, as Go leaves it when its
