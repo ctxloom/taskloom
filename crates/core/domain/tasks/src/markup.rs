@@ -5,10 +5,12 @@
 //! HAND-WRITTEN over the annals domain layer this crate generates, until
 //! the workspace leaves annals (step 3 of
 //! taskloom-on-angzarr-embedded.plan.md). angzarr-build's `markup_domain`
-//! does generate tasks.proto's markup layer (checked at angzarr-cli
-//! b491857, gap G3), but for angzarr-embedded's feat/handler-bug (its
-//! `Failed`), not the rev pinned here; this module goes once it can be
-//! generated against the pinned runtime.
+//! (angzarr-cli dbfb538) generates tasks.proto's markup layer, and it
+//! compiles against the pinned angzarr-embedded, but not beside annals'
+//! layer: the two are the same types under the same names, written to the
+//! same file in `OUT_DIR`, and the rules in `lib.rs` are written over
+//! annals'. Once annals' layer goes, the generated layer replaces both it
+//! and this module.
 
 use angzarr_embedded::next::markup::DomainMessage;
 use angzarr_embedded::next::WireError;

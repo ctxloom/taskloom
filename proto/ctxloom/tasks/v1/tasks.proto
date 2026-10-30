@@ -29,8 +29,7 @@ message TaskState {
   string status = 3;
   // The revive condition of a Deferred task: a task holds one exactly while
   // it is Deferred. Setting one defers the task; clearing it, or moving the
-  // task to another status, revives it. (A task that left Deferred before
-  // that was so may still hold the trigger it had.)
+  // task to another status, revives it.
   string trigger = 4;
   // The session that created the task, if one did.
   string origin_session = 5;
@@ -46,9 +45,7 @@ message TaskState {
   bool removed = 10;
   // The status the task returns to when its trigger is cleared: the one it
   // held when it was deferred (the initial status, for a task added
-  // Deferred). Empty while the task is not Deferred, and for a task
-  // deferred before this was recorded (clearing its trigger returns it to
-  // the initial status).
+  // Deferred). Empty exactly while the task is not Deferred.
   string prior_status = 11;
 }
 
@@ -58,8 +55,8 @@ message TaskState {
 // the application resolves from the configured taxonomy, so the domain
 // names none: `defers`, the status a trigger defers a task to, the one
 // that needs a trigger; and `initial`, the status a task gets when none is
-// given, and returns to when it records none to return to. Both are
-// required (refused empty: tasks-unresolved).
+// given (and returns to, cleared of the trigger it was added Deferred
+// with). Both are required (refused empty: tasks-unresolved).
 
 // Create the task. The harp id is minted by the caller (minting is random,
 // and decide is deterministic); a stream that already holds a task refuses
@@ -95,7 +92,7 @@ message AddTask {
 // must be Deferred (tasks-trigger-with-status).
 //
 // A trigger given EMPTY clears the one held: a Deferred task returns to the
-// status it was deferred from (To Do, if it records none), or to `status`,
+// status it was deferred from, or to `status`,
 // when one is given (Deferred is refused: tasks-trigger-required).
 // Clearing a trigger the task does not hold changes nothing.
 //

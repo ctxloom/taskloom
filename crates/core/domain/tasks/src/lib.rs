@@ -18,8 +18,7 @@ use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::fmt;
 
-use annals::next::v1::Uuid;
-use annals::next::{ids, Domain, IngestCtx, Tx};
+use annals::next::{ids, Domain, IngestCtx, Timestamp, Tx};
 
 pub use aggregate::TaskAggregate;
 pub use generated::*;
@@ -48,61 +47,23 @@ impl Domain for Tasks {
     const NAME: &'static str = TASK_DOMAIN;
 
     fn decide(command: &TaskCommand, tx: &mut Tx<'_, Self>) -> Result<(), TaskRejection> {
-        match command {
-            TaskCommand::AddTask(add) => decide_add(add, tx),
-            TaskCommand::SetStatus(set) => {
-                let held = live(tx.state())?;
-                let Some(after) = moved(held, &changed(set)?)? else {
-                    return Ok(());
-                };
-                let at = tx.recorded_at();
-                let deferred_since = match after.deferred {
-                    true => Some(at),
-                    false => held.deferred_since,
-                };
-                tx.emit(
-                    StatusChanged {
-                        status: after.status,
-                        trigger: after.trigger,
-                        at,
-                        deferred_since,
-                        prior_status: after.prior_status,
-                    }
-                    .into(),
-                );
-                Ok(())
+        let at = tx.recorded_at();
+        let held = tx.state();
+        let event: Option<TaskEvent> = match command {
+            TaskCommand::AddTask(add) => {
+                let root = tx.stream().root.as_ref().map(|root| &root.value[..]);
+                let taken = !held.harp_id.is_empty();
+                Some(task_added(held, taken, add, root, at)?.into())
             }
-            TaskCommand::EditText(edit) => {
-                live(tx.state())?;
-                let text = required_text(&edit.text)?;
-                tx.emit(TextEdited { text }.into());
-                Ok(())
-            }
-            TaskCommand::Retag(retag) => {
-                let held = normalized(&live(tx.state())?.tags);
-                retagging(retag)?;
-                let mut after = held.clone();
-                after.extend(normalized(&retag.add));
-                for spelled in normalized(&retag.remove).keys() {
-                    after.remove(spelled);
-                }
-                if after != held {
-                    let tags = after.into_values().collect();
-                    tx.emit(Retagged { tags }.into());
-                }
-                Ok(())
-            }
-            TaskCommand::RemoveTask(remove) => {
-                live(tx.state())?;
-                tx.emit(
-                    TaskRemoved {
-                        reason: remove.reason,
-                    }
-                    .into(),
-                );
-                Ok(())
-            }
+            TaskCommand::SetStatus(set) => status_changed(held, set, at)?.map(Into::into),
+            TaskCommand::EditText(edit) => Some(text_edited(held, edit)?.into()),
+            TaskCommand::Retag(retag) => retagged(held, retag)?.map(Into::into),
+            TaskCommand::RemoveTask(remove) => Some(task_removed(held, remove)?.into()),
+        };
+        if let Some(event) = event {
+            tx.emit(event);
         }
+        Ok(())
     }
 
     // Equivalent: no fact exists (Infallible), so ingest is never called.
@@ -139,9 +100,17 @@ impl Domain for Tasks {
     }
 }
 
-fn decide_add(add: &AddTask, tx: &mut Tx<'_, Tasks>) -> Result<(), TaskRejection> {
-    let held = tx.state();
-    if !held.harp_id.is_empty() {
+/// What an add to the task `held` records, at `at`: refused when the
+/// stream is `taken` (its harp id is), and when the add's harp id is not
+/// the one the stream's `root` derives from.
+fn task_added(
+    held: &TaskState,
+    taken: bool,
+    add: &AddTask,
+    root: Option<&[u8]>,
+    at: Timestamp,
+) -> Result<TaskAdded, TaskRejection> {
+    if taken {
         return Err(TaskRejection::TaskExists {
             harp_id: held.harp_id.clone(),
         });
@@ -150,7 +119,7 @@ fn decide_add(add: &AddTask, tx: &mut Tx<'_, Tasks>) -> Result<(), TaskRejection
     if harp_id.is_empty() {
         return Err(TaskRejection::HarpIdRequired);
     }
-    belongs(TASK_DOMAIN, harp_id, tx.stream().root.as_ref())?;
+    belongs(TASK_DOMAIN, harp_id, root)?;
     let Added {
         text,
         status,
@@ -159,23 +128,71 @@ fn decide_add(add: &AddTask, tx: &mut Tx<'_, Tasks>) -> Result<(), TaskRejection
         prior_status,
         deferred,
     } = added(add)?;
-    let at = tx.recorded_at();
-    let deferred_since = deferred.then_some(at);
-    tx.emit(
-        TaskAdded {
-            harp_id: harp_id.to_string(),
-            text,
-            status,
-            trigger,
-            tags: normalized(&add.tags).into_values().collect(),
-            origin_session,
-            at,
-            deferred_since,
-            prior_status,
-        }
-        .into(),
-    );
-    Ok(())
+    Ok(TaskAdded {
+        harp_id: harp_id.to_string(),
+        text,
+        status,
+        trigger,
+        tags: normalized(&add.tags).into_values().collect(),
+        origin_session,
+        at,
+        deferred_since: deferred.then_some(at),
+        prior_status,
+    })
+}
+
+/// What a status change to the task `held` records, at `at`: `None` when
+/// it changes nothing.
+fn status_changed(
+    held: &TaskState,
+    set: &SetStatus,
+    at: Timestamp,
+) -> Result<Option<StatusChanged>, TaskRejection> {
+    let held = live(held)?;
+    let Some(after) = moved(held, &changed(set)?)? else {
+        return Ok(None);
+    };
+    Ok(Some(StatusChanged {
+        status: after.status,
+        trigger: after.trigger,
+        at,
+        deferred_since: match after.deferred {
+            true => Some(at),
+            false => held.deferred_since,
+        },
+        prior_status: after.prior_status,
+    }))
+}
+
+/// What an edit of the task `held` records.
+fn text_edited(held: &TaskState, edit: &EditText) -> Result<TextEdited, TaskRejection> {
+    live(held)?;
+    Ok(TextEdited {
+        text: required_text(&edit.text)?,
+    })
+}
+
+/// What a retag of the task `held` records: `None` when its tags do not
+/// change.
+fn retagged(held: &TaskState, retag: &Retag) -> Result<Option<Retagged>, TaskRejection> {
+    let held = normalized(&live(held)?.tags);
+    retagging(retag)?;
+    let mut after = held.clone();
+    after.extend(normalized(&retag.add));
+    for spelled in normalized(&retag.remove).keys() {
+        after.remove(spelled);
+    }
+    Ok((after != held).then(|| Retagged {
+        tags: after.into_values().collect(),
+    }))
+}
+
+/// What a removal of the task `held` records.
+fn task_removed(held: &TaskState, remove: &RemoveTask) -> Result<TaskRemoved, TaskRejection> {
+    live(held)?;
+    Ok(TaskRemoved {
+        reason: remove.reason,
+    })
 }
 
 /// Whether the task `harp_id` of `domain` belongs in the stream rooted at
@@ -183,12 +200,12 @@ fn decide_add(add: &AddTask, tx: &mut Tx<'_, Tasks>) -> Result<(), TaskRejection
 /// harp id the event records must be that one, or the task takes
 /// another's. A root that cannot be derived is refused for that, with its
 /// cause.
-fn belongs(domain: &str, harp_id: &str, root: Option<&Uuid>) -> Result<(), TaskRejection> {
+fn belongs(domain: &str, harp_id: &str, root: Option<&[u8]>) -> Result<(), TaskRejection> {
     let derived = ids::compute_root(domain, harp_id).map_err(|e| TaskRejection::NoRoot {
         harp_id: harp_id.to_string(),
         cause: e.to_string(),
     })?;
-    if root != Some(&derived) {
+    if root != Some(&derived.value[..]) {
         return Err(TaskRejection::NotItsStream {
             harp_id: harp_id.to_string(),
         });
@@ -371,13 +388,10 @@ fn moved(held: &TaskState, change: &Change<'_>) -> Result<Option<Moved>, TaskRej
     let after = match (&change.status, &change.trigger) {
         (_, Trigger::Set(trigger)) => deferring(trigger.clone()),
         (None, Trigger::Cleared) if held.trigger.is_empty() => return Ok(None),
+        // A task holds a trigger only while it is Deferred, so clearing
+        // one it holds returns it to the status it was deferred from.
         (status, Trigger::Cleared) => Moved {
-            status: match status {
-                Some(status) => status.clone(),
-                None if was_deferred && !held.prior_status.is_empty() => held.prior_status.clone(),
-                None if was_deferred => change.statuses.initial.to_string(),
-                None => held.status.clone(),
-            },
+            status: status.clone().unwrap_or_else(|| held.prior_status.clone()),
             trigger: String::new(),
             prior_status: String::new(),
             deferred: false,

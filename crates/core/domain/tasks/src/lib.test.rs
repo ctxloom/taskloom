@@ -511,13 +511,13 @@ fn test_add_naming_another_harp_than_its_stream_is_refused() {
 fn test_an_add_whose_root_cannot_be_derived_says_why() {
     let root = ids::compute_root("tasks", HARP).unwrap();
     assert_eq!(
-        crate::belongs("bad:domain", HARP, Some(&root)),
+        crate::belongs("bad:domain", HARP, Some(&root.value[..])),
         Err(TaskRejection::NoRoot {
             harp_id: HARP.to_string(),
             cause: "a domain never contains ':'".to_string(),
         })
     );
-    assert_eq!(crate::belongs("tasks", HARP, Some(&root)), Ok(()));
+    assert_eq!(crate::belongs("tasks", HARP, Some(&root.value[..])), Ok(()));
     assert_eq!(
         crate::belongs("tasks", HARP, None),
         Err(TaskRejection::NotItsStream {
@@ -1069,91 +1069,10 @@ fn test_leaving_deferred_by_status_drops_the_status_to_return_to() {
     assert_eq!(changed.prior_status, "");
 }
 
-/// `task` resumed from a snapshot of `state`: a history recorded under
-/// earlier rules, which today's commands could not make.
-fn resumed(task: &mut Task, state: &TaskState) {
-    use annals::next::State;
-
-    let snapshot = annals::next::v1::Snapshot {
-        sequence: 0,
-        state: Some(annals::next::pack(&state.to_snapshot())),
-        rules_version: "v1".to_string(),
-    };
-    task.store.write_snapshot(&cover(), &snapshot).unwrap();
-}
-
-/// A task that left Deferred before L: In Progress, still holding the
-/// trigger it had, as the rule then kept it.
-fn left_deferred_before_l() -> Task {
-    let mut task = Task::added("Revisit");
-    let mut before = task.state();
-    before.status = "In Progress".to_string();
-    before.trigger = "after v2".to_string();
-    resumed(&mut task, &before);
-    task
-}
-
-#[test]
-fn test_clearing_a_trigger_kept_after_leaving_deferred_before_l_drops_it_alone() {
-    let mut task = left_deferred_before_l();
-    let events = task.run(set(None, Some(""))).unwrap();
-    let changed = changed(&events);
-    assert_eq!(
-        (changed.status.as_str(), changed.trigger.as_str()),
-        ("In Progress", "")
-    );
-}
-
-#[test]
-fn test_a_task_that_left_deferred_before_l_drops_its_trigger_on_a_status_change() {
-    let mut task = left_deferred_before_l();
-    let events = task.run(status("Done", "")).unwrap();
-    assert_eq!(changed(&events).trigger, "");
-}
-
-#[test]
-fn test_a_task_that_left_deferred_before_l_defers_again_on_the_trigger_it_holds() {
-    let mut task = left_deferred_before_l();
-    let events = task.run(status(DEFERRED, "")).unwrap();
-    let changed = changed(&events);
-    assert_eq!(
-        (changed.trigger.as_str(), changed.prior_status.as_str()),
-        ("after v2", "In Progress")
-    );
-}
-
 #[test]
 fn test_clearing_a_trigger_the_task_does_not_hold_changes_nothing() {
     let mut task = Task::added("Revisit");
     assert_eq!(task.run(set(None, Some(""))), Ok(Vec::new()));
-}
-
-#[test]
-fn test_clearing_the_trigger_of_a_task_deferred_before_l_returns_it_to_the_initial_status() {
-    // A task deferred before the status to return to was recorded: Deferred,
-    // a trigger, no prior status (a snapshot stands in for its history).
-    let mut task = Task::added("Revisit");
-    let mut before = task.state();
-    before.status = DEFERRED.to_string();
-    before.trigger = "after v2".to_string();
-    before.prior_status = String::new();
-    resumed(&mut task, &before);
-    let events = task.run(set(None, Some(""))).unwrap();
-    assert_eq!(changed(&events).status, TO_DO);
-    let events = {
-        let mut task = Task::added("Revisit");
-        resumed(&mut task, &before);
-        task.run(SetStatus {
-            initial: "Backlog".to_string(),
-            ..set(None, Some(""))
-        })
-        .unwrap()
-    };
-    assert_eq!(
-        changed(&events).status,
-        "Backlog",
-        "the command's, not To Do"
-    );
 }
 
 #[test]

@@ -6,14 +6,11 @@
 //! new runtime's own: the instant is the context's `recorded_at`, and a
 //! refusal is business-fatal, a key and its args, never English.
 //!
-//! RED (step 1 of taskloom-on-angzarr-embedded.plan.md): the aggregate's
-//! bodies are `todo!()`.
-//!
 //! Not ported from `lib.test.rs`: the snapshot tests and the four "before
-//! L" tests, which fabricate an earlier history through a snapshot. The
-//! aggregate takes no snapshot, and a store starts fresh on angzarr-embedded
-//! (the owner's ruling D2), so no stream holds a history today's rules
-//! could not make. The pure tests (`check`, `belongs`, a tag's target,
+//! L" tests, which fabricated an earlier history through a snapshot (they
+//! and the rules for that history are gone): the aggregate takes no
+//! snapshot, and a store starts fresh on angzarr-embedded (the owner's
+//! ruling D2), so no stream holds a history today's rules could not make. The pure tests (`check`, `belongs`, a tag's target,
 //! the catalog) stay where they are.
 
 use std::collections::BTreeMap;
