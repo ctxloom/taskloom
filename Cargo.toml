@@ -71,7 +71,7 @@ tagma-proto = { git = "https://github.com/benjaminabbitt/tagma", rev = "c5ecbbdf
 harp-core = { git = "https://github.com/benjaminabbitt/harp", rev = "21648c9712ab60a84b609e1321201f158203a4bc" }
 
 # Third-party, for the adapters and the composition root.
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.5", features = ["derive", "string"] }
 # The edge's message catalogs: Fluent's standard runtime and its language ids.
 fluent-bundle = "0.15"
 fluent-syntax = "0.11"

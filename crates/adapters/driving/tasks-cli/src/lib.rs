@@ -217,9 +217,12 @@ fn asked_format(args: &[OsString], context: &Context) -> Format {
 }
 
 /// The command line `args` (the program name first) parsed as `P`, or the
-/// exit code of answering it without a command: help and --version on
-/// `out`, a usage error on `err` (in the format the words ask for, since
-/// clap parsed nothing).
+/// exit code of answering it without a command: help and `--version` (or
+/// `-v`) on `out`, a usage error on `err` (in the format the words ask
+/// for, since clap parsed nothing). `--version` prints Go's cobra line,
+/// `<prog> version <version>`, the version `version` reports, in text
+/// whatever the format: the VS Code extension's probe reads the word after
+/// `version` on its first line.
 pub fn parse<P: Parser>(
     args: impl IntoIterator<Item = OsString>,
     context: &Context,
@@ -228,7 +231,24 @@ pub fn parse<P: Parser>(
     err: &mut dyn Write,
 ) -> Result<P, u8> {
     let args: Vec<OsString> = args.into_iter().collect();
-    P::try_parse_from(&args).map_err(|e| {
+    let command = P::command()
+        .version(context.version.clone())
+        .disable_version_flag(true)
+        .arg(
+            clap::Arg::new("version")
+                .short('v')
+                .long("version")
+                .help("Print the taskloom version")
+                .action(clap::ArgAction::Version),
+        );
+    let parsed = command
+        .try_get_matches_from(&args)
+        .and_then(|mut matches| P::from_arg_matches_mut(&mut matches));
+    parsed.map_err(|e| {
+        if e.kind() == clap::error::ErrorKind::DisplayVersion {
+            let _ = writeln!(out, "{PROG} version {}", context.version);
+            return 0;
+        }
         if e.use_stderr() {
             let usage = CliError::Usage {
                 detail: e.render().to_string(),

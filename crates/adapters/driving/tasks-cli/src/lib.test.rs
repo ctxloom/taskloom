@@ -1864,6 +1864,20 @@ fn test_version_in_text_is_the_bare_version() {
     assert_eq!((ran.code, ran.out.as_str()), (0, "1.2.3\n"));
 }
 
+// The VS Code extension probes `--version`: Go's cobra line, the context's
+// version, in text whatever the format asked.
+#[test]
+fn test_the_version_flag_prints_gos_line_with_the_contexts_version() {
+    for args in [&["--version"][..], &["-v"], &["--version", "--json"]] {
+        let ran = run_on(&mut Fake::default(), false, args);
+        assert_eq!(
+            (ran.code, ran.out.as_str(), ran.err.as_str()),
+            (0, "taskloom version 1.2.3\n", ""),
+            "{args:?}"
+        );
+    }
+}
+
 #[test]
 fn test_a_version_with_no_lock_protocol_leaves_it_out_as_go_does() {
     let context = Context {

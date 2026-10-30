@@ -85,6 +85,49 @@ fn test_the_ported_parse_refuses_what_go_refuses() {
     assert!(predates_the_recheck(&older).is_some());
 }
 
+/// The VS Code extension's parse of `<bin> --version` (its
+/// `parseVersion`): the first line, trimmed; the word after `version`, else
+/// its last word; empty when the line is.
+fn extension_parse(stdout: &str) -> String {
+    let line = stdout.split('\n').next().unwrap_or_default().trim();
+    let words: Vec<&str> = line.split_whitespace().collect();
+    match words.iter().position(|w| w.eq_ignore_ascii_case("version")) {
+        Some(i) if i + 1 < words.len() => words[i + 1].to_string(),
+        _ => words.last().copied().unwrap_or_default().to_string(),
+    }
+}
+
+#[test]
+fn test_the_version_flag_prints_gos_line_the_extension_parses() {
+    for flag in ["--version", "-v"] {
+        let home = Temp::new();
+        let output = Command::new(binary())
+            .arg(flag)
+            .current_dir(home.path())
+            .isolated(home.path())
+            .output()
+            .expect("taskloom runs");
+        let ran = Ran::of(output);
+        assert!(ran.ok, "{flag} failed: {}", ran.stderr);
+        assert_eq!(
+            ran.stdout,
+            format!("taskloom version {}\n", env!("CARGO_PKG_VERSION")),
+            "{flag}"
+        );
+        assert_eq!(extension_parse(&ran.stdout), env!("CARGO_PKG_VERSION"));
+        assert_eq!(ran.stderr, "", "{flag}");
+        let written = disk::read_dir(home.path()).unwrap();
+        assert_eq!(written.len(), 0, "{flag} writes nothing: {written:?}");
+    }
+}
+
+#[test]
+fn test_the_ported_extension_parse_reads_what_the_extension_reads() {
+    assert_eq!(extension_parse("taskloom version v0.7.0-x\n"), "v0.7.0-x");
+    assert_eq!(extension_parse("taskloom 1.2.3\nmore"), "1.2.3");
+    assert_eq!(extension_parse("  \n"), "");
+}
+
 /// The reference loadout document, as `scripts/go-companion-fixtures.sh`
 /// copied it from its source, with the reviewed factual changes applied.
 #[path = "../../../../adapters/driving/tasks-cli/fixtures/reviewed.rs"]
