@@ -178,7 +178,8 @@ every-diagnostic catalog tests) list the crate again under
 a binary turns on. Any other API only tests use goes behind the same
 gate: `#[cfg(test)]` when only its own crate's tests use it, the
 crate's `test-support` feature when another crate's do (os's `fixture`,
-`Mode::PRIVATE_DIR`, `Flavor::program_file` and `Flavor::startup_vars`).
+`Mode::PRIVATE_DIR`, `Flavor::program_file`, `Flavor::startup_vars`,
+`own_group` and `ctrl_break`).
 
 Each crate with diagnostics exports its embedded en-US catalog as `EN_US`
 (its name and its `.ftl`). The composition root assembles the binary's
