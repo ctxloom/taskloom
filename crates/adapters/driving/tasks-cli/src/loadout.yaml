@@ -9,7 +9,7 @@
 # for what taskloom tells ctxloom about itself.
 
 run:
-  version: 1.2.0
+  version: 2.0.0
   tags:
     - tasks
     - workflow
@@ -21,14 +21,13 @@ run:
     Persistent task tracking via the standalone `taskloom` binary
     (built from github.com/ctxloom/taskloom, crates/root/bin/taskloom). Tasks live in a per-project append-only log
     at ~/.ctxloom/projects/<project-id>/state.db keyed by harp IDs and are managed
-    through the task MCP tools served by `taskloom mcp` (registered by this
-    bundle) or the `taskloom` CLI. Also stamps the active session's harp name
+    through the `taskloom` CLI alone (it serves no MCP). Also stamps the active session's harp name
     into plan files as they're edited. Write task text subject-first: the
     first line is what the task IS (list views show only that line,
     truncated at 80 characters); provenance goes on a later line.
 
   notes: |
-    This bundle ships two ctxloom hooks and one MCP server:
+    This bundle ships two ctxloom hooks:
 
       1. SessionStart → ctxloom hook session-bind
          Records the backend session_id ↔ harp mapping in
@@ -40,20 +39,14 @@ run:
          frontmatter `sessions:` list. Plans and sessions cross-reference
          automatically.
 
-      3. MCP server `taskloom` → `taskloom mcp`
-         Serves task_list / task_add / task_set_status / task_edit over
-         stdio from the standalone taskloom binary. Requires `taskloom` on
-         PATH; a missing binary degrades to no task tools, never a blocked
-         startup.
-
   installation: |
     «HUMAN: how the Rust taskloom binary is installed; it has no install channel yet.»
-    Then start a `ctxloom run` session (it delivers the hooks and MCP server
+    Then start a `ctxloom run` session (it delivers the hooks
     into its own session home), or run `ctxloom materialize --yes` to write
     them into the project's own engine files. The
     hooks are safe to install before session harp-naming is active (stamp-plan
-    no-ops when CTXLOOM_SESSION_HARP is unset). Without ctxloom, the binary
-    self-registers: `taskloom manage install`.
+    no-ops when CTXLOOM_SESSION_HARP is unset). Without ctxloom, put
+    `taskloom` on PATH: the CLI needs no registering.
 
   hooks:
     session_start:
@@ -79,19 +72,6 @@ run:
         args: [hook, stamp-plan]
         type: command
 
-  mcp:
-    taskloom:
-      command: taskloom
-      args:
-        - mcp
-      notes: |
-        The standalone task-store MCP server (built from github.com/ctxloom/taskloom,
-        crates/root/bin/taskloom). The
-        project and session resolve per call from CTXLOOM_PROJECT_ID /
-        CTXLOOM_SESSION_HARP (exported by ctxloom run) or the working
-        directory.
-      installation: "«HUMAN: the Rust taskloom's install command; none exists yet»"
-
   fragments:
     taskloom:
       premise: You are about to create, read, update or close a task, judge whether
@@ -109,21 +89,23 @@ run:
         (e.g. `swift-amber-falcon`). Statuses: `In Progress`, `To Do`,
         `Deferred`, `Done`, `Archived`.
 
-        ## MCP tools (served by `taskloom mcp`)
+        ## The CLI is the only surface
 
-        - `task_list({statuses?, term?, include_completed?, include_summary?})`
-          — list/filter tasks. Set `include_summary: true` to also get
-          per-status counts plus the in-progress harp IDs.
-        - `task_add({text, status?, trigger?})` — add a task with a fresh
-          harp ID. Default status is `"To Do"`; `"Deferred"` requires a
-          `trigger` (the condition that should revive it).
-        - `task_set_status({harp_id, status, trigger?})` — move a task
-          between statuses.
-        - `task_edit({harp_id, text})` — replace a task's text in place.
+        taskloom serves no MCP. Read with `list` (`--term`, `--tag-query`,
+        `--status`, `--all`, `--compact`, `--limit`), `show <harp>...`,
+        `summary`, `tags`, `permits`, `schema`; write with `add <text>`
+        (`--tag`, `--status`, `--trigger`), `edit <harp> <text>`, `status
+        <status> <harp>` and `tag <harp> --add/--remove`. `<command> --help`
+        is the reference. Echo a task's harp back when you name it later.
 
-        Tasks are created and updated only through these tools (or the
-        `taskloom` CLI). The harp ID appears in `task_list` output so you can
-        reference a specific task in later calls.
+        - `--tag-query` is POSTFIX: tags first, operator after
+          (`human:decision/area:cli/and`, `human:decision/not`).
+        - Enumerate with `--compact` and/or `--limit`: a bare `list --json`
+          returns every task's whole body.
+        - A command's stderr may carry DEAD LETTER lines: each almost
+          certainly marks a taskloom bug, so show them to the user.
+        - Never read the store (`state.db`) directly: it is an append-only
+          log, and only the CLI folds it to current state.
 
         ## Use `--json` FIRST, paired with jq — on every command
 
@@ -142,9 +124,6 @@ run:
             # every harp; every harp carrying a tag
             taskloom list --all --json | jq -r '.[].harp_id'
             taskloom list --all --json | jq -r '.[]|select(.tags[]?=="human:decision")|.harp_id'
-
-        `Task`'s JSON tags are a cross-surface contract: the CLI and the MCP tools
-        emit the same snake_case keys, so one jq filter works against either.
 
         **If `--json` fails, or a field you need is missing from it, REPORT THAT
         as a defect** — then route around it if you must to finish the job. Both,
@@ -169,8 +148,8 @@ run:
           field split drops every OPEN task and keeps only the closed ones. The
           output looks well-formed and is wrong in exactly one direction.
 
-        Note the CLI flag names differ from the MCP parameter names: `--status`
-        (singular) and `--all`, not `statuses`/`include_completed`. A mistyped flag
+        `--status` is singular (repeat it), and `--all` is what shows finished
+        and Deferred tasks. A mistyped flag
         errors, but a mis-scoped query returns a confident empty list — confirm the
         flag exists before believing emptiness.
 
@@ -190,8 +169,8 @@ run:
         change satisfies one, say so and offer to close it — quote what the
         task asked for and what you actually did, so the reader can judge
         rather than take your word. If it satisfies a task only in part, edit
-        the task to record what is now done and what remains, instead of
-        leaving it whole and letting the next person redo the finished half.
+        the task down to what REMAINS: record only what is still to do. A
+        task carrying its own finished half reads as work never started.
 
         `taskloom prune` removes old finished tasks from the log for good (by
         default Done tasks whose last status change is over 7 days old); without
@@ -264,6 +243,10 @@ run:
 
         ## Carry REASONING, not detail that rots
 
+        The first line of a task's text is its SUBJECT (what the task IS, in
+        ~80 characters: lists show only that line); provenance goes on a
+        later line.
+
         A task earns its length with judgment a later reader cannot recompute.
         Write three things: WHY IT MATTERS, WHAT NEEDS TO HAPPEN, and WHAT
         WOULD SETTLE IT.
@@ -322,12 +305,18 @@ run:
         "simplify" them away as detail; they are the deliberate exception, and
         this paragraph is the reason.
 
-        Where the project declares tag permits (its `.taskloom/config.yaml`'s
-        `tag_permits`), a tag they do not permit is REFUSED on write. Read
-        `taskloom://tag-permits` before choosing one. A refused tag is a
-        question for the human: choose a permitted tag that says the same
-        thing, or propose the one you need and let them `taskloom permit` it.
-        No tool permits a tag. Never coin a near-twin that happens to pass.
+        Tags are `(namespace:)key(=value)`. Before choosing one, read
+        `taskloom schema --json` (enums, ranges and scalar targets, enforced
+        on write), `taskloom tags --json` (what is in use) and `taskloom
+        permits --json`. Where the project declares tag permits, a tag they
+        do not permit is REFUSED on write: choose a permitted tag that says
+        the same thing, or propose the one you need to the human. Never coin
+        a near-twin that happens to pass.
+
+        Agents must not run `taskloom permit`, `taskloom revoke` (or any
+        future schema-declaring command) without explicit permission from
+        the human for that specific change — agents can widen the tag rules
+        and frequently will; ask first.
 
         Rate the level FROM THE CODE, never from the task's own prose: a task
         description outlives the code it describes, and tasks here have named
