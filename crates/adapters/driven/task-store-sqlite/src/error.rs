@@ -14,6 +14,11 @@ pub enum StoreOpenError {
     Unplaced { path: String, detail: String },
     /// No runtime could be started to open the database and check it.
     NoRuntime { detail: String },
+    /// The store at `path` was written before taskloom moved onto
+    /// angzarr-embedded (annals-store-sql's): it is not migrated in place
+    /// (the owner's ruling D2), but moved aside to `backup` and started
+    /// afresh.
+    PredatesEmbedded { path: String, backup: String },
 }
 
 impl fmt::Display for StoreOpenError {
@@ -28,6 +33,10 @@ impl fmt::Display for StoreOpenError {
             StoreOpenError::NoRuntime { detail } => {
                 write!(f, "cannot start a runtime to check the store: {detail}")
             }
+            StoreOpenError::PredatesEmbedded { path, backup } => write!(
+                f,
+                "the store {path} predates angzarr-embedded: move it to {backup} to start afresh"
+            ),
         }
     }
 }
@@ -38,6 +47,7 @@ impl Diagnostic for StoreOpenError {
             StoreOpenError::CreateDir { .. } => "task-store-sqlite-create-dir",
             StoreOpenError::Unplaced { .. } => "task-store-sqlite-unplaced",
             StoreOpenError::NoRuntime { .. } => "task-store-sqlite-no-runtime",
+            StoreOpenError::PredatesEmbedded { .. } => "task-store-sqlite-predates-embedded",
         }
     }
 
@@ -49,7 +59,23 @@ impl Diagnostic for StoreOpenError {
                 ("detail", detail.as_str().into()),
             ],
             StoreOpenError::NoRuntime { detail } => vec![("detail", detail.as_str().into())],
+            StoreOpenError::PredatesEmbedded { path, backup } => vec![
+                ("path", path.as_str().into()),
+                ("backup", backup.as_str().into()),
+            ],
         }
+    }
+}
+
+impl StoreOpenError {
+    /// The error as angzarr-ports' cause, its code and args: how the
+    /// angzarr-embedded store carries it in a `StoreError`.
+    pub fn cause(&self) -> angzarr_ports::Cause {
+        let args = self.args().into_iter().filter_map(|(name, arg)| match arg {
+            Arg::Str(text) => Some((name, angzarr_ports::Arg::Str(text))),
+            _ => None,
+        });
+        angzarr_ports::Cause::new(self.code(), args)
     }
 }
 
@@ -74,6 +100,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         }),
         Box::new(StoreOpenError::NoRuntime {
             detail: "too many open files".to_string(),
+        }),
+        Box::new(StoreOpenError::PredatesEmbedded {
+            path: format!("{}/state.db", path()),
+            backup: format!("{}/state.db.pre-embedded", path()),
         }),
     ]
 }
