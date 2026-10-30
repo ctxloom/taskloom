@@ -84,30 +84,39 @@ fn dependencies(manifest: &str) -> Vec<&str> {
     names
 }
 
+// RED, step 3c of taskloom-on-angzarr-embedded.plan.md: the diagnostics
+// move from annals-diagnostic to angzarr-embedded-diagnostic, whose
+// `Display` is a key and its args, never English. Presentation renders
+// that trait alone; annals and its diagnostics are no longer its.
 #[test]
-fn test_it_depends_on_no_crate_of_this_workspace_but_annals_diagnostic() {
+fn test_it_depends_on_no_crate_of_this_workspace_but_angzarr_embedded_diagnostic() {
     let workspace = include_str!("../../../../../Cargo.toml");
     let ours: Vec<&str> = workspace
         .lines()
-        // annals and angzarr-build are pinned by git rather than path, but
-        // are still not presentation's to depend on (only
-        // annals-diagnostic is).
+        // annals, angzarr-embedded and angzarr-build are pinned by git
+        // rather than path, but are still not presentation's to depend on
+        // (only angzarr-embedded-diagnostic is).
         .filter(|line| {
             line.contains("path = \"")
                 || line.contains("/benjaminabbitt/annals\"")
+                || line.contains("/angzarr-io/angzarr-embedded\"")
                 || line.contains("/angzarr-io/angzarr-cli\"")
         })
         .filter_map(|line| line.split([' ', '=']).next())
-        .filter(|name| *name != "annals-diagnostic")
+        .filter(|name| *name != "angzarr-embedded-diagnostic")
         .collect();
     assert!(ours.contains(&"tasks"), "the workspace's crates: {ours:?}");
-    assert!(ours.contains(&"annals"), "{ours:?}");
+    assert!(ours.contains(&"angzarr-embedded"), "{ours:?}");
     assert!(ours.contains(&"angzarr-build"), "{ours:?}");
     let mine = dependencies(include_str!("../Cargo.toml"));
-    assert!(mine.contains(&"annals-diagnostic"), "{mine:?}");
-    let domain: Vec<&&str> = mine.iter().filter(|name| ours.contains(name)).collect();
+    assert!(mine.contains(&"angzarr-embedded-diagnostic"), "{mine:?}");
+    let domain: Vec<&&str> = mine
+        .iter()
+        .filter(|name| ours.contains(name) || name.starts_with("annals"))
+        .collect();
     assert!(
         domain.is_empty(),
-        "presentation is reused by every binary, so it is domain-free: {domain:?}"
+        "presentation is reused by every binary, so it is domain-free, and renders \
+         angzarr-embedded-diagnostic's diagnostics alone: {domain:?}"
     );
 }

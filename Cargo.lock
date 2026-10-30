@@ -2678,6 +2678,10 @@ name = "tasks-lib"
 version = "0.1.0"
 dependencies = [
  "agent-configs",
+ "angzarr-embedded",
+ "angzarr-embedded-diagnostic",
+ "angzarr-ports",
+ "angzarr-store-sqlite",
  "annals",
  "annals-diagnostic 0.1.0 (git+https://github.com/benjaminabbitt/annals?rev=ed00923e915c7fc9b832eba30d32115168ab7c35)",
  "annals-store-sql",

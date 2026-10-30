@@ -41,10 +41,19 @@ fn test_no_args_is_an_empty_object() {
     );
 }
 
+// RED, step 3c of taskloom-on-angzarr-embedded.plan.md: no English
+// crosses. A code no catalog has is its message as its key and args.
 #[test]
-fn test_an_unknown_code_keeps_its_code_and_args_with_its_english() {
+fn test_an_unknown_code_keeps_its_code_and_args_and_its_message_is_them_never_english() {
     assert_eq!(
-        json_of(&Report::new("annals-x", "the English").arg("n", 3u64)),
-        r#"{"code":"annals-x","args":{"n":3},"message":"the English"}"#
+        json_of(
+            &Report::new("angzarr-x", "the English")
+                .arg("n", 3u64)
+                .arg("ext_err_txt", "disk I/O error")
+        ),
+        concat!(
+            r#"{"code":"angzarr-x","args":{"n":3,"ext_err_txt":"disk I/O error"},"#,
+            r#""message":"angzarr-x n=3 ext_err_txt=\"disk I/O error\""}"#,
+        )
     );
 }

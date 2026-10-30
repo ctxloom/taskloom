@@ -27,6 +27,12 @@ tasks-application.workspace = true
 tasks-config.workspace = true
 
 [dev-dependencies]
+# The runtime's and its store's keys, for the catalog's red test (step 3c of
+# taskloom-on-angzarr-embedded.plan.md), until the wiring links them.
+angzarr-embedded.workspace = true
+angzarr-embedded-diagnostic.workspace = true
+angzarr-ports.workspace = true
+angzarr-store-sqlite.workspace = true
 fluent-syntax.workspace = true
 project-cli.workspace = true
 tokio.workspace = true

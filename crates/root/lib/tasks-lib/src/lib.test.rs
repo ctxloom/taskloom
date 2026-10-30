@@ -636,6 +636,75 @@ fn test_the_catalog_renders_every_diagnostic_the_wiring_can_raise() {
     }
 }
 
+// RED, step 3c of taskloom-on-angzarr-embedded.plan.md: the catalogs move
+// with the runtime. The wiring's catalog holds angzarr-embedded's
+// (`angzarr_embedded::EN_US`), angzarr-ports' (which angzarr-embedded
+// carries, `ANGZARR_PORTS_EN_US`) and angzarr-store-sqlite's
+// (`angzarr_store_sqlite::EN_US`), so every key the runtime and its store
+// raise renders: the store's causes nested in angzarr-ports' errors, and
+// its damage report. Each sample is carried here as annals' report of its
+// key and args until presentation renders angzarr-embedded-diagnostic's
+// trait itself.
+
+/// `d`, angzarr-embedded's diagnostic, as annals' report of its key and
+/// args, nested causes and all: what presentation renders today.
+fn carried(d: &dyn angzarr_embedded_diagnostic::Diagnostic) -> annals_diagnostic::Report {
+    use angzarr_embedded_diagnostic::Arg;
+    d.args().into_iter().fold(
+        annals_diagnostic::Report::new(d.code(), d.to_string()),
+        |report, (name, arg)| match arg {
+            Arg::Int(n) => report.arg(name, n),
+            Arg::Uint(n) => report.arg(name, n),
+            Arg::Str(s) => report.arg(name, s),
+            Arg::Nested(cause) => {
+                report.arg(name, annals_diagnostic::Arg::nested(&carried(&*cause)))
+            }
+        },
+    )
+}
+
+/// angzarr-ports' args as angzarr-embedded-diagnostic's report holds them.
+fn ported(
+    code: &'static str,
+    args: Vec<(&'static str, angzarr_ports::Arg)>,
+) -> angzarr_embedded_diagnostic::Report {
+    args.into_iter().fold(
+        angzarr_embedded_diagnostic::Report::new(code),
+        |report, (name, arg)| match arg {
+            angzarr_ports::Arg::Uint(n) => report.arg(name, n),
+            angzarr_ports::Arg::Str(s) => report.arg(name, s),
+            angzarr_ports::Arg::Cause(cause) => report.arg(
+                name,
+                angzarr_embedded_diagnostic::Arg::nested(&ported(cause.code, cause.args)),
+            ),
+        },
+    )
+}
+
+#[test]
+fn test_the_catalog_renders_every_key_angzarr_embedded_and_its_store_raise() {
+    let catalog = catalog(&[]).unwrap();
+    let runtime = angzarr_embedded::diagnostic_samples();
+    let store = angzarr_store_sqlite::causes()
+        .into_iter()
+        .map(|cause| ported(cause.code, cause.args));
+    let damage = angzarr_store_sqlite::damage_sample();
+    let damage = ported(damage.code(), damage.args());
+    let mut unrendered: Vec<String> = runtime
+        .iter()
+        .map(|d| carried(&**d))
+        .chain(store.chain([damage]).map(|d| carried(&d)))
+        .filter_map(|d| {
+            catalog
+                .render(&d)
+                .err()
+                .map(|e| format!("{}: {e:?}", d.code()))
+        })
+        .collect();
+    unrendered.dedup();
+    assert!(unrendered.is_empty(), "no message: {unrendered:#?}");
+}
+
 // A frontend's own messages are its to add; the wiring knows none.
 #[test]
 fn test_a_frontend_adds_its_own_messages_to_the_catalog() {

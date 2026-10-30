@@ -1,4 +1,4 @@
-//! Messages from catalogs, and the English when there is none.
+//! Messages from catalogs, and the code and args when there is none.
 
 use annals_diagnostic::Report;
 
@@ -39,22 +39,36 @@ fn test_a_nested_cause_is_rendered_from_the_catalog_too() {
     );
 }
 
+// RED, step 3c of taskloom-on-angzarr-embedded.plan.md: no English
+// crosses. A diagnostic no catalog has a message for is shown as its key
+// and args (angzarr decision 14.37, as angzarr-embedded-diagnostic's
+// `display` writes it), never the English its `Display` carries today: a
+// text value is quoted where it would not parse back, a nested cause is
+// its code under the arg's name and its own args under `<name>.`.
+
 #[test]
-fn test_a_nested_cause_no_catalog_has_falls_back_to_its_english() {
+fn test_a_nested_cause_no_catalog_has_is_its_code_and_args() {
     let gave_up = Report::new("demo-gave-up", "English")
         .arg("attempts", 10u32)
         .arg(
             "error",
-            annals_diagnostic::Arg::nested(&Report::new("annals-store-sql-unavailable", "down")),
+            annals_diagnostic::Arg::nested(
+                &Report::new("angzarr-store-sqlite-unavailable", "down")
+                    .arg("errno", 10u64)
+                    .arg("ext_err_txt", "disk I/O error"),
+            ),
         );
     assert_eq!(
         catalog().render(&gave_up),
-        Ok("gave up after 10 attempts: down".to_string())
+        Ok(
+            r#"gave up after 10 attempts: angzarr-store-sqlite-unavailable errno=10 ext_err_txt="disk I/O error""#
+                .to_string()
+        )
     );
 }
 
 #[test]
-fn test_an_unknown_code_is_unrendered_and_its_message_is_its_english() {
+fn test_an_unknown_code_is_unrendered_and_its_message_is_its_code() {
     let unknown = Report::new("demo-nothing", "the English");
     assert_eq!(
         catalog().render(&unknown),
@@ -62,11 +76,26 @@ fn test_an_unknown_code_is_unrendered_and_its_message_is_its_english() {
             code: "demo-nothing".to_string()
         })
     );
-    assert_eq!(catalog().message(&unknown), "the English");
+    assert_eq!(catalog().message(&unknown), "demo-nothing");
 }
 
 #[test]
-fn test_a_missing_arg_is_unformattable_and_its_message_is_its_english() {
+fn test_an_unknown_codes_message_is_its_code_and_args_ambiguous_values_quoted() {
+    let inner = Report::new("demo-inner", "English").arg("path", "/a b");
+    let unknown = Report::new("demo-nothing", "the English")
+        .arg("path", "/db")
+        .arg("empty", "")
+        .arg("said", r#"a "b" \ c=d"#)
+        .arg("n", -3i64)
+        .arg("cause", annals_diagnostic::Arg::nested(&inner));
+    assert_eq!(
+        catalog().message(&unknown),
+        r#"demo-nothing path=/db empty="" said="a \"b\" \\ c=d" n=-3 cause=demo-inner cause.path="/a b""#
+    );
+}
+
+#[test]
+fn test_a_missing_arg_is_unformattable_and_its_message_is_its_code_and_args() {
     let bare = Report::new("demo-busy", "the English");
     match catalog().render(&bare) {
         Err(Unrendered::Unformattable { code, detail }) => {
@@ -75,7 +104,7 @@ fn test_a_missing_arg_is_unformattable_and_its_message_is_its_english() {
         }
         other => panic!("{other:?}"),
     }
-    assert_eq!(catalog().message(&bare), "the English");
+    assert_eq!(catalog().message(&bare), "demo-busy");
 }
 
 fn events(n: impl Into<annals_diagnostic::Arg>) -> String {
