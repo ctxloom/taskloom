@@ -2519,6 +2519,8 @@ dependencies = [
 name = "task-lists"
 version = "0.1.0"
 dependencies = [
+ "angzarr-embedded",
+ "angzarr-ports",
  "annals",
  "tasks",
 ]

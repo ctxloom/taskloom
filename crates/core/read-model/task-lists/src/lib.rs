@@ -6,6 +6,11 @@
 //! The store is the collection: every task stream in a project's store is
 //! that project's, so a list needs no membership metadata on the streams, and
 //! catches up by enumerating the store's task streams.
+//!
+//! [`embedded`] is the list on angzarr-embedded, which replaces this one
+//! when the application moves (taskloom-on-angzarr-embedded.plan.md).
+
+pub mod embedded;
 
 use std::collections::{BTreeMap, BTreeSet};
 
