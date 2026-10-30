@@ -1122,7 +1122,7 @@ fn test_a_tag_query_keeps_the_tasks_it_selects_in_the_listings_order() {
         ["zebra-a", "mango-b", "apple-c"]
     );
     assert_eq!(
-        listed(&mut service, queried("urgent and not x")),
+        listed(&mut service, queried("urgent/x/not/and")),
         ["zebra-a", "mango-b"]
     );
     assert_eq!(listed(&mut service, queried("urgent/not")), ["kiwi-d"]);

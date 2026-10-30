@@ -183,7 +183,7 @@ pub struct ListQuery {
     pub project: Option<String>,
     pub statuses: Vec<String>,
     pub all: bool,
-    /// A tag query, postfix or infix (see [`QUERY_GRAMMAR`]).
+    /// A postfix tag query (see [`QUERY_GRAMMAR`]).
     pub tag_query: Option<String>,
     /// A substring of the text, any case.
     pub term: Option<String>,

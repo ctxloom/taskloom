@@ -244,8 +244,8 @@ pub struct ListArgs {
     #[arg(long)]
     limit: Option<usize>,
     /// Only the tasks this tag query selects: postfix, tags first and the
-    /// operator after (human:decision/area:cli/and, human:decision/not), or
-    /// infix (human:decision and not area:cli). Operators: and, or, not; atoms [ns:]key[op value]
+    /// operator after (human:decision/area:cli/and, human:decision/not).
+    /// Operators: and, or, not; atoms [ns:]key[op value]
     /// with op one of = != > >= < <= ~, and * (any) or + (present) for a
     /// namespace, key or value.
     #[arg(long = "tag-query")]

@@ -3,8 +3,7 @@
 //! `fixtures/tag-queries/cases.tsv` holds the cases; `go.tsv` is the
 //! reference answer to each, written by
 //! `scripts/compare-go-tag-queries.sh`. Every query answers as the
-//! reference does, but the infix ones, which the reference refuses (it
-//! reads postfix only): each answers as the postfix it means does there.
+//! reference does; both read postfix only, so an infix case is refused.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -17,22 +16,6 @@ use crate::Tag;
 
 const CASES: &str = include_str!("../fixtures/tag-queries/cases.tsv");
 const GO: &str = include_str!("../fixtures/tag-queries/go.tsv");
-
-/// Each infix case, and the postfix case it means.
-const INFIX: [(&str, &str, &str); 8] = [
-    ("flat", "urgent and release", "urgent/release/and"),
-    ("flat", "urgent or release", "urgent/release/or"),
-    ("flat", "not urgent", "urgent/not"),
-    ("flat", "urgent release", "urgent/release"),
-    (
-        "flat",
-        "(urgent or release) and not level=3",
-        "urgent/release/or/level=3/not/and",
-    ),
-    ("flat", "urgent AND NOT release", "urgent/release/not/and"),
-    ("flat", "not (urgent or release)", "urgent/release/or/not"),
-    ("status-scoped", "not urgent", "urgent/not"),
-];
 
 #[derive(Default)]
 struct Scenario {
@@ -115,21 +98,13 @@ fn run(scenario: &Scenario, query: &str) -> Result<BTreeSet<String>, QueryError>
 #[test]
 fn test_every_query_answers_as_go_taskloom_answers() {
     let go = go();
-    let infix: BTreeMap<(&str, &str), &str> =
-        INFIX.iter().map(|(s, i, p)| ((*s, *i), *p)).collect();
     let mut compared = 0;
     let mut differences = Vec::new();
     for (name, scenario) in scenarios() {
         for query in &scenario.queries {
             let key = (name.clone(), query.clone());
             let ours = run(&scenario, query).ok();
-            let theirs = match infix.get(&(name.as_str(), query.as_str())) {
-                Some(postfix) => {
-                    assert_eq!(go[&key], None, "Go reads no infix: {query}");
-                    go[&(name.clone(), postfix.to_string())].clone()
-                }
-                None => go[&key].clone(),
-            };
+            let theirs = go[&key].clone();
             compared += 1;
             if ours != theirs {
                 differences.push(format!("{name} {query:?}: ours {ours:?}, Go's {theirs:?}"));
@@ -148,11 +123,30 @@ fn test_a_malformed_query_is_refused_with_the_grammar() {
     assert!(error.to_string().contains(QUERY_GRAMMAR), "{error}");
     assert!(error.to_string().contains("and"), "{error}");
     let names: Vec<&str> = error.args().into_iter().map(|(n, _)| n).collect();
-    assert_eq!(names, ["query", "postfix", "infix", "grammar"]);
-    assert!(!error.postfix.is_empty() && !error.infix.is_empty());
+    assert_eq!(names, ["query", "postfix", "grammar"]);
+    assert!(!error.postfix.is_empty());
     assert_eq!(check(None), Ok(()));
-    assert_eq!(check(Some("urgent and release")), Ok(()));
     assert_eq!(check(Some("urgent/release/and")), Ok(()));
+}
+
+// Queries are postfix only: an infix one is a malformed postfix query,
+// refused with postfix's reason and the postfix grammar, no infix hint.
+#[test]
+fn test_an_infix_query_is_refused_as_malformed_postfix() {
+    for query in [
+        "urgent and release",
+        "not urgent",
+        "(urgent or release) and not level=3",
+    ] {
+        let error = check(Some(query)).unwrap_err();
+        assert_eq!(error.code(), "tasks-application-tag-query");
+        let postfix = tagma_core::Index::new().query_postfix(query).unwrap_err();
+        assert_eq!(error.postfix, postfix, "{query}");
+        let shown = error.to_string();
+        assert!(shown.contains(QUERY_GRAMMAR), "{shown}");
+        assert!(!shown.contains("infix"), "{shown}");
+    }
+    assert!(!QUERY_GRAMMAR.contains("infix"), "{QUERY_GRAMMAR}");
 }
 
 #[test]

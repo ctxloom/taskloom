@@ -138,7 +138,7 @@ fn test_two_values_for_a_scalar_target_in_one_write_are_refused() {
 }
 
 #[test]
-fn test_list_selects_by_a_tag_query_postfix_or_infix() {
+fn test_list_selects_by_a_postfix_tag_query_and_refuses_infix() {
     let env = Env::new("calm-otter-fox");
     for (text, tag) in [
         ("one", "urgent"),
@@ -159,12 +159,13 @@ fn test_list_selects_by_a_tag_query_postfix_or_infix() {
             .collect()
     };
     assert_eq!(texts("urgent/release/or"), ["one", "two"]);
-    assert_eq!(texts("urgent or release"), ["one", "two"]);
     assert_eq!(texts("urgent/not"), ["two", "three"]);
     assert_eq!(texts("*:cli=+"), ["three"]);
-    let ran = env.run(&["list", "--json", "--tag-query", "urgent/and"]);
-    assert!(!ran.ok);
-    assert_eq!(code(&ran.stderr), "tasks-application-tag-query");
+    for refused in ["urgent/and", "urgent or release"] {
+        let ran = env.run(&["list", "--json", "--tag-query", refused]);
+        assert!(!ran.ok, "{refused}");
+        assert_eq!(code(&ran.stderr), "tasks-application-tag-query");
+    }
 }
 
 // A hidden tag is left out of text and kept in JSON, through the binary.
