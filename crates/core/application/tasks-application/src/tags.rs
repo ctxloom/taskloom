@@ -198,10 +198,18 @@ pub fn parse_all(spelled: &[String]) -> Result<Vec<Tag>, TagRefusal> {
         .collect()
 }
 
-/// Whether `tag` stays out of tagma's reserved namespaces (`tagma`,
-/// `tagma.*`), where tagma reads a tag as its own config, whatever item
-/// carries it: never a task's tag, written or imported.
-pub fn unreserved(tag: &Tag) -> Result<(), TagRefusal> {
+/// Whether `tag` passes what every task's tag must, whatever the
+/// project's schema: it could be queried (not a bare operator word), and
+/// it stays out of tagma's reserved namespaces (`tagma`, `tagma.*`), where
+/// tagma reads a tag as its own config, whatever item carries it. A write
+/// ([`admit`]) and an import both apply it.
+pub fn schema_free(tag: &Tag) -> Result<(), TagRefusal> {
+    let bare = tag.namespace.is_none() && tag.value.is_none();
+    if bare && OPERATOR_WORDS.contains(&tag.key.to_ascii_lowercase().as_str()) {
+        return Err(TagRefusal::OperatorWord {
+            tag: tag.to_string(),
+        });
+    }
     let Some(namespace) = &tag.namespace else {
         return Ok(());
     };
@@ -217,16 +225,11 @@ pub fn unreserved(tag: &Tag) -> Result<(), TagRefusal> {
     Ok(())
 }
 
-/// Whether `tag` may be written under `schema`: it could be queried, it
-/// stays out of tagma's namespace, and its value is one its target's
-/// declared enum, range and type allow.
+/// Whether `tag` may be written under `schema`: it passes [`schema_free`],
+/// and its value is one its target's declared enum, range and type allow.
 pub fn admit(tag: &Tag, schema: &TagSchema) -> Result<(), TagRefusal> {
     let spelled = || tag.to_string();
-    let bare = tag.namespace.is_none() && tag.value.is_none();
-    if bare && OPERATOR_WORDS.contains(&tag.key.to_ascii_lowercase().as_str()) {
-        return Err(TagRefusal::OperatorWord { tag: spelled() });
-    }
-    unreserved(tag)?;
+    schema_free(tag)?;
     let Some(value) = &tag.value else {
         return Ok(());
     };

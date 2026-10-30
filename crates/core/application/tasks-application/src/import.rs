@@ -27,9 +27,11 @@
 //! a Deferred status with no trigger, a status starting with `@`) is not
 //! imported, and is reported; so is every later record to a task whose add
 //! was not imported. A logged tag that is not a tag in tagma's grammar, or
-//! is one in tagma's reserved namespaces ([`tags::unreserved`]), which
-//! tagma would read as its config, is left out of its record's command,
-//! and reported; the rest of the record is imported. The fold still counts it, so a later record is judged
+//! fails what every task's tag must pass whatever the schema
+//! ([`tags::schema_free`]: a bare operator word, which could never be
+//! queried, or a tag in tagma's reserved namespaces, which tagma would read
+//! as its config), is left out of its record's command, and reported; the
+//! rest of the record is imported. The project's schema is not applied. The fold still counts it, so a later record is judged
 //! against the log's tags as written.
 //!
 //! Re-running an import duplicates nothing: a record's command id derives
@@ -140,8 +142,9 @@ pub enum Why {
     HarpTaken,
     /// A record to a task whose add was not imported.
     TaskNotImported,
-    /// One of the record's tags, not a tag in tagma's grammar or in its
-    /// reserved namespaces; the rest of the record was imported.
+    /// One of the record's tags, not a tag in tagma's grammar, or refused
+    /// whatever the schema ([`tags::schema_free`]); the rest of the record
+    /// was imported.
     Tag(TagRefusal),
 }
 
@@ -420,7 +423,7 @@ struct Fold {
     /// Harps whose add was not imported.
     missing: BTreeSet<String>,
     /// The tags of the last record stepped that are refused: not tags in
-    /// tagma's grammar, or in its reserved namespaces; left out of its
+    /// tagma's grammar, or refused whatever the schema; left out of its
     /// command.
     refused: Vec<TagRefusal>,
 }
@@ -607,10 +610,10 @@ fn deferring_on(status: &str, go_held: &str) -> Option<String> {
     }
 }
 
-/// `spelled` as a tag an import may bring over: one in tagma's grammar,
-/// outside its reserved namespaces; `None` when it is blank.
+/// `spelled` as a tag an import may bring over: one in tagma's grammar
+/// that passes [`tags::schema_free`]; `None` when it is blank.
 fn importable(spelled: &str) -> Option<Result<Tag, TagRefusal>> {
-    Some(tags::parse(spelled)?.and_then(|tag| tags::unreserved(&tag).map(|()| tag)))
+    Some(tags::parse(spelled)?.and_then(|tag| tags::schema_free(&tag).map(|()| tag)))
 }
 
 /// The tags of `spelled` an import may bring over, by their canonical

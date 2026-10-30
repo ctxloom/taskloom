@@ -105,7 +105,8 @@ struct Compared {
     /// counted.
     go_tags: usize,
     /// Those of them the import refuses, reports and leaves out: not tags
-    /// in tagma's grammar, or in its reserved namespaces.
+    /// in tagma's grammar, or refused whatever the schema (an operator
+    /// word, or in tagma's reserved namespaces).
     refused_tags: usize,
     /// `<harp>: <field>` for every field that disagrees: values are left
     /// out, since a real log's are private.
@@ -128,10 +129,10 @@ fn trigger_left_behind(task: &Value, state: &TaskState) -> bool {
 }
 
 /// `spelled`, in its canonical spelling, if the import brings it over: a
-/// tag in tagma's grammar, outside its reserved namespaces.
+/// tag in tagma's grammar that passes the schema-free check.
 fn importable(spelled: &str) -> Option<String> {
     let tag = tasks::Tag::from(tagma_core::Tag::parse(spelled).ok()?);
-    tasks_application::unreserved_tag(&tag).ok()?;
+    tasks_application::schema_free_tag(&tag).ok()?;
     Some(tag.to_string())
 }
 
@@ -510,7 +511,7 @@ fn test_the_import_agrees_with_gos_fold_of_real_logs() {
     assert_idempotent(home.path(), &report);
     assert_eq!(mismatched, 0, "every task agrees");
     // What is left behind is only tags refused, if anything: those tagma
-    // cannot parse, or in its reserved namespaces.
+    // cannot parse, operator words, or in its reserved namespaces.
     let all_lost: Vec<String> = report["projects"]
         .as_array()
         .unwrap()
@@ -521,6 +522,7 @@ fn test_the_import_agrees_with_gos_fold_of_real_logs() {
         all_lost
             .iter()
             .all(|why| why == "tasks-application-tag-unparseable"
+                || why == "tasks-application-tag-operator-word"
                 || why == "tasks-application-tag-reserved-namespace"),
         "everything else imported: {}",
         ran.stderr
