@@ -90,7 +90,9 @@ Dependencies point inward; a review refuses a change that breaks these:
   decide, apply or a projection. While taskloom moves from annals onto
   angzarr-embedded (`taskloom-on-angzarr-embedded.plan.md`), the tasks
   domain links angzarr-embedded, angzarr-embedded-macros (its markup) and
-  angzarr-embedded-diagnostic too, for `TaskAggregate`. One read model
+  angzarr-embedded-diagnostic too, for `TaskAggregate`, and the
+  task-lists read model links angzarr-embedded for its list on it
+  (`task_lists::embedded`). One read model
   links more: `task-priority` evaluates the tag schema's priority formulas with
   expr-lang (the Rust port of the language Go's taskloom evaluates them
   in), which is computation and nothing else.
@@ -107,8 +109,11 @@ Dependencies point inward; a review refuses a change that breaks these:
   projection); a read model never depends on the application layer (a query
   issues no command).
 - Entities are aggregates; anything listed is a projector's read model,
-  never an aggregate. A UI watches one stream per watch; a list's cursor is
-  its projector's own sequence.
+  never an aggregate. A UI watches one stream per watch. Nothing numbers
+  across streams (ruling D7): a list's cursor is per stream, each task
+  stream's sequence by harp id, of the list's instance; a purge bumps the
+  instance, and a cursor from before it is resynced whole, never resumed
+  (`task_lists::embedded::ListCursor`).
 
 ## Generated code is never committed
 

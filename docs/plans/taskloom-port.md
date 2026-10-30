@@ -90,7 +90,12 @@ cutover ("What remains").
     every task; each poll asks the store's change token first
     (`WatchedStores`: annals' `ChangeToken` and the handle that answered
     it), and only when it moved catches the projector up and answers the
-    changes past its cursor, the projector's own sequence. A project with
+    changes past its cursor. On annals the cursor is the projector's own
+    sequence; on angzarr-embedded (taskloom-on-angzarr-embedded.plan.md,
+    ruling D7) nothing numbers across streams: the cursor is each task
+    stream's sequence by harp id, of the list's instance, a purge bumps the
+    instance, and a cursor from before it is resynced whole
+    (`task_lists::embedded`). A project with
     no store yet answers nothing until one appears (a look at the
     filesystem each poll). A prune landing whole between two polls is seen
     from the stream's absence (a removal); a poll between its removal and
