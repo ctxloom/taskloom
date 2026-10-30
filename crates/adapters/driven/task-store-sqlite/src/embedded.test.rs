@@ -294,6 +294,73 @@ fn test_reading_a_project_with_no_database_finds_none_and_creates_nothing() {
     );
 }
 
+/// The handle of the store `stores` holds for `project`, by its token.
+async fn handle(stores: &mut EmbeddedStores, project: &Project) -> u64 {
+    stores
+        .change_token(project)
+        .await
+        .unwrap()
+        .expect("a store")
+        .handle
+}
+
+#[test]
+fn test_the_store_is_opened_once_and_held_for_its_project() {
+    let home = Home::new();
+    let project = project(
+        "jolly-mute-magma",
+        store_in(home.path(), "jolly-mute-magma"),
+    );
+    let mut stores = home.stores();
+    block_on(async {
+        stores.open(&project).await.unwrap();
+        stores.open(&project).await.unwrap();
+        assert_eq!(handle(&mut stores, &project).await, 1, "the held store");
+    });
+}
+
+#[test]
+fn test_a_store_held_to_read_is_opened_again_to_write_under_a_new_handle() {
+    let home = Home::new();
+    let project = project(
+        "jolly-mute-magma",
+        store_in(home.path(), "jolly-mute-magma"),
+    );
+    let mut stores = home.stores();
+    block_on(async {
+        home.stores().open(&project).await.unwrap();
+        stores
+            .open_existing(&project)
+            .await
+            .unwrap()
+            .expect("found");
+        let read = stores.change_token(&project).await.unwrap().unwrap();
+        let store = stores.open(&project).await.unwrap();
+        append(store, stream(1), 0, &[event(0, 1)]).await;
+        let written = stores.change_token(&project).await.unwrap().unwrap();
+        assert_eq!((read.handle, written.handle), (1, 2));
+        assert_ne!(read, written);
+    });
+}
+
+#[test]
+fn test_another_project_opens_its_own_store() {
+    let home = Home::new();
+    let first = project(
+        "jolly-mute-magma",
+        store_in(home.path(), "jolly-mute-magma"),
+    );
+    let second = project("high-tight-gulf", store_in(home.path(), "high-tight-gulf"));
+    let mut stores = home.stores();
+    block_on(async {
+        let store = stores.open(&first).await.unwrap();
+        append(store, stream(1), 0, &[event(0, 1)]).await;
+        let other = stores.open(&second).await.unwrap();
+        assert_eq!(pages(other, stream(1)).await, [], "not the first's");
+    });
+    assert!(home.exists(&second.store));
+}
+
 #[test]
 fn test_the_openers_futures_are_send_so_a_server_can_spawn_them() {
     fn is_send<T: Send>(_: &T) {}
