@@ -502,6 +502,40 @@ fn test_a_logged_tag_in_tagmas_namespace_is_reported_and_left_out() {
     assert!(select("p:k=1").contains("wry-moss"), "p:k is not scalar");
 }
 
+// A logged bare tag spelled as a query operator (`and`, `or`, `not`, in
+// any case) could never be queried; it is refused as a write refuses it,
+// reported and left out, on an add and on a retag; the rest imports. One
+// with a namespace or a value is a tag like any other.
+#[test]
+fn test_a_logged_operator_word_tag_is_reported_and_left_out() {
+    let mut service = service(numbered(vec![
+        JsonlRecord {
+            tags: strings(&["and", "ok", "x:not", "or=1"]),
+            ..add(HARP, "Ship it", 1)
+        },
+        tags(JsonlOp::Tag, HARP, &["NOT", "y"], 2),
+    ]));
+    let report = import(&mut service);
+    let project = only(&report);
+    let lost: Vec<(u32, &str)> = project
+        .lost
+        .iter()
+        .map(|l| (l.line, l.why.code()))
+        .collect();
+    assert_eq!(
+        lost,
+        [
+            (1, "tasks-application-tag-operator-word"),
+            (2, "tasks-application-tag-operator-word"),
+        ]
+    );
+    assert_eq!(project.applied, 2, "the add, and the tag of y");
+    assert_eq!(
+        spelled(&state(&mut service, HARP).unwrap().tags),
+        ["ok", "or=1", "x:not", "y"]
+    );
+}
+
 // The log keeps tags as strings, so it can hold one tag twice, spelled two
 // ways; an untag of one spelling leaves the other, and the task still
 // carries the tag. A real log has this (`sig:"a.b"` beside `sig:a.b`).
