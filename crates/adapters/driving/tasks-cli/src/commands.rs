@@ -3,11 +3,12 @@
 
 use std::io::{self, Write};
 
+use angzarr_embedded_diagnostic::Diagnostic;
 use clap::Args;
 use presentation::{Catalog, Format};
 use tasks_application::{
-    ListQuery, Listing, NewTask, PermitChange, PermitService, PruneRequest, PruneService, Reach,
-    Scope, ShowQuery, StatusChange, TagChange, TaskService, TextEdit, DEFAULT_OLDER_THAN,
+    AppError, ListQuery, Listing, NewTask, PermitChange, PermitService, PruneRequest, PruneService,
+    Reach, Scope, ShowQuery, StatusChange, TagChange, TaskService, TextEdit, DEFAULT_OLDER_THAN,
     DEFAULT_PRUNE_STATUSES,
 };
 
@@ -87,7 +88,13 @@ pub(crate) async fn add(
     )
 }
 
+// clap prints a required group ahead of the positionals, which put
+// <STATUS|...> before <HARP_ID> in the usage line: the harp id comes
+// first, as Go's `status <harp-id> <status>` has it.
 #[derive(Args, Debug)]
+#[command(
+    override_usage = "taskloom status [OPTIONS] <HARP_ID> <STATUS|--trigger <TRIGGER>|--clear-trigger>"
+)]
 #[command(group(
     clap::ArgGroup::new("change")
         .args(["status", "trigger", "clear_trigger"])
@@ -123,14 +130,19 @@ pub(crate) async fn status(
     err: &mut dyn Write,
 ) -> Result<(), CliError> {
     let change = StatusChange {
-        project: ctx.project,
-        harp_id: args.harp_id,
-        status: args.status,
+        project: ctx.project.clone(),
+        harp_id: args.harp_id.clone(),
+        status: args.status.clone(),
         trigger: args.trigger,
         clear_trigger: args.clear_trigger,
         request_id: args.request_id,
     };
-    let written = service.set_status(change).await.map_err(CliError::App)?;
+    let written = match service.set_status(change).await {
+        Ok(written) => written,
+        Err(error) => {
+            return Err(reversed(error, args.harp_id, args.status, ctx.project, service).await)
+        }
+    };
     wrote(
         &written,
         &Added(&written.task),
@@ -139,6 +151,35 @@ pub(crate) async fn status(
         out,
         err,
     )
+}
+
+/// A status change's error: where it is on no task and the status given
+/// is a task's id, the two were given the wrong way round, and that is
+/// the error, not "no such task".
+async fn reversed(
+    error: AppError,
+    harp_id: String,
+    status: Option<String>,
+    project: Option<String>,
+    service: &mut impl TaskService,
+) -> CliError {
+    let Some(status) = status else {
+        return CliError::App(error);
+    };
+    if error.code() != "tasks-no-task" {
+        return CliError::App(error);
+    }
+    let query = ShowQuery {
+        project,
+        global: false,
+        harp_ids: vec![status.clone()],
+    };
+    match service.show(query).await {
+        Ok(_) => CliError::StatusReversed {
+            command: format!("taskloom status {status} \"{harp_id}\""),
+        },
+        Err(_) => CliError::App(error),
+    }
 }
 
 #[derive(Args, Debug)]

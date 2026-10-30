@@ -95,7 +95,7 @@ run:
         `--status`, `--all`, `--compact`, `--limit`), `show <harp>...`,
         `summary`, `tags`, `permits`, `schema`; write with `add <text>`
         (`--tag`, `--status`, `--trigger`), `edit <harp> <text>`, `status
-        <status> <harp>` and `tag <harp> --add/--remove`. `<command> --help`
+        <harp> <status>` and `tag <harp> --add/--remove`. `<command> --help`
         is the reference. Echo a task's harp back when you name it later.
 
         - `--tag-query` is POSTFIX: tags first, operator after

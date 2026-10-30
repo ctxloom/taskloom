@@ -1244,3 +1244,40 @@ mod snapshot;
 
 #[path = "watch.test.rs"]
 mod watch;
+
+// The harp id comes first, then the status, as Go's `status <harp-id>
+// <status>` and the VS Code extension's `["status", harp, status]` have it;
+// the usage line says so. The other order is refused naming the order, not
+// as "there is no such task".
+#[test]
+fn test_status_takes_the_harp_then_the_status_and_says_so_when_reversed() {
+    let env = Env::new("status-order-harp");
+    let harp = env.seed("Order")["harp_id"].as_str().unwrap().to_string();
+    let help = env.run(&["status", "--help"]);
+    assert!(help.ok, "{}", help.stderr);
+    let usage = help
+        .stdout
+        .lines()
+        .find(|line| line.starts_with("Usage:"))
+        .unwrap_or_else(|| panic!("no usage line: {}", help.stdout));
+    let (Some(harp_at), Some(status_at)) = (usage.find("<HARP_ID>"), usage.find("STATUS")) else {
+        panic!("names both: {usage}");
+    };
+    assert!(harp_at < status_at, "the harp id first: {usage}");
+
+    let moved = env.run(&["status", &harp, "In Progress", "--json"]);
+    assert!(moved.ok, "{}", moved.stderr);
+    assert_eq!(moved.json()["status"], "In Progress");
+
+    let reversed = env.run(&["status", "To Do", &harp, "--json"]);
+    assert!(!reversed.ok, "{}", reversed.stdout);
+    let envelope = one_document(&reversed.stderr);
+    assert_eq!(envelope["code"], "tasks-cli-status-reversed", "{envelope}");
+    let message = envelope["message"].as_str().unwrap();
+    assert!(
+        message.contains(&format!("taskloom status {harp} \"To Do\"")),
+        "shows the order to use: {message}"
+    );
+    let listed = env.list();
+    assert_eq!(listed[0]["status"], "In Progress", "nothing moved");
+}

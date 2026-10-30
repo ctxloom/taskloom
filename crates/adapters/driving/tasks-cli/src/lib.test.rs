@@ -639,6 +639,73 @@ fn test_status_needs_an_id_and_a_change_and_says_why_it_failed() {
     );
 }
 
+// A status change on no task whose status names a task is the two given
+// the wrong way round: refused naming the order, not as "no such task".
+#[test]
+fn test_status_on_no_task_whose_status_is_a_task_says_the_harp_goes_first() {
+    let mut fake = Fake {
+        written: Some(Err(AppError::Rejected(Report::new("tasks-no-task")))),
+        details: details(
+            Reach::Project(project()),
+            vec![shapes::task("swift-amber", "To Do")],
+        ),
+        ..Fake::default()
+    };
+    let ran = run_on(
+        &mut fake,
+        true,
+        &["--project", "p", "status", "To Do", "swift-amber"],
+    );
+    assert_eq!(ran.code, 1);
+    assert_eq!(
+        fake.shows,
+        [ShowQuery {
+            project: Some("p".to_string()),
+            global: false,
+            harp_ids: vec!["swift-amber".to_string()],
+        }]
+    );
+    assert_eq!(
+        ran.err,
+        "taskloom: the harp id comes first, then the status: \
+         taskloom status swift-amber \"To Do\"\n"
+    );
+}
+
+// Where the status names no task either, or no status was given, or the
+// change failed otherwise, its own error stands.
+#[test]
+fn test_status_keeps_its_own_error_unless_the_status_is_a_task() {
+    let no_task = || Some(Err(AppError::Rejected(Report::new("tasks-no-task"))));
+    let mut fake = Fake {
+        written: no_task(),
+        details: Some(Err(AppError::NotFound {
+            harp_ids: vec!["Done".to_string()],
+        })),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["status", "nope", "Done"]);
+    assert_eq!(ran.code, 1);
+    assert_eq!(ran.err, "taskloom: there is no such task\n");
+    let mut fake = Fake {
+        written: no_task(),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["status", "nope", "--clear-trigger"]);
+    assert_eq!(ran.err, "taskloom: there is no such task\n");
+    assert_eq!(fake.shows, [], "no status to look up");
+    let mut fake = Fake {
+        written: Some(Err(AppError::NoProject)),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["status", "nope", "Done"]);
+    assert_eq!(fake.shows, [], "not a missing task");
+    assert_eq!(
+        ran.err,
+        "taskloom: there is no project here yet, so no task to change\n"
+    );
+}
+
 // ------------------------------------------------------------ edit
 
 #[test]

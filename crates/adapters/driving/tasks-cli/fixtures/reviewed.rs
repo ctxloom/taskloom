@@ -123,7 +123,7 @@ pub const LOADOUT: &[(&str, &str)] = &[
          `--status`, `--all`, `--compact`, `--limit`), `show <harp>...`,\n        \
          `summary`, `tags`, `permits`, `schema`; write with `add <text>`\n        \
          (`--tag`, `--status`, `--trigger`), `edit <harp> <text>`, `status\n        \
-         <status> <harp>` and `tag <harp> --add/--remove`. `<command> --help`\n        \
+         <harp> <status>` and `tag <harp> --add/--remove`. `<command> --help`\n        \
          is the reference. Echo a task's harp back when you name it later.\n\
          \n        \
          - `--tag-query` is POSTFIX: tags first, operator after\n          \
