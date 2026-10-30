@@ -447,6 +447,61 @@ fn test_a_logged_tag_outside_the_grammar_is_reported_and_the_rest_imported() {
     );
 }
 
+// A logged tag in tagma's reserved namespaces (`tagma`, `tagma.*`) is
+// tagma's own config: carried on a task, a query reads it as config (a
+// `tagma.hide` hides tags from it, a `tagma.arity` collapses another task's
+// values). It is refused as a write refuses it, reported and left out; the
+// rest of its record imports.
+#[test]
+fn test_a_logged_tag_in_tagmas_namespace_is_reported_and_left_out() {
+    let mut service = service(numbered(vec![
+        JsonlRecord {
+            tags: strings(&["tagma.hide:\"x:*\"=true", "ok"]),
+            ..add(HARP, "Ship it", 1)
+        },
+        JsonlRecord {
+            tags: strings(&["x:k"]),
+            ..add("calm-bay", "Seen", 2)
+        },
+        add("dim-fern", "Configures", 3),
+        tags(JsonlOp::Tag, "dim-fern", &["tagma.arity:\"p:k\"=scalar"], 4),
+        JsonlRecord {
+            tags: strings(&["p:k=1", "p:k=2"]),
+            ..add("wry-moss", "Both", 5)
+        },
+    ]));
+    let report = import(&mut service);
+    let project = only(&report);
+    let lost: Vec<(u32, &str)> = project
+        .lost
+        .iter()
+        .map(|l| (l.line, l.why.code()))
+        .collect();
+    assert_eq!(
+        lost,
+        [
+            (1, "tasks-application-tag-reserved-namespace"),
+            (4, "tasks-application-tag-reserved-namespace"),
+        ]
+    );
+    assert_eq!(
+        project.applied, 4,
+        "the four adds; the retag leaves nothing"
+    );
+    assert_eq!(spelled(&state(&mut service, HARP).unwrap().tags), ["ok"]);
+    assert!(state(&mut service, "dim-fern").unwrap().tags.is_empty());
+    let harps = [HARP, "calm-bay", "dim-fern", "wry-moss"];
+    let held: Vec<(&str, Vec<tasks::Tag>)> = harps
+        .iter()
+        .map(|h| (*h, state(&mut service, h).unwrap().tags))
+        .collect();
+    let candidates = || held.iter().map(|(h, t)| (*h, t.as_slice()));
+    let schema = crate::schema::TagSchema::default();
+    let select = |query| crate::query::select(Some(query), candidates(), &schema).unwrap();
+    assert!(select("*:k").contains("calm-bay"), "nothing hides x:k");
+    assert!(select("p:k=1").contains("wry-moss"), "p:k is not scalar");
+}
+
 // The log keeps tags as strings, so it can hold one tag twice, spelled two
 // ways; an untag of one spelling leaves the other, and the task still
 // carries the tag. A real log has this (`sig:"a.b"` beside `sig:a.b`).
