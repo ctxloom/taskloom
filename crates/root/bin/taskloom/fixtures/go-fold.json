@@ -281,6 +281,47 @@
       }
     ]
   },
+  "trigger-kept": {
+    "tasks": [
+      {
+        "harp_id": "brisk-heron",
+        "removed": false,
+        "text": "Parked, then finished",
+        "status": "Done",
+        "trigger": "after the release",
+        "origin_session": "calm-otter",
+        "tags": [],
+        "created_at": "2026-03-01T10:00:00Z",
+        "status_set_at": "2026-03-01T10:01:00Z",
+        "deferred_since": "2026-03-01T10:00:00Z"
+      },
+      {
+        "harp_id": "quiet-maple",
+        "removed": false,
+        "text": "Parked, then picked up",
+        "status": "In Progress",
+        "trigger": "when CI is green",
+        "origin_session": "calm-otter",
+        "tags": [],
+        "created_at": "2026-03-01T10:02:00Z",
+        "status_set_at": "2026-03-01T10:03:00Z",
+        "deferred_since": "2026-03-01T10:02:00Z"
+      },
+      {
+        "harp_id": "tidy-otter",
+        "removed": false,
+        "text": "Still parked",
+        "status": "Deferred",
+        "trigger": "next quarter",
+        "origin_session": "calm-otter",
+        "tags": [],
+        "created_at": "2026-03-01T10:04:00Z",
+        "status_set_at": "2026-03-01T10:04:00Z",
+        "deferred_since": "2026-03-01T10:04:00Z"
+      }
+    ],
+    "anomalies": []
+  },
   "union-merged": {
     "tasks": [
       {

@@ -110,6 +110,21 @@ struct Compared {
     /// `<harp>: <field>` for every field that disagrees: values are left
     /// out, since a real log's are private.
     mismatches: Vec<String>,
+    /// Tasks out of Deferred the fold gives a trigger the import does not:
+    /// expected (see `trigger_left_behind`), so not mismatches.
+    triggers_left_behind: usize,
+}
+
+/// Whether a disagreeing trigger is the one expected difference: the fold
+/// keeps a task's revive trigger after it leaves Deferred, while the tasks
+/// domain clears it then, since a trigger revives only a Deferred task. So
+/// a trigger the fold has and the import lacks, on a task not Deferred, is
+/// left behind by design; any other trigger difference, and every one on a
+/// Deferred task, is a mismatch.
+fn trigger_left_behind(task: &Value, state: &TaskState) -> bool {
+    state.status != "Deferred"
+        && state.trigger.is_empty()
+        && task["trigger"].as_str().is_some_and(|t| !t.is_empty())
 }
 
 /// Compare the reference fold of one project with the store the import
@@ -151,7 +166,10 @@ fn compare(go: &Value, rust: &BTreeMap<String, TaskState>) -> Compared {
                 ("removed", !state.removed),
                 ("text", task["text"] == state.text),
                 ("status", task["status"] == state.status),
-                ("trigger", task["trigger"] == state.trigger),
+                (
+                    "trigger",
+                    task["trigger"] == state.trigger || trigger_left_behind(task, state),
+                ),
                 (
                     "origin_session",
                     task["origin_session"] == state.origin_session,
@@ -171,6 +189,9 @@ fn compare(go: &Value, rust: &BTreeMap<String, TaskState>) -> Compared {
                 ),
             ];
             fields.extend(checks.iter().filter(|(_, ok)| !ok).map(|(f, _)| *f));
+        }
+        if !task["removed"].as_bool().unwrap() && trigger_left_behind(task, state) {
+            compared.triggers_left_behind += 1;
         }
         if fields.is_empty() {
             compared.agreeing += 1;
@@ -272,6 +293,21 @@ fn assert_idempotent(home: &Path, first: &Value) {
     }
 }
 
+/// Every fixture but `domain-refusals` agrees, task by task.
+fn assert_the_rest_agree(compared: &BTreeMap<String, Compared>) {
+    for (project, compared) in compared {
+        if project != "domain-refusals" {
+            assert_eq!(compared.mismatches, Vec::<String>::new(), "{project}");
+            assert_eq!(compared.agreeing, compared.go_tasks, "{project}");
+        }
+    }
+    assert!(compared["plain-history"].go_tasks >= 6);
+    // A trigger the fold keeps past Deferred, and the import does not, is
+    // expected, and counted; one on a task still Deferred must agree.
+    assert_eq!(compared["trigger-kept"].go_tasks, 3);
+    assert_eq!(compared["trigger-kept"].triggers_left_behind, 2);
+}
+
 #[test]
 fn test_the_import_agrees_with_gos_fold_of_every_fixture() {
     let go: Value =
@@ -357,13 +393,7 @@ fn test_the_import_agrees_with_gos_fold_of_every_fixture() {
     );
     assert_eq!(compared["unparseable-tags"].go_tags, 5);
     assert_eq!(compared["unparseable-tags"].unparseable_tags, 3);
-    for (project, compared) in &compared {
-        if project != "domain-refusals" {
-            assert_eq!(compared.mismatches, Vec::<String>::new(), "{project}");
-            assert_eq!(compared.agreeing, compared.go_tasks, "{project}");
-        }
-    }
-    assert!(compared["plain-history"].go_tasks >= 6);
+    assert_the_rest_agree(&compared);
 
     let counts = |p: &str, field: &str| reported(&report, p)[field].as_u64().unwrap();
     assert_eq!(counts("union-merged", "repeated"), 2);
@@ -386,6 +416,48 @@ fn test_the_import_agrees_with_gos_fold_of_every_fixture() {
     assert_idempotent(home.path(), &report);
 }
 
+/// A trigger missing from the import is a mismatch on a task still
+/// Deferred, and on any other only when the fold has none to leave behind.
+#[test]
+fn test_a_trigger_differs_only_as_leaving_deferred_drops_it() {
+    let go = |status: &str, trigger: &str| {
+        serde_json::json!({"tasks": [{
+            "harp_id": "brisk-heron", "removed": false, "text": "t",
+            "status": status, "trigger": trigger, "origin_session": "",
+            "tags": [], "created_at": "2026-03-01T10:00:00Z",
+            "status_set_at": "2026-03-01T10:00:00Z", "deferred_since": null,
+        }]})
+    };
+    let at = instant(&serde_json::json!("2026-03-01T10:00:00Z")).unwrap();
+    let rust = |status: &str, trigger: &str| {
+        BTreeMap::from([(
+            "brisk-heron".to_string(),
+            TaskState {
+                harp_id: "brisk-heron".into(),
+                text: "t".into(),
+                status: status.into(),
+                trigger: trigger.into(),
+                created_at: at,
+                status_set_at: at,
+                ..TaskState::default()
+            },
+        )])
+    };
+    let left = compare(&go("Done", "later"), &rust("Done", ""));
+    assert_eq!(left.mismatches, Vec::<String>::new());
+    assert_eq!((left.agreeing, left.triggers_left_behind), (1, 1));
+
+    let deferred = compare(&go("Deferred", "later"), &rust("Deferred", ""));
+    assert_eq!(deferred.mismatches, ["brisk-heron: trigger"]);
+    assert_eq!(deferred.triggers_left_behind, 0);
+
+    let changed = compare(&go("Done", "later"), &rust("Done", "sooner"));
+    assert_eq!(changed.mismatches, ["brisk-heron: trigger"]);
+
+    let gained = compare(&go("Done", ""), &rust("Done", "later"));
+    assert_eq!(gained.mismatches, ["brisk-heron: trigger"]);
+}
+
 /// Over real logs: TASKLOOM_IMPORT_LOGS names a directory of JSONL logs
 /// (copied again here, so it is only read), TASKLOOM_GO_FOLD the reference
 /// fold of them. `scripts/compare-go-import.sh` sets both up from copies.
@@ -406,9 +478,10 @@ fn test_the_import_agrees_with_gos_fold_of_real_logs() {
         unparseable += compared.unparseable_tags;
         let ours = reported(&report, project);
         println!(
-            "{project}: {} Go tasks, {} agree; {} records, {} imported, {} repeated, {} unchanged, {} ignored, {} repaired, {} not imported",
+            "{project}: {} Go tasks, {} agree, {} triggers left behind; {} records, {} imported, {} repeated, {} unchanged, {} ignored, {} repaired, {} not imported",
             compared.go_tasks,
             compared.agreeing,
+            compared.triggers_left_behind,
             ours["records"],
             ours["applied"],
             ours["repeated"],

@@ -1,0 +1,5 @@
+{"op":"add","task":"brisk-heron","text":"Parked, then finished","status":"Deferred","trigger":"after the release","session":"calm-otter","ts":"2026-03-01T10:00:00Z"}
+{"op":"status","task":"brisk-heron","status":"Done","session":"calm-otter","ts":"2026-03-01T10:01:00Z"}
+{"op":"add","task":"quiet-maple","text":"Parked, then picked up","status":"Deferred","trigger":"when CI is green","session":"calm-otter","ts":"2026-03-01T10:02:00Z"}
+{"op":"status","task":"quiet-maple","status":"In Progress","session":"calm-otter","ts":"2026-03-01T10:03:00Z"}
+{"op":"add","task":"tidy-otter","text":"Still parked","status":"Deferred","trigger":"next quarter","session":"calm-otter","ts":"2026-03-01T10:04:00Z"}
