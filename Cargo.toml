@@ -28,17 +28,18 @@ angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "0277
 # angzarr-embedded, angzarr's in-app runtime, which taskloom is moving onto
 # from annals (taskloom-on-angzarr-embedded.plan.md; the annals pins above
 # stay until the rest of the workspace moves, step 3). Pinned by rev on
-# angzarr-embedded's main: 882ba3c (spec 14.37, Failed<X> handler errors).
-angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "882ba3c5553eb83c4a5bc61869dc22d43eb704f1" }
-angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "882ba3c5553eb83c4a5bc61869dc22d43eb704f1" }
-angzarr-embedded-diagnostic = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "882ba3c5553eb83c4a5bc61869dc22d43eb704f1" }
-angzarr-store-sqlite = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "882ba3c5553eb83c4a5bc61869dc22d43eb704f1" }
+# angzarr-embedded's main: 550052a (router fc6d3a6, spec a0be938: angzarr-ports'
+# StoreError Display quotes ambiguous values).
+angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "550052a30c5c59a106ba99f0f6df8440b456c82e" }
+angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "550052a30c5c59a106ba99f0f6df8440b456c82e" }
+angzarr-embedded-diagnostic = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "550052a30c5c59a106ba99f0f6df8440b456c82e" }
+angzarr-store-sqlite = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "550052a30c5c59a106ba99f0f6df8440b456c82e" }
 # angzarr's storage contract, at the spec rev angzarr-embedded pins
-# (a1293ea), so the embedded side of the graph holds one spec: its
+# (a0be938), so the embedded side of the graph holds one spec: its
 # in-memory store, for the domain's tests. angzarr-embedded brings
 # angzarr-proto at the same rev; the workspace's angzarr-proto above stays
 # at annals' until step 3.
-angzarr-ports = { git = "https://github.com/angzarr-io/angzarr-project", rev = "a1293eae1da37a95b58eb6081b066846876b5cca" }
+angzarr-ports = { git = "https://github.com/angzarr-io/angzarr-project", rev = "a0be9386a8e535141dea3a5c27499e838ec6abc8" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
 annals-store-sql = { git = "https://github.com/benjaminabbitt/annals", rev = "ed00923e915c7fc9b832eba30d32115168ab7c35", features = ["sqlite"] }
 tasks = { path = "crates/core/domain/tasks" }
