@@ -385,3 +385,11 @@ fn test_a_store_that_never_answers_is_given_up_after_taskloom_s_attempts_alone()
     assert_eq!(store.begun(), 4, "taskloom's attempts, the kernel's none");
     assert!(dead_letters.take().is_empty(), "nothing dead-lettered");
 }
+
+#[test]
+fn test_an_outcome_is_refused_as_only_its_own_key() {
+    let refused = Outcome::Refused(angzarr_embedded_diagnostic::Report::new("tasks-removed"));
+    assert!(refused.refused_as("tasks-removed"));
+    assert!(!refused.refused_as("tasks-no-task"));
+    assert!(!Outcome::Committed.refused_as("tasks-removed"));
+}

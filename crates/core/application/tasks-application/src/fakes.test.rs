@@ -164,6 +164,9 @@ pub struct Flaky {
     /// Done to the store just before its next purge lands: another
     /// process's purge and mint between a prune's read and its purge.
     before_purge: Mutex<Option<Meanwhile>>,
+    /// Done to the store just before the stream read that many reads on
+    /// (1: the next): another process's write between an attempt's reads.
+    before_read: Mutex<Option<(u32, Meanwhile)>>,
 }
 
 impl Flaky {
@@ -196,6 +199,17 @@ impl Flaky {
     /// Run `meanwhile` just before the next purge lands.
     pub fn set_before_purge(&self, meanwhile: Meanwhile) {
         *self.before_purge.lock().unwrap() = Some(meanwhile);
+    }
+
+    /// Run `meanwhile` just before the `nth` stream read from now (1: the
+    /// next).
+    pub fn set_before_read(&self, nth: u32, meanwhile: Meanwhile) {
+        *self.before_read.lock().unwrap() = Some((nth, meanwhile));
+    }
+
+    /// Whether what was set to run before a read has run.
+    pub fn before_read_ran(&self) -> bool {
+        self.before_read.lock().unwrap().is_none()
     }
 
     /// Whether what was set to run meanwhile has run.
@@ -263,6 +277,20 @@ impl EventStore for Flaky {
         to: Option<u64>,
     ) -> Result<Slice, StoreError> {
         self.meanwhile();
+        let due = {
+            let mut armed = self.before_read.lock().unwrap();
+            match armed.take() {
+                Some((1, meanwhile)) => Some(meanwhile),
+                Some((n, meanwhile)) => {
+                    *armed = Some((n - 1, meanwhile));
+                    None
+                }
+                None => None,
+            }
+        };
+        if let Some(meanwhile) = due {
+            meanwhile(&self.inner);
+        }
         let slice = self.inner.read(stream, from, to).await?;
         Ok(hollowed(self.hollow, slice))
     }

@@ -518,6 +518,33 @@ fn test_a_scalar_value_set_by_another_since_is_displaced_too() {
     assert_eq!(spelled(&written.task.tags), ["triage:level=1", "x"]);
 }
 
+// There is no unit of work: the retag is shaped from one read and sent at
+// the head it read, so a value another process sets between that read and
+// the kernel's own is the kernel's conflict, and the retry shapes it
+// again: the scalar target still holds one value.
+#[test]
+fn test_a_scalar_value_set_between_the_shaping_read_and_the_write_is_displaced_too() {
+    let mut service = service(&["swift-amber"]);
+    add(&mut service, tagged(&["triage:level=3", "x"])).unwrap();
+    let parse = |tag: &str| crate::parse_tag(tag).unwrap().unwrap();
+    let retag: tasks::TaskCommand = tasks::Retag {
+        add: vec![parse("triage:level=2")],
+        remove: vec![parse("triage:level=3")],
+    }
+    .into();
+    service.stores.store.set_before_read(
+        2,
+        Box::new(move |store| crate::fakes::run(store, "swift-amber", retag)),
+    );
+    let written = ready(service.tag(change("swift-amber", &["triage:level=1"], &[]))).unwrap();
+    assert!(
+        service.stores.store.before_read_ran(),
+        "the other retag ran"
+    );
+    assert_eq!(spelled(&written.task.tags), ["triage:level=1", "x"]);
+    assert_eq!(service.delay.slept.len(), 1, "the stale head, retried once");
+}
+
 // Two values for one scalar target in one add are refused, as a rule of
 // the add, before a project is resolved: neither is the one meant more than
 // the other. One value given twice is one value.

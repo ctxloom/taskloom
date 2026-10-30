@@ -334,6 +334,11 @@ fn test_each_warning_renders_go_s_english() {
     ];
     for (warning, english) in cases {
         assert_eq!(warning.english(), english);
+        assert_eq!(
+            warning.to_string(),
+            angzarr_embedded_diagnostic::Report::of(&warning).to_string(),
+            "its Display is its key and args"
+        );
     }
     let note = PriorityNote {
         project: Some("p".to_string()),
