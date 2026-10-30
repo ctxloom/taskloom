@@ -85,11 +85,9 @@ impl Project {
     /// Purge task `harp`'s stream: what a prune does after its removal.
     fn purge(&self, harp: &str) -> u64 {
         let cover = cover(harp);
-        ready(Purge::purge(
-            &self.store,
-            StreamRef::try_from(&cover).unwrap(),
-        ))
-        .unwrap()
+        let stream = StreamRef::try_from(&cover).unwrap();
+        let head = ready(EventStore::head(&self.store, stream)).unwrap();
+        ready(Purge::purge(&self.store, stream, head.next_sequence)).unwrap()
     }
 
     /// Catch `list` up from the store.

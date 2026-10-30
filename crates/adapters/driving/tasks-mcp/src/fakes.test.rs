@@ -139,8 +139,8 @@ impl ReadStore for Contended {
 }
 
 impl Purge for Contended {
-    async fn purge(&self, stream: StreamRef<'_>) -> Result<u64, StoreError> {
-        self.inner.purge(stream).await
+    async fn purge(&self, stream: StreamRef<'_>, expected: u64) -> Result<u64, StoreError> {
+        self.inner.purge(stream, expected).await
     }
 }
 

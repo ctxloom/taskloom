@@ -868,13 +868,11 @@ fn test_a_prune_records_the_removal_then_purges_through_purge_and_frees_the_harp
     assert_eq!(again, "done-one", "the freed harp, minted again");
 }
 
-// RED, held so by the owner's ruling (taskloom-on-angzarr-embedded.plan.md,
-// step 4): another prune purges the stream after this one read it removed,
-// and a task is minted on the freed harp, all before this prune's purge
-// lands: the new task is not this prune's to purge. Green needs
-// angzarr-ports' Purge to purge only at the head the caller read
-// (`purge(stream, expected_sequence)`, refusing a conflict otherwise),
-// the upstream contract change being made.
+// Another prune purges the stream after this one read it removed, and a
+// task is minted on the freed harp, all before this prune's purge lands:
+// the new task is not this prune's to purge. The purge is at the head this
+// prune read (angzarr-ports' Purge, spec 14.43), so the store refuses it
+// as a conflict, and the retry reads the stream again, live.
 #[test]
 fn test_a_prune_never_purges_a_task_minted_on_its_harp_since_it_read() {
     let mut service = service(&["done-one"]);

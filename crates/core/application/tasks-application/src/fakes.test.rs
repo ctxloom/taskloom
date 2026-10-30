@@ -137,7 +137,9 @@ pub fn run(store: &MemoryStore, harp: &str, command: tasks::TaskCommand) {
 /// Purge `harp`'s stream in `store` directly, as another process would.
 pub fn purge(store: &MemoryStore, harp: &str) -> u64 {
     let cover = crate::cover(harp);
-    ready(Purge::purge(store, StreamRef::try_from(&cover).unwrap())).unwrap()
+    let stream = StreamRef::try_from(&cover).unwrap();
+    let head = ready(EventStore::head(store, stream)).unwrap();
+    ready(Purge::purge(store, stream, head.next_sequence)).unwrap()
 }
 
 /// angzarr-ports' in-memory store, whose writes and purges fail on cue, in
@@ -340,17 +342,17 @@ impl ReadUnit for FlakyRead<'_> {
 }
 
 impl Purge for Flaky {
-    async fn purge(&self, stream: StreamRef<'_>) -> Result<u64, StoreError> {
+    async fn purge(&self, stream: StreamRef<'_>, expected: u64) -> Result<u64, StoreError> {
         self.meanwhile();
         let before = self.before_purge.lock().unwrap().take();
         if let Some(before) = before {
             before(&self.inner);
         }
         match self.fault() {
-            None | Some(Fault::Sound) => self.inner.purge(stream).await,
+            None | Some(Fault::Sound) => self.inner.purge(stream, expected).await,
             Some(Fault::Unavailable) => Err(unavailable()),
             Some(Fault::LandsThenFails) => {
-                self.inner.purge(stream).await?;
+                self.inner.purge(stream, expected).await?;
                 Err(unavailable())
             }
             Some(Fault::Conflict) => Err(StoreError::conflict(some_stream(), 0, 1)),

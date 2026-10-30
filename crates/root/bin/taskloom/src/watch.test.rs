@@ -386,7 +386,8 @@ mod ticked {
                 Step::Purge(harp) => {
                     let stream = task_stream(&harp);
                     let stream = StreamRef::try_from(&stream).unwrap();
-                    let deleted = store.purge(stream).await.unwrap();
+                    let head = store.head(stream).await.unwrap();
+                    let deleted = store.purge(stream, head.next_sequence).await.unwrap();
                     assert!(deleted > 0, "the stream was there to purge");
                 }
                 Step::Elsewhere => {

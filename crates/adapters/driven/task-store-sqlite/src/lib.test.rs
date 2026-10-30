@@ -453,7 +453,16 @@ fn test_purge_removes_a_stream_and_every_position_on_it_and_it_starts_again_at_0
         };
         store.write(Write::positions(&[(list, 2)])).await.unwrap();
 
-        assert_eq!(store.purge(stream(1)).await.unwrap(), 2, "events deleted");
+        let stale = store.purge(stream(1), 1).await.unwrap_err();
+        assert!(
+            matches!(stale, StoreError::Conflict { actual: 2, .. }),
+            "a head that moved since it was read is a conflict: {stale}"
+        );
+        assert_eq!(
+            store.purge(stream(1), 2).await.unwrap(),
+            2,
+            "events deleted"
+        );
         let slice = store.read(stream(1), 0, None).await.unwrap();
         assert_eq!((slice.next_sequence, slice.pages), (0, Vec::new()));
         assert_eq!(store.position(list).await.unwrap(), 0, "its positions too");

@@ -174,8 +174,9 @@ impl<C: Clock, D: Delay + Jitter> Runner<'_, C, D> {
     }
 
     /// Purge the stream of the task `stream` names, if it holds a removed
-    /// task, read first, so a live task minted on the harp since is not
-    /// purged. Each attempt reads again. How many events it deleted: 0
+    /// task, read first and purged at the head read (spec 14.43), so a live
+    /// task minted on the harp since is never purged: the store refuses the
+    /// stale head as a conflict, and the next attempt reads again. How many events it deleted: 0
     /// when the stream holds no removed task.
     pub async fn purge<S: Store + Purge>(
         &mut self,
@@ -251,9 +252,12 @@ async fn purge_removed<S: EventStore + Purge>(
     stream: &Cover,
 ) -> Result<u64, (Report, Recovery)> {
     match task_at(registry, store, stream).await? {
-        Some((task, _)) if task.removed => {
+        // At the head read: a stream moved since (purged by another
+        // prune, a task minted on the freed harp) is the store's conflict,
+        // and the retry reads it again.
+        Some((task, head)) if task.removed => {
             let at = StreamRef::try_from(stream).map_err(store_failed)?;
-            store.purge(at).await.map_err(store_failed)
+            store.purge(at, head).await.map_err(store_failed)
         }
         _ => Ok(0),
     }

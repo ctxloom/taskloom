@@ -15,7 +15,7 @@ publish = false
 # messages and angzarr's are built by one prost.
 prost = "0.14"
 prost-types = "0.14"
-angzarr-proto = { version = "0.1", git = "https://github.com/angzarr-io/angzarr-project", rev = "a0be9386a8e535141dea3a5c27499e838ec6abc8" }
+angzarr-proto = { version = "0.1", git = "https://github.com/angzarr-io/angzarr-project", rev = "b0a680fd1d8cdfaef9baace879b6b6adbeeca22a" }
 
 # angzarr-build (angzarr-cli's markup domain layer) is pinned by full
 # commit, so a fresh clone builds with no sibling checkouts; bumps are
@@ -25,16 +25,16 @@ angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "4ba0
 
 # angzarr-embedded, angzarr's in-app runtime, taskloom's
 # (taskloom-on-angzarr-embedded.plan.md). Pinned by rev on
-# angzarr-embedded's main: 550052a (router fc6d3a6, spec a0be938: angzarr-ports'
-# StoreError Display quotes ambiguous values).
-angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "550052a30c5c59a106ba99f0f6df8440b456c82e" }
-angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "550052a30c5c59a106ba99f0f6df8440b456c82e" }
-angzarr-embedded-diagnostic = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "550052a30c5c59a106ba99f0f6df8440b456c82e" }
-angzarr-store-sqlite = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "550052a30c5c59a106ba99f0f6df8440b456c82e" }
+# angzarr-embedded's main: 3edfe31 (router 8fc078f, spec b0a680f: Purge takes
+# the head the caller read, spec 14.43).
+angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "3edfe314b468bf75e4f35d05a3b079d8d97ab46f" }
+angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "3edfe314b468bf75e4f35d05a3b079d8d97ab46f" }
+angzarr-embedded-diagnostic = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "3edfe314b468bf75e4f35d05a3b079d8d97ab46f" }
+angzarr-store-sqlite = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "3edfe314b468bf75e4f35d05a3b079d8d97ab46f" }
 # angzarr's storage contract, at the spec rev angzarr-embedded pins
-# (a0be938), so the graph holds one spec, as angzarr-proto above does: the
+# (b0a680f), so the graph holds one spec, as angzarr-proto above does: the
 # store ports, and their in-memory store for tests.
-angzarr-ports = { git = "https://github.com/angzarr-io/angzarr-project", rev = "a0be9386a8e535141dea3a5c27499e838ec6abc8" }
+angzarr-ports = { git = "https://github.com/angzarr-io/angzarr-project", rev = "b0a680fd1d8cdfaef9baace879b6b6adbeeca22a" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
 tasks = { path = "crates/core/domain/tasks" }
 task-lists = { path = "crates/core/read-model/task-lists" }

@@ -91,8 +91,8 @@ impl PositionStore for Interleaved<'_> {
 }
 
 impl Purge for Interleaved<'_> {
-    async fn purge(&self, stream: StreamRef<'_>) -> Result<u64, StoreError> {
-        self.store.purge(stream).await
+    async fn purge(&self, stream: StreamRef<'_>, expected: u64) -> Result<u64, StoreError> {
+        self.store.purge(stream, expected).await
     }
 }
 
