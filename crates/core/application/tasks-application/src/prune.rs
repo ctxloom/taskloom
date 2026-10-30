@@ -330,7 +330,7 @@ async fn live_tasks<S: ReadStore>(
     store: &S,
     registry: &Registry,
 ) -> Result<(Vec<TaskState>, Vec<TaskState>), AppError> {
-    let mut list = crate::read_list();
+    let mut list = task_lists::TaskList::new();
     list.catch_up(store, registry)
         .await
         .map_err(|e| AppError::Failed(Report::of(&*e)))?;

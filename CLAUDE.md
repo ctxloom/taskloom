@@ -107,11 +107,10 @@ Dependencies point inward; a review refuses a change that breaks these:
   projection); a read model never depends on the application layer (a query
   issues no command).
 - Entities are aggregates; anything listed is a projector's read model,
-  never an aggregate. A UI watches one stream per watch. Nothing numbers
-  across streams (ruling D7): a list's cursor is per stream, each task
-  stream's sequence by harp id, of the list's instance; a purge bumps the
-  instance, and a cursor from before it is resynced whole, never resumed
-  (`task_lists::ListCursor`).
+  never an aggregate. Nothing numbers across streams (ruling D7). A watch
+  keeps no cursor (the owner's cut of D7, 2026-10-30): it holds only the
+  store's change token, and a poll answers whether it moved, so any
+  commit, even one no task sees, is a change the subscriber re-queries.
 
 ## Generated code is never committed
 

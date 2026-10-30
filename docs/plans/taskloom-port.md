@@ -30,7 +30,8 @@ cutover ("What remains").
   generated from that proto.
 - `core/domain/tasks`: decide and apply for add, set-status, edit, retag and
   remove, with localizable rejections.
-- `core/read-model/task-lists`: the list projector, with a resumable cursor,
+- `core/read-model/task-lists`: the list projector (it keeps no cursor:
+  the owner's ruling on D7, 2026-10-30, under `WatchService` below),
   caught up over the sync store port, or over the async one's read-only
   unit of work, one moment of the store. It keeps, per stream, its last
   projected sequence and its first event's fingerprint (the cause, a
@@ -92,23 +93,20 @@ cutover ("What remains").
     dangling reference a survivor holds: a tag carrying the harp as a word
     (`relates:<harp>`), or the harp as a word of its text or trigger.
   - `WatchService` (its own trait beside `TaskService`): a watch resolves
-    its project as a read does and holds the task-list projector over
-    every task; each poll asks the store's change token first
-    (`WatchedStores`: annals' `ChangeToken` and the handle that answered
-    it), and only when it moved catches the projector up and answers the
-    changes past the watcher's cursor. Nothing numbers across streams
-    (taskloom-on-angzarr-embedded.plan.md, ruling D7): the cursor is each
-    task stream's sequence by harp id, of the list's instance (one list per
-    watched project, of an instance it mints), a purge bumps the instance,
-    and a cursor of another instance, or from before a purge, is answered
-    a snapshot (`Polled::Snapshot`); on the wire it is `{"instance":
-    "<id>/<purges>", "streams": {"<harp>": <sequence>}}`. A project with
-    no store yet answers nothing until one appears (a look at the
-    filesystem each poll). A prune landing whole between two polls is seen
-    from the stream's absence (a removal); a poll between its removal and
-    its purge answers the removal and later polls nothing new; a prune and
-    a mint on its harp between two polls is the new task. The binary's
-    in-process watch tests force each, tick by tick.
+    its project as a read does and holds only the store's change token
+    (`WatchedStores`: angzarr-ports' `ChangeToken` and the handle that
+    answered it); each poll reads the token, no stream, and answers
+    whether it moved. Ruling D7 as the owner cut it (2026-10-30): nothing
+    outside the process read the per-stream cursor the watch once kept,
+    and `taskloom watch` reduces every change to Go's `changed` line, so
+    the cursor, its deltas and snapshots are gone; nothing numbers across
+    streams. The accepted cost: any commit moves the token, so a commit
+    no task sees (a purge after its removal, a purge of nothing) is a
+    change, and the subscriber re-queries to find the same tasks. A
+    project with no store yet answers nothing until one appears (a look
+    at the filesystem each poll). The binary's in-process watch tests
+    force a prune whole, its halves apart, a mint on its freed harp and a
+    commit no task sees between polls, tick by tick.
 - `core/application/project-application`: `show`, `heal`, `repoint` and the
   orphaned databases, planned from the port's survey; it depends on no
   tasks crate. The marker is authoritative and the registry heals toward
@@ -755,7 +753,7 @@ restarted on a freed harp is under "Where it stands".
   its turn, and the exit code is 1; in text it is the catalog message.
 - Presentation (Decided 10). Formats are not core ports: the core returns
   typed values and `TaskService` is the driving seam (`WatchService` is
-  polled for typed changes, not pushed into a presenter).
+  polled for whether the store changed, not pushed into a presenter).
   `adapters/driving/presentation` is domain-free, so ctxloom's binary and
   later domains reuse it (a test keeps every workspace crate but
   annals-diagnostic out of its dependencies). It owns format selection
