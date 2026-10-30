@@ -76,7 +76,8 @@ and `just lint` runs it. `just check-windows` compiles the crates that use
 it for Windows, a quick check from Linux; CI (`.github/workflows/ci.yml`)
 builds and tests the whole workspace natively on a Windows runner. So a
 test names a path that must be absolute through `os::fixture` (`/tree`,
-`C:\tree` on Windows), never a unix literal, and builds an expected path
+`C:\tree` on Windows; os's `test-support` feature, on through a
+dev-dependency), never a unix literal, and builds an expected path
 the way the code does, joined component by component.
 
 ## Architecture: hexagonal around CQRS/ES (checked in review)
@@ -166,6 +167,18 @@ variant needs a stable code (prefixed with
 the crate's name), an en-US message in `locales/en-US/<crate>.ftl` using
 exactly its args, and a sample in the crate's `diagnostic_samples()`. The
 crate's catalog test checks messages and samples both ways.
+
+`diagnostic_samples()` is test-only API, so it is no part of a binary:
+`#[cfg(any(test, feature = "test-support"))]` on the function and its
+re-export, where `test-support` is the crate's own feature (declared in
+its Cargo.toml, enabling nothing else). The crate's tests see it through
+`cfg(test)`; another crate's tests (tasks-lib's and the binary's
+every-diagnostic catalog tests) list the crate again under
+`[dev-dependencies]` with `features = ["test-support"]`, which no build of
+a binary turns on. Any other API only tests use goes behind the same
+gate: `#[cfg(test)]` when only its own crate's tests use it, the
+crate's `test-support` feature when another crate's do (os's `fixture`,
+`Mode::PRIVATE_DIR`, `Flavor::program_file` and `Flavor::startup_vars`).
 
 Each crate with diagnostics exports its embedded en-US catalog as `EN_US`
 (its name and its `.ftl`). The composition root assembles the binary's

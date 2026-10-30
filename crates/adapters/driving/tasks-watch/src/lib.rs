@@ -34,7 +34,9 @@ use presentation::{Catalog, Format};
 use serde::Serialize;
 use tasks_application::{WatchRequest, WatchService};
 
-pub use error::{diagnostic_samples, WatchError, EN_US};
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::{WatchError, EN_US};
 
 /// The quiet a burst of commits waits for before its line, and the
 /// binary's tick.

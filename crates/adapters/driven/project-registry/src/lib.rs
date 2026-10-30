@@ -38,7 +38,9 @@ use angzarr_embedded_diagnostic::Report;
 use file_system::Fs;
 use ports::{IdSource, Names, Project, ProjectIdentity};
 
-pub use error::{diagnostic_samples, RegistryError, EN_US};
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::{RegistryError, EN_US};
 pub use index::LOCK_WAIT;
 
 /// How many project ids a mint draws before giving up, each already
@@ -78,7 +80,8 @@ impl<N> ProjectRegistry<N> {
     }
 
     /// The same, waiting up to `wait` for the registry's lock rather than
-    /// [`LOCK_WAIT`].
+    /// [`LOCK_WAIT`]. For this crate's tests.
+    #[cfg(test)]
     pub fn with_lock_wait(self, wait: Duration) -> Self {
         ProjectRegistry {
             lock_wait: wait,

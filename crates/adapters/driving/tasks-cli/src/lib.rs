@@ -29,7 +29,9 @@ use presentation::{Catalog, CatalogError, Format, Render, Source, UnknownFormat}
 use tasks_application::{DeadLetter, PermitService, PruneService, TaskService, Written};
 
 pub use companion::{Asked, LOADOUT};
-pub use error::{diagnostic_samples, CliError, EN_US};
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::{CliError, EN_US};
 pub use import::{run_import, ImportGroup};
 
 use companion::VersionJson;

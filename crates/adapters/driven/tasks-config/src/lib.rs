@@ -41,7 +41,9 @@ use os::Mode;
 use ports::{Configuration, ConfigurationWriter, TagPermits};
 use serde::Deserialize;
 
-pub use error::{diagnostic_samples, ConfigError, EN_US};
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::{ConfigError, EN_US};
 
 /// The directory a config file is in, at the home and the work root.
 pub const DIR: &str = ".taskloom";

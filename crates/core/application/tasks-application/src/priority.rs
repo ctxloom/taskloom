@@ -221,6 +221,7 @@ impl Diagnostic for PriorityNote {
 }
 
 /// One of every warning, for the catalog test.
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn samples() -> Vec<PriorityNote> {
     let x = || "x".to_string();
     let bare = |warning| PriorityNote {

@@ -122,6 +122,7 @@ pub const EN_US: (&str, &str) = (
 
 /// One value of every error and notice this crate defines (not the
 /// wrapper), for the catalog test.
+#[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     let engine = || "claude-code".to_string();
     let command = || "taskloom".to_string();

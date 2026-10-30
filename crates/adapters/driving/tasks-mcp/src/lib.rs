@@ -40,8 +40,10 @@ use rmcp::transport::IntoTransport;
 use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceExt};
 use tasks_application::{DeadLetter, TaskService};
 
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
 use error::McpNotice;
-pub use error::{diagnostic_samples, McpError, EN_US};
+pub use error::{McpError, EN_US};
 pub use resources::RESOURCES;
 
 /// The server's instructions to its client, with the reviewed factual
@@ -111,7 +113,9 @@ impl<F> TaskTools<F> {
         }
     }
 
-    /// The same server, writing what it says on stderr to `stderr`.
+    /// The same server, writing what it says on stderr to `stderr`. For
+    /// this crate's tests.
+    #[cfg(test)]
     pub fn with_stderr(self, stderr: impl Write + Send + 'static) -> TaskTools<F> {
         TaskTools {
             stderr: Arc::new(Mutex::new(Box::new(stderr))),

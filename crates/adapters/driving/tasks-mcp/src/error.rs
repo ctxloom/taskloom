@@ -101,6 +101,7 @@ pub const EN_US: (&str, &str) = ("tasks-mcp", include_str!("../locales/en-US/tas
 
 /// One value of every error and notice this crate defines (not the
 /// wrapper), for the catalog test.
+#[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     vec![
         Box::new(McpError::Arguments {

@@ -104,6 +104,7 @@ pub const EN_US: (&str, &str) = (
 );
 
 /// One value of every error this crate defines, for the catalog test.
+#[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     let path = || "/home/me/.claude.json".to_string();
     let detail = || "expected a string key at line 3, column 1".to_string();

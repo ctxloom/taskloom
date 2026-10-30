@@ -171,6 +171,7 @@ impl Diagnostic for PruneRefusal {
 }
 
 /// One of every refusal, for the catalog test.
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn samples() -> Vec<PruneRefusal> {
     let age = || "0d".to_string();
     vec![

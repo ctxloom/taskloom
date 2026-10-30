@@ -24,28 +24,39 @@ tasks-watch.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
-agent-configs.workspace = true
+agent-configs = { workspace = true, features = ["test-support"] }
 angzarr-embedded.workspace = true
 angzarr-ports.workspace = true
 angzarr-store-sqlite.workspace = true
 angzarr-embedded-diagnostic.workspace = true
-file-system.workspace = true
+file-system = { workspace = true, features = ["test-support"] }
 fs4.workspace = true
 harp-names.workspace = true
-jsonl-task-log.workspace = true
+jsonl-task-log = { workspace = true, features = ["test-support"] }
 ports.workspace = true
-project-application.workspace = true
-project-registry.workspace = true
-registration-application.workspace = true
+project-application = { workspace = true, features = ["test-support"] }
+project-registry = { workspace = true, features = ["test-support"] }
+registration-application = { workspace = true, features = ["test-support"] }
 serde.workspace = true
 serde_json.workspace = true
 system.workspace = true
 tagma-core.workspace = true
-task-priority.workspace = true
-task-store-sqlite.workspace = true
-tasks-config.workspace = true
-tasks.workspace = true
+task-priority = { workspace = true, features = ["test-support"] }
+task-store-sqlite = { workspace = true, features = ["test-support"] }
+tasks-config = { workspace = true, features = ["test-support"] }
+tasks = { workspace = true, features = ["test-support"] }
 time.workspace = true
+# Dependencies already, here again for their test-support: every crate's
+# diagnostic_samples for the catalog tests, and os's fixtures.
+project-cli = { workspace = true, features = ["test-support"] }
+tasks-mcp = { workspace = true, features = ["test-support"] }
+tasks-watch = { workspace = true, features = ["test-support"] }
+tasks-cli = { workspace = true, features = ["test-support"] }
+file-lock = { workspace = true, features = ["test-support"] }
+os = { workspace = true, features = ["test-support"] }
+presentation = { workspace = true, features = ["test-support"] }
+tasks-application = { workspace = true, features = ["test-support"] }
+registration-cli = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

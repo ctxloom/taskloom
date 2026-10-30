@@ -36,8 +36,10 @@ use file_system::{Fs, Kind, Perms};
 use os::Mode;
 use ports::{AgentConfigs, McpServer, Rewritten, Scope};
 
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::ConfigError;
 pub use error::EN_US;
-pub use error::{diagnostic_samples, ConfigError};
 
 /// Claude Code, as `--engine` names it.
 pub const CLAUDE_CODE: &str = "claude-code";

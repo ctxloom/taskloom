@@ -102,6 +102,7 @@ impl Diagnostic for Unrendered {
 }
 
 /// One value of every error this crate defines, for the catalog test.
+#[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     vec![
         Box::new(UnknownFormat {
