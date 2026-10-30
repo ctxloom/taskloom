@@ -74,7 +74,7 @@ dependencies = [
 [[package]]
 name = "angzarr-embedded"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=c2e7ae8212a486bca268f44c2c58e3816ca33439#c2e7ae8212a486bca268f44c2c58e3816ca33439"
+source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=882ba3c5553eb83c4a5bc61869dc22d43eb704f1#882ba3c5553eb83c4a5bc61869dc22d43eb704f1"
 dependencies = [
  "angzarr-embedded-diagnostic",
  "angzarr-ports",
@@ -87,12 +87,12 @@ dependencies = [
 [[package]]
 name = "angzarr-embedded-diagnostic"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=c2e7ae8212a486bca268f44c2c58e3816ca33439#c2e7ae8212a486bca268f44c2c58e3816ca33439"
+source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=882ba3c5553eb83c4a5bc61869dc22d43eb704f1#882ba3c5553eb83c4a5bc61869dc22d43eb704f1"
 
 [[package]]
 name = "angzarr-embedded-macros"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=c2e7ae8212a486bca268f44c2c58e3816ca33439#c2e7ae8212a486bca268f44c2c58e3816ca33439"
+source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=882ba3c5553eb83c4a5bc61869dc22d43eb704f1#882ba3c5553eb83c4a5bc61869dc22d43eb704f1"
 dependencies = [
  "proc-macro2",
  "quote",

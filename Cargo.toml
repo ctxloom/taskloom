@@ -27,16 +27,12 @@ angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "0277
 
 # angzarr-embedded, angzarr's in-app runtime, which taskloom is moving onto
 # from annals (taskloom-on-angzarr-embedded.plan.md; the annals pins above
-# stay until the rest of the workspace moves, step 3). Pinned by rev, not
-# by a branch: c2e7ae8 is the tip of branch feat/errors-key-map (spec
-# 14.37: errors are a key and args, four classes, capped retry,
-# recorded_at), not yet on angzarr-embedded's main. Its merge of main,
-# 9dd600b, changes no crate and was not pushed when pinned. Re-pin to main
-# once it and feat/handler-bug land there.
-angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "c2e7ae8212a486bca268f44c2c58e3816ca33439" }
-angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "c2e7ae8212a486bca268f44c2c58e3816ca33439" }
-angzarr-embedded-diagnostic = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "c2e7ae8212a486bca268f44c2c58e3816ca33439" }
-angzarr-store-sqlite = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "c2e7ae8212a486bca268f44c2c58e3816ca33439" }
+# stay until the rest of the workspace moves, step 3). Pinned by rev on
+# angzarr-embedded's main: 882ba3c (spec 14.37, Failed<X> handler errors).
+angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "882ba3c5553eb83c4a5bc61869dc22d43eb704f1" }
+angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "882ba3c5553eb83c4a5bc61869dc22d43eb704f1" }
+angzarr-embedded-diagnostic = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "882ba3c5553eb83c4a5bc61869dc22d43eb704f1" }
+angzarr-store-sqlite = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "882ba3c5553eb83c4a5bc61869dc22d43eb704f1" }
 # angzarr's storage contract, at the spec rev angzarr-embedded pins
 # (a1293ea), so the embedded side of the graph holds one spec: its
 # in-memory store, for the domain's tests. angzarr-embedded brings
