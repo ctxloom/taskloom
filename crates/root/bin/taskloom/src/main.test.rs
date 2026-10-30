@@ -753,6 +753,93 @@ fn test_every_diagnostic_of_every_crate_renders_from_the_binarys_catalog() {
     }
 }
 
+// RED, step 4 of taskloom-on-angzarr-embedded.plan.md: the diagnostics
+// move onto angzarr-embedded-diagnostic, and annals leaves the workspace.
+
+/// Every crate of this workspace's diagnostic samples (annals' are the
+/// runtime's, which leaves).
+fn ours() -> Vec<Box<dyn annals_diagnostic::Diagnostic>> {
+    [
+        tasks::diagnostic_samples(),
+        tasks_application::diagnostic_samples(),
+        task_priority::diagnostic_samples(),
+        file_system::diagnostic_samples(),
+        project_registry::diagnostic_samples(),
+        task_store_sqlite::diagnostic_samples(),
+        tasks_cli::diagnostic_samples(),
+        project_application::diagnostic_samples(),
+        project_cli::diagnostic_samples(),
+        jsonl_task_log::diagnostic_samples(),
+        tasks_config::diagnostic_samples(),
+        presentation::diagnostic_samples(),
+        tasks_mcp::diagnostic_samples(),
+        registration_application::diagnostic_samples(),
+        registration_cli::diagnostic_samples(),
+        agent_configs::diagnostic_samples(),
+        file_lock::diagnostic_samples(),
+        tasks_watch::diagnostic_samples(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+/// The names of `d`'s args, and of every nested cause's, as `code.name`.
+fn arg_names(d: &dyn annals_diagnostic::Diagnostic) -> Vec<String> {
+    d.args()
+        .into_iter()
+        .flat_map(|(name, arg)| {
+            let mut names = vec![format!("{}.{name}", d.code())];
+            if let annals_diagnostic::Arg::Nested(cause) = arg {
+                names.extend(arg_names(&*cause));
+            }
+            names
+        })
+        .collect()
+}
+
+#[test]
+fn test_a_third_partys_text_is_the_arg_ext_err_txt_in_every_crate() {
+    // A third party's text (the OS's through std's io::Error, a parser's,
+    // a serializer's) travels verbatim as `ext_err_txt` (angzarr decision
+    // 14.37), never under a name of its own.
+    let detail: Vec<String> = ours()
+        .iter()
+        .flat_map(|d| arg_names(&**d))
+        .filter(|name| name.ends_with(".detail"))
+        .collect();
+    assert!(detail.is_empty(), "still `detail`: {detail:#?}");
+}
+
+#[test]
+fn test_every_diagnostic_displays_as_its_key_and_args_never_english() {
+    let english: Vec<String> = ours()
+        .iter()
+        .map(|d| d.to_string())
+        .zip(ours().iter().map(|d| d.code()))
+        .filter(|(shown, code)| shown != code && !shown.starts_with(&format!("{code} ")))
+        .map(|(shown, code)| format!("{code}: {shown}"))
+        .collect();
+    assert!(english.is_empty(), "English crosses: {english:#?}");
+}
+
+#[test]
+fn test_annals_has_left_the_workspace() {
+    let lock = include_str!("../../../../../Cargo.lock");
+    let annals: Vec<&str> = lock
+        .lines()
+        .filter_map(|line| line.strip_prefix("name = \""))
+        .map(|name| name.trim_end_matches('"'))
+        .filter(|name| name.starts_with("annals"))
+        .collect();
+    assert!(annals.is_empty(), "still in the graph: {annals:?}");
+    let manifest = include_str!("../../../../../Cargo.toml");
+    assert!(
+        !manifest.contains("benjaminabbitt/annals"),
+        "the workspace still pins annals"
+    );
+}
+
 /// stdout as exactly one JSON document, as jq reads it.
 fn one_document(text: &str) -> Value {
     let mut documents = serde_json::Deserializer::from_str(text).into_iter::<Value>();
