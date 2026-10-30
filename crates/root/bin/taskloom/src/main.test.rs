@@ -97,7 +97,7 @@ pub(crate) mod disk {
     use std::io;
     use std::path::{Path, PathBuf};
 
-    use file_system::{Open, Perms};
+    use file_system::Perms;
 
     use os::Mode;
 
@@ -150,11 +150,6 @@ pub(crate) mod disk {
             .into_iter()
             .map(|entry| dir.join(entry.name))
             .collect())
-    }
-
-    /// The file, open to read.
-    pub(crate) fn open(path: impl AsRef<Path>) -> io::Result<std::fs::File> {
-        os().open(path.as_ref(), Open::Read)
     }
 
     /// Whether anything is at `path`, links followed; as `Path::exists`,
@@ -732,10 +727,6 @@ fn test_every_diagnostic_of_every_crate_renders_from_the_binarys_catalog() {
         jsonl_task_log::diagnostic_samples(),
         tasks_config::diagnostic_samples(),
         presentation::diagnostic_samples(),
-        tasks_mcp::diagnostic_samples(),
-        registration_application::diagnostic_samples(),
-        registration_cli::diagnostic_samples(),
-        agent_configs::diagnostic_samples(),
         file_lock::diagnostic_samples(),
         tasks_watch::diagnostic_samples(),
     ]
@@ -771,10 +762,6 @@ fn ours() -> Vec<Box<dyn angzarr_embedded_diagnostic::Diagnostic>> {
         jsonl_task_log::diagnostic_samples(),
         tasks_config::diagnostic_samples(),
         presentation::diagnostic_samples(),
-        tasks_mcp::diagnostic_samples(),
-        registration_application::diagnostic_samples(),
-        registration_cli::diagnostic_samples(),
-        agent_configs::diagnostic_samples(),
         file_lock::diagnostic_samples(),
         tasks_watch::diagnostic_samples(),
     ]
@@ -1242,12 +1229,6 @@ mod companion;
 
 #[path = "import.test.rs"]
 mod import;
-
-#[path = "manage.test.rs"]
-mod manage;
-
-#[path = "mcp.test.rs"]
-mod mcp;
 
 #[path = "project.test.rs"]
 mod project;

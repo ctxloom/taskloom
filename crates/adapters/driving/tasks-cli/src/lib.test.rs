@@ -2351,10 +2351,9 @@ fn test_permits_where_none_are_declared_says_every_tag_is_permitted() {
     );
 }
 
-// In JSON, the taskloom://tag-permits resource's document
-// (tasks-presentation's PermitsJson), so one jq filter reads both.
+// In JSON, tasks-presentation's PermitsJson.
 #[test]
-fn test_permits_in_json_is_the_resources_document() {
+fn test_permits_in_json_is_the_permits_document() {
     let mut fake = Fake {
         permit_list: listed(Some(usual_permits())),
         ..Fake::default()

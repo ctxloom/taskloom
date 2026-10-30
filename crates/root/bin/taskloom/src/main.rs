@@ -1,20 +1,18 @@
-//! taskloom: per-project task tracking. The composition root: it parses the
+//! taskloom: per-project task tracking, for people and agents alike on
+//! its command line (it serves no MCP). The composition root: it parses the
 //! command line (the global flags, the task commands, and `import`, the
-//! `project` group, `mcp`, `watch` and `manage` mounted beside them),
-//! builds the wiring from the process (tasks-lib's `Taskloom`, the
-//! `--config-set` overrides bound there), and hands the frontend the
-//! command parsed only the use case it runs: the tasks use cases for the
-//! task commands and `watch`; the importer, the only reader of the JSONL
-//! task logs, for `import`; the project use cases for the `project`
-//! group; a maker of tasks use cases for `mcp`, which serves each call on
-//! a service of its own; and the registrations for `manage`. `watch`
+//! `project` group and `watch` mounted beside them), builds the wiring
+//! from the process (tasks-lib's `Taskloom`, the `--config-set` overrides
+//! bound there), and hands the frontend the command parsed only the use
+//! case it runs: the tasks use cases for the task commands and `watch`;
+//! the importer, the only reader of the JSONL task logs, for `import`;
+//! and the project use cases for the `project` group. `watch`
 //! streams the project's changes until SIGINT or SIGTERM (on Windows
 //! Ctrl-C, Ctrl-Break, or the console's close, logoff or shutdown; never
 //! at a closed stdin). It holds no logic of its own, and wires no adapter.
 
 use std::io::{self, IsTerminal};
 use std::process::ExitCode;
-use std::sync::Arc;
 
 use tasks_cli::Context;
 use tasks_lib::Taskloom;
@@ -22,13 +20,7 @@ use tasks_lib::Taskloom;
 /// The binary's en-US catalog: every diagnostic the wiring can raise
 /// (tasks-lib's), then each frontend's own.
 fn catalog() -> Result<presentation::Catalog, presentation::CatalogError> {
-    tasks_lib::catalog(&[
-        tasks_cli::EN_US,
-        project_cli::EN_US,
-        registration_cli::EN_US,
-        tasks_mcp::EN_US,
-        tasks_watch::EN_US,
-    ])
+    tasks_lib::catalog(&[tasks_cli::EN_US, project_cli::EN_US, tasks_watch::EN_US])
 }
 
 /// The command line.
@@ -57,11 +49,7 @@ enum Mounted {
     #[command(flatten)]
     Project(project_cli::Group),
     #[command(flatten)]
-    Mcp(tasks_mcp::Group),
-    #[command(flatten)]
     Watch(tasks_watch::Group),
-    #[command(flatten)]
-    Manage(registration_cli::Group),
 }
 
 /// `taskloom import`: the JSONL task logs under the home imported into
@@ -82,29 +70,6 @@ fn import(
         &mut io::stdout().lock(),
         &mut io::stderr().lock(),
     )))
-}
-
-/// `taskloom mcp`: serve the task tools on stdio until the client goes
-/// away, each call on a service of its own.
-fn serve_mcp(
-    runtime: tokio::runtime::Runtime,
-    taskloom: &Taskloom,
-    settings: tasks_mcp::Settings,
-    catalog: presentation::Catalog,
-) -> ExitCode {
-    let catalog = Arc::new(catalog);
-    let tools = tasks_mcp::TaskTools::new(taskloom.services(), settings, Arc::clone(&catalog));
-    let served = runtime.block_on(tools.serve_stdio());
-    // Nothing is left to wait for: a stdin read still blocked is
-    // abandoned, not joined.
-    runtime.shutdown_background();
-    match served {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("{}: {}", tasks_cli::PROG, catalog.message(&e));
-            ExitCode::FAILURE
-        }
-    }
 }
 
 /// `taskloom watch`: the project's changes on stdout, polled every
@@ -144,31 +109,6 @@ fn watch<W: tasks_application::WatchService>(
     ExitCode::from(code)
 }
 
-/// `taskloom manage`: `taskloom mcp` registered in the agents'
-/// configurations under the home.
-fn manage(
-    taskloom: &Taskloom,
-    words: Vec<String>,
-    format: presentation::Format,
-    catalog: &presentation::Catalog,
-) -> ExitCode {
-    let settings = registration_cli::Settings {
-        format,
-        stdout_is_terminal: io::stdout().is_terminal(),
-        prog: tasks_cli::PROG,
-        flavor: taskloom.fs().os().flavor(),
-    };
-    let mut registrations = taskloom.registrations();
-    ExitCode::from(registration_cli::run(
-        words,
-        &settings,
-        &mut registrations,
-        catalog,
-        &mut io::stdout().lock(),
-        &mut io::stderr().lock(),
-    ))
-}
-
 /// The `project` group, over the project registry and the SQLite store's
 /// integrity check.
 fn project_group(
@@ -195,8 +135,7 @@ fn context() -> Context {
         stdout_is_terminal: io::stdout().is_terminal(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         // True of every lock file taskloom takes, each through file-lock:
-        // the project registry's `index.yaml.lock`, and `manage`'s home
-        // sidecar for the agent configuration it rewrites, with the reap
+        // the project registry's `index.yaml.lock`, with the reap
         // interlock held shared. It takes none on a JSONL task log (the
         // importer reads without one); its store is SQLite's to lock.
         lock_protocol: file_lock::LOCK_PROTOCOL,
@@ -222,8 +161,7 @@ fn main() -> ExitCode {
         }
     };
     let context = context();
-    // Stdout and stderr are locked for one call at a time: the MCP
-    // server's writes come from another thread.
+    // Stdout and stderr are locked for one call at a time.
     let (stdout, stderr) = (io::stdout(), io::stderr());
     let parsed = tasks_cli::parse(
         std::env::args_os(),
@@ -280,18 +218,6 @@ fn main() -> ExitCode {
                 prog: tasks_cli::PROG,
             };
             project_group(&taskloom, group, &settings, &catalog)
-        }
-        Mounted::Manage(registration_cli::Group::Manage { words }) => {
-            manage(&taskloom, words, format, &catalog)
-        }
-        Mounted::Mcp(tasks_mcp::Group::Mcp) => {
-            let settings = tasks_mcp::Settings {
-                project,
-                session: context.session,
-                name: tasks_cli::PROG.to_string(),
-                version: context.version,
-            };
-            serve_mcp(runtime, &taskloom, settings, catalog)
         }
         Mounted::Watch(tasks_watch::Group::Watch) => {
             let settings = tasks_watch::Settings {

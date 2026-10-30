@@ -45,7 +45,7 @@ pub struct Permitted {
 }
 
 /// What a project permits, as [`crate::TaskService::permits`] reads it
-/// for `taskloom permits` and the `taskloom://tag-permits` resource.
+/// for `taskloom permits`.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct PermitList {
     /// The work root's `tag_permits`; `None` where it declares none, and
@@ -58,9 +58,9 @@ pub struct PermitList {
 }
 
 /// Granting and revoking tag permits. Apart from [`crate::TaskService`]
-/// so that a driving adapter that should not offer it (the MCP server:
-/// an agent permitting its own inventions is what permits exist to stop)
-/// is never handed it.
+/// so that a driving adapter that should not offer it (one an agent
+/// drives: an agent permitting its own inventions is what permits exist
+/// to stop) is never handed it.
 pub trait PermitService {
     /// Permit `change.permit`, persisted to the work root's config file.
     /// Permitting a key of a namespace not yet permitted closes it to that

@@ -1,6 +1,6 @@
 //! The tasks domain's shapes on the driving edge: what a task looks like
-//! to a program, the same whichever adapter answers, so one jq filter
-//! works on the command line's JSON and on the MCP tools' results alike.
+//! to a program, the same whichever adapter answers (the command line
+//! now, a server later), so one jq filter works on each.
 //! presentation itself stays domain-free; this is the tasks domain's.
 
 use std::collections::BTreeMap;
@@ -182,8 +182,7 @@ impl TagCountJson {
     }
 }
 
-/// What a project permits, as JSON, the same from `taskloom permits
-/// --format json` and the `taskloom://tag-permits` resource:
+/// What a project permits, as JSON (`taskloom permits --format json`):
 ///
 /// ```json
 /// {"declared": true,

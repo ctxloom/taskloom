@@ -1,7 +1,7 @@
 [package]
 name = "tasks-presentation"
 version = "0.1.0"
-description = "The tasks domain's shapes on the driving edge, shared by the command line and the MCP server"
+description = "The tasks domain's shapes on the driving edge, what the command line (and any later server) writes as JSON"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

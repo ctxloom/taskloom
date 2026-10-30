@@ -18,7 +18,8 @@ contract, `annals_diagnostic`) and **angzarr** (`angzarr-proto` wire types,
   query side. `core/ports`: traits the core needs. `core/application`:
   command and query handlers.
 - `adapters/driven`: port implementations (stores, clock, git).
-  `adapters/driving`: CLI, MCP, gRPC — translation only. `root/bin`: the
+  `adapters/driving`: the CLI (taskloom serves no MCP), gRPC later —
+  translation only. `root/bin`: the
   composition root.
 - **Aggregate vs. read model**: entities are aggregates; anything listed is a
   projector's read model. The write side never reads a projection.

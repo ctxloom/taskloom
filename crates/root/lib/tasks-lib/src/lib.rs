@@ -1,18 +1,18 @@
 //! The tasks use cases over taskloom's default adapters, wired in one
-//! place: the composition root the `taskloom` binary, its servers (MCP
-//! now, gRPC next) and ctxloom (by git dependency) all build from, so no
+//! place: the composition root the `taskloom` binary, any server over it
+//! (gRPC next) and ctxloom (by git dependency) all build from, so no
 //! frontend wires an adapter of its own.
 //!
 //! [`Taskloom`] holds what the wiring reads from the process (HOME,
 //! CTXLOOM_ROOT, CTXLOOM_PROJECT_ID and the environment's variables as
-//! given, PATH among them), the `--config-set` overrides bound once here,
+//! given), the `--config-set` overrides bound once here,
 //! and the one [`Fs`] every adapter is given, which holds the working
 //! directory (or why there is none: then only what needs it fails).
 //! It builds each use case only when asked, and building one does no I/O:
 //! [`Taskloom::tasks`] for a command, [`Taskloom::services`] for a server
 //! that makes one per call, [`Taskloom::importer`] for `import` alone (no
-//! other use case can reach the JSONL task logs), [`Taskloom::projects`]
-//! and [`Taskloom::registrations`].
+//! other use case can reach the JSONL task logs) and
+//! [`Taskloom::projects`].
 //!
 //! What a frontend reads back is the application's own typed values (a
 //! listing's reach, hidden counts and priority notes, a write's project,
@@ -29,7 +29,6 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use agent_configs::AgentConfigFiles;
 use file_system::{Fs, Os};
 use harp_names::HarpNames;
 use jsonl_task_log::JsonlTaskLogDir;
@@ -63,14 +62,11 @@ pub type Import =
 /// mints nothing: no names) and the SQLite store's integrity check.
 pub type Projects = project_application::Projects<ProjectRegistry<()>, SqliteStores>;
 
-/// `taskloom mcp` registered in the agents' configurations under HOME.
-pub type Registrations = registration_application::Registrations<AgentConfigFiles>;
-
 /// The en-US catalog of every diagnostic the wiring can raise (its own,
 /// angzarr-embedded's and the angzarr-ports errors it forwards,
 /// angzarr-store-sqlite's, the use cases', every driven and platform
 /// adapter's), then
-/// `frontends'`, each frontend's own (the CLI's, the MCP server's, ...),
+/// `frontends'`, each frontend's own (the CLI's, watch's, ...),
 /// which only the frontend knows. The types are presentation's, which a
 /// caller depends on directly.
 pub fn catalog(
@@ -85,8 +81,6 @@ pub fn catalog(
     sources.extend(tasks_application::CATALOGS);
     sources.extend([
         project_application::EN_US,
-        registration_application::EN_US,
-        agent_configs::EN_US,
         file_lock::EN_US,
         file_system::EN_US,
         project_registry::EN_US,
@@ -110,7 +104,7 @@ pub struct Taskloom {
     /// them.
     env: Environment,
     /// The environment's variables as given: the configuration's layer,
-    /// and PATH, read without loss.
+    /// read without loss.
     vars: Vec<(OsString, OsString)>,
     /// The `--config-set` overrides, applied last.
     config_set: Vec<String>,
@@ -158,7 +152,7 @@ impl Taskloom {
     }
 
     /// A maker of [`Taskloom::tasks`], for a server that serves each call
-    /// on a service of its own (MCP's `TaskTools::new`, gRPC's). It owns a
+    /// on a service of its own (a gRPC server's). It owns a
     /// clone of the wiring, so it outlives this value and crosses threads.
     pub fn services(&self) -> impl Fn() -> Tasks + Send + Sync + 'static {
         let wiring = self.clone();
@@ -182,24 +176,6 @@ impl Taskloom {
             self.registry(()),
             SqliteStores::new(Arc::clone(&self.fs)),
         )
-    }
-
-    /// The registration of `taskloom mcp` in the agents' configurations
-    /// under HOME, its command resolved on the PATH among the variables
-    /// given, as given (none there, none resolved: the process's is never
-    /// read).
-    pub fn registrations(&self) -> Registrations {
-        let flavor = self.fs.os().flavor();
-        let path = var(flavor, &self.vars, "PATH").cloned();
-        let pathext =
-            var(flavor, &self.vars, "PATHEXT").and_then(|ext| ext.to_str().map(str::to_string));
-        registration_application::Registrations::taskloom(AgentConfigFiles {
-            fs: Arc::clone(&self.fs),
-            home: self.env.home.clone(),
-            path,
-            pathext,
-            waits: file_lock::Waits::DEFAULT,
-        })
     }
 
     /// The project registry over the wiring's filesystem and environment,
@@ -240,14 +216,14 @@ enum Ground {
 impl Builder {
     /// Wiring on the real filesystem over the working directory `cwd`,
     /// and nothing else: no home, no work root or project pinned, no
-    /// variables (so no PATH), no overrides.
+    /// variables, no overrides.
     pub fn new(cwd: impl Into<PathBuf>) -> Builder {
         Builder::over(Ground::Cwd(cwd.into()))
     }
 
     /// Wiring on the filesystem `fs`, in its working directory
     /// ([`Fs::cwd`], or none), and nothing else: no home, no work root or
-    /// project pinned, no variables (so no PATH), no overrides.
+    /// project pinned, no variables, no overrides.
     pub fn on(fs: Arc<dyn Fs>) -> Builder {
         Builder::over(Ground::Fs(fs))
     }
@@ -322,7 +298,7 @@ impl Builder {
 
     /// The environment's variables as given, replacing any given before:
     /// the configuration's layer (`TASKLOOM_CONFIG_<KEY>`, read where it
-    /// is UTF-8), and PATH, where a registration's command is looked for.
+    /// is UTF-8).
     pub fn vars(self, vars: Vec<(OsString, OsString)>) -> Builder {
         Builder { vars, ..self }
     }

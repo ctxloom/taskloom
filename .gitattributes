@@ -1,5 +1,5 @@
 # Every file checks out byte for byte as committed, on every host: no
-# line-ending conversion. The recorded fixtures (Go's text, its manage runs,
-# reviewed loadouts) are compared byte for byte, and Git for Windows'
+# line-ending conversion. The recorded fixtures (Go's text, reviewed
+# loadouts) are compared byte for byte, and Git for Windows'
 # default (core.autocrlf=true) would check them out with CRLF.
 * -text

@@ -1,9 +1,0 @@
-agent-configs-no-home = the home directory is not set ({ $var }), so the user's configuration cannot be found
-agent-configs-unknown-engine = no agent is named { $engine }
-agent-configs-read = cannot read { $path }: { $ext_err_txt }
-agent-configs-corrupt = failed to parse { $file }: { $ext_err_txt } - original backed up to { $backup }; fix the JSON and re-run (refusing to write { $file } to avoid deleting the MCP servers already in it)
-agent-configs-corrupt-unsaved = failed to parse { $file }: { $ext_err_txt }; additionally failed to back up the corrupt file: { $reason } - refusing to write { $file } to avoid deleting the MCP servers already in it
-agent-configs-not-an-object = failed to write { $path }: { $pointer } is not an object, so no server can be added to it
-agent-configs-foreign = { $path } already has an MCP server named { $name } that runs something else; it is left as it is (remove or rename it to register this one)
-agent-configs-write = failed to write { $path }: { $ext_err_txt }
-agent-configs-parse = parse config: { $ext_err_txt }

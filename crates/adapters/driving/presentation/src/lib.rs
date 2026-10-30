@@ -1,4 +1,4 @@
-//! Presentation at the driving edge, for any domain: a command line, an MCP
+//! Presentation at the driving edge, for any domain: a command line, a
 //! server. The core hands up typed values; this crate turns them into one
 //! of two formats, [`Format::Json`] for jq and other programs and
 //! [`Format::Text`] (UTF-8) for a person, and renders diagnostics from

@@ -2,7 +2,7 @@
 //! json`, which its boot probe parses (`name`, `version`, and
 //! `lock_protocol`, which it asks of every running binary before it
 //! removes a lock file), and `loadout --format yaml`, the document of the
-//! hooks, MCP server and context taskloom contributes to a session.
+//! hooks and context taskloom contributes to a session.
 
 use std::io::{self, Write};
 use std::str::FromStr;

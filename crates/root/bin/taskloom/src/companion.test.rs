@@ -151,24 +151,11 @@ fn test_the_loadout_probe_prints_gos_document_reviewed() {
 }
 
 // Nothing served to a model carries a placeholder the human has yet to fill.
-// A JSON text is read as its strings, so an escaped placeholder is seen too.
 #[test]
-#[ignore = "the loadout's two install placeholders (run.installation, mcp.taskloom.installation) await the human's install text; fill them, then un-ignore this"]
+#[ignore = "the loadout's install placeholder (run.installation) awaits the human's install text; fill it, then un-ignore this"]
 fn test_no_served_text_carries_a_placeholder() {
-    let json = |text: &str| {
-        serde_json::from_str::<serde_json::Value>(text)
-            .unwrap()
-            .to_string()
-    };
-    for (what, text) in [
-        ("the MCP instructions", tasks_mcp::INSTRUCTIONS.to_string()),
-        ("the tools", json(tasks_mcp::TOOLS)),
-        ("the resources", json(tasks_mcp::RESOURCES)),
-        ("the loadout", tasks_cli::LOADOUT.to_string()),
-    ] {
-        assert!(
-            !text.contains("\u{ab}HUMAN:"),
-            "a placeholder is served in {what}"
-        );
-    }
+    assert!(
+        !tasks_cli::LOADOUT.contains("\u{ab}HUMAN:"),
+        "a placeholder is served in the loadout"
+    );
 }

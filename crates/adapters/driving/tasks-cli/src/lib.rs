@@ -83,8 +83,8 @@ pub struct Globals {
     pub project: Option<String>,
     /// Override a configuration key for this run: <path>=<value>, e.g.
     /// tag_schema=<declaration>,... (repeatable; beats TASKLOOM_CONFIG_*
-    /// and every config.yaml). The task commands, mcp and watch take it;
-    /// import, project and manage do not.
+    /// and every config.yaml). The task commands and watch take it;
+    /// import and project do not.
     #[arg(long = "config-set", global = true, value_name = "PATH=VALUE")]
     pub config_set: Vec<String>,
 }
@@ -147,8 +147,8 @@ pub enum Command {
     /// (tag_permits): a namespace, open to any key (`area:`); a key of a
     /// namespace, which closes it to its permitted keys (`area:cli`); or a
     /// flat tag, a key with no namespace. Once a project permits anything, a write adding
-    /// a tag it does not permit is refused. A person's command: the MCP
-    /// server does not offer it.
+    /// a tag it does not permit is refused. A person's command: an agent
+    /// runs it only with the human's permission for that change.
     Permit(commands::PermitArgs),
     /// Revoke a tag permit, spelled as `permit` takes it; refused, naming
     /// them, while any task (whatever its status) still carries a tag it
@@ -158,8 +158,7 @@ pub enum Command {
     /// tag_permits): each namespace, open to any key or closed to its keys;
     /// the flat tags; and the targets the tag schema declares, which are
     /// permitted without a permit. A project that declares none permits
-    /// every tag the schema admits. Read-only; the MCP server's
-    /// taskloom://tag-permits resource says the same.
+    /// every tag the schema admits. Read-only.
     Permits,
     /// Print the tag schema a write is held to, resolved (the defaults,
     /// then the configuration): each declared target and its facets
@@ -168,8 +167,8 @@ pub enum Command {
     Schema(commands::SchemaArgs),
     /// Print the taskloom version.
     Version,
-    /// Print the context, commands, hooks and MCP servers taskloom
-    /// contributes to a session: the loadout document ctxloom reads
+    /// Print the context, commands and hooks taskloom contributes to a
+    /// session: the loadout document ctxloom reads
     /// (`taskloom loadout --format yaml`).
     Loadout,
 }

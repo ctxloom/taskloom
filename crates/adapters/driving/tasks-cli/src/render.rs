@@ -1,6 +1,6 @@
 //! The tasks views: answers as a person reads them (text) or a program
 //! does (JSON), on presentation's [`Render`]. A task's JSON is
-//! tasks-presentation's, shared with the MCP server.
+//! tasks-presentation's.
 
 use std::io::{self, Write};
 

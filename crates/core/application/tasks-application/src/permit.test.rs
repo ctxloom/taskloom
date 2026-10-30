@@ -402,8 +402,8 @@ fn test_no_vocabulary_is_built_in_the_config_is_the_only_source() {
 
 // ------------------------------------------------------------ the list
 
-// Ruling 9: what is permitted is readable, by a person (`taskloom
-// permits`) and an agent (`taskloom://tag-permits`) alike: the permits as
+// Ruling 9: what is permitted is readable, by a person and an agent
+// alike (`taskloom permits`): the permits as
 // configured, and every target the resolved schema declares, sorted, a
 // project's own declarations among them. It is configuration, so no
 // project is resolved and no store opened.
