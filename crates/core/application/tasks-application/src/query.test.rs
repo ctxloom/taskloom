@@ -148,11 +148,33 @@ fn test_a_malformed_query_is_refused_with_the_grammar() {
     assert!(error.to_string().contains(QUERY_GRAMMAR), "{error}");
     assert!(error.to_string().contains("and"), "{error}");
     let names: Vec<&str> = error.args().into_iter().map(|(n, _)| n).collect();
-    assert_eq!(names, ["query", "postfix", "infix", "grammar"]);
-    assert!(!error.postfix.is_empty() && !error.infix.is_empty());
+    assert_eq!(names, ["query", "postfix", "grammar"]);
+    assert!(!error.postfix.is_empty());
     assert_eq!(check(None), Ok(()));
-    assert_eq!(check(Some("urgent and release")), Ok(()));
     assert_eq!(check(Some("urgent/release/and")), Ok(()));
+}
+
+// Queries are postfix only: an infix one is a malformed postfix query,
+// refused with postfix's reason and the postfix grammar, no infix hint.
+#[test]
+fn test_an_infix_query_is_refused_as_malformed_postfix() {
+    for query in [
+        "urgent and release",
+        "not urgent",
+        "(urgent or release) and not level=3",
+    ] {
+        let error = check(Some(query)).unwrap_err();
+        assert_eq!(error.code(), "tasks-application-tag-query");
+        assert!(
+            error.postfix.contains("postfix"),
+            "{query}: {}",
+            error.postfix
+        );
+        let shown = error.to_string();
+        assert!(shown.contains(QUERY_GRAMMAR), "{shown}");
+        assert!(!shown.contains("infix"), "{shown}");
+    }
+    assert!(!QUERY_GRAMMAR.contains("infix"), "{QUERY_GRAMMAR}");
 }
 
 #[test]
