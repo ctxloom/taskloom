@@ -144,18 +144,12 @@ cutover ("What remains").
 - `adapters/driven/file-lock`: ctxloom's advisory locks, taken as Go's
   `safefs` takes them, for any adapter to use (it is no port's: the
   registry takes it inside its own operations).
-  `flock(2)` on a lock file, shared or exclusive, refused when it is not a
+  An exclusive `flock(2)` on a lock file, refused when it is not a
   regular file; taken again when what it was granted is no longer the file
   at its path (Go's `takeCurrent`, 16 tries: lock protocol 2); waited for
-  at most 10s, then refused naming the lock. And Go's
-  `sessions.WithFileLock` for a file ctxloom does not own: the sidecar
-  `paths.HomePathFor` names (`~/.ctxloom/locks/<FlatName(abs path)>.lock`,
-  or a session's own `<harp>/locks/` for a file inside a session's
-  directory), recording the path it guards when it creates it, taken with
-  the reap interlock (`~/.ctxloom/locks/reap.interlock`) held shared when
-  it is in the home lock directory, a reap that holds it past 30s refusing
-  the lock. Its paths are held to Go's own `HomePathFor`'s output. Only
-  `manage` took the sidecar lock (`lock_file`); with it gone, nothing does.
+  at most 10s, then refused naming the lock. Go's `sessions.WithFileLock`
+  (the sidecar lock for a file ctxloom does not own, under the reap
+  interlock) is not ported: only `manage` took it, and `manage` is gone.
 - `adapters/driven/harp-names`: harp-core behind the names port.
 - `adapters/driven/jsonl-task-log`: Go's `~/.ctxloom/tasks/<project-id>.jsonl`
   behind the `JsonlTaskLogs` port, read only (not even its lock file). A line
@@ -745,7 +739,7 @@ restarted on a freed harp is under "Where it stands".
 
 7. **`TaskService` keeps `&mut self`; a server makes a service per call**
    (decided 2026-10-21, step 4; the MCP server it was decided for was
-   dropped 2026-10-30, and `Taskloom::services` stays for a later one). The MCP server holds a factory, not a
+   dropped 2026-10-30, and `Taskloom::services` with it). The MCP server holds a factory, not a
    service: each tool call gets a `Service` of its own (the registry, a
    fresh SQLite opener, names, the system), run to its end on a blocking
    thread (`spawn_blocking`, its future driven there by the runtime's

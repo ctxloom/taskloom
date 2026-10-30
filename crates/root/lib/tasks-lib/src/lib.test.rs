@@ -16,8 +16,8 @@ use angzarr_embedded_diagnostic::Diagnostic;
 use file_system::{CwdError, Entry, Meta, Open, Perms, Rooted};
 use os::Mode;
 use tasks_application::{
-    ImportRequest, ImportService, ListQuery, NewTask, PermitChange, PermitService, PruneService,
-    Reach, TaskService, WatchRequest, WatchService,
+    ImportRequest, ImportService, ListQuery, NewTask, PermitChange, PermitService, Reach,
+    TaskService, WatchRequest, WatchService,
 };
 
 use super::*;
@@ -245,17 +245,6 @@ fn texts(listing: &tasks_application::Listing) -> Vec<String> {
     texts
 }
 
-/// What a server's factory must be: a maker of services that crosses
-/// threads and outlives the wiring, each service every use case a frontend
-/// calls, its futures `Send`. A gRPC server asks no more.
-fn served<F, S>(factory: F) -> F
-where
-    F: Fn() -> S + Send + Sync + 'static,
-    S: TaskService + PruneService + WatchService + Send + 'static,
-{
-    factory
-}
-
 // The binary's path: one service per command, each resolving the project
 // the working directory is, so two commands share a store.
 #[test]
@@ -266,40 +255,6 @@ fn test_a_task_added_by_one_service_is_listed_by_the_next() {
     let listing = block_on(taskloom.tasks().list(ListQuery::default())).unwrap();
     assert_eq!(texts(&listing), ["Ship it"]);
     assert_eq!(listing.reach, Reach::Project(written.project));
-}
-
-// A per-call server's path: each call on a service the factory makes for
-// it, on a blocking thread of its own; the factory outlives the wiring it
-// came from.
-#[test]
-fn test_the_factory_makes_a_service_per_call_on_threads_of_their_own() {
-    let dirs = Dirs::new();
-    let factory = Arc::new(served(dirs.taskloom().services()));
-    let calls: Vec<_> = (0..4)
-        .map(|n| {
-            let factory = Arc::clone(&factory);
-            std::thread::spawn(move || block_on(factory().add(new_task(&format!("call {n}")))))
-        })
-        .collect();
-    for call in calls {
-        call.join().unwrap().unwrap();
-    }
-    let listing = block_on(factory().list(ListQuery::default())).unwrap();
-    assert_eq!(texts(&listing), ["call 0", "call 1", "call 2", "call 3"]);
-}
-
-// A gRPC server's path: a call's future is spawned on the server's
-// runtime, so it must be `Send` and own its service.
-#[test]
-fn test_a_calls_future_can_be_spawned_on_a_runtime() {
-    let dirs = Dirs::new();
-    let factory = served(dirs.taskloom().services());
-    let added = block_on(async move {
-        tokio::spawn(async move { factory().add(new_task("spawned")).await })
-            .await
-            .expect("the call ran")
-    });
-    assert_eq!(added.unwrap().task.text, "spawned");
 }
 
 // A watch on one service sees what another service wrote.

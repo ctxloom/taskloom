@@ -135,9 +135,9 @@ fn context() -> Context {
         stdout_is_terminal: io::stdout().is_terminal(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         // True of every lock file taskloom takes, each through file-lock:
-        // the project registry's `index.yaml.lock`, with the reap
-        // interlock held shared. It takes none on a JSONL task log (the
-        // importer reads without one); its store is SQLite's to lock.
+        // the project registry's `index.yaml.lock`. It takes none on a
+        // JSONL task log (the importer reads without one); its store is
+        // SQLite's to lock.
         lock_protocol: file_lock::LOCK_PROTOCOL,
     }
 }

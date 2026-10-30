@@ -9,9 +9,8 @@
 //! and the one [`Fs`] every adapter is given, which holds the working
 //! directory (or why there is none: then only what needs it fails).
 //! It builds each use case only when asked, and building one does no I/O:
-//! [`Taskloom::tasks`] for a command, [`Taskloom::services`] for a server
-//! that makes one per call, [`Taskloom::importer`] for `import` alone (no
-//! other use case can reach the JSONL task logs) and
+//! [`Taskloom::tasks`] for a command, [`Taskloom::importer`] for `import`
+//! alone (no other use case can reach the JSONL task logs) and
 //! [`Taskloom::projects`].
 //!
 //! What a frontend reads back is the application's own typed values (a
@@ -149,14 +148,6 @@ impl Taskloom {
             System,
         )
         .with_configuration(config)
-    }
-
-    /// A maker of [`Taskloom::tasks`], for a server that serves each call
-    /// on a service of its own (a gRPC server's). It owns a
-    /// clone of the wiring, so it outlives this value and crosses threads.
-    pub fn services(&self) -> impl Fn() -> Tasks + Send + Sync + 'static {
-        let wiring = self.clone();
-        move || wiring.tasks()
     }
 
     /// The importer over the JSONL task logs under HOME
