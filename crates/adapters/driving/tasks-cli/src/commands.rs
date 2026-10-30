@@ -13,7 +13,7 @@ use tasks_application::{
 
 use crate::prune::{apply_command, PruneReport};
 use crate::render::{
-    Added, Changed, Counted, Detailed, Linted, Listed, Permits, Summed, Tagged, Taxonomy,
+    Added, Changed, Counted, Detailed, Linted, Listed, Permits, Schema, Summed, Tagged, Taxonomy,
 };
 use crate::{dead_lettered, notify, output_failed, wrote, CliError, Notice};
 
@@ -365,6 +365,33 @@ pub(crate) async fn permits(
 ) -> Result<(), CliError> {
     let list = service.permits().await.map_err(CliError::App)?;
     presentation::render(out, ctx.format, &Permits(&list)).map_err(output_failed)
+}
+
+#[derive(Args, Debug)]
+pub struct SchemaArgs {
+    #[command(subcommand)]
+    action: Option<SchemaAction>,
+}
+
+/// What `schema` does: `show`, its default, alone so far.
+#[derive(clap::Subcommand, Debug)]
+enum SchemaAction {
+    /// Print the resolved tag schema (what `schema` alone prints).
+    Show,
+}
+
+/// Print the resolved tag schema: in text one line a target with its
+/// facets, its formulas beneath; in JSON
+/// [`tasks_presentation::SchemaJson`].
+pub(crate) async fn schema(
+    args: SchemaArgs,
+    ctx: Ctx<'_>,
+    service: &mut impl TaskService,
+    out: &mut dyn Write,
+) -> Result<(), CliError> {
+    let (None | Some(SchemaAction::Show)) = args.action;
+    let schema = service.tag_schema().await.map_err(CliError::App)?;
+    presentation::render(out, ctx.format, &Schema(&schema)).map_err(output_failed)
 }
 
 #[derive(Args, Debug)]

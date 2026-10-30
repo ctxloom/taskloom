@@ -2479,7 +2479,7 @@ fn test_schema_in_json_is_one_entry_per_target_with_every_facet() {
         json,
         serde_json::json!({"targets": [
             {"target": "a:x", "scalar": true, "enum": ["p", "q"]},
-            {"target": "b:long-name", "range": {"min": 0.5, "max": 2.0}, "type": "semver"},
+            {"target": "b:long-name", "range": {"min": 0.5, "max": 2}, "type": "semver"},
             {"target": "c:y", "priority_fn": "{{age_days}} > 1 ? 2 : 1", "decay_fn": "1"},
         ]})
     );

@@ -218,5 +218,9 @@ fn test_schema_prints_the_resolved_tag_schema() {
     };
     assert_eq!(find("area:x")["enum"], serde_json::json!(["a", "b"]));
     assert_eq!(find("triage:level")["scalar"], true);
+    assert_eq!(
+        find("triage:level")["range"],
+        serde_json::json!({"min": 1, "max": 5})
+    );
     assert_eq!(find("triage:blocks-release")["type"], "semver");
 }

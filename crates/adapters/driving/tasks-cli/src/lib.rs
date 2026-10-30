@@ -1,5 +1,6 @@
 //! The tasks command line: `add`, `status`, `edit`, `list`, `show`,
-//! `summary`, `statuses`, `tag`, `tags`, `lint` and `prune`, translated
+//! `summary`, `statuses`, `tag`, `tags`, `lint`, `prune`, `permit`,
+//! `revoke`, `permits` and `schema`, translated
 //! into the application's use cases and their answers rendered through
 //! presentation ([`Command`], [`run`]); `import`, a group of its own
 //! ([`ImportGroup`], [`run_import`]), so only it reaches the importer; and
@@ -160,6 +161,11 @@ pub enum Command {
     /// every tag the schema admits. Read-only; the MCP server's
     /// taskloom://tag-permits resource says the same.
     Permits,
+    /// Print the tag schema a write is held to, resolved (the defaults,
+    /// then the configuration): each declared target and its facets
+    /// (scalar, enum, range, type), and its priority_fn and decay_fn.
+    /// Read it before choosing a tag. `schema show` is the same.
+    Schema(commands::SchemaArgs),
     /// Print the taskloom version.
     Version,
     /// Print the context, commands, hooks and MCP servers taskloom
@@ -304,6 +310,7 @@ pub async fn run<S: TaskService + PruneService + PermitService>(
         Command::Permit(args) => commands::permit(args, ctx, service, out).await,
         Command::Revoke(args) => commands::revoke(args, ctx, service, out).await,
         Command::Permits => commands::permits(ctx, service, out).await,
+        Command::Schema(args) => commands::schema(args, ctx, service, out).await,
         Command::Version => version(context, format, out),
         // Answered above: it has its own format.
         Command::Loadout => Ok(()),
