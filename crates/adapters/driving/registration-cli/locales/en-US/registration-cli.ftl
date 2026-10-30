@@ -5,5 +5,5 @@ registration-cli-removed = removed MCP server from { $engine }
 registration-cli-not-registered = not registered with { $engine }, nothing to remove
 registration-cli-nothing-to-remove = nothing to remove (no agent backends detected; name one with --engine)
 registration-cli-config = config: { $path }
-registration-cli-usage = { $detail }
-registration-cli-output = cannot write the answer: { $detail }
+registration-cli-usage = { $ext_err_txt }
+registration-cli-output = cannot write the answer: { $ext_err_txt }

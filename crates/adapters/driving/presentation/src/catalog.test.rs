@@ -1,6 +1,6 @@
 //! Messages from catalogs, and the code and args when there is none.
 
-use annals_diagnostic::Report;
+use angzarr_embedded_diagnostic::Report;
 
 use super::Catalog;
 use crate::Unrendered;
@@ -17,7 +17,7 @@ fn catalog() -> Catalog {
 }
 
 fn busy() -> Report {
-    Report::new("demo-busy", "English for busy").arg("path", "/db")
+    Report::new("demo-busy").arg("path", "/db")
 }
 
 #[test]
@@ -30,9 +30,9 @@ fn test_a_message_is_the_catalogs_filled_from_the_args_without_isolation_marks()
 
 #[test]
 fn test_a_nested_cause_is_rendered_from_the_catalog_too() {
-    let gave_up = Report::new("demo-gave-up", "English")
+    let gave_up = Report::new("demo-gave-up")
         .arg("attempts", 10u32)
-        .arg("error", annals_diagnostic::Arg::nested(&busy()));
+        .arg("error", angzarr_embedded_diagnostic::Arg::nested(&busy()));
     assert_eq!(
         catalog().message(&gave_up),
         "gave up after 10 attempts: the store /db is busy"
@@ -48,16 +48,14 @@ fn test_a_nested_cause_is_rendered_from_the_catalog_too() {
 
 #[test]
 fn test_a_nested_cause_no_catalog_has_is_its_code_and_args() {
-    let gave_up = Report::new("demo-gave-up", "English")
-        .arg("attempts", 10u32)
-        .arg(
-            "error",
-            annals_diagnostic::Arg::nested(
-                &Report::new("angzarr-store-sqlite-unavailable", "down")
-                    .arg("errno", 10u64)
-                    .arg("ext_err_txt", "disk I/O error"),
-            ),
-        );
+    let gave_up = Report::new("demo-gave-up").arg("attempts", 10u32).arg(
+        "error",
+        angzarr_embedded_diagnostic::Arg::nested(
+            &Report::new("angzarr-store-sqlite-unavailable")
+                .arg("errno", 10u64)
+                .arg("ext_err_txt", "disk I/O error"),
+        ),
+    );
     assert_eq!(
         catalog().render(&gave_up),
         Ok(
@@ -69,7 +67,7 @@ fn test_a_nested_cause_no_catalog_has_is_its_code_and_args() {
 
 #[test]
 fn test_an_unknown_code_is_unrendered_and_its_message_is_its_code() {
-    let unknown = Report::new("demo-nothing", "the English");
+    let unknown = Report::new("demo-nothing");
     assert_eq!(
         catalog().render(&unknown),
         Err(Unrendered::Unknown {
@@ -81,13 +79,13 @@ fn test_an_unknown_code_is_unrendered_and_its_message_is_its_code() {
 
 #[test]
 fn test_an_unknown_codes_message_is_its_code_and_args_ambiguous_values_quoted() {
-    let inner = Report::new("demo-inner", "English").arg("path", "/a b");
-    let unknown = Report::new("demo-nothing", "the English")
+    let inner = Report::new("demo-inner").arg("path", "/a b");
+    let unknown = Report::new("demo-nothing")
         .arg("path", "/db")
         .arg("empty", "")
         .arg("said", r#"a "b" \ c=d"#)
         .arg("n", -3i64)
-        .arg("cause", annals_diagnostic::Arg::nested(&inner));
+        .arg("cause", angzarr_embedded_diagnostic::Arg::nested(&inner));
     assert_eq!(
         catalog().message(&unknown),
         r#"demo-nothing path=/db empty="" said="a \"b\" \\ c=d" n=-3 cause=demo-inner cause.path="/a b""#
@@ -96,7 +94,7 @@ fn test_an_unknown_codes_message_is_its_code_and_args_ambiguous_values_quoted() 
 
 #[test]
 fn test_a_missing_arg_is_unformattable_and_its_message_is_its_code_and_args() {
-    let bare = Report::new("demo-busy", "the English");
+    let bare = Report::new("demo-busy");
     match catalog().render(&bare) {
         Err(Unrendered::Unformattable { code, detail }) => {
             assert_eq!(code, "demo-busy");
@@ -107,8 +105,8 @@ fn test_a_missing_arg_is_unformattable_and_its_message_is_its_code_and_args() {
     assert_eq!(catalog().message(&bare), "demo-busy");
 }
 
-fn events(n: impl Into<annals_diagnostic::Arg>) -> String {
-    let report = Report::new("demo-events", "English").arg("n", n);
+fn events(n: impl Into<angzarr_embedded_diagnostic::Arg>) -> String {
+    let report = Report::new("demo-events").arg("n", n);
     catalog().render(&report).unwrap()
 }
 

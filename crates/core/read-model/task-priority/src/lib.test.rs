@@ -5,8 +5,10 @@
 
 use std::collections::BTreeMap;
 
-use annals::next::Timestamp;
-use annals_diagnostic::{Arg, Diagnostic};
+crate::english_for!(&[crate::EN_US.1]);
+
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
+use prost_types::Timestamp;
 use tasks::{Tag, DEFERRED, TO_DO};
 
 use super::{
@@ -760,7 +762,7 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
 #[test]
 fn test_each_error_renders_its_english_fallback() {
     for sample in super::diagnostic_samples() {
-        assert!(!sample.to_string().is_empty(), "{}", sample.code());
+        assert!(!sample.english().is_empty(), "{}", sample.code());
     }
     let unknown = PriorityError::UnknownBuiltin {
         facet: DecayFn,
@@ -768,7 +770,7 @@ fn test_each_error_renders_its_english_fallback() {
         name: "typo".to_string(),
     };
     assert_eq!(
-        unknown.to_string(),
+        unknown.english(),
         "decay_fn on a:b reads typo, which is no tag (no ':') and no built-in of decay_fn (those are age_days)"
     );
     assert!(unknown
@@ -780,7 +782,7 @@ fn test_each_error_renders_its_english_fallback() {
         targets: vec!["a:b".to_string(), "c:d".to_string()],
     };
     assert_eq!(
-        err.to_string(),
+        err.english(),
         "more than one priority_fn is declared (on a:b, c:d): exactly one is allowed"
     );
 }

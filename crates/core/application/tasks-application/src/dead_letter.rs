@@ -1,4 +1,4 @@
-//! Dead letters, surfaced. annals' kernel writes a line to the log it is
+//! Dead letters, surfaced. the kernel writes a line to the log it is
 //! handed for what angzarr would dead-letter: an ingest that panicked, a
 //! conflict window decide never acknowledged, a policy's malformed book.
 //! Each almost certainly marks a bug, and one can precede a retry that
@@ -10,13 +10,13 @@
 use std::fmt;
 use std::sync::{Mutex, PoisonError};
 
-use annals::next::DeadLetterLog;
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded::next::DeadLetterLog;
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 
 use crate::AppError;
 
-/// One line annals' kernel dead-lettered, as it wrote it (starting with
-/// annals' `DEAD_LETTER_PREFIX`).
+/// One line the kernel dead-lettered, as it wrote it (starting with
+/// the kernel's `DEAD_LETTER_PREFIX`).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct DeadLetter {
     pub line: String,
@@ -24,7 +24,7 @@ pub struct DeadLetter {
 
 impl fmt::Display for DeadLetter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.line)
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -38,7 +38,7 @@ impl Diagnostic for DeadLetter {
     }
 }
 
-/// The log a use case hands annals' kernel: the lines written to it, kept
+/// The log a use case hands the kernel: the lines written to it, kept
 /// until the use case takes them.
 #[derive(Default)]
 pub(crate) struct DeadLetters(Mutex<Vec<String>>);

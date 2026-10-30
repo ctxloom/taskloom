@@ -248,20 +248,20 @@ mod ticked {
     use std::sync::Arc;
     use std::task::Poll;
 
-    use annals::next::v1::event_meta::Causation;
-    use annals::next::v1::{
+    use angzarr_embedded::next::v1::event_meta::Causation;
+    use angzarr_embedded::next::v1::{
         command_page, Command, CommandBook, CommandPage, Cover, EventMeta, EventPage, Uuid,
     };
-    use annals::next::{
-        ids, Any, AsyncEventStore, AsyncPurge, Kernel, MemoryDeadLetters, Payload, Routes, Sampled,
-        Timestamp,
+    use angzarr_embedded::next::{
+        ids, Any, EventStore, Kernel, MemoryDeadLetters, Payload, Purge, Sampled, StreamRef,
+        Timestamp, Write,
     };
-    use annals_store_sql::sqlite::SqliteStore;
+    use angzarr_store_sqlite::SqliteStore;
     use harp_names::HarpNames;
     use ports::{Project, ProjectIdentity};
     use system::System;
     use task_store_sqlite::SqliteStores;
-    use tasks::{AddTask, RemovalReason, RemoveTask, TaskCommand, Tasks, TASK_DOMAIN};
+    use tasks::{AddTask, RemovalReason, RemoveTask, TaskAggregate, TaskCommand, TASK_DOMAIN};
     use tasks_application::{ListQuery, NewTask, Service, TaskService};
     use tasks_watch::{Settings, Ticks};
 
@@ -269,19 +269,24 @@ mod ticked {
     struct Here(Project);
 
     impl ProjectIdentity for Here {
-        fn for_write(&mut self, _: Option<&str>) -> Result<Project, annals_diagnostic::Report> {
+        fn for_write(
+            &mut self,
+            _: Option<&str>,
+        ) -> Result<Project, angzarr_embedded_diagnostic::Report> {
             Ok(self.0.clone())
         }
         fn for_read(
             &mut self,
             _: Option<&str>,
-        ) -> Result<Option<Project>, annals_diagnostic::Report> {
+        ) -> Result<Option<Project>, angzarr_embedded_diagnostic::Report> {
             Ok(Some(self.0.clone()))
         }
-        fn every_project(&mut self) -> Result<Vec<Project>, annals_diagnostic::Report> {
+        fn every_project(&mut self) -> Result<Vec<Project>, angzarr_embedded_diagnostic::Report> {
             Ok(vec![self.0.clone()])
         }
-        fn rootless_directory(&mut self) -> Result<Option<String>, annals_diagnostic::Report> {
+        fn rootless_directory(
+            &mut self,
+        ) -> Result<Option<String>, angzarr_embedded_diagnostic::Report> {
             Ok(None)
         }
     }
@@ -326,7 +331,7 @@ mod ticked {
     }
 
     /// Run `command` on `harp`'s stream in `store`, as command `id`.
-    async fn command(store: &mut SqliteStore, harp: &str, command: TaskCommand, id: u8) {
+    async fn command(store: &SqliteStore, harp: &str, command: TaskCommand, id: u8) {
         let book = CommandBook {
             cover: Some(task_stream(harp)),
             page: Some(CommandPage {
@@ -343,15 +348,15 @@ mod ticked {
             now: Timestamp::default(),
             command_id: Uuid::from_bytes([id; 16]),
         };
-        let unit = annals::next::AsyncStore::begin(store).await;
         Kernel::new(&registry, &dead_letters)
-            .handle_async::<Tasks, _, _>(unit, &Routes::new(), book, &sampled, &mut ())
+            .on_retryable(tasks_application::KERNEL_RETRY)
+            .handle::<TaskAggregate, _, _>(store, book, &sampled, &mut ())
             .await
             .unwrap_or_else(|failure| panic!("{failure:?}"));
     }
 
     impl Step {
-        async fn apply(self, store: &mut SqliteStore, elsewhere: &mut u64) {
+        async fn apply(self, store: &SqliteStore, elsewhere: &mut u64) {
             match self {
                 Step::Quiet => {}
                 Step::Prune(harp) => {
@@ -379,7 +384,9 @@ mod ticked {
                     Box::pin(Step::Purge(harp).apply(store, elsewhere)).await;
                 }
                 Step::Purge(harp) => {
-                    let deleted = store.purge(&task_stream(&harp)).await.unwrap();
+                    let stream = task_stream(&harp);
+                    let stream = StreamRef::try_from(&stream).unwrap();
+                    let deleted = store.purge(stream).await.unwrap();
                     assert!(deleted > 0, "the stream was there to purge");
                 }
                 Step::Elsewhere => {
@@ -397,12 +404,17 @@ mod ticked {
                         meta: Some(EventMeta {
                             causation: Some(Causation::CommandId(id.clone())),
                             correlation_id: Some(id),
+                            recorded_at: Some(Timestamp::default()),
                             rules_version: "v1".to_string(),
                             ..EventMeta::default()
                         }),
                         sequence: *elsewhere,
                     };
-                    store.append(&other, *elsewhere, &[page]).await.unwrap();
+                    let stream = StreamRef::try_from(&other).unwrap();
+                    store
+                        .write(Write::append(stream, *elsewhere, &[page]))
+                        .await
+                        .unwrap();
                     *elsewhere += 1;
                 }
             }
@@ -421,7 +433,7 @@ mod ticked {
     impl Ticks for Scripted {
         async fn tick(&mut self) {
             match self.steps.pop_front() {
-                Some(step) => step.apply(&mut self.other, &mut self.elsewhere).await,
+                Some(step) => step.apply(&self.other, &mut self.elsewhere).await,
                 None => {
                     self.done.store(true, Ordering::SeqCst);
                     poll_fn(|cx| {

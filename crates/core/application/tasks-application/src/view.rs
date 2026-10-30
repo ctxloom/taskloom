@@ -1,7 +1,7 @@
 //! A task as the application answers with it: the folded state and the
 //! values derived from it when read.
 
-use annals::next::Timestamp;
+use ports::Timestamp;
 use sha2::{Digest, Sha256};
 use tasks::{Tag, TaskState, DEFERRED, TO_DO};
 

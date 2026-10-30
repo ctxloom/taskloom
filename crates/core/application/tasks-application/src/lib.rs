@@ -7,12 +7,12 @@
 //!
 //! Each resolves its project through [`ProjectIdentity`], opens the
 //! project's store through [`TaskStores`], and runs its command through
-//! annals' kernel; a list is the task-list projector caught up from the
+//! angzarr-embedded's kernel ([`KERNEL_RETRY`]: taskloom's loop is the one
+//! that retries); a list is the task-list projector caught up from the
 //! store. The ports are the only way out: this crate does no I/O, keeps no
 //! clock and starts no runtime.
 
 mod dead_letter;
-pub mod embedded;
 mod error;
 mod import;
 mod lint;
@@ -31,23 +31,24 @@ mod watch;
 
 use std::future::Future;
 
-use annals::next::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
-use annals::next::{
-    ids, AsyncReadStore, AsyncReadUnit, Payload, Registry, Rulebook, Stream, Upcaster,
+use angzarr_embedded::next::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
+use angzarr_embedded::next::{
+    ids, KernelError, Payload, ReadStore, ReadUnit, Registry, StoreError, Stream, StreamRef,
 };
-use annals_diagnostic::Report;
+use angzarr_embedded_diagnostic::{Diagnostic, Report};
 use dead_letter::DeadLetters;
 use ports::{Clock, CommandIds, Configuration, Delay, Jitter, Names, ProjectIdentity, TaskStores};
 use tasks::{
-    AddTask, EditText, Retag, SetStatus, TaskCommand, TaskRejection, TaskState, Tasks, TASK_DOMAIN,
+    AddTask, EditText, Retag, SetStatus, TaskAggregate, TaskCommand, TaskRejection, TaskState,
+    TASK_DOMAIN,
 };
 
-pub use annals::next::Timestamp;
 pub use dead_letter::DeadLetter;
 pub use error::{diagnostic_samples, AppError, CATALOGS, EN_US};
 pub use import::{ImportReport, ImportRequest, ImportService, Importer, Lost, ProjectImport, Why};
 pub use lint::{Finding, LintReport, Violation};
 pub use permit::{PermitChange, PermitList, PermitService, Permitted};
+pub use ports::Timestamp;
 pub use ports::{NamespacePermit, Project, TagPermits};
 pub use priority::{PriorityNote, PriorityWarning};
 pub use prune::{
@@ -56,7 +57,7 @@ pub use prune::{
 };
 pub use read::{Details, Hidden, Listing, Reach, Statuses, Summary, TagCount, Vocabulary};
 pub use request::{request_command_id, REQUEST_NAMESPACE};
-pub use retry::Backoff;
+pub use retry::{Backoff, KERNEL_RETRY};
 pub use schema::{Range, TagSchema};
 pub use semver::{Semver, Version};
 pub use tags::{parse as parse_tag, Tag};
@@ -66,7 +67,7 @@ pub use view::{text_hash, Row, Shown, StatusInfo, Task};
 pub(crate) use query::QueryError;
 pub(crate) use tags::TagRefusal;
 pub(crate) use view::DONE;
-pub use watch::{Changed, Watch, WatchRequest, WatchService};
+pub use watch::{Changed, Polled, Watch, WatchCursor, WatchRequest, WatchService};
 
 /// How many task ids an add mints before giving up, each refused because a
 /// task already holds it.
@@ -90,7 +91,7 @@ pub struct NewTask {
     pub origin_session: Option<String>,
     /// The request's key: refused, given at all, until fix O pins the
     /// harp an add mints by it ([`AppError::AddRequestIdNotYet`]). An
-    /// add's stream is its minted harp's, and annals deduplicates within a
+    /// add's stream is its minted harp's, and the kernel deduplicates within a
     /// stream, so a retried add would mint another harp and add the task
     /// twice: the key would promise what it cannot keep.
     pub request_id: Option<String>,
@@ -199,7 +200,7 @@ pub struct ListQuery {
 pub(crate) const PRIORITY: &str = "priority";
 
 /// A task written, the project it was written in, which of its tags a
-/// person is shown, and the dead letters annals' kernel wrote while the
+/// person is shown, and the dead letters the kernel wrote while the
 /// write ran (almost certainly bugs, for the caller to say loudly).
 #[derive(Clone, PartialEq, Debug)]
 pub struct Written {
@@ -241,12 +242,10 @@ pub trait TaskService {
     fn permits(&mut self) -> impl Future<Output = Result<PermitList, AppError>> + Send;
 }
 
-/// The registry the tasks domain runs under.
+/// The registry the tasks domain runs under: the task aggregate.
 pub fn registry() -> Registry {
     let mut registry = Registry::new();
-    registry
-        .register::<Tasks>(Rulebook::new("v1", ()), Upcaster::new("tasks", "tasks"))
-        .expect("the tasks domain registers once");
+    registry.aggregate::<TaskAggregate>(TaskAggregate::default);
     registry
 }
 
@@ -263,7 +262,7 @@ pub struct Service<I, S, N, C, D, G = NotConfigured> {
     pub configuration: G,
     pub backoff: Backoff,
     registry: Registry,
-    /// The log annals' kernel writes dead letters to, taken into each
+    /// The log the kernel writes dead letters to, taken into each
     /// result, or a write's error.
     pub(crate) dead_letters: DeadLetters,
 }
@@ -376,7 +375,7 @@ where
     }
 
     /// Run `command` on the task `harp_id` in `project`'s store, under
-    /// `command_id`, retried as annals says; the task after it. A command
+    /// `command_id`, retried as taskloom's loop says; the task after it. A command
     /// already applied under `command_id` is answered DUPLICATE and
     /// applies nothing: the task is answered as it stands.
     async fn commit(
@@ -392,7 +391,7 @@ where
     }
 
     /// [`Service::commit`] of what `shape` makes of the task as each
-    /// attempt's unit of work reads it ([`retry::Runner::run_shaped`]),
+    /// attempt reads it ([`retry::Runner::run_shaped`]),
     /// or of `command` when there is no `shape`.
     async fn commit_shaped<F: Fn(&TaskState) -> Option<CommandBook> + Sync>(
         &mut self,
@@ -415,7 +414,7 @@ where
             None | Some(retry::Outcome::Committed) => {}
             Some(retry::Outcome::Refused(rejection)) => return Err(rejected(&rejection)),
         }
-        // The read-back is a unit of work of its own, after the commit: a
+        // The read-back is a read of its own, after the commit: a
         // remove committed between the two makes a change that committed
         // report failure (Vanished). Accepted: the change did land, and a
         // retry of it finds no task to change.
@@ -486,7 +485,7 @@ where
             let book = book(&harp_id, add.into());
             match runner.run(store, &book, &command_id).await? {
                 retry::Outcome::Committed => {
-                    // The read-back is a unit of work of its own, after the
+                    // The read-back is a read of its own, after the
                     // commit: a remove committed between the two makes an
                     // add that committed report failure (Vanished), and a
                     // caller that retries it adds the task again. Accepted.
@@ -501,7 +500,7 @@ where
                         dead_letters: self.dead_letters.take(),
                     });
                 }
-                retry::Outcome::Refused(TaskRejection::TaskExists { .. }) => continue,
+                refused if refused.refused_as("tasks-task-exists") => continue,
                 retry::Outcome::Refused(rejection) => return Err(rejected(&rejection)),
             }
         }
@@ -690,7 +689,7 @@ fn cover(harp_id: &str) -> Cover {
 }
 
 /// `command` for the task `harp_id`. Its command id is left for the
-/// kernel to take from the [`Sampled`](annals::next::Sampled) the runner
+/// kernel to take from the [`Sampled`](angzarr_embedded::next::Sampled) the runner
 /// gives it, the same on every attempt.
 fn book(harp_id: &str, command: TaskCommand) -> CommandBook {
     CommandBook {
@@ -706,41 +705,55 @@ fn book(harp_id: &str, command: TaskCommand) -> CommandBook {
 }
 
 /// The task `harp_id` names, as the store holds it now, read in a
-/// read-only unit of work; `None` when its stream holds no task.
-async fn read<S: AsyncReadStore>(
-    store: &mut S,
+/// read-only unit; `None` when its stream holds no task.
+async fn read<S: ReadStore>(
+    store: &S,
     registry: &Registry,
     harp_id: &str,
 ) -> Result<Option<Task>, AppError> {
     let cover = cover(harp_id);
-    let mut reads = store.begin_read().await;
-    let Some(slice) = reads.read_from(&cover, 0).await.map_err(failed)? else {
-        return Ok(None);
-    };
-    let stream = Stream::<Tasks>::replay(cover, &slice.pages, registry)
+    let stream = StreamRef::try_from(&cover).map_err(failed)?;
+    let mut reads = store.begin_read().await.map_err(failed)?;
+    let slice = reads.read(stream, 0, None).await.map_err(failed)?;
+    let stream = Stream::<TaskAggregate>::replay(cover, &slice.pages, registry)
         .map_err(|e| AppError::Failed(Report::of(&e)))?;
-    // A stream that replays to no task (read back with no events, as a
-    // store whose reads are not held to one moment can answer one purged
-    // mid-read) is no task, never a blank one.
-    let state = stream.state();
+    // A stream that replays to no task (one with no events, or read back
+    // with none) is no task, never a blank one.
+    let state = stream.state().state();
     Ok((!state.harp_id.is_empty()).then(|| Task::of(state)))
 }
 
-fn failed(error: annals::next::StoreError) -> AppError {
-    AppError::Failed(Report::of(&error))
+/// A list read once and dropped: no watcher resumes from its cursor, so its
+/// instance is none in particular.
+pub(crate) fn read_list() -> task_lists::TaskList {
+    task_lists::TaskList::new(Uuid::from_bytes([0; 16]))
+}
+
+/// A store's failure, as the kernel reports one: its key and args.
+pub(crate) fn store_report(error: StoreError) -> Report {
+    Report::of(&KernelError::Store(error))
+}
+
+/// A store's failure, as the use cases fail with it.
+fn failed(error: StoreError) -> AppError {
+    AppError::Failed(store_report(error))
 }
 
 fn refused(refusal: &TagRefusal) -> AppError {
     AppError::TagRefused(Report::of(refusal))
 }
 
-fn rejected(rejection: &TaskRejection) -> AppError {
+fn rejected(rejection: &dyn Diagnostic) -> AppError {
     AppError::Rejected(Report::of(rejection))
 }
 
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "english.test.rs"]
+mod english;
 
 #[cfg(test)]
 #[path = "fakes.test.rs"]

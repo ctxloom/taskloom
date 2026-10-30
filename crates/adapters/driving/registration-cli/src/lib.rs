@@ -15,7 +15,7 @@ use std::ffi::OsString;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use annals_diagnostic::Diagnostic;
+use angzarr_embedded_diagnostic::Diagnostic;
 use clap::{Parser, Subcommand};
 use presentation::{Catalog, Format, Render};
 use registration_application::{
@@ -455,3 +455,7 @@ fn output_failed(error: io::Error) -> ManageError {
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../adapters/driving/presentation/src/english.test.rs"]
+mod english;

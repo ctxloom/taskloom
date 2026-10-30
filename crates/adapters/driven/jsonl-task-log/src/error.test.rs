@@ -1,6 +1,8 @@
 //! The errors' English and the catalog.
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
+
+crate::english_for!(&[crate::EN_US.1]);
 
 use super::diagnostic_samples;
 
@@ -10,7 +12,7 @@ fn arg_names(d: &dyn Diagnostic) -> Vec<&'static str> {
 
 #[test]
 fn test_each_error_renders_its_english_fallback() {
-    let english: Vec<String> = diagnostic_samples().iter().map(|d| d.to_string()).collect();
+    let english: Vec<String> = diagnostic_samples().iter().map(|d| d.english()).collect();
     assert_eq!(
         english,
         [
@@ -61,11 +63,11 @@ fn test_no_home_names_the_variable_each_flavor_reads() {
         flavor: os::Flavor::Windows,
     };
     assert_eq!(
-        unix.to_string(),
+        unix.english(),
         "HOME is not set, so Go's task logs cannot be found"
     );
     assert_eq!(
-        windows.to_string(),
+        windows.english(),
         "USERPROFILE is not set, so Go's task logs cannot be found"
     );
     assert!(matches!(&windows.args()[..], [("var", Arg::Str(v))] if v == "USERPROFILE"));

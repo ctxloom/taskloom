@@ -6,8 +6,8 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use annals::next::Timestamp;
-use annals_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic, Report};
+use ports::Timestamp;
 use task_priority::{Candidate, Diagnostics, Formulas};
 
 use crate::view::{is_terminal, Row};
@@ -157,27 +157,7 @@ pub(crate) fn warnings(diagnostics: &Diagnostics) -> Vec<PriorityWarning> {
 
 impl fmt::Display for PriorityWarning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PriorityWarning::NoPriorityFn => f.write_str(
-                "--sort priority is meaningless here: this project's tag_schema declares no priority_fn, so every task's raw score is 0 and the ranking reflects nothing",
-            ),
-            PriorityWarning::AllTied { scored, live } => write!(
-                f,
-                "--sort priority is meaningless here: every active task ties at the same raw priority score (only {scored} of {live} active tasks carry a tag any priority_fn/decay_fn formula actually reads) \u{2014} the ranking reflects nothing"
-            ),
-            PriorityWarning::Inert { target, live } => write!(
-                f,
-                "priority_fn/decay_fn reads {target}, which none of the {live} active tasks carries \u{2014} that term is inert and moves no task's rank"
-            ),
-            PriorityWarning::Thin {
-                uncovered,
-                live,
-                target,
-            } => write!(
-                f,
-                "{uncovered} of {live} active tasks carry no {target} \u{2014} they rank as if it were absent, on a formula that reads it"
-            ),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -217,10 +197,7 @@ impl Diagnostic for PriorityWarning {
 /// listing over every project says whose it is.
 impl fmt::Display for PriorityNote {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.project {
-            Some(project) => write!(f, "project {project}: {}", self.warning),
-            None => self.warning.fmt(f),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 

@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum BuildError {
@@ -13,11 +13,7 @@ pub enum BuildError {
 
 impl fmt::Display for BuildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            BuildError::RelativeCwd { cwd } => {
-                write!(f, "the working directory is not an absolute path: {cwd}")
-            }
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 

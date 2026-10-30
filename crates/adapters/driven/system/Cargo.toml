@@ -8,7 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-annals.workspace = true
+prost-types.workspace = true
 ports.workspace = true
 rand.workspace = true
 tokio.workspace = true

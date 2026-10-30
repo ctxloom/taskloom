@@ -21,7 +21,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 
 use ports::TagPermits;
 
@@ -82,55 +82,7 @@ pub enum Finding {
 
 impl fmt::Display for Finding {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Finding::NotInEnum {
-                target,
-                value,
-                members,
-            } => write!(
-                f,
-                "{target}={value} is not one of the declared enum values: {members}"
-            ),
-            Finding::NotANumber { target, value } => {
-                write!(f, "{target}={value} does not parse as a finite number")
-            }
-            Finding::OutOfRange {
-                target,
-                value,
-                min,
-                max,
-            } => write!(
-                f,
-                "{target}={value} is outside the declared range [{min}, {max}]"
-            ),
-            Finding::Scalar { target, values } => write!(
-                f,
-                "{target} carries {} distinct values ({}) but is declared arity=scalar",
-                values.len(),
-                values.join(", ")
-            ),
-            Finding::NotPermitted { tag, permit } => write!(
-                f,
-                "{tag} is not permitted in this project (`taskloom permit {permit}` permits it)"
-            ),
-            Finding::ManyKeys { namespace, keys } => write!(
-                f,
-                "{namespace}: carries {} keys ({}), but a task takes one",
-                keys.len(),
-                keys.join(", ")
-            ),
-            Finding::FormulaEnum {
-                facet,
-                target,
-                placeholder,
-                reference,
-                value,
-                members,
-            } => write!(
-                f,
-                "{facet} on {target} references the placeholder {placeholder}, but {value} is not one of {reference}'s declared enum values: {members}"
-            ),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -222,7 +174,7 @@ pub struct LintReport {
 }
 
 /// The violations among `rows` and in `schema`, sorted by project, subject
-/// and English, each once; and how many targets were checked.
+/// and key and args, each once; and how many targets were checked.
 pub(crate) fn lint(
     rows: &[Row],
     schema: &TagSchema,

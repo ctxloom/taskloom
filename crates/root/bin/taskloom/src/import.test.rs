@@ -13,11 +13,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use annals::next::{AsyncEventStore, Stream, Timestamp};
+use angzarr_embedded::next::{EventStore, Stream, StreamRef, Timestamp};
 use ports::{Project, TaskStores};
 use serde_json::Value;
 use task_store_sqlite::SqliteStores;
-use tasks::{TaskState, Tasks};
+use tasks::{TaskAggregate, TaskState};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
@@ -75,9 +75,10 @@ fn rust_tasks(home: &Path, project: &str) -> Option<BTreeMap<String, TaskState>>
         let registry = tasks_application::registry();
         let mut tasks = BTreeMap::new();
         for cover in store.covers("tasks").await.unwrap() {
-            let slice = store.read_from(&cover, 0).await.unwrap().unwrap();
-            let stream = Stream::<Tasks>::replay(cover, &slice.pages, &registry).unwrap();
-            let state = stream.state().clone();
+            let at = StreamRef::try_from(&cover).unwrap();
+            let slice = store.read(at, 0, None).await.unwrap();
+            let stream = Stream::<TaskAggregate>::replay(cover, &slice.pages, &registry).unwrap();
+            let state = stream.state().state().clone();
             tasks.insert(state.harp_id.clone(), state);
         }
         Some(tasks)

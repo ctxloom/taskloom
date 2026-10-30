@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use annals_diagnostic::Report;
+use angzarr_embedded_diagnostic::Report;
 
 use super::{
     Change, Checked, IdSource, Plan, Problem, ProjectAdmin, ProjectError, Projects, Registered,
@@ -91,12 +91,9 @@ fn checked(survey: Survey, found: Result<Checked, Report>) -> Projects<Fake, Fak
 }
 
 fn damage() -> Report {
-    Report::new(
-        "annals-store-sql-damaged",
-        "the database file is damaged: row 2 missing from index i",
-    )
-    .arg("first", "row 2 missing from index i")
-    .arg("more", 0u64)
+    Report::new("angzarr-store-sqlite-damaged")
+        .arg("first", "row 2 missing from index i")
+        .arg("more", 0u64)
 }
 
 fn marked(id: &str) -> Survey {
@@ -309,7 +306,7 @@ fn test_show_finds_orphaned_databases_but_not_its_own() {
 
 #[test]
 fn test_a_failing_survey_fails_each_use_case_as_the_ports_error() {
-    let report = Report::new("project-registry-no-home", "no home");
+    let report = Report::new("project-registry-no-home");
     let mut projects = projects(survey());
     projects.admin.refuse = Some(report.clone());
     let refused = ProjectError::Port(report);
@@ -457,7 +454,7 @@ fn test_heal_with_no_project_checks_no_database() {
 
 #[test]
 fn test_a_check_that_cannot_run_fails_the_heal_changing_nothing() {
-    let failed = Report::new("annals-store-sql-unavailable", "locked");
+    let failed = Report::new("annals-store-sql-unavailable");
     let mut survey = marked("m");
     survey.registry = vec![entry("a", "/w", true)];
     let mut projects = checked(survey, Err(failed.clone()));

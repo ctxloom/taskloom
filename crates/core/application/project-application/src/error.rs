@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic, Report};
 
 /// Why a project use case did not complete. [`ProjectError::Port`] is the
 /// port's own diagnostic: its code, args and English.
@@ -21,21 +21,7 @@ pub enum ProjectError {
 
 impl fmt::Display for ProjectError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ProjectError::Port(cause) => cause.fmt(f),
-            ProjectError::UnknownProject { id } => write!(
-                f,
-                "no project {id} is registered or has a database: nothing to repoint to"
-            ),
-            ProjectError::InUse { id, path } => write!(
-                f,
-                "project {id} is still the project of {path}, which exists: pass --share if the two trees are meant to share it"
-            ),
-            ProjectError::NotOrphan { id } => write!(
-                f,
-                "{id} is not an orphaned database: a live registered path, or this directory, still points at it, or it does not exist"
-            ),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 

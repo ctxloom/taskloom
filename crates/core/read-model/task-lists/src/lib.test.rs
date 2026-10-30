@@ -1,24 +1,40 @@
-//! A task list, projected live: each command runs through annals' kernel
-//! with the list attached as a projection, so the list sees each committed
-//! event with the task's state just after it. A fresh list catches up from the store, as every read and watch of the
-//! binary's does.
+//! The task list, projected live and caught up: each command runs through
+//! angzarr-embedded's kernel over angzarr-ports' in-memory store with the
+//! list attached as a projection, so the list sees each committed event with
+//! the task just after it; a fresh list catches up from the store, as every
+//! read and watch of another process does. A watcher resumes from a
+//! [`ListCursor`]: each stream's sequence by harp id, of the list's
+//! instance (the owner's ruling D7); a purge bumps the instance, and a
+//! cursor from before it is resynced whole.
 
+use std::future::Future;
 use std::marker::PhantomData;
 
-use crate::{Change, Delta, TaskList};
-use annals::next::v1::{command_page, CommandBook, CommandPage, Cover, Uuid};
-use annals::next::{
-    ids, InMemoryStore, Kernel, MemoryDeadLetters, Payload, ProjectionRoute, Ready, Registry,
-    Routes, Rulebook, Sampled, Timestamp, Upcaster,
+use angzarr_embedded::next::angzarr_ports::memory::MemoryStore;
+use angzarr_embedded::next::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
+use angzarr_embedded::next::{
+    ids, Any, EventStore, Kernel, MemoryDeadLetters, OnRetryable, Payload, ProjectionRoute, Purge,
+    ReadStore, ReadUnit, Registry, Sampled, Slice, StoreError, StreamRef, Timestamp,
 };
-use tasks::{AddTask, RemovalReason, RemoveTask, SetStatus, TaskCommand, Tasks};
+use tasks::{AddTask, RemovalReason, RemoveTask, SetStatus, TaskAggregate, TaskCommand};
+
+use super::{Change, ListCursor, TaskList};
 
 const FIRST: &str = "swift-amber";
 const SECOND: &str = "calm-otter";
 
+/// Poll `future` once: the in-memory store never waits.
+fn ready<F: Future>(future: F) -> F::Output {
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    match std::pin::pin!(future).poll(&mut cx) {
+        std::task::Poll::Ready(out) => out,
+        std::task::Poll::Pending => panic!("the in-memory store never waits"),
+    }
+}
+
 /// One project's store, and the clock its commands are sampled at.
 struct Project {
-    store: InMemoryStore,
+    store: MemoryStore,
     registry: Registry,
     seconds: i64,
 }
@@ -26,11 +42,9 @@ struct Project {
 impl Project {
     fn new() -> Project {
         let mut registry = Registry::new();
-        registry
-            .register::<Tasks>(Rulebook::new("v1", ()), Upcaster::new("tasks", "tasks"))
-            .unwrap();
+        registry.aggregate::<TaskAggregate>(TaskAggregate::default);
         Project {
-            store: InMemoryStore::new(),
+            store: MemoryStore::new(),
             registry,
             seconds: 100,
         }
@@ -50,33 +64,67 @@ impl Project {
         let mut route = ProjectionRoute {
             name: "list",
             projection: list,
-            domain: PhantomData::<fn() -> Tasks>,
+            domain: PhantomData::<fn() -> TaskAggregate>,
         };
-        Kernel::new(&self.registry, &dead_letters)
-            .handle::<Tasks, _, _>(
-                self.store.begin(),
-                &Routes::new(),
-                book(harp, command.into().to_any()),
-                &sampled,
-                &mut route,
-            )
-            .unwrap_or_else(|failure| panic!("{failure:?}"));
+        ready(
+            Kernel::new(&self.registry, &dead_letters)
+                .on_retryable(OnRetryable {
+                    max_retries: 0,
+                    ..OnRetryable::default()
+                })
+                .handle::<TaskAggregate, _, _>(
+                    &self.store,
+                    book(harp, command.into().to_any()),
+                    &sampled,
+                    &mut route,
+                ),
+        )
+        .unwrap_or_else(|failure| panic!("{failure:?}"));
+    }
+
+    /// Purge task `harp`'s stream: what a prune does after its removal.
+    fn purge(&self, harp: &str) -> u64 {
+        let cover = cover(harp);
+        ready(Purge::purge(
+            &self.store,
+            StreamRef::try_from(&cover).unwrap(),
+        ))
+        .unwrap()
+    }
+
+    /// Catch `list` up from the store.
+    fn catch_up(&self, list: &mut TaskList) {
+        ready(list.catch_up(&self.store, &self.registry)).unwrap();
+    }
+
+    /// A list built afresh from the store: another process's, of an
+    /// instance of its own.
+    fn rebuilt(&self) -> TaskList {
+        self.rebuilt_as(instance())
+    }
+
+    /// A list built afresh from the store under `instance`: the application
+    /// rebuilding a list it keeps the instance of.
+    fn rebuilt_as(&self, instance: Uuid) -> TaskList {
+        let mut list = TaskList::new(instance);
+        self.catch_up(&mut list);
+        list
     }
 }
 
 fn cover(harp: &str) -> Cover {
     Cover {
-        domain: "tasks".to_string(),
-        root: Some(ids::compute_root("tasks", harp).unwrap()),
+        domain: tasks::TASK_DOMAIN.to_string(),
+        root: Some(ids::compute_root(tasks::TASK_DOMAIN, harp).unwrap()),
         edition: None,
     }
 }
 
-fn book(harp: &str, payload: annals::next::Any) -> CommandBook {
+fn book(harp: &str, payload: Any) -> CommandBook {
     CommandBook {
         cover: Some(cover(harp)),
         page: Some(CommandPage {
-            body: Some(command_page::Body::Command(annals::next::v1::Command {
+            body: Some(command_page::Body::Command(Command {
                 payload: Some(payload),
             })),
             ..CommandPage::default()
@@ -108,171 +156,6 @@ fn status(status: &str, trigger: &str) -> SetStatus {
     }
 }
 
-fn every_task() -> TaskList {
-    TaskList::default()
-}
-
-fn harps(list: &TaskList) -> Vec<&str> {
-    list.entries().iter().map(|t| t.harp_id.as_str()).collect()
-}
-
-// ------------------------------------------------------------ the list
-
-#[test]
-fn test_a_list_holds_each_live_task() {
-    let mut project = Project::new();
-    let mut list = every_task();
-    project.run(&mut list, FIRST, add(FIRST, "First"));
-    project.run(&mut list, SECOND, add(SECOND, "Second"));
-    assert_eq!(harps(&list), [SECOND, FIRST], "by harp id");
-    assert_eq!(list.sequence(), 2);
-}
-
-#[test]
-fn test_each_change_to_the_list_takes_the_next_sequence() {
-    let mut project = Project::new();
-    let mut list = every_task();
-    project.run(&mut list, FIRST, add(FIRST, "First"));
-    project.run(&mut list, FIRST, status("In Progress", ""));
-    let deltas = list.since(0).expect("from the start");
-    assert_eq!(deltas.len(), 2);
-    assert_eq!(deltas[0].sequence, 1);
-    assert_eq!(deltas[1].sequence, 2);
-    let Change::Upsert(task) = &deltas[1].change else {
-        panic!("a listed task changed: {deltas:?}");
-    };
-    assert_eq!(
-        task.status, "In Progress",
-        "the task's state after the event"
-    );
-}
-
-#[test]
-fn test_a_removed_task_leaves_the_list() {
-    let mut project = Project::new();
-    let mut list = every_task();
-    project.run(&mut list, FIRST, add(FIRST, "First"));
-    project.run(
-        &mut list,
-        FIRST,
-        RemoveTask {
-            reason: RemovalReason::Removed,
-        },
-    );
-    assert!(list.entries().is_empty());
-    assert_eq!(list.sequence(), 2);
-}
-
-// ------------------------------------------------------------ cursors
-
-#[test]
-fn test_since_gives_the_changes_after_a_cursor() {
-    let mut project = Project::new();
-    let mut list = every_task();
-    project.run(&mut list, FIRST, add(FIRST, "First"));
-    project.run(&mut list, SECOND, add(SECOND, "Second"));
-    let after_first = list.since(1).unwrap();
-    assert_eq!(after_first.len(), 1);
-    assert_eq!(after_first[0].sequence, 2);
-    assert_eq!(list.since(2), Some(&[][..]), "caught up");
-}
-
-#[test]
-fn test_since_a_cursor_past_the_sequence_is_none() {
-    // A cursor the list never issued (a list rebuilt under the reader):
-    // the reader takes the list whole.
-    let mut project = Project::new();
-    let mut list = every_task();
-    project.run(&mut list, FIRST, add(FIRST, "First"));
-    assert_eq!(list.since(5), None);
-}
-
-// ------------------------------------------------------------ catch-up
-
-#[test]
-fn test_a_list_caught_up_from_the_store_holds_what_the_live_list_holds() {
-    let mut project = Project::new();
-    let mut live = every_task();
-    project.run(&mut live, FIRST, add(FIRST, "First"));
-    project.run(&mut live, SECOND, add(SECOND, "Second"));
-    project.run(
-        &mut live,
-        FIRST,
-        RemoveTask {
-            reason: RemovalReason::Removed,
-        },
-    );
-
-    let mut rebuilt = every_task();
-    rebuilt
-        .catch_up(&mut project.store, &project.registry)
-        .unwrap();
-    assert_eq!(rebuilt.entries(), live.entries());
-    assert_eq!(harps(&rebuilt), [SECOND]);
-}
-
-#[test]
-fn test_a_redelivered_event_changes_nothing() {
-    let mut project = Project::new();
-    let mut list = every_task();
-    project.run(&mut list, FIRST, add(FIRST, "First"));
-    list.catch_up(&mut project.store, &project.registry)
-        .unwrap();
-    assert_eq!(
-        list.sequence(),
-        1,
-        "the store's events were already projected"
-    );
-}
-
-/// Run a future whose every await is ready at once (a [`Ready`] store's),
-/// as the async port's tests need no runtime.
-fn ready<F: std::future::Future>(future: F) -> F::Output {
-    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
-    match std::pin::pin!(future).poll(&mut cx) {
-        std::task::Poll::Ready(out) => out,
-        std::task::Poll::Pending => panic!("a ready store's futures finish at once"),
-    }
-}
-
-#[test]
-fn test_a_list_caught_up_over_the_async_port_holds_what_the_live_list_holds() {
-    let mut project = Project::new();
-    let mut live = every_task();
-    project.run(&mut live, FIRST, add(FIRST, "First"));
-    project.run(&mut live, SECOND, add(SECOND, "Second"));
-    project.run(
-        &mut live,
-        FIRST,
-        RemoveTask {
-            reason: RemovalReason::Removed,
-        },
-    );
-
-    let mut rebuilt = every_task();
-    let mut store = Ready(std::mem::take(&mut project.store));
-    ready(rebuilt.catch_up_async(&mut store, &project.registry)).unwrap();
-    assert_eq!(rebuilt.entries(), live.entries());
-    assert_eq!(harps(&rebuilt), [SECOND]);
-    assert_eq!(
-        rebuilt.sequence(),
-        3,
-        "each event the list saw: two adds, one leaving"
-    );
-}
-
-#[test]
-fn test_an_async_catch_up_projects_only_what_is_new() {
-    let mut project = Project::new();
-    let mut list = every_task();
-    project.run(&mut list, FIRST, add(FIRST, "First"));
-    let mut store = Ready(std::mem::take(&mut project.store));
-    ready(list.catch_up_async(&mut store, &project.registry)).unwrap();
-    assert_eq!(list.sequence(), 1, "already projected");
-}
-
-// ------------------------------------------------------------ pruning
-
 fn pruned() -> RemoveTask {
     RemoveTask {
         reason: RemovalReason::Pruned,
@@ -285,6 +168,277 @@ fn removed() -> RemoveTask {
     }
 }
 
+/// A list of an instance of its own, as the application mints one per
+/// list it builds.
+fn every_task() -> TaskList {
+    TaskList::new(instance())
+}
+
+/// An instance no other list has.
+fn instance() -> Uuid {
+    static NEXT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1);
+    Uuid::from_bytes([NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed); 16])
+}
+
+fn harps(list: &TaskList) -> Vec<&str> {
+    list.entries().iter().map(|t| t.harp_id.as_str()).collect()
+}
+
+fn texts(list: &TaskList) -> Vec<&str> {
+    list.entries().iter().map(|t| t.text.as_str()).collect()
+}
+
+fn unpurged(list: &TaskList) -> Vec<&str> {
+    list.unpurged().iter().map(|t| t.harp_id.as_str()).collect()
+}
+
+/// Each change of a resume as (harp, text, status), a removal as (harp,
+/// "removed", ""); a resync (`None`) is no resume.
+fn said(changes: &Option<Vec<Change>>) -> Vec<(&str, &str, &str)> {
+    let changes = changes.as_ref().expect("resumed, not resynced");
+    changes
+        .iter()
+        .map(|change| match change {
+            Change::Upsert(t) => (t.harp_id.as_str(), t.text.as_str(), t.status.as_str()),
+            Change::Remove { harp_id } => (harp_id.as_str(), "removed", ""),
+        })
+        .collect()
+}
+
+// ------------------------------------------------------------ the list
+
+#[test]
+fn test_a_list_holds_each_live_task() {
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    project.run(&mut list, SECOND, add(SECOND, "Second"));
+    assert_eq!(harps(&list), [SECOND, FIRST], "by harp id");
+}
+
+#[test]
+fn test_a_listed_task_is_held_as_it_is_after_its_last_event() {
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    project.run(&mut list, FIRST, status("In Progress", ""));
+    assert_eq!(list.entries()[0].status, "In Progress");
+}
+
+#[test]
+fn test_a_removed_task_leaves_the_list() {
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    project.run(&mut list, FIRST, removed());
+    assert!(list.entries().is_empty());
+}
+
+// ------------------------------------------------------------ the cursor (D7)
+
+#[test]
+fn test_a_cursor_holds_each_streams_last_sequence_by_harp_and_nothing_across_them() {
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    project.run(&mut list, FIRST, status("In Progress", ""));
+    project.run(&mut list, FIRST, status("Done", ""));
+    project.run(&mut list, SECOND, add(SECOND, "Second"));
+    let cursor = list.cursor();
+    assert_eq!(
+        cursor.streams(),
+        [(SECOND, 0), (FIRST, 2)],
+        "one entry per stream, its own sequence: no number of the list's"
+    );
+    assert_eq!(cursor.sequence(FIRST), Some(2));
+    assert_eq!(cursor.sequence("tpyo"), None, "a stream it never saw");
+}
+
+#[test]
+fn test_a_stream_removed_by_name_keeps_its_place_in_the_cursor() {
+    // Its stream is held, so a watcher has seen it, though it is not listed.
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    project.run(&mut list, FIRST, removed());
+    assert_eq!(list.cursor().streams(), [(FIRST, 1)]);
+}
+
+#[test]
+fn test_an_empty_cursor_resumes_to_the_whole_list() {
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    project.run(&mut list, SECOND, add(SECOND, "Second"));
+    assert_eq!(
+        said(&list.since(&ListCursor::default())),
+        [(SECOND, "Second", "To Do"), (FIRST, "First", "To Do")],
+        "every listed task, by harp id"
+    );
+}
+
+#[test]
+fn test_the_lists_own_cursor_is_missing_nothing() {
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    project.run(&mut list, FIRST, removed());
+    project.run(&mut list, SECOND, add(SECOND, "Second"));
+    assert_eq!(list.since(&list.cursor()), Some(vec![]));
+}
+
+#[test]
+fn test_resuming_from_a_cursor_replays_only_the_streams_that_moved() {
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    project.run(&mut list, SECOND, add(SECOND, "Second"));
+    let cursor = list.cursor();
+    project.run(&mut list, FIRST, status("In Progress", ""));
+    project.run(&mut list, FIRST, status("Done", ""));
+    assert_eq!(
+        said(&list.since(&cursor)),
+        [(FIRST, "First", "Done")],
+        "the moved stream once, as it is now; the still one not at all"
+    );
+}
+
+#[test]
+fn test_resuming_from_a_cursor_shows_a_stream_it_has_not_seen() {
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    let cursor = list.cursor();
+    project.run(&mut list, SECOND, add(SECOND, "Second"));
+    assert_eq!(said(&list.since(&cursor)), [(SECOND, "Second", "To Do")]);
+}
+
+#[test]
+fn test_a_task_removed_since_the_cursor_is_a_removal() {
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    project.run(&mut list, SECOND, add(SECOND, "Second"));
+    let cursor = list.cursor();
+    project.run(&mut list, FIRST, removed());
+    assert_eq!(said(&list.since(&cursor)), [(FIRST, "removed", "")]);
+}
+
+#[test]
+fn test_a_cursor_that_never_saw_a_removed_task_is_told_nothing_of_it() {
+    let mut project = Project::new();
+    let mut list = every_task();
+    let cursor = list.cursor();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    project.run(&mut list, FIRST, removed());
+    assert_eq!(list.since(&cursor), Some(vec![]), "nothing it holds left");
+}
+
+#[test]
+fn test_a_cursor_resumes_against_a_list_rebuilt_from_the_store_under_its_instance() {
+    // The cursor is the store's streams' own sequences, not a number one
+    // list made up: a list rebuilt under the same instance resumes it to
+    // what is new. Another process's list is another instance: resynced.
+    let mut project = Project::new();
+    let id = instance();
+    let mut list = TaskList::new(id.clone());
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    project.run(&mut list, SECOND, add(SECOND, "Second"));
+    let cursor = list.cursor();
+    project.run(&mut list, SECOND, status("Done", ""));
+
+    let again = project.rebuilt_as(id);
+    assert_eq!(
+        again.cursor(),
+        list.cursor(),
+        "the same streams, seen as far"
+    );
+    assert_eq!(said(&again.since(&cursor)), [(SECOND, "Second", "Done")]);
+    let elsewhere = project.rebuilt();
+    assert_eq!(elsewhere.cursor().streams(), list.cursor().streams());
+    assert_eq!(elsewhere.since(&cursor), None, "another instance: resynced");
+}
+
+#[test]
+fn test_a_stream_the_cursor_has_seen_further_than_the_list_is_not_sent_backwards() {
+    // A watcher's cursor from a list ahead of this one (live, while this
+    // one last caught up earlier): this list's older task is not sent.
+    let mut project = Project::new();
+    let id = instance();
+    let mut live = TaskList::new(id.clone());
+    project.run(&mut live, FIRST, add(FIRST, "First"));
+    let behind = project.rebuilt_as(id);
+    project.run(&mut live, FIRST, status("Done", ""));
+    assert_eq!(behind.since(&live.cursor()), Some(vec![]));
+}
+
+// ------------------------------------------------------------ catch-up
+
+#[test]
+fn test_a_list_caught_up_from_the_store_holds_what_the_live_list_holds() {
+    let mut project = Project::new();
+    let mut live = every_task();
+    project.run(&mut live, FIRST, add(FIRST, "First"));
+    project.run(&mut live, SECOND, add(SECOND, "Second"));
+    project.run(&mut live, FIRST, removed());
+
+    let rebuilt = project.rebuilt();
+    assert_eq!(rebuilt.entries(), live.entries());
+    assert_eq!(harps(&rebuilt), [SECOND]);
+    assert_eq!(rebuilt.cursor().streams(), live.cursor().streams());
+}
+
+#[test]
+fn test_a_redelivered_event_changes_nothing() {
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    let cursor = list.cursor();
+    project.catch_up(&mut list);
+    assert_eq!(
+        list.since(&cursor),
+        Some(vec![]),
+        "the store's events were already projected"
+    );
+    assert_eq!(list.cursor(), cursor);
+}
+
+#[test]
+fn test_a_redelivered_event_past_the_first_changes_nothing() {
+    // Read back, the stream's middle event's state is not the task's now:
+    // projected again, it would list the task as it was.
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    project.run(&mut list, FIRST, status("In Progress", ""));
+    project.run(&mut list, FIRST, status("Done", ""));
+    project.catch_up(&mut list);
+    assert_eq!(list.entries()[0].status, "Done");
+    assert_eq!(list.cursor().sequence(FIRST), Some(2));
+}
+
+#[test]
+fn test_an_append_seen_at_a_catch_up_is_no_restart() {
+    // The stream read back from its start: its first event is the one
+    // already seen, so only the new event is projected.
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    let cursor = list.cursor();
+    let mut elsewhere = every_task();
+    project.run(&mut elsewhere, FIRST, status("In Progress", ""));
+    project.catch_up(&mut list);
+    assert_eq!(
+        said(&list.since(&cursor)),
+        [(FIRST, "First", "In Progress")]
+    );
+    let caught_up = list.cursor();
+    project.catch_up(&mut list);
+    assert_eq!(list.since(&caught_up), Some(vec![]), "nothing new");
+}
+
+// ------------------------------------------------------------ pruning
+
 #[test]
 fn test_a_task_minted_on_a_pruned_harp_is_listed_though_its_stream_restarted() {
     // Prune records the removal, then purges the stream; a new task minted
@@ -296,17 +450,11 @@ fn test_a_task_minted_on_a_pruned_harp_is_listed_though_its_stream_restarted() {
     project.run(&mut list, FIRST, status("Done", ""));
     project.run(&mut list, FIRST, pruned());
     assert!(list.entries().is_empty(), "the removal drops it at once");
-    let deleted = annals::next::Purge::purge(&mut project.store, &cover(FIRST)).unwrap();
-    assert_eq!(deleted, 3);
+    assert_eq!(project.purge(FIRST), 3);
 
     project.run(&mut list, FIRST, add(FIRST, "Again"));
-    let texts: Vec<&str> = list.entries().iter().map(|t| t.text.as_str()).collect();
-    assert_eq!(texts, ["Again"], "the new task, not the pruned one");
-    assert_eq!(
-        list.sequence(),
-        4,
-        "the add, its status, the removal, the new add"
-    );
+    assert_eq!(texts(&list), ["Again"], "the new task, not the pruned one");
+    assert_eq!(list.cursor().sequence(FIRST), Some(0), "the new stream's");
 }
 
 #[test]
@@ -317,12 +465,12 @@ fn test_a_task_removed_by_name_keeps_its_streams_place() {
     let mut list = every_task();
     project.run(&mut list, FIRST, add(FIRST, "First"));
     project.run(&mut list, FIRST, removed());
-    list.catch_up(&mut project.store, &project.registry)
-        .unwrap();
+    let cursor = list.cursor();
+    project.catch_up(&mut list);
     assert!(list.entries().is_empty());
     assert_eq!(
-        list.sequence(),
-        2,
+        list.cursor(),
+        cursor,
         "nothing redelivered was projected again"
     );
 }
@@ -333,83 +481,59 @@ fn test_a_list_caught_up_after_a_prune_holds_the_task_minted_since() {
     let mut list = every_task();
     project.run(&mut list, FIRST, add(FIRST, "First"));
     project.run(&mut list, FIRST, pruned());
-    annals::next::Purge::purge(&mut project.store, &cover(FIRST)).unwrap();
+    project.purge(FIRST);
     let mut other = every_task();
     project.run(&mut other, FIRST, add(FIRST, "Again"));
-    list.catch_up(&mut project.store, &project.registry)
-        .unwrap();
-    let texts: Vec<&str> = list.entries().iter().map(|t| t.text.as_str()).collect();
-    assert_eq!(texts, ["Again"]);
+    project.catch_up(&mut list);
+    assert_eq!(texts(&list), ["Again"]);
 }
 
 #[test]
 fn test_a_task_pruned_and_purged_unseen_leaves_the_list_at_the_next_catch_up() {
     // A long-lived list (a watch's) catching up after a prune landed whole
     // between two of its reads: it never saw the removal, and the stream
-    // is gone, so only the stream's absence says the task went.
+    // is gone, so only the stream's absence says the task went. The purge
+    // bumps the list's instance: a cursor from before it is resynced.
     let mut project = Project::new();
     let mut list = every_task();
     project.run(&mut list, FIRST, add(FIRST, "First"));
     project.run(&mut list, SECOND, add(SECOND, "Second"));
+    let cursor = list.cursor();
     let mut elsewhere = every_task();
     project.run(&mut elsewhere, FIRST, pruned());
-    annals::next::Purge::purge(&mut project.store, &cover(FIRST)).unwrap();
+    project.purge(FIRST);
 
-    list.catch_up(&mut project.store, &project.registry)
-        .unwrap();
+    project.catch_up(&mut list);
     assert_eq!(harps(&list), [SECOND]);
-    assert_eq!(
-        list.since(2).unwrap(),
-        [Delta {
-            sequence: 3,
-            change: Change::Remove {
-                harp_id: FIRST.to_string()
-            }
-        }]
-    );
+    assert_eq!(list.since(&cursor), None, "resynced, not resumed");
     assert!(unpurged(&list).is_empty(), "its stream is gone");
-    list.catch_up(&mut project.store, &project.registry)
-        .unwrap();
-    assert_eq!(list.sequence(), 3, "gone once");
+    assert_eq!(
+        list.cursor().streams(),
+        [(SECOND, 0)],
+        "its stream forgotten"
+    );
+    let gone = list.cursor();
+    project.catch_up(&mut list);
+    assert_eq!(list.since(&gone), Some(vec![]), "gone once");
 
     // The freed harp minted again: its stream starts over, and is seen.
     project.run(&mut elsewhere, FIRST, add(FIRST, "Again"));
-    let mut store = Ready(std::mem::take(&mut project.store));
-    ready(list.catch_up_async(&mut store, &project.registry)).unwrap();
-    let texts: Vec<&str> = list.entries().iter().map(|t| t.text.as_str()).collect();
-    assert_eq!(texts, ["Second", "Again"], "by harp");
+    project.catch_up(&mut list);
+    assert_eq!(texts(&list), ["Second", "Again"], "by harp");
 }
 
 #[test]
-fn test_an_async_catch_up_drops_a_task_whose_stream_is_gone() {
-    let mut project = Project::new();
-    let mut list = every_task();
-    project.run(&mut list, FIRST, add(FIRST, "First"));
-    project.run(&mut list, FIRST, status("Done", ""));
-    let mut elsewhere = every_task();
-    project.run(&mut elsewhere, FIRST, pruned());
-    annals::next::Purge::purge(&mut project.store, &cover(FIRST)).unwrap();
-    let mut store = Ready(std::mem::take(&mut project.store));
-    ready(list.catch_up_async(&mut store, &project.registry)).unwrap();
-    assert!(list.entries().is_empty());
-    assert_eq!(list.sequence(), 3);
-}
-
-#[test]
-fn test_a_task_the_list_does_not_hold_leaves_no_change_when_its_stream_goes() {
+fn test_a_task_the_list_does_not_hold_leaves_no_entry_when_its_stream_goes_and_resyncs() {
     let mut project = Project::new();
     let mut list = every_task();
     project.run(&mut list, FIRST, add(FIRST, "First"));
     project.run(&mut list, FIRST, pruned());
-    assert_eq!(list.sequence(), 2, "in, then out");
-    annals::next::Purge::purge(&mut project.store, &cover(FIRST)).unwrap();
-    list.catch_up(&mut project.store, &project.registry)
-        .unwrap();
-    assert_eq!(list.sequence(), 2, "nothing listed left");
-}
-
-fn unpurged(list: &TaskList) -> Vec<&str> {
-    list.unpurged().iter().map(|t| t.harp_id.as_str()).collect()
+    let cursor = list.cursor();
+    project.purge(FIRST);
+    project.catch_up(&mut list);
+    assert!(list.entries().is_empty(), "nothing listed left");
+    assert!(list.cursor().streams().is_empty(), "its stream forgotten");
+    assert_eq!(list.since(&cursor), None, "a purge resyncs every watcher");
 }
 
 #[test]
@@ -429,219 +553,10 @@ fn test_a_task_pruned_but_not_yet_purged_is_held_as_unpurged() {
     assert!(list.entries().is_empty());
     assert_eq!(list.unpurged()[0].status, "Done", "as it was pruned");
 
-    let mut fresh = every_task();
-    fresh
-        .catch_up(&mut project.store, &project.registry)
-        .unwrap();
+    let mut fresh = project.rebuilt();
     assert_eq!(unpurged(&fresh), [FIRST], "read back from the store");
-    fresh
-        .catch_up(&mut project.store, &project.registry)
-        .unwrap();
+    project.catch_up(&mut fresh);
     assert_eq!(unpurged(&fresh), [FIRST], "read again, still once");
-}
-
-#[test]
-fn test_a_harp_minted_again_after_its_purge_is_no_longer_unpurged() {
-    let mut project = Project::new();
-    let mut list = every_task();
-    project.run(&mut list, FIRST, add(FIRST, "First"));
-    project.run(&mut list, FIRST, pruned());
-    annals::next::Purge::purge(&mut project.store, &cover(FIRST)).unwrap();
-    project.run(&mut list, FIRST, add(FIRST, "Again"));
-    assert!(unpurged(&list).is_empty(), "the stream holds a new task");
-    assert_eq!(harps(&list), [FIRST]);
-}
-
-/// A store whose every stream reads back empty: what a stream purged
-/// between a listing's `covers` and its read can look like.
-struct Hollow(InMemoryStore);
-
-impl annals::next::EventStore for Hollow {
-    fn append(
-        &mut self,
-        stream: &Cover,
-        expected: u64,
-        pages: &[annals::next::v1::EventPage],
-    ) -> Result<u64, annals::next::StoreError> {
-        self.0.append(stream, expected, pages)
-    }
-
-    fn read_from(
-        &mut self,
-        stream: &Cover,
-        _: u64,
-    ) -> Result<Option<annals::next::Slice>, annals::next::StoreError> {
-        Ok(Some(annals::next::Slice {
-            stream: stream.clone(),
-            next_sequence: 0,
-            last_recorded_at: None,
-            pages: Vec::new(),
-        }))
-    }
-
-    fn find_command(
-        &mut self,
-        stream: &Cover,
-        command_id: &Uuid,
-    ) -> Result<Vec<annals::next::v1::EventPage>, annals::next::StoreError> {
-        self.0.find_command(stream, command_id)
-    }
-
-    fn covers(&mut self, domain: &str) -> Result<Vec<Cover>, annals::next::StoreError> {
-        self.0.covers(domain)
-    }
-}
-
-/// Its read-only unit reads as hollowly.
-impl annals::next::ReadStore for Hollow {
-    type Reads<'s> = &'s mut Hollow;
-
-    fn begin_read(&mut self) -> &mut Hollow {
-        self
-    }
-}
-
-impl annals::next::ReadUnit for &mut Hollow {
-    fn covers(&mut self, domain: &str) -> Result<Vec<Cover>, annals::next::StoreError> {
-        annals::next::EventStore::covers(*self, domain)
-    }
-
-    fn read_from(
-        &mut self,
-        stream: &Cover,
-        from: u64,
-    ) -> Result<Option<annals::next::Slice>, annals::next::StoreError> {
-        annals::next::EventStore::read_from(*self, stream, from)
-    }
-}
-
-#[test]
-fn test_a_stream_that_replays_to_no_events_is_never_a_blank_task() {
-    let mut project = Project::new();
-    let mut live = every_task();
-    project.run(&mut live, FIRST, add(FIRST, "First"));
-    let mut store = Hollow(std::mem::take(&mut project.store));
-
-    let mut list = every_task();
-    list.catch_up(&mut store, &project.registry).unwrap();
-    assert!(list.entries().is_empty(), "{:?}", list.entries());
-    assert_eq!(list.sequence(), 0);
-
-    let mut list = every_task();
-    let mut store = Ready(store);
-    ready(list.catch_up_async(&mut store, &project.registry)).unwrap();
-    assert!(list.entries().is_empty(), "{:?}", list.entries());
-}
-
-// ------------------------------------------------------------ restarted streams
-
-fn texts(list: &TaskList) -> Vec<&str> {
-    list.entries().iter().map(|t| t.text.as_str()).collect()
-}
-
-/// A prune's removal, its purge and a task minted again on the freed harp,
-/// all by another hand, in the store: what a long-lived list (a watch's)
-/// can miss whole between two catch-ups.
-fn prune_purge_and_mint_again(project: &mut Project, harp: &str, text: &str) {
-    let mut elsewhere = every_task();
-    project.run(&mut elsewhere, harp, pruned());
-    annals::next::Purge::purge(&mut project.store, &cover(harp)).unwrap();
-    project.run(&mut elsewhere, harp, add(harp, text));
-}
-
-#[test]
-fn test_a_stream_pruned_purged_and_minted_again_between_catch_ups_lists_the_new_task() {
-    let mut project = Project::new();
-    let mut list = every_task();
-    project.run(&mut list, FIRST, add(FIRST, "First"));
-    project.run(&mut list, FIRST, status("Done", ""));
-    list.catch_up(&mut project.store, &project.registry)
-        .unwrap();
-    assert_eq!(list.sequence(), 2, "the add and its status");
-
-    // The new stream is shorter than the old: its first event's sequence
-    // is one the list has already passed.
-    prune_purge_and_mint_again(&mut project, FIRST, "Again");
-    list.catch_up(&mut project.store, &project.registry)
-        .unwrap();
-    assert_eq!(texts(&list), ["Again"], "the new task, not the pruned one");
-    let deltas = list.since(2).unwrap();
-    assert_eq!(deltas.len(), 1, "{deltas:?}");
-    let Change::Upsert(task) = &deltas[0].change else {
-        panic!("the new task: {deltas:?}");
-    };
-    assert_eq!(
-        (task.text.as_str(), task.status.as_str()),
-        ("Again", "To Do"),
-        "not the old Done"
-    );
-    assert_eq!(deltas[0].sequence, 3);
-
-    list.catch_up(&mut project.store, &project.registry)
-        .unwrap();
-    assert_eq!(list.sequence(), 3, "the new stream is now the one seen");
-}
-
-#[test]
-fn test_an_async_catch_up_lists_a_task_minted_again_unseen() {
-    let mut project = Project::new();
-    let mut list = every_task();
-    project.run(&mut list, FIRST, add(FIRST, "First"));
-    project.run(&mut list, FIRST, status("Done", ""));
-    prune_purge_and_mint_again(&mut project, FIRST, "Again");
-    let mut store = Ready(std::mem::take(&mut project.store));
-    ready(list.catch_up_async(&mut store, &project.registry)).unwrap();
-    assert_eq!(texts(&list), ["Again"]);
-    assert_eq!(list.sequence(), 3);
-}
-
-#[test]
-fn test_an_append_seen_at_a_catch_up_is_no_restart() {
-    // The stream read back from its start: its first event is the one
-    // already seen, so only the new event is projected.
-    let mut project = Project::new();
-    let mut list = every_task();
-    project.run(&mut list, FIRST, add(FIRST, "First"));
-    let mut elsewhere = every_task();
-    project.run(&mut elsewhere, FIRST, status("In Progress", ""));
-    list.catch_up(&mut project.store, &project.registry)
-        .unwrap();
-    let deltas = list.since(1).unwrap();
-    assert_eq!(deltas.len(), 1, "only the status: {deltas:?}");
-    let Change::Upsert(task) = &deltas[0].change else {
-        panic!("{deltas:?}");
-    };
-    assert_eq!(task.status, "In Progress");
-    list.catch_up(&mut project.store, &project.registry)
-        .unwrap();
-    assert_eq!(list.sequence(), 2, "nothing new");
-}
-
-#[test]
-fn test_a_cursor_from_before_a_restart_resumes_to_the_new_task() {
-    let mut project = Project::new();
-    let mut list = every_task();
-    project.run(&mut list, FIRST, add(FIRST, "First"));
-    project.run(&mut list, SECOND, add(SECOND, "Second"));
-    let cursor = list.sequence();
-    prune_purge_and_mint_again(&mut project, FIRST, "Again");
-    project.run(&mut list, SECOND, status("Done", ""));
-    list.catch_up(&mut project.store, &project.registry)
-        .unwrap();
-
-    let resumed = list.since(cursor).expect("a cursor the list issued");
-    let changes: Vec<(&str, &str)> = resumed
-        .iter()
-        .map(|d| match &d.change {
-            Change::Upsert(t) => (t.harp_id.as_str(), t.text.as_str()),
-            Change::Remove { harp_id } => (harp_id.as_str(), "removed"),
-        })
-        .collect();
-    assert_eq!(changes, [(SECOND, "Second"), (FIRST, "Again")]);
-    assert_eq!(
-        resumed.iter().map(|d| d.sequence).collect::<Vec<_>>(),
-        [3, 4]
-    );
 }
 
 #[test]
@@ -652,24 +567,211 @@ fn test_a_pruned_stream_read_again_before_its_purge_changes_nothing() {
     let mut list = every_task();
     project.run(&mut list, FIRST, add(FIRST, "First"));
     project.run(&mut list, FIRST, pruned());
-    assert_eq!(list.sequence(), 2);
-    list.catch_up(&mut project.store, &project.registry)
-        .unwrap();
-    assert_eq!(list.sequence(), 2, "nothing projected again");
+    let cursor = list.cursor();
+    project.catch_up(&mut list);
+    assert_eq!(list.since(&cursor), Some(vec![]), "nothing projected again");
     assert_eq!(unpurged(&list), [FIRST], "still pruned, not purged");
 }
 
 #[test]
-fn test_a_redelivered_event_past_the_first_changes_nothing() {
-    // Read back, the stream's middle event's state is not the task's now:
-    // projected again, it would list the task as it was.
+fn test_a_harp_minted_again_after_its_purge_is_no_longer_unpurged() {
     let mut project = Project::new();
     let mut list = every_task();
     project.run(&mut list, FIRST, add(FIRST, "First"));
-    project.run(&mut list, FIRST, status("In Progress", ""));
+    project.run(&mut list, FIRST, pruned());
+    project.purge(FIRST);
+    project.run(&mut list, FIRST, add(FIRST, "Again"));
+    assert!(unpurged(&list).is_empty(), "the stream holds a new task");
+    assert_eq!(harps(&list), [FIRST]);
+}
+
+/// A store whose every stream reads back empty: what a stream purged
+/// between a listing's `covers` and its read can look like.
+struct Hollow(MemoryStore);
+
+/// Hollow's read-only unit: the streams listed, each read empty.
+struct HollowRead<'s>(&'s MemoryStore);
+
+impl ReadStore for Hollow {
+    type Reads<'s> = HollowRead<'s>;
+
+    async fn begin_read(&self) -> Result<HollowRead<'_>, StoreError> {
+        Ok(HollowRead(&self.0))
+    }
+}
+
+impl ReadUnit for HollowRead<'_> {
+    async fn covers(&mut self, domain: &str) -> Result<Vec<Cover>, StoreError> {
+        EventStore::covers(self.0, domain).await
+    }
+
+    async fn read(
+        &mut self,
+        _: StreamRef<'_>,
+        _: u64,
+        _: Option<u64>,
+    ) -> Result<Slice, StoreError> {
+        Ok(Slice::default())
+    }
+
+    async fn read_snapshot(
+        &mut self,
+        _: StreamRef<'_>,
+    ) -> Result<Option<angzarr_embedded::next::v1::Snapshot>, StoreError> {
+        Ok(None)
+    }
+}
+
+#[test]
+fn test_a_stream_that_replays_to_no_events_is_never_a_blank_task() {
+    let mut project = Project::new();
+    let mut live = every_task();
+    project.run(&mut live, FIRST, add(FIRST, "First"));
+    let store = Hollow(std::mem::take(&mut project.store));
+
+    let mut list = every_task();
+    ready(list.catch_up(&store, &project.registry)).unwrap();
+    assert!(list.entries().is_empty(), "{:?}", list.entries());
+    assert!(list.cursor().streams().is_empty(), "no stream seen");
+}
+
+// ------------------------------------------------------------ restarted streams
+
+/// A prune's removal, its purge and a task minted again on the freed harp,
+/// all by another hand, in the store: what a long-lived list (a watch's)
+/// can miss whole between two catch-ups.
+fn prune_purge_and_mint_again(project: &mut Project, harp: &str, text: &str) {
+    let mut elsewhere = every_task();
+    project.run(&mut elsewhere, harp, pruned());
+    project.purge(harp);
+    project.run(&mut elsewhere, harp, add(harp, text));
+}
+
+#[test]
+fn test_a_stream_pruned_purged_and_minted_again_between_catch_ups_lists_the_new_task() {
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
     project.run(&mut list, FIRST, status("Done", ""));
-    list.catch_up(&mut project.store, &project.registry)
-        .unwrap();
-    assert_eq!(list.sequence(), 3);
-    assert_eq!(list.entries()[0].status, "Done");
+    project.catch_up(&mut list);
+    let cursor = list.cursor();
+    assert_eq!(cursor.sequence(FIRST), Some(1), "the add and its status");
+
+    // The new stream is shorter than the old: its first event's sequence
+    // is one the list has already passed.
+    prune_purge_and_mint_again(&mut project, FIRST, "Again");
+    project.catch_up(&mut list);
+    assert_eq!(texts(&list), ["Again"], "the new task, not the pruned one");
+    assert_eq!(list.entries()[0].status, "To Do", "not the old Done");
+    assert_eq!(list.since(&cursor), None, "the purge resyncs the watcher");
+    let restarted = list.cursor();
+    assert_eq!(restarted.sequence(FIRST), Some(0), "the new stream's own");
+    project.catch_up(&mut list);
+    assert_eq!(
+        list.since(&restarted),
+        Some(vec![]),
+        "the new stream is now the one seen"
+    );
+}
+
+#[test]
+fn test_a_cursor_from_before_a_restart_is_resynced_to_the_new_task() {
+    // The old stream and the new are each seen at sequence 0, so the
+    // sequence alone cannot tell the watcher's from the store's: the purge
+    // bumped the list's instance, and the watcher takes the list whole.
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    project.run(&mut list, SECOND, add(SECOND, "Second"));
+    let cursor = list.cursor();
+    prune_purge_and_mint_again(&mut project, FIRST, "Again");
+    project.run(&mut list, SECOND, status("Done", ""));
+    project.catch_up(&mut list);
+
+    assert_eq!(list.cursor().sequence(FIRST), cursor.sequence(FIRST));
+    assert_eq!(list.since(&cursor), None, "resynced, not resumed");
+    let whole: Vec<(&str, &str, &str)> = list
+        .entries()
+        .iter()
+        .map(|t| (t.harp_id.as_str(), t.text.as_str(), t.status.as_str()))
+        .collect();
+    assert_eq!(
+        whole,
+        [(SECOND, "Second", "Done"), (FIRST, "Again", "To Do")],
+        "by harp id"
+    );
+    let resynced = list.cursor();
+    project.catch_up(&mut list);
+    assert_eq!(list.since(&resynced), Some(vec![]), "resumed after");
+}
+
+#[test]
+fn test_a_cursor_from_before_a_restart_is_resynced_to_the_new_task_in_another_process() {
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    let cursor = list.cursor();
+    prune_purge_and_mint_again(&mut project, FIRST, "Again");
+    let elsewhere = project.rebuilt();
+    assert_eq!(elsewhere.since(&cursor), None, "resynced, not resumed");
+    assert_eq!(texts(&elsewhere), ["Again"]);
+}
+
+#[test]
+fn test_a_task_minted_again_live_after_a_purge_resyncs_the_watcher() {
+    // A live list sees the restart itself: the new stream's first event.
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    project.run(&mut list, FIRST, pruned());
+    let cursor = list.cursor();
+    project.purge(FIRST);
+    project.run(&mut list, FIRST, add(FIRST, "Again"));
+    assert_eq!(list.since(&cursor), None);
+}
+
+// ------------------------------------------------------------ on the wire
+
+/// `cursor` as the wire carries it, and read back.
+fn round_trip(cursor: &ListCursor) -> ListCursor {
+    let streams: Vec<(String, u64)> = cursor
+        .streams()
+        .into_iter()
+        .map(|(harp, sequence)| (harp.to_string(), sequence))
+        .collect();
+    ListCursor::of(cursor.instance().as_deref(), streams)
+}
+
+#[test]
+fn test_a_cursor_read_back_from_its_wire_form_resumes_as_it_did() {
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    project.run(&mut list, SECOND, add(SECOND, "Second"));
+    let cursor = list.cursor();
+    project.run(&mut list, FIRST, status("Done", ""));
+    let read_back = round_trip(&cursor);
+    assert_eq!(read_back, cursor);
+    assert_eq!(said(&list.since(&read_back)), [(FIRST, "First", "Done")]);
+}
+
+#[test]
+fn test_an_empty_cursors_wire_form_names_no_instance() {
+    assert_eq!(ListCursor::default().instance(), None);
+    assert_eq!(round_trip(&ListCursor::default()), ListCursor::default());
+}
+
+#[test]
+fn test_a_cursor_of_an_instance_no_list_has_is_resynced() {
+    let mut project = Project::new();
+    let mut list = every_task();
+    project.run(&mut list, FIRST, add(FIRST, "First"));
+    let made_up = ListCursor::of(Some("not-an-instance"), [(FIRST.to_string(), 0)]);
+    assert_eq!(list.since(&made_up), None);
+    let other = project.rebuilt().cursor();
+    assert_ne!(
+        other.instance(),
+        list.cursor().instance(),
+        "each list its own"
+    );
 }

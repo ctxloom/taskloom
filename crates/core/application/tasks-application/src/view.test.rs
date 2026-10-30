@@ -1,6 +1,6 @@
 //! A task's read-time values.
 
-use annals::next::Timestamp;
+use ports::Timestamp;
 use tasks::TaskState;
 
 use super::{is_terminal, text_hash, Task};

@@ -41,21 +41,20 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::future::Future;
 
-use annals::next::v1::Uuid;
-use annals::next::{ids, AsyncEventStore, Timestamp};
-use annals_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_embedded::next::v1::Uuid;
+use angzarr_embedded::next::{ids, EventStore, Registry, StreamRef};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic, Report};
 use ports::{
     Clock, Delay, Jitter, JsonlOp, JsonlRecord, JsonlTaskLogs, ProjectIdentity, TaskStores,
+    Timestamp,
 };
-use tasks::{
-    AddTask, EditText, RemovalReason, RemoveTask, Retag, SetStatus, TaskCommand, TaskRejection,
-};
+use tasks::{AddTask, EditText, RemovalReason, RemoveTask, Retag, SetStatus, TaskCommand};
 
 use crate::dead_letter::{DeadLetter, DeadLetters};
 use crate::retry::Backoff;
 use crate::tags::{self, Tag, TagRefusal};
 use crate::view::{DEFERS, INITIAL};
-use crate::{book, cover, registry, retry, text_hash, AppError};
+use crate::{book, cover, registry, retry, store_report, text_hash, AppError};
 
 /// What to import: every project with a log, or the one named.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
@@ -63,7 +62,7 @@ pub struct ImportRequest {
     pub project: Option<String>,
 }
 
-/// What an import did, project by project, and the dead letters annals'
+/// What an import did, project by project, and the dead letters the
 /// kernel wrote while it ran (almost certainly bugs, for the caller to say
 /// loudly).
 #[derive(Clone, PartialEq, Debug, Default)]
@@ -147,15 +146,7 @@ pub enum Why {
 
 impl fmt::Display for Why {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Why::Displaced => f.write_str(
-                "another task holds this harp in Go's log: run Go's `taskloom repair`, then import again",
-            ),
-            Why::Refused(rejection) => rejection.fmt(f),
-            Why::HarpTaken => f.write_str("a task not imported from this record already holds this harp"),
-            Why::TaskNotImported => f.write_str("its task was not imported"),
-            Why::Tag(refusal) => refusal.fmt(f),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -188,11 +179,7 @@ pub struct NoJsonlLog {
 
 impl fmt::Display for NoJsonlLog {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Go taskloom has no task log for project {}",
-            self.project
-        )
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -225,8 +212,8 @@ pub struct Importer<I, S, D, L> {
     pub delay: D,
     pub jsonl_logs: L,
     pub backoff: Backoff,
-    registry: annals::next::Registry,
-    /// The log annals' kernel writes dead letters to, taken into the
+    registry: Registry,
+    /// The log the kernel writes dead letters to, taken into the
     /// report.
     pub(crate) dead_letters: DeadLetters,
 }
@@ -296,11 +283,7 @@ where
         }
         // An explicit id resolves without binding any directory to it.
         let project = self.identity.for_write(Some(&id))?;
-        let store = self
-            .stores
-            .open(&project)
-            .await
-            .map_err(|e| Report::of(&e))?;
+        let store = self.stores.open(&project).await.map_err(store_report)?;
         let mut fold = Fold::new(&records);
         for record in &records {
             let step = fold.step(record);
@@ -329,10 +312,10 @@ where
             };
             let cover = cover(&record.task);
             let command_id = record_command_id(&record.raw);
-            let found = store
-                .find_command(&cover, &command_id)
-                .await
-                .map_err(|e| Report::of(&e))?;
+            let stream = StreamRef::try_from(&cover).map_err(store_report)?;
+            let id = angzarr_embedded::next::angzarr_ports::Uuid::try_from(&command_id)
+                .expect("a derived command id is 16 bytes");
+            let found = store.find_command(stream, id).await.map_err(store_report)?;
             if !found.is_empty() {
                 report.already += 1;
                 continue;
@@ -361,9 +344,9 @@ where
                     if record.op == JsonlOp::Add {
                         fold.not_imported(&record.task);
                     }
-                    let why = match rejection {
-                        TaskRejection::TaskExists { .. } => Why::HarpTaken,
-                        other => Why::Refused(Report::of(&other)),
+                    let why = match rejection.code() {
+                        "tasks-task-exists" => Why::HarpTaken,
+                        _ => Why::Refused(rejection),
                     };
                     report.lost.push(lost(record, why));
                 }
@@ -647,7 +630,7 @@ fn normalized(tags: &[String]) -> BTreeSet<String> {
 const RECORD_ID_PREFIX: &str = "ctxloom-go-task-log:";
 
 /// The command id a record imports under: a UUIDv5 of its line. A record
-/// is an external fact, and this is the id annals gives a fact
+/// is an external fact, and this is the id angzarr gives a fact
 /// (`ids::fact_command_id`) whose external id is the line, prefixed. The
 /// fold counts a line once, so within a log the line is the record's
 /// identity.

@@ -1,6 +1,8 @@
 //! The errors' English and the catalog.
 
-use annals_diagnostic::Diagnostic;
+use angzarr_embedded_diagnostic::Diagnostic;
+
+crate::english_for!(&[crate::EN_US.1]);
 
 use super::{diagnostic_samples, ConfigError};
 
@@ -16,10 +18,10 @@ fn test_a_corrupt_configuration_says_where_its_copy_is() {
         backup: "/b".to_string(),
     };
     assert_eq!(
-        corrupt.to_string(),
+        corrupt.english(),
         "failed to parse .claude.json: x - original backed up to /b; fix the JSON and re-run (refusing to write .claude.json to avoid deleting the MCP servers already in it)"
     );
-    assert_eq!(arg_names(&corrupt), ["file", "detail", "backup"]);
+    assert_eq!(arg_names(&corrupt), ["file", "ext_err_txt", "backup"]);
 }
 
 #[test]
@@ -31,17 +33,17 @@ fn test_no_home_names_the_variable_each_flavor_reads() {
         flavor: os::Flavor::Windows,
     };
     assert_eq!(
-        unix.to_string(),
+        unix.english(),
         "the home directory is not set (HOME), so the user's configuration cannot be found"
     );
     assert_eq!(
-        windows.to_string(),
+        windows.english(),
         "the home directory is not set (USERPROFILE), so the user's configuration cannot be found"
     );
     assert_eq!(arg_names(&windows), ["var"]);
     assert!(matches!(
         &windows.args()[..],
-        [("var", annals_diagnostic::Arg::Str(v))] if v == "USERPROFILE"
+        [("var", angzarr_embedded_diagnostic::Arg::Str(v))] if v == "USERPROFILE"
     ));
 }
 

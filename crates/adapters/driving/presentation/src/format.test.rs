@@ -2,6 +2,8 @@
 
 use super::Format;
 
+crate::english_for!(&[crate::EN_US.1]);
+
 #[test]
 fn test_json_wins_then_the_format_asked_then_the_terminal() {
     use Format::{Json, Text};
@@ -28,7 +30,7 @@ fn test_a_format_is_named_text_or_json() {
     let unknown = "yaml".parse::<Format>().unwrap_err();
     assert_eq!(unknown.value, "yaml");
     assert_eq!(
-        unknown.to_string(),
+        unknown.english(),
         "the format yaml is not one of text or json"
     );
 }

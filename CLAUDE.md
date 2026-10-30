@@ -84,15 +84,13 @@ the way the code does, joined component by component.
 Dependencies point inward; a review refuses a change that breaks these:
 
 - The core depends on nothing outside it. A domain or read model links only
-  annals, annals-diagnostic, prost, its wire crate (generated over
-  angzarr-proto), and tagma's tagma-core (the tag grammar and query engine)
-  and tagma-proto (its `Tag` message): no I/O, async runtime or clock in
-  decide, apply or a projection. While taskloom moves from annals onto
-  angzarr-embedded (`taskloom-on-angzarr-embedded.plan.md`), the tasks
-  domain links angzarr-embedded, angzarr-embedded-macros (its markup) and
-  angzarr-embedded-diagnostic too, for `TaskAggregate`, and the
-  task-lists read model links angzarr-embedded for its list on it
-  (`task_lists::embedded`). One read model
+  angzarr-embedded (the in-app runtime: `TaskAggregate` is its aggregate,
+  the task list its projection), angzarr-embedded-macros (the aggregate's
+  markup), angzarr-embedded-diagnostic, prost, its wire crate (generated
+  over angzarr-proto), and tagma's tagma-core (the tag grammar and query
+  engine) and tagma-proto (its `Tag` message): no I/O, async runtime or
+  clock in decide, apply or a projection. The ports link angzarr-ports,
+  whose store traits they lend. One read model
   links more: `task-priority` evaluates the tag schema's priority formulas with
   expr-lang (the Rust port of the language Go's taskloom evaluates them
   in), which is computation and nothing else.
@@ -113,7 +111,7 @@ Dependencies point inward; a review refuses a change that breaks these:
   across streams (ruling D7): a list's cursor is per stream, each task
   stream's sequence by harp id, of the list's instance; a purge bumps the
   instance, and a cursor from before it is resynced whole, never resumed
-  (`task_lists::embedded::ListCursor`).
+  (`task_lists::ListCursor`).
 
 ## Generated code is never committed
 
@@ -126,48 +124,46 @@ from tagma-proto's `PROTO_INCLUDE`; the generated domain layer gives it a
 domain `Tag` that converts to `tagma_core::Tag` and spells itself
 canonically.
 
-## Storage is annals-store-sql, in annals for now
+## Storage is angzarr-store-sqlite
 
-The SQL store is `annals-store-sql` (feature `sqlite`), in the annals
-repository: backend-neutral statements, with each backend's execution and
-migrations behind a feature. It lives in annals until angzarr core's older
-SQL storage is brought onto it, and then moves to angzarr core. ctxloom
-writes no SQL of its own; a project's database is that crate's SQLite store,
-opened at `~/.ctxloom/projects/<project-id>/state.db`.
+A project's database is angzarr-store-sqlite's `SqliteStore` (in the
+angzarr-embedded repository), opened at
+`~/.ctxloom/projects/<project-id>/state.db` by task-store-sqlite's
+`SqliteStores`. ctxloom writes no SQL of its own. A store from before
+angzarr-embedded (annals-store-sql's) is refused, naming its backup
+(`state.db.pre-embedded`), never migrated in place (the owner's ruling
+D2).
 
-Any store is held to annals' store contract (`annals::store_contract!` or
-`annals::async_store_contract!`), the checks `InMemoryStore` passes. Domain
-and projector tests run through annals' kernel over `InMemoryStore`, as the
-binary runs over SQLite.
+There is no unit of work: each handling step is one atomic write, and a
+command that depends on the task as it is is sent at the head it read, so
+a write landing between is a conflict the retry loop runs again. The
+kernel's own retry is off (`KERNEL_RETRY`); taskloom's `Backoff` loop is
+the one that retries. Domain, projector and use-case tests run through
+angzarr-embedded's kernel over angzarr-ports' `MemoryStore`, as the binary
+runs over SQLite.
 
-Moving to angzarr-store-sqlite (taskloom-on-angzarr-embedded.plan.md): its
-`SqliteStore`, at the same path, is opened by task-store-sqlite's
-`embedded::EmbeddedStores`, beside the annals opener until the application
-moves (step 4). A store from before angzarr-embedded is refused, naming
-its backup (`state.db.pre-embedded`), never migrated in place (ruling D2).
-Projector tests on it run through angzarr-embedded's kernel over
-angzarr-ports' `MemoryStore`.
+## Co-developing angzarr-cli or tagma
 
-## Co-developing annals, angzarr-cli or tagma
-
-annals, angzarr-build (angzarr-cli's `rust-cli` branch) and tagma are git
-dependencies pinned by full commit in Cargo.toml, so a fresh clone builds
-with no sibling checkouts. To change one of them and this workspace
-together, `cp .cargo/local-deps.toml .cargo/config.toml`: a gitignored
-`[patch]` onto the sibling checkouts (annals at `../../annals`, angzarr-cli
-at `../../angzarr/angzarr-cli/main`, tagma at `../../kvtag`). CI, a fresh
+angzarr-embedded, angzarr-build (angzarr-cli's markup domain layer) and
+tagma are git dependencies pinned by full commit in Cargo.toml, so a fresh
+clone builds with no sibling checkouts. To change angzarr-cli or tagma and
+this workspace together, `cp .cargo/local-deps.toml .cargo/config.toml`: a
+gitignored `[patch]` onto the sibling checkouts (angzarr-cli at
+`../../angzarr/angzarr-cli/main`, tagma at `../../kvtag`). CI, a fresh
 clone and the pre-commit gates never read it. Restore Cargo.lock before
 committing, and land the change by pushing the sibling and bumping its rev.
 
 ## Errors are localizable: a code, args, and an en-US message
 
-Every error and rejection implements `annals_diagnostic::Diagnostic` (moving
-to `angzarr_embedded_diagnostic::Diagnostic` with step 4). No English
-crosses (angzarr decision 14.37): an error's `Display` is its code and
-args (` name=value`, a text value quoted where it would not parse back),
-a third party's text is the arg `ext_err_txt`, and presentation shows a
-diagnostic no catalog knows as its code and args. Crates still on
-annals-diagnostic keep an English `Display` until they move. A new variant needs a stable code (prefixed with
+Every error and rejection implements `angzarr_embedded_diagnostic::Diagnostic`.
+No English crosses (angzarr decision 14.37): an error's `Display` is its
+code and args (`angzarr_embedded_diagnostic::display`: ` name=value`, a
+text value quoted where it would not parse back), a third party's text
+(the OS's, a parser's, clap's, Fluent's) is the arg `ext_err_txt`, and
+presentation shows a diagnostic no catalog knows as its code and args.
+English is the catalogs' alone: a test that holds it to Go's renders it
+from them (presentation's `english.test.rs`, included by path). A new
+variant needs a stable code (prefixed with
 the crate's name), an en-US message in `locales/en-US/<crate>.ftl` using
 exactly its args, and a sample in the crate's `diagnostic_samples()`. The
 crate's catalog test checks messages and samples both ways.
@@ -177,9 +173,9 @@ Each crate with diagnostics exports its embedded en-US catalog as `EN_US`
 catalog from every crate's `EN_US` (presentation's `Catalog`), and the
 driving adapters render with it: a diagnostic's catalog message in text,
 its `{code, args, message}` envelope in JSON. A new core, driven or
-platform crate's `EN_US` joins tasks-lib's `catalog()` (beside annals',
-annals-store-sql's, angzarr-embedded's, the angzarr-ports errors it
-forwards and angzarr-store-sqlite's), and its samples tasks-lib's and the binary's
+platform crate's `EN_US` joins tasks-lib's `catalog()` (beside
+angzarr-embedded's, the angzarr-ports errors it forwards and
+angzarr-store-sqlite's), and its samples tasks-lib's and the binary's
 every-diagnostic catalog tests; a driving adapter's joins the frontends
 the binary hands that `catalog()` (`catalog()` in its `main.rs`).
 
@@ -193,7 +189,7 @@ the gate), `just lint` (clippy, warnings denied) and `just lint-deps`
 tests' output, short clippy messages, the files rustfmt would change, deny's
 errors, the mutation verdict and survivors). Read the log for the rest;
 `VERBOSE=1 just <gate>` shows the full output. `just fmt` and `just
-fmt-check` cover this workspace's crates only, never annals, angzarr-build
+fmt-check` cover this workspace's crates only, never angzarr's crates
 or tagma, whether pinned or patched onto local checkouts.
 
 ## This repository's tasks are in the Rust taskloom

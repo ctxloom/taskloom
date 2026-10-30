@@ -1,7 +1,7 @@
 //! The survey and its changes over a filesystem of the test's own: a home
 //! and work tree; and over the real one where git makes the repositories.
 
-use annals_diagnostic::Diagnostic;
+use angzarr_embedded_diagnostic::Diagnostic;
 use ports::{Change, IdSource, ProjectAdmin, Registered, Survey};
 
 use crate::index;
@@ -27,7 +27,7 @@ impl World {
         self.registry(&[]).survey(None).unwrap()
     }
 
-    fn apply(&self, changes: &[Change]) -> Result<(), annals_diagnostic::Report> {
+    fn apply(&self, changes: &[Change]) -> Result<(), angzarr_embedded_diagnostic::Report> {
         let mut registry = self.registry(&[]);
         let seen = registry.survey(None).unwrap();
         registry.apply(&seen, changes)

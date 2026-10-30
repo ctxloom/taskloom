@@ -26,12 +26,11 @@ use std::fmt;
 use std::future::Future;
 
 use crate::DeadLetter;
-use annals::next::{AsyncReadStore, Timestamp};
-use annals_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_embedded::next::{Purge, ReadStore, Registry, Store, StreamRef};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic, Report};
 use ports::{
-    Clock, CommandIds, Configuration, Delay, Jitter, ProjectIdentity, PurgingStore, TaskStores,
+    Clock, CommandIds, Configuration, Delay, Jitter, ProjectIdentity, TaskStores, Timestamp,
 };
-use task_lists::TaskList;
 use tasks::{RemovalReason, RemoveTask, TaskRejection, TaskState, STATUS_CLASS_SIGIL};
 
 use crate::retry::{Outcome, Runner};
@@ -127,7 +126,7 @@ pub struct Pruning {
     pub dangling: Vec<Dangling>,
     /// Which of the tasks' tags a person is shown.
     pub shown: Shown,
-    /// The dead letters annals' kernel wrote while the prune ran (almost
+    /// The dead letters the kernel wrote while the prune ran (almost
     /// certainly bugs, for the caller to say loudly).
     pub dead_letters: Vec<DeadLetter>,
 }
@@ -147,21 +146,7 @@ pub enum PruneRefusal {
 
 impl fmt::Display for PruneRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PruneRefusal::NoStatus => f.write_str(
-                "a prune needs at least one status to select by: an empty status set is never read as every status",
-            ),
-            PruneRefusal::AgeRequired => {
-                f.write_str("a prune needs an age: an offset like 30d, or a date like 2026-01-01")
-            }
-            PruneRefusal::AgeNotPositive { age } => {
-                write!(f, "the age {age} is not a positive age")
-            }
-            PruneRefusal::AgeUnreadable { age } => write!(
-                f,
-                "the age {age} is neither an offset (30d, 12w, 720h) nor a date (2026-01-01)"
-            ),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -210,7 +195,6 @@ impl<I, S, N, C, D, G> PruneService for Service<I, S, N, C, D, G>
 where
     I: ProjectIdentity + Send,
     S: TaskStores + Send,
-    S::Store: PurgingStore,
     N: Send,
     C: Clock + CommandIds + Send,
     D: Delay + Jitter + Send,
@@ -228,7 +212,6 @@ impl<I, S, N, C, D, G> Service<I, S, N, C, D, G>
 where
     I: ProjectIdentity,
     S: TaskStores,
-    S::Store: PurgingStore,
     C: Clock + CommandIds,
     D: Delay + Jitter,
     G: Configuration,
@@ -343,12 +326,12 @@ where
 
 /// Every live task in `store`, and every task a prune removed but left
 /// unpurged, each in the order added: one moment of the store.
-async fn live_tasks<S: AsyncReadStore>(
-    store: &mut S,
-    registry: &annals::next::Registry,
+async fn live_tasks<S: ReadStore>(
+    store: &S,
+    registry: &Registry,
 ) -> Result<(Vec<TaskState>, Vec<TaskState>), AppError> {
-    let mut list = TaskList::default();
-    list.catch_up_async(store, registry)
+    let mut list = crate::read_list();
+    list.catch_up(store, registry)
         .await
         .map_err(|e| AppError::Failed(Report::of(&*e)))?;
     let in_order = |tasks: Vec<&TaskState>| {
@@ -374,22 +357,21 @@ fn added(task: &TaskState) -> (i64, i32, &str) {
 /// The events deleted, or `None` when the task was not taken after all:
 /// it no longer qualifies, or another removed or purged it since it was
 /// selected.
-async fn take<S: PurgingStore, C: Clock + CommandIds, D: Delay + Jitter>(
+async fn take<S: Store + Purge, C: Clock + CommandIds, D: Delay + Jitter>(
     runner: &mut Runner<'_, C, D>,
-    store: &mut S,
+    store: &S,
     task: &TaskState,
     selection: &Selection<'_>,
     apply: bool,
 ) -> Result<Option<u64>, AppError> {
     let stream = cover(&task.harp_id);
     if !apply {
-        let held = store.read_from(&stream, 0).await.map_err(failed)?;
+        let at = StreamRef::try_from(&stream).map_err(failed)?;
+        let held = store.read(at, 0, None).await.map_err(failed)?;
         // Its events, and the removal a prune records before it purges,
         // unless it holds that already.
         let removal = u64::from(!task.removed);
-        return Ok(Some(
-            held.map_or(0, |slice| slice.pages.len() as u64) + removal,
-        ));
+        return Ok(Some(held.pages.len() as u64 + removal));
     }
     if task.removed {
         let deleted = runner.purge(store, &stream).await?;
@@ -409,7 +391,10 @@ async fn take<S: PurgingStore, C: Clock + CommandIds, D: Delay + Jitter>(
         .await?
     {
         Some(Outcome::Committed) => runner.purge(store, &stream).await.map(Some),
-        None | Some(Outcome::Refused(TaskRejection::Removed { .. } | TaskRejection::NoTask)) => {
+        None => Ok(None),
+        Some(outcome)
+            if outcome.refused_as("tasks-removed") || outcome.refused_as("tasks-no-task") =>
+        {
             Ok(None)
         }
         Some(Outcome::Refused(rejection)) => Err(rejected(&rejection)),

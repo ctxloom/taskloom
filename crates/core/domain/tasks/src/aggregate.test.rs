@@ -1,9 +1,8 @@
 //! A task on angzarr-embedded, driven through its kernel exactly as the
-//! binary will drive it: `Kernel::handle` over angzarr-ports' in-memory
+//! binary drives it: `Kernel::handle` over angzarr-ports' in-memory
 //! store, which checks, identifies, deduplicates against the store, hands
 //! the command to the marked-up [`TaskAggregate`] through angzarr-router,
-//! and commits. `lib.test.rs`'s rules, ported from annals' kernel, and the
-//! new runtime's own: the instant is the context's `recorded_at`, and a
+//! and commits. The task's rules, and the runtime's own: the instant is the context's `recorded_at`, and a
 //! refusal is business-fatal, a key and its args, never English.
 //!
 //! Not ported from `lib.test.rs`: the snapshot tests and the four "before
@@ -21,10 +20,9 @@ use angzarr_embedded::next::angzarr_router::error::codes;
 use angzarr_embedded::next::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::next::{
     ids, pack, Any, Domain, EventStore, Failure, Handled, Kernel, KernelError, MemoryDeadLetters,
-    OnRetryable, Recovery, Registry, Rejected, Sampled, Stream, StreamRef, Timestamp,
+    OnRetryable, Payload, Recovery, Registry, Rejected, Sampled, Stream, StreamRef, Timestamp,
 };
 use angzarr_embedded_diagnostic::{Arg, Diagnostic};
-use annals::next::Payload;
 
 use crate::{
     check, AddTask, EditText, RemovalReason, RemoveTask, Retag, Retagged, SetStatus, StatusChanged,
@@ -926,8 +924,7 @@ fn test_every_command_to_a_removed_task_is_refused() {
 // ------------------------------------------------------------ the wire
 
 // A payload that is no domain value is malformed input: a bug the router
-// answers ANY_DECODE_FAILED, never a refusal (decision 14.37). Under annals
-// it was the kernel's invalid payload.
+// answers ANY_DECODE_FAILED, never a refusal (decision 14.37).
 #[test]
 fn test_a_removal_without_a_reason_is_undecodable_a_bug_not_a_refusal() {
     let mut task = Task::added("Ship it");

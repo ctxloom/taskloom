@@ -1,4 +1,4 @@
-//! Tag permits, over fake ports and annals' in-memory store: what a write
+//! Tag permits, over fake ports and angzarr-ports' in-memory store: what a write
 //! admits under them, how a permit and a revoke change them, and what
 //! lint says of a stored tag they do not permit.
 //!
@@ -6,9 +6,10 @@
 //! inept-sixth-stick); a test marked PROPOSAL pins an answer no ruling
 //! has given yet, for the human to accept or change.
 
+use crate::english::English;
 use std::collections::{BTreeMap, BTreeSet};
 
-use annals_diagnostic::{Diagnostic, Report};
+use angzarr_embedded_diagnostic::{Diagnostic, Report};
 use ports::{NamespacePermit, TagPermits};
 
 use crate::fakes::{ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores};
@@ -164,7 +165,7 @@ fn arg(error: &dyn Diagnostic, name: &str) -> String {
         .into_iter()
         .find(|(n, _)| *n == name)
         .and_then(|(_, value)| match value {
-            annals_diagnostic::Arg::Str(s) => Some(s),
+            angzarr_embedded_diagnostic::Arg::Str(s) => Some(s),
             _ => None,
         })
         .unwrap_or_else(|| panic!("no arg {name} on {}", error.code()))
@@ -195,7 +196,7 @@ fn test_an_add_with_a_tag_not_permitted_is_refused_naming_it_and_its_permit() {
         assert_eq!(arg(&error, "permit"), named);
         assert!(
             error
-                .to_string()
+                .english()
                 .contains(&format!("`taskloom permit {named}`")),
             "{error}"
         );
@@ -744,7 +745,7 @@ fn test_lint_reports_a_task_carrying_more_than_one_area_or_repo() {
     );
     assert_eq!(found[0].1.code(), "tasks-application-lint-many-keys");
     assert_eq!(
-        found[1].1.to_string(),
+        found[1].1.english(),
         "area: carries 2 keys (cli, mcp), but a task takes one"
     );
 }

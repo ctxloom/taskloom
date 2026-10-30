@@ -65,7 +65,7 @@ pub type Projects = project_application::Projects<ProjectRegistry<()>, SqliteSto
 pub type Registrations = registration_application::Registrations<AgentConfigFiles>;
 
 /// The en-US catalog of every diagnostic the wiring can raise (its own,
-/// annals', angzarr-embedded's and the angzarr-ports errors it forwards,
+/// angzarr-embedded's and the angzarr-ports errors it forwards,
 /// angzarr-store-sqlite's, the use cases', every driven and platform
 /// adapter's), then
 /// `frontends'`, each frontend's own (the CLI's, the MCP server's, ...),
@@ -76,8 +76,6 @@ pub fn catalog(
 ) -> Result<presentation::Catalog, presentation::CatalogError> {
     let mut sources = vec![
         EN_US,
-        annals::EN_US,
-        annals_store_sql::EN_US,
         angzarr_embedded::EN_US,
         angzarr_embedded::ANGZARR_PORTS_EN_US,
         angzarr_store_sqlite::EN_US,
@@ -378,3 +376,7 @@ fn var<'a>(flavor: Flavor, vars: &'a [(OsString, OsString)], name: &str) -> Opti
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../adapters/driving/presentation/src/english.test.rs"]
+mod english;

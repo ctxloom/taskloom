@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 use project_application::ProjectError;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -18,14 +18,7 @@ pub enum CliError {
 
 impl fmt::Display for CliError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            CliError::Project(error) => error.fmt(f),
-            CliError::Output { detail } => write!(f, "cannot write the output: {detail}"),
-            CliError::ProjectNotTaken { command } => write!(
-                f,
-                "--project is not taken by project {command}, which acts on this directory's project: only project show takes it"
-            ),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -41,7 +34,7 @@ impl Diagnostic for CliError {
     fn args(&self) -> Vec<(&'static str, Arg)> {
         match self {
             CliError::Project(error) => error.args(),
-            CliError::Output { detail } => vec![("detail", detail.as_str().into())],
+            CliError::Output { detail } => vec![("ext_err_txt", detail.as_str().into())],
             CliError::ProjectNotTaken { command } => vec![("command", command.as_str().into())],
         }
     }

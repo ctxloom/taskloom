@@ -1,14 +1,13 @@
-//! The backoff schedule, and running a command again when annals says to.
+//! The backoff schedule, and running a command again when the kernel says a retry may mend it.
 
 use std::time::Duration;
 
-use annals_diagnostic::Diagnostic;
+use angzarr_embedded_diagnostic::Diagnostic;
 
 use super::{Backoff, Outcome, Runner};
 use crate::fakes::{ready, FakeClock, FakeDelay, Fault, Flaky};
 use crate::{book, registry, AppError};
-use annals::next::AsyncEventStore;
-use tasks::{AddTask, TaskRejection};
+use tasks::AddTask;
 
 const MS: Duration = Duration::from_millis(1);
 
@@ -66,7 +65,7 @@ fn run_as(
 ) -> Result<Outcome, AppError> {
     let registry = registry();
     let mut clock = FakeClock::default();
-    let command_id = annals::next::v1::Uuid::from_bytes([id; 16]);
+    let command_id = angzarr_embedded::next::v1::Uuid::from_bytes([id; 16]);
     let add = AddTask {
         harp_id: "swift-amber".to_string(),
         text: "Ship it".to_string(),
@@ -87,7 +86,7 @@ fn run_as(
             cap: 30 * MS,
             attempts,
         },
-        dead_letters: &annals::next::MemoryDeadLetters::new(),
+        dead_letters: &angzarr_embedded::next::MemoryDeadLetters::new(),
     };
     ready(runner.run(store, &book, &command_id))
 }
@@ -105,7 +104,7 @@ fn test_a_command_that_commits_at_once_waits_for_nothing() {
     let mut delay = FakeDelay::default();
     let outcome = run(&mut store, &mut delay, 3).unwrap();
     assert!(matches!(outcome, Outcome::Committed));
-    assert_eq!(store.begun, 1);
+    assert_eq!(store.begun(), 1);
     assert!(delay.slept.is_empty());
     assert_eq!(events(&mut store), 1);
 }
@@ -116,7 +115,7 @@ fn test_a_retryable_failure_is_run_again_after_a_growing_capped_wait() {
     let mut delay = FakeDelay::default();
     let outcome = run(&mut store, &mut delay, 5).unwrap();
     assert!(matches!(outcome, Outcome::Committed));
-    assert_eq!(store.begun, 4, "three failures, then the commit");
+    assert_eq!(store.begun(), 4, "three failures, then the commit");
     assert_eq!(delay.ceilings, [10 * MS, 20 * MS, 30 * MS]);
     assert_eq!(delay.slept, [10 * MS, 20 * MS, 30 * MS]);
     assert_eq!(events(&mut store), 1, "landed once");
@@ -150,7 +149,12 @@ fn test_a_retry_after_a_lost_answer_is_the_duplicate_of_what_landed() {
     let mut delay = FakeDelay::default();
     let outcome = run(&mut store, &mut delay, 5).unwrap();
     assert!(matches!(outcome, Outcome::Committed));
-    assert_eq!(store.begun, 2, "retried once, and found on the stream");
+    assert_eq!(
+        store.begun(),
+        1,
+        "one write: the retry found it on the stream"
+    );
+    assert_eq!(delay.slept.len(), 1, "retried once");
     assert_eq!(events(&mut store), 1, "not added twice");
 }
 
@@ -162,9 +166,9 @@ fn test_the_attempts_run_out_and_it_gives_up_with_the_last_failure() {
         panic!("gave up");
     };
     assert_eq!(attempts, 3);
-    assert_eq!(store.begun, 3);
+    assert_eq!(store.begun(), 3);
     assert_eq!(delay.slept.len(), 2, "no wait after the last attempt");
-    assert_eq!(error.code(), "annals-next-store-unavailable");
+    assert_eq!(error.code(), "angzarr-ports-store-unavailable");
     assert_eq!(events(&mut store), 0);
 }
 
@@ -175,8 +179,8 @@ fn test_a_failure_no_retry_mends_is_not_retried() {
     let Err(AppError::Failed(error)) = run(&mut store, &mut delay, 5) else {
         panic!("failed");
     };
-    assert_eq!(error.code(), "annals-next-store-discontinuous");
-    assert_eq!(store.begun, 1);
+    assert_eq!(error.code(), "angzarr-ports-store-discontinuous");
+    assert_eq!(store.begun(), 1);
     assert!(delay.slept.is_empty());
 }
 
@@ -189,12 +193,15 @@ fn test_a_rejection_is_answered_not_retried() {
         panic!("refused");
     };
     assert_eq!(
-        rejection,
-        TaskRejection::TaskExists {
-            harp_id: "swift-amber".to_string()
-        }
+        rejection.to_string(),
+        "tasks-task-exists harp_id=swift-amber",
+        "its key and args"
     );
-    assert_eq!(store.begun, 2);
+    assert_eq!(
+        store.begun(),
+        1,
+        "the add's write; a refusal writes nothing"
+    );
     assert!(delay.slept.is_empty());
 }
 
@@ -202,7 +209,7 @@ fn test_a_rejection_is_answered_not_retried() {
 
 /// A runner over `registry`, `clock` and `delay`, 5 attempts.
 fn runner<'a>(
-    registry: &'a annals::next::Registry,
+    registry: &'a angzarr_embedded::next::Registry,
     clock: &'a mut FakeClock,
     delay: &'a mut FakeDelay,
 ) -> Runner<'a, FakeClock, FakeDelay> {
@@ -216,11 +223,11 @@ fn runner<'a>(
             attempts: 5,
         },
         // None is written here; leaked, so the runner may outlive this.
-        dead_letters: Box::leak(Box::new(annals::next::MemoryDeadLetters::new())),
+        dead_letters: Box::leak(Box::new(angzarr_embedded::next::MemoryDeadLetters::new())),
     }
 }
 
-fn removal() -> annals::next::v1::CommandBook {
+fn removal() -> angzarr_embedded::next::v1::CommandBook {
     let remove = tasks::RemoveTask {
         reason: tasks::RemovalReason::Pruned,
     };
@@ -234,15 +241,15 @@ fn test_a_command_whose_condition_fails_on_the_task_read_in_its_unit_is_not_sent
     run(&mut store, &mut delay, 3).unwrap();
     let registry = registry();
     let mut clock = FakeClock::default();
-    let command_id = annals::next::v1::Uuid::from_bytes([9; 16]);
+    let command_id = angzarr_embedded::next::v1::Uuid::from_bytes([9; 16]);
     let mut runner = runner(&registry, &mut clock, &mut delay);
     let other = |task: &tasks::TaskState| task.text == "Something else";
-    let outcome = ready(runner.run_where(&mut store, &removal(), &command_id, Some(&other)));
+    let outcome = ready(runner.run_where(&store, &removal(), &command_id, Some(&other)));
     assert!(outcome.unwrap().is_none(), "declined");
     assert_eq!(events(&mut store), 1, "nothing sent");
 
     let this = |task: &tasks::TaskState| task.text == "Ship it";
-    let outcome = ready(runner.run_where(&mut store, &removal(), &command_id, Some(&this)));
+    let outcome = ready(runner.run_where(&store, &removal(), &command_id, Some(&this)));
     assert!(matches!(outcome, Ok(Some(Outcome::Committed))));
     assert_eq!(events(&mut store), 2, "the removal landed");
 }
@@ -252,16 +259,17 @@ fn test_a_condition_reads_through_a_unit_that_can_fail_and_be_retried() {
     let mut store = Flaky::default();
     let mut delay = FakeDelay::default();
     run(&mut store, &mut delay, 3).unwrap();
-    store.faults = [Fault::Unavailable].into();
+    store.fail([Fault::Unavailable]);
     let registry = registry();
     let mut clock = FakeClock::default();
-    let command_id = annals::next::v1::Uuid::from_bytes([9; 16]);
+    let command_id = angzarr_embedded::next::v1::Uuid::from_bytes([9; 16]);
     let mut runner = runner(&registry, &mut clock, &mut delay);
     let any = |_: &tasks::TaskState| true;
-    let outcome = ready(runner.run_where(&mut store, &removal(), &command_id, Some(&any)));
+    let outcome = ready(runner.run_where(&store, &removal(), &command_id, Some(&any)));
     assert!(matches!(outcome, Ok(Some(Outcome::Committed))));
     assert_eq!(
-        store.begun, 3,
+        store.begun(),
+        3,
         "the add, then the failed attempt and its retry"
     );
 }
@@ -273,14 +281,14 @@ fn test_a_purge_deletes_a_removed_tasks_stream_and_says_how_many_events() {
     run(&mut store, &mut delay, 3).unwrap();
     let registry = registry();
     let mut clock = FakeClock::default();
-    let command_id = annals::next::v1::Uuid::from_bytes([9; 16]);
+    let command_id = angzarr_embedded::next::v1::Uuid::from_bytes([9; 16]);
     let mut runner = runner(&registry, &mut clock, &mut delay);
-    ready(runner.run(&mut store, &removal(), &command_id)).unwrap();
+    ready(runner.run(&store, &removal(), &command_id)).unwrap();
     let stream = crate::cover("swift-amber");
-    assert_eq!(ready(runner.purge(&mut store, &stream)).unwrap(), 2);
+    assert_eq!(ready(runner.purge(&store, &stream)).unwrap(), 2);
     assert_eq!(events(&mut store), 0);
     assert_eq!(
-        ready(runner.purge(&mut store, &stream)).unwrap(),
+        ready(runner.purge(&store, &stream)).unwrap(),
         0,
         "no such stream"
     );
@@ -296,7 +304,7 @@ fn test_a_purge_leaves_a_live_task_alone() {
     let mut clock = FakeClock::default();
     let mut runner = runner(&registry, &mut clock, &mut delay);
     let stream = crate::cover("swift-amber");
-    assert_eq!(ready(runner.purge(&mut store, &stream)).unwrap(), 0);
+    assert_eq!(ready(runner.purge(&store, &stream)).unwrap(), 0);
     assert_eq!(events(&mut store), 1, "kept");
 }
 
@@ -307,17 +315,73 @@ fn test_a_purge_gives_up_once_its_attempts_are_spent() {
     run(&mut store, &mut delay, 3).unwrap();
     let registry = registry();
     let mut clock = FakeClock::default();
-    let command_id = annals::next::v1::Uuid::from_bytes([9; 16]);
+    let command_id = angzarr_embedded::next::v1::Uuid::from_bytes([9; 16]);
     let mut runner = runner(&registry, &mut clock, &mut delay);
-    ready(runner.run(&mut store, &removal(), &command_id)).unwrap();
+    ready(runner.run(&store, &removal(), &command_id)).unwrap();
     runner.delay.slept.clear();
-    store.faults = [Fault::Conflict; 5].into();
+    store.fail([Fault::Conflict; 5]);
     let stream = crate::cover("swift-amber");
-    let Err(AppError::GaveUp { attempts, error }) = ready(runner.purge(&mut store, &stream)) else {
+    let Err(AppError::GaveUp { attempts, error }) = ready(runner.purge(&store, &stream)) else {
         panic!("gave up");
     };
     assert_eq!(attempts, 5);
-    assert_eq!(error.code(), "annals-next-store-conflict");
+    assert_eq!(error.code(), "angzarr-ports-store-conflict");
     assert_eq!(runner.delay.slept.len(), 4);
     assert_eq!(events(&mut store), 2, "nothing purged");
+}
+
+// ------------------------------------------------------------ one retry loop
+
+#[test]
+fn test_the_application_has_the_kernel_retry_nothing() {
+    assert_eq!(super::KERNEL_RETRY.max_retries, 0);
+    assert_eq!(
+        angzarr_embedded::next::OnRetryable {
+            max_retries: 0,
+            ..angzarr_embedded::next::OnRetryable::default()
+        },
+        super::KERNEL_RETRY,
+        "the kernel's own backoff otherwise, unused"
+    );
+}
+
+#[test]
+fn test_a_store_that_never_answers_is_given_up_after_taskloom_s_attempts_alone() {
+    // One failure is one attempt: never the kernel's retries times these,
+    // and nothing is dead-lettered behind the person.
+    let store = Flaky::failing(&[Fault::Unavailable; 4]);
+    let mut delay = FakeDelay::default();
+    let dead_letters = crate::dead_letter::DeadLetters::default();
+    let registry = registry();
+    let mut clock = FakeClock::default();
+    let mut runner = Runner {
+        registry: &registry,
+        clock: &mut clock,
+        delay: &mut delay,
+        backoff: Backoff {
+            base: 10 * MS,
+            cap: 30 * MS,
+            attempts: 4,
+        },
+        dead_letters: &dead_letters,
+    };
+    let add = AddTask {
+        harp_id: "swift-amber".to_string(),
+        text: "Ship it".to_string(),
+        status: None,
+        trigger: None,
+        tags: Vec::new(),
+        origin_session: None,
+        defers: tasks::DEFERRED.to_string(),
+        initial: tasks::TO_DO.to_string(),
+    };
+    let book = book("swift-amber", add.into());
+    let id = angzarr_embedded::next::v1::Uuid::from_bytes([1; 16]);
+    let Err(AppError::GaveUp { attempts, error }) = ready(runner.run(&store, &book, &id)) else {
+        panic!("gave up");
+    };
+    assert_eq!(attempts, 4);
+    assert_eq!(error.code(), "angzarr-ports-store-unavailable");
+    assert_eq!(store.begun(), 4, "taskloom's attempts, the kernel's none");
+    assert!(dead_letters.take().is_empty(), "nothing dead-lettered");
 }

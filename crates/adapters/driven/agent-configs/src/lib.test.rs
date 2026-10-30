@@ -8,7 +8,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use annals_diagnostic::Diagnostic;
+crate::english_for!(&[crate::EN_US.1]);
+
+use angzarr_embedded_diagnostic::Diagnostic;
 use file_system::{Fs, Open, Os, Perms, Rooted};
 use os::Mode;
 use ports::{AgentConfigs, McpServer, Scope};
@@ -120,7 +122,10 @@ impl Home {
         Home { fs, configs, path }
     }
 
-    fn register(&mut self, server: Option<&McpServer>) -> Result<bool, annals_diagnostic::Report> {
+    fn register(
+        &mut self,
+        server: Option<&McpServer>,
+    ) -> Result<bool, angzarr_embedded_diagnostic::Report> {
         let path = self.path.clone();
         self.configs
             .register(CLAUDE_CODE, &path, "taskloom", "taskloom", server, false)
@@ -157,7 +162,7 @@ fn hold(
     case: &Case,
     step: &str,
     home: &Home,
-    answered: &Result<bool, annals_diagnostic::Report>,
+    answered: &Result<bool, angzarr_embedded_diagnostic::Report>,
     outcome: (i32, String),
     before: Option<&[u8]>,
     want: Option<Vec<u8>>,
@@ -336,7 +341,7 @@ fn install(
     configs: &mut AgentConfigFiles,
     path: &Path,
     dry_run: bool,
-) -> Result<ports::Rewritten, annals_diagnostic::Report> {
+) -> Result<ports::Rewritten, angzarr_embedded_diagnostic::Report> {
     configs.register(
         CLAUDE_CODE,
         path,
@@ -380,7 +385,7 @@ fn test_claude_code_is_the_one_agent_and_its_files_are_gos() {
 /// The variable a no-home error names, as its `var` arg.
 fn named_var(error: &dyn Diagnostic) -> String {
     match &error.args()[..] {
-        [("var", annals_diagnostic::Arg::Str(var))] => var.clone(),
+        [("var", angzarr_embedded_diagnostic::Arg::Str(var))] => var.clone(),
         other => panic!("no var: {other:?}"),
     }
 }
@@ -528,7 +533,7 @@ fn test_an_entry_running_another_program_is_refused_by_name() {
     write(&*fs, &path, src);
     let refused = install(&mut configs, &path, false).unwrap_err();
     assert_eq!(refused.code(), "agent-configs-foreign");
-    assert!(refused.to_string().contains("named taskloom"), "{refused}");
+    assert!(refused.english().contains("named taskloom"), "{refused}");
     assert_eq!(text(&*fs, &path), src);
 }
 

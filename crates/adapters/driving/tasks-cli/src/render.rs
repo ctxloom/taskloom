@@ -4,7 +4,7 @@
 
 use std::io::{self, Write};
 
-use annals_diagnostic::Diagnostic;
+use angzarr_embedded_diagnostic::Diagnostic;
 use presentation::{text, Catalog, Envelope, Render};
 use serde::Serialize;
 use tasks_application::{

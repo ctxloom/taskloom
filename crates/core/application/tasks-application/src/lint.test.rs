@@ -1,9 +1,10 @@
 //! Lint over rows and schemas.
 
+use crate::english::English;
 use std::path::PathBuf;
 
-use annals::next::Timestamp;
-use annals_diagnostic::Diagnostic;
+use angzarr_embedded_diagnostic::Diagnostic;
+use ports::Timestamp;
 
 use super::{lint, Finding, Violation, SCHEMA_SUBJECT};
 use crate::view::{Row, Task};
@@ -50,7 +51,7 @@ fn said(violations: &[Violation]) -> Vec<(Option<&str>, &str, String)> {
             (
                 v.project.as_deref(),
                 v.harp_id.as_str(),
-                v.finding.to_string(),
+                v.finding.english(),
             )
         })
         .collect()
@@ -103,7 +104,7 @@ fn test_a_range_targets_value_must_be_a_finite_number_within_it() {
         ]
     );
     assert_eq!(
-        found[0].finding.to_string(),
+        found[0].finding.english(),
         "area:n=9 is outside the declared range [1, 5]"
     );
     assert_eq!(checked, 1);
@@ -133,7 +134,7 @@ fn test_a_scalar_target_holding_two_values_is_a_violation() {
     let args = found[0].finding.args();
     assert!(matches!(
         args[1],
-        ("count", annals_diagnostic::Arg::Uint(2))
+        ("count", angzarr_embedded_diagnostic::Arg::Uint(2))
     ));
 }
 

@@ -29,7 +29,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 
 use crate::Tag;
 
@@ -322,34 +322,7 @@ pub enum Why {
 
 impl fmt::Display for SchemaError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let d = &self.declaration;
-        match &self.why {
-            Why::Unparseable { detail } => {
-                write!(f, "tag_schema: {d} is not a tag in tagma's grammar: {detail}")
-            }
-            Why::NoNamespace => write!(f, "tag_schema: {d} has no namespace: expected tagma.<facet>"),
-            Why::NotAFacet { namespace } => write!(
-                f,
-                "tag_schema: {d}'s namespace {namespace} is not tagma.<facet> (e.g. tagma.arity)"
-            ),
-            Why::UnknownFacet { facet } => write!(
-                f,
-                "tag_schema: {d} names the unknown facet {facet} (known: {})",
-                FACETS.join(", ")
-            ),
-            Why::NoValue => write!(f, "tag_schema: {d} has no value"),
-            Why::ArityTarget { target } => write!(
-                f,
-                "tag_schema: {d} targets {target}, but an arity's target must be namespace:key"
-            ),
-            Why::EnumEmpty { value } => {
-                write!(f, "tag_schema: {d} lists no enum member in {value}")
-            }
-            Why::Range { value } => write!(
-                f,
-                "tag_schema: {d}'s range {value} is not min,max: two finite numbers, the least first"
-            ),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -370,7 +343,7 @@ impl Diagnostic for SchemaError {
     fn args(&self) -> Vec<(&'static str, Arg)> {
         let mut args = vec![("declaration", self.declaration.as_str().into())];
         match &self.why {
-            Why::Unparseable { detail } => args.push(("detail", detail.as_str().into())),
+            Why::Unparseable { detail } => args.push(("ext_err_txt", detail.as_str().into())),
             Why::NotAFacet { namespace } => args.push(("namespace", namespace.as_str().into())),
             Why::UnknownFacet { facet } => {
                 args.push(("facet", facet.as_str().into()));

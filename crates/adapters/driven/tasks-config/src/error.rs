@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 
 use crate::KEYS;
 
@@ -50,53 +50,7 @@ pub enum ConfigError {
 
 impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ConfigError::Unreadable { path, detail } => write!(f, "cannot read {path}: {detail}"),
-            ConfigError::Unwritable { path, detail } => {
-                write!(f, "cannot write {path}: {detail}")
-            }
-            ConfigError::Malformed { path, detail } => {
-                write!(f, "{path} is not taskloom's config: {detail}")
-            }
-            ConfigError::Newer {
-                path,
-                version,
-                current,
-            } => write!(
-                f,
-                "{path} is schema_version {version}, newer than the {current} this taskloom reads"
-            ),
-            ConfigError::UnknownKey { source, key } => write!(
-                f,
-                "{source} sets {key}, which is no config key taskloom knows (known: {})",
-                KEYS.join(", ")
-            ),
-            ConfigError::NotAnOverride { entry } => {
-                write!(f, "--config-set {entry}: expected <path>=<value>")
-            }
-            ConfigError::Unterminated { source, value } => {
-                write!(f, "{source}: {value} has an unterminated quote")
-            }
-            ConfigError::BlankItem { source, value } => write!(
-                f,
-                "{source}: {value} has a blank item: give one, or leave it out"
-            ),
-            ConfigError::PermitsOutsideProject { path } => write!(
-                f,
-                "{path} sets tag_permits, which only a project's own .taskloom/config.yaml sets"
-            ),
-            ConfigError::FileOnly { source, key } => write!(
-                f,
-                "{source} sets {key}, which only the project's .taskloom/config.yaml sets (taskloom permit and revoke change it)"
-            ),
-            ConfigError::NoWorkRoot => f.write_str(
-                "there is no work root here, so no project config to write tag permits to",
-            ),
-            ConfigError::EditRefused { path, detail } => write!(
-                f,
-                "{path} was left as it was: editing its tag_permits would not have read back as meant ({detail}); this is a bug in taskloom"
-            ),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -125,7 +79,7 @@ impl Diagnostic for ConfigError {
             | ConfigError::Unwritable { path, detail }
             | ConfigError::Malformed { path, detail }
             | ConfigError::EditRefused { path, detail } => {
-                vec![("path", s(path)), ("detail", s(detail))]
+                vec![("path", s(path)), ("ext_err_txt", s(detail))]
             }
             ConfigError::Newer {
                 path,

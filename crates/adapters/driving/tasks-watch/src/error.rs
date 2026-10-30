@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 use tasks_application::AppError;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -19,15 +19,7 @@ pub enum WatchError {
 
 impl fmt::Display for WatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            WatchError::App(error) => error.fmt(f),
-            WatchError::NoProject => {
-                f.write_str("no project here yet; add a task first (taskloom add \"<task text>\")")
-            }
-            WatchError::Output { detail } => {
-                write!(f, "cannot write the change stream: {detail}")
-            }
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -46,7 +38,7 @@ impl Diagnostic for WatchError {
         match self {
             WatchError::App(error) => error.args(),
             WatchError::NoProject => Vec::new(),
-            WatchError::Output { detail } => vec![("detail", detail.as_str().into())],
+            WatchError::Output { detail } => vec![("ext_err_txt", detail.as_str().into())],
         }
     }
 }

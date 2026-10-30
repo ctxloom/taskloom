@@ -29,7 +29,7 @@ use std::time::Duration;
 use clap::Subcommand;
 use presentation::{Catalog, Format};
 use serde::Serialize;
-use tasks_application::{WatchRequest, WatchService};
+use tasks_application::{Polled, WatchRequest, WatchService};
 
 pub use error::{diagnostic_samples, WatchError, EN_US};
 
@@ -212,6 +212,13 @@ async fn stream<W: WatchService>(
         .map_err(WatchError::App)?
         .ok_or(WatchError::NoProject)?;
     let project = watch.project.id.clone();
+    // Where this stream is: the list's cursor, and its tasks, as of its
+    // last poll. A token that moves with nothing new for it (a purge of
+    // nothing) writes no line; a resync (a purge bumps the list's
+    // instance) is a change only if the tasks differ from those it held.
+    let first = watch.since(None);
+    let mut cursor = cursor_of(&first);
+    let mut held = tasks_of(first);
     let emit = |out: &mut dyn Write| {
         presentation::write_json_line(out, &ChangeLine::of(&project)).map_err(|e| {
             WatchError::Output {
@@ -236,10 +243,34 @@ async fn stream<W: WatchService>(
         if let Woken::Stop = woken {
             return Ok(());
         }
-        let changes = service.poll(&mut watch).await.map_err(WatchError::App)?;
-        if debounce.tick(!changes.is_empty()) {
+        let polled = service
+            .poll(&mut watch, Some(&cursor))
+            .await
+            .map_err(WatchError::App)?;
+        cursor = cursor_of(&polled);
+        let changed = match polled {
+            Polled::Changes { changes, .. } => !changes.is_empty(),
+            Polled::Snapshot { tasks, .. } => tasks != held,
+        };
+        held = tasks_of(watch.since(None));
+        if debounce.tick(changed) {
             emit(out)?;
         }
+    }
+}
+
+/// The cursor `polled` answers with: where its watcher is after it.
+fn cursor_of(polled: &Polled) -> tasks_application::WatchCursor {
+    match polled {
+        Polled::Changes { cursor, .. } | Polled::Snapshot { cursor, .. } => cursor.clone(),
+    }
+}
+
+/// The tasks a snapshot holds; none for changes.
+fn tasks_of(polled: Polled) -> Vec<tasks_application::Task> {
+    match polled {
+        Polled::Snapshot { tasks, .. } => tasks,
+        Polled::Changes { .. } => Vec::new(),
     }
 }
 
@@ -260,3 +291,7 @@ fn report(
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../adapters/driving/presentation/src/english.test.rs"]
+mod english;

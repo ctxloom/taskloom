@@ -1,6 +1,8 @@
 //! The errors' English and the catalog.
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
+
+crate::english_for!(&[crate::EN_US.1, file_lock::EN_US.1]);
 
 use super::{diagnostic_samples, RegistryError};
 
@@ -10,7 +12,7 @@ fn arg_names(d: &dyn Diagnostic) -> Vec<&'static str> {
 
 #[test]
 fn test_each_error_renders_its_english_fallback() {
-    let english: Vec<String> = diagnostic_samples().iter().map(|d| d.to_string()).collect();
+    let english: Vec<String> = diagnostic_samples().iter().map(|d| d.english()).collect();
     assert_eq!(
         english,
         [
@@ -26,6 +28,7 @@ fn test_each_error_renders_its_english_fallback() {
             "the project registry or a marker changed while the change was planned: nothing was changed; run it again",
             "/home/u/.ctxloom/projects/jolly-mute-magma is not a project's database directory: not removed",
             "/work/linked is a linked worktree whose git directory /work/main/.git/worktrees/linked is gone: run `git worktree repair` from its primary checkout, or remove the worktree",
+            "the project registry's lock cannot be taken: the lock /h/.ctxloom/projects/index.yaml.lock is not a regular file, so it cannot be locked",
         ]
     );
 }
@@ -38,8 +41,8 @@ fn test_no_home_names_the_variable_each_flavor_reads() {
     let windows = RegistryError::NoHome {
         flavor: os::Flavor::Windows,
     };
-    assert_eq!(unix.to_string(), "no home directory: set HOME");
-    assert_eq!(windows.to_string(), "no home directory: set USERPROFILE");
+    assert_eq!(unix.english(), "no home directory: set HOME");
+    assert_eq!(windows.english(), "no home directory: set USERPROFILE");
     assert!(matches!(&unix.args()[..], [("var", Arg::Str(v))] if v == "HOME"));
     assert!(matches!(&windows.args()[..], [("var", Arg::Str(v))] if v == "USERPROFILE"));
 }
@@ -65,12 +68,12 @@ fn test_each_error_gives_its_args_values() {
         detail: "d".to_string(),
     };
     assert!(
-        matches!(&io.args()[..], [("path", Arg::Str(p)), ("detail", Arg::Str(d))] if p == "p" && d == "d")
+        matches!(&io.args()[..], [("path", Arg::Str(p)), ("ext_err_txt", Arg::Str(d))] if p == "p" && d == "d")
     );
     let cwd = RegistryError::NoWorkingDirectory {
         detail: "d".to_string(),
     };
-    assert!(matches!(&cwd.args()[..], [("detail", Arg::Str(d))] if d == "d"));
+    assert!(matches!(&cwd.args()[..], [("ext_err_txt", Arg::Str(d))] if d == "d"));
     let relative = RegistryError::RelativePath {
         path: "p".to_string(),
     };

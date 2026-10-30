@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
+crate::english_for!(&[crate::EN_US.1, file_lock::EN_US.1]);
+
 use file_system::{Fs, Open, Perms, Rooted};
 
 use os::Mode;
@@ -254,26 +256,20 @@ fn test_a_lock_failure_keeps_the_registrys_own_codes() {
     let at = Path::new("/h/.ctxloom/projects/index.yaml.lock");
     let lock_path = || at.display().to_string();
     assert_eq!(
-        from_lock(
-            at,
-            LockError::Replaced {
-                path: lock_path(),
-                attempts: 16
-            }
-        ),
+        from_lock(LockError::Replaced {
+            path: lock_path(),
+            attempts: 16
+        }),
         RegistryError::LockReplaced {
             path: lock_path(),
             attempts: 16
         }
     );
     assert_eq!(
-        from_lock(
-            at,
-            LockError::Io {
-                path: "/h/.ctxloom/projects".to_string(),
-                detail: "denied".to_string()
-            }
-        ),
+        from_lock(LockError::Io {
+            path: "/h/.ctxloom/projects".to_string(),
+            detail: "denied".to_string()
+        }),
         RegistryError::Io {
             path: "/h/.ctxloom/projects".to_string(),
             detail: "denied".to_string()
@@ -282,19 +278,16 @@ fn test_a_lock_failure_keeps_the_registrys_own_codes() {
 }
 
 #[test]
-fn test_a_lock_file_that_is_not_a_file_is_an_io_failure_naming_it() {
+fn test_a_lock_file_that_is_not_a_file_is_the_locks_failure_naming_it() {
     let (fs, dir) = at();
     let lock_path = dir.join("index.yaml.lock");
     fs.create_dir_all(&lock_path, Mode::DIR).unwrap();
     let refused = lock(&fs, &dir.join("index.yaml")).map(drop);
     assert_eq!(
         refused,
-        Err(RegistryError::Io {
-            path: lock_path.display().to_string(),
-            detail: format!(
-                "the lock {} is not a regular file, so it cannot be locked",
-                lock_path.display()
-            ),
+        Err(RegistryError::LockFailed {
+            cause: angzarr_embedded_diagnostic::Report::new("file-lock-not-regular")
+                .arg("path", lock_path.display().to_string()),
         })
     );
 }

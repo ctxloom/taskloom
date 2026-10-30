@@ -9,9 +9,7 @@ publish.workspace = true
 
 [dependencies]
 agent-configs.workspace = true
-annals.workspace = true
-annals-diagnostic.workspace = true
-annals-store-sql.workspace = true
+angzarr-embedded-diagnostic.workspace = true
 # Their catalogs, in the wiring's (`catalog`).
 angzarr-embedded.workspace = true
 angzarr-store-sqlite.workspace = true
@@ -30,8 +28,9 @@ tasks-application.workspace = true
 tasks-config.workspace = true
 
 [dev-dependencies]
+# Rendering catalogs' English, for the tests that hold it to Go's.
+fluent-bundle.workspace = true
 # The runtime's and its store's keys, for the catalog's test.
-angzarr-embedded-diagnostic.workspace = true
 angzarr-ports.workspace = true
 angzarr-store-sqlite.workspace = true
 fluent-syntax.workspace = true

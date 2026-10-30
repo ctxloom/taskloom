@@ -1,6 +1,8 @@
 //! The errors' English and the catalog.
 
-use annals_diagnostic::Diagnostic;
+use angzarr_embedded_diagnostic::Diagnostic;
+
+crate::english_for!(&[crate::EN_US.1]);
 
 use super::diagnostic_samples;
 
@@ -10,7 +12,7 @@ fn arg_names(d: &dyn Diagnostic) -> Vec<&'static str> {
 
 #[test]
 fn test_each_error_renders_its_english_fallback() {
-    let english: Vec<String> = diagnostic_samples().iter().map(|d| d.to_string()).collect();
+    let english: Vec<String> = diagnostic_samples().iter().map(|d| d.english()).collect();
     let path = "/home/u/.taskloom/config.yaml";
     assert_eq!(
         english,

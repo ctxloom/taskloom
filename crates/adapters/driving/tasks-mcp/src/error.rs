@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 use tasks_application::AppError;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -35,32 +35,13 @@ pub enum McpNotice {
 
 impl fmt::Display for McpError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            McpError::App(error) => error.fmt(f),
-            McpError::Arguments { tool, detail } => {
-                write!(f, "invalid arguments to {tool}: {detail}")
-            }
-            McpError::UnknownTool { name } => write!(f, "no tool is named {name}"),
-            McpError::UnknownResource { uri } => write!(f, "no resource is at {uri}"),
-            McpError::Crashed { detail } => {
-                write!(f, "the call stopped before it answered: {detail}")
-            }
-            McpError::Serve { detail } => write!(f, "the MCP server stopped: {detail}"),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
 impl fmt::Display for McpNotice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            McpNotice::NoProject => f.write_str("no project here yet: nothing to list"),
-            McpNotice::EveryProject { directory } => write!(
-                f,
-                "no project here: {directory} is in no git repository, has no CTXLOOM_ROOT \
-                 and no project of its own, so this reads every project; pass --project \
-                 <id>, or work in a project, to read one"
-            ),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -84,13 +65,13 @@ impl Diagnostic for McpError {
             McpError::Arguments { tool, detail } => {
                 vec![
                     ("tool", tool.as_str().into()),
-                    ("detail", detail.as_str().into()),
+                    ("ext_err_txt", detail.as_str().into()),
                 ]
             }
             McpError::UnknownTool { name } => vec![("name", name.as_str().into())],
             McpError::UnknownResource { uri } => vec![("uri", uri.as_str().into())],
             McpError::Crashed { detail } | McpError::Serve { detail } => {
-                vec![("detail", detail.as_str().into())]
+                vec![("ext_err_txt", detail.as_str().into())]
             }
         }
     }

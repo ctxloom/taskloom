@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum LogError {
@@ -26,22 +26,7 @@ pub enum LogError {
 
 impl fmt::Display for LogError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            LogError::NoHome { flavor } => write!(
-                f,
-                "{} is not set, so Go's task logs cannot be found",
-                flavor.home_var()
-            ),
-            LogError::Unreadable { path, detail } => write!(f, "cannot read {path}: {detail}"),
-            LogError::Malformed { path, line, detail } => {
-                write!(f, "{path}:{line}: malformed task event: {detail}")
-            }
-            LogError::NoOp { path, line } => write!(f, "{path}:{line}: record has no op field"),
-            LogError::UnknownOp { path, line, op } => write!(
-                f,
-                "{path}:{line}: unrecognized op {op}: the log was likely written by a newer taskloom"
-            ),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -61,12 +46,12 @@ impl Diagnostic for LogError {
             LogError::NoHome { flavor } => vec![("var", flavor.home_var().into())],
             LogError::Unreadable { path, detail } => vec![
                 ("path", path.as_str().into()),
-                ("detail", detail.as_str().into()),
+                ("ext_err_txt", detail.as_str().into()),
             ],
             LogError::Malformed { path, line, detail } => vec![
                 ("path", path.as_str().into()),
                 ("line", (*line).into()),
-                ("detail", detail.as_str().into()),
+                ("ext_err_txt", detail.as_str().into()),
             ],
             LogError::NoOp { path, line } => {
                 vec![("path", path.as_str().into()), ("line", (*line).into())]

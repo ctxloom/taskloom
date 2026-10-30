@@ -2,8 +2,9 @@
 //! (a copy here would go on proving things of formulas no longer shipped),
 //! and the warnings a ranking that means little earns.
 
-use annals::next::Timestamp;
-use annals_diagnostic::{Arg, Diagnostic};
+use crate::english::English;
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
+use ports::Timestamp;
 use task_priority::{Diagnostics, Ranking, TargetCoverage, MAX};
 
 use super::{candidate, formulas, rank_rows, warnings, PriorityNote, PriorityWarning};
@@ -232,7 +233,7 @@ fn test_warnings_are_attributed_to_their_project_when_asked() {
         .all(|n| n.project.as_deref() == Some("a")));
     let first = &attributed.notes[0];
     assert_eq!(first.code(), "tasks-application-priority-in-project");
-    assert!(first.to_string().starts_with("project a: "), "{first}");
+    assert!(first.english().starts_with("project a: "), "{first}");
 }
 
 // ------------------------------------------------------------ warnings
@@ -332,7 +333,7 @@ fn test_each_warning_renders_go_s_english() {
         ),
     ];
     for (warning, english) in cases {
-        assert_eq!(warning.to_string(), english);
+        assert_eq!(warning.english(), english);
     }
     let note = PriorityNote {
         project: Some("p".to_string()),
@@ -346,6 +347,6 @@ fn test_each_warning_renders_go_s_english() {
         warning: PriorityWarning::AllTied { scored: 1, live: 4 },
     };
     assert_eq!(bare.code(), "tasks-application-priority-all-tied");
-    assert_eq!(bare.to_string(), bare.warning.to_string());
+    assert_eq!(bare.english(), bare.warning.english());
     assert_eq!(bare.args().len(), 2);
 }

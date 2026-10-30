@@ -19,7 +19,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::Arc;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 use tagma_core::Index;
 
 use crate::schema::{TagSchema, SEMVER};
@@ -50,11 +50,7 @@ pub struct QueryError {
 
 impl fmt::Display for QueryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "the tag query {} is malformed (as postfix: {}; as infix: {}): {QUERY_GRAMMAR}",
-            self.query, self.postfix, self.infix
-        )
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 

@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ConfigError {
@@ -40,45 +40,7 @@ pub enum ConfigError {
 
 impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ConfigError::NoHome { flavor } => write!(
-                f,
-                "the home directory is not set ({}), so the user's configuration cannot be found",
-                flavor.home_var()
-            ),
-            ConfigError::UnknownEngine { engine } => write!(f, "no agent is named {engine}"),
-            ConfigError::Read { path, detail } => write!(f, "cannot read {path}: {detail}"),
-            ConfigError::Corrupt {
-                file,
-                detail,
-                backup,
-            } => write!(
-                f,
-                "failed to parse {file}: {detail} - original backed up to {backup}; fix the JSON \
-                 and re-run (refusing to write {file} to avoid deleting the MCP servers already in it)"
-            ),
-            ConfigError::CorruptUnsaved {
-                file,
-                detail,
-                reason,
-            } => write!(
-                f,
-                "failed to parse {file}: {detail}; additionally failed to back up the corrupt \
-                 file: {reason} - refusing to write {file} to avoid deleting the MCP servers \
-                 already in it"
-            ),
-            ConfigError::NotAnObject { path, pointer } => write!(
-                f,
-                "failed to write {path}: {pointer} is not an object, so no server can be added to it"
-            ),
-            ConfigError::Foreign { path, name } => write!(
-                f,
-                "{path} already has an MCP server named {name} that runs something else; it is \
-                 left as it is (remove or rename it to register this one)"
-            ),
-            ConfigError::Write { path, detail } => write!(f, "failed to write {path}: {detail}"),
-            ConfigError::Parse { detail } => write!(f, "parse config: {detail}"),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -105,7 +67,7 @@ impl Diagnostic for ConfigError {
             ConfigError::NoHome { flavor } => vec![("var", flavor.home_var().into())],
             ConfigError::UnknownEngine { engine } => vec![("engine", s(engine))],
             ConfigError::Read { path, detail } | ConfigError::Write { path, detail } => {
-                vec![("path", s(path)), ("detail", s(detail))]
+                vec![("path", s(path)), ("ext_err_txt", s(detail))]
             }
             ConfigError::Corrupt {
                 file,
@@ -113,7 +75,7 @@ impl Diagnostic for ConfigError {
                 backup,
             } => vec![
                 ("file", s(file)),
-                ("detail", s(detail)),
+                ("ext_err_txt", s(detail)),
                 ("backup", s(backup)),
             ],
             ConfigError::CorruptUnsaved {
@@ -122,14 +84,14 @@ impl Diagnostic for ConfigError {
                 reason,
             } => vec![
                 ("file", s(file)),
-                ("detail", s(detail)),
+                ("ext_err_txt", s(detail)),
                 ("reason", s(reason)),
             ],
             ConfigError::NotAnObject { path, pointer } => {
                 vec![("path", s(path)), ("pointer", s(pointer))]
             }
             ConfigError::Foreign { path, name } => vec![("path", s(path)), ("name", s(name))],
-            ConfigError::Parse { detail } => vec![("detail", s(detail))],
+            ConfigError::Parse { detail } => vec![("ext_err_txt", s(detail))],
         }
     }
 }

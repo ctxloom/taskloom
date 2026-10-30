@@ -25,9 +25,10 @@ tokio.workspace = true
 
 [dev-dependencies]
 agent-configs.workspace = true
-annals-diagnostic.workspace = true
-annals-store-sql.workspace = true
-annals.workspace = true
+angzarr-embedded.workspace = true
+angzarr-ports.workspace = true
+angzarr-store-sqlite.workspace = true
+angzarr-embedded-diagnostic.workspace = true
 file-system.workspace = true
 fs4.workspace = true
 harp-names.workspace = true

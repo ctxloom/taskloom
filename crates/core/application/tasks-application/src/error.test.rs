@@ -1,11 +1,12 @@
 //! The errors' English, their wrappers' delegation, and the catalog.
 
-use annals_diagnostic::{Arg, Diagnostic, Report};
+use crate::english::English;
+use angzarr_embedded_diagnostic::{Arg, Diagnostic, Report};
 
 use super::{diagnostic_samples, AppError};
 
 fn cause() -> Report {
-    Report::new("tasks-text-required", "a task needs text").arg("field", "text")
+    Report::new("tasks-text-required").arg("field", "text")
 }
 
 fn arg_names(d: &dyn Diagnostic) -> Vec<&'static str> {
@@ -23,7 +24,7 @@ fn test_a_wrapper_is_its_causes_diagnostic() {
         AppError::TagQuery(cause()),
     ] {
         assert_eq!(wrapper.code(), "tasks-text-required");
-        assert_eq!(wrapper.to_string(), "a task needs text");
+        assert_eq!(wrapper.english(), "a task needs text");
         assert_eq!(arg_names(&wrapper), ["field"]);
     }
 }
@@ -33,24 +34,24 @@ fn test_each_error_renders_its_english_fallback() {
     assert_eq!(
         AppError::GaveUp {
             attempts: 10,
-            error: Report::new("x-busy", "the database is locked"),
+            error: Report::new("x-busy"),
         }
-        .to_string(),
-        "gave up after 10 attempts: the database is locked"
+        .english(),
+        "gave up after 10 attempts: x-busy"
     );
     assert_eq!(
-        AppError::HarpsExhausted { attempts: 100 }.to_string(),
+        AppError::HarpsExhausted { attempts: 100 }.english(),
         "no free task id after 100 tries"
     );
     assert_eq!(
         AppError::Vanished {
             harp_id: "swift-amber".to_string()
         }
-        .to_string(),
+        .english(),
         "task swift-amber was written but cannot be read back"
     );
     assert_eq!(
-        AppError::NoProject.to_string(),
+        AppError::NoProject.english(),
         "there is no project here yet, so no task to change"
     );
 }

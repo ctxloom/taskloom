@@ -1,18 +1,15 @@
 [package]
 name = "tasks-application"
 version = "0.1.0"
-description = "The tasks use cases: add, tag and list, over the ports and annals' kernel"
+description = "The tasks use cases: add, tag and list, over the ports and angzarr-embedded's kernel"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
-annals.workspace = true
-annals-diagnostic.workspace = true
-# The use cases on angzarr-embedded (`embedded`), beside annals' until they
-# replace them (step 4 of taskloom-on-angzarr-embedded.plan.md).
 angzarr-embedded.workspace = true
+angzarr-embedded-diagnostic.workspace = true
 ports.workspace = true
 sha2.workspace = true
 tagma-core.workspace = true
@@ -23,6 +20,8 @@ uuid.workspace = true
 
 [dev-dependencies]
 angzarr-ports = { workspace = true, features = ["memory"] }
+# Rendering the catalogs' English, for the tests that hold it to Go's.
+fluent-bundle.workspace = true
 fluent-syntax.workspace = true
 mutants.workspace = true
 

@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum TaskRejection {
@@ -43,42 +43,10 @@ pub enum TaskRejection {
     Unresolved { field: String },
 }
 
+/// Its key and args, never English (angzarr decision 14.37).
 impl fmt::Display for TaskRejection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            TaskRejection::HarpIdRequired => f.write_str("a task needs a harp id"),
-            TaskRejection::NotItsStream { harp_id } => {
-                write!(f, "task {harp_id} does not belong in this stream")
-            }
-            TaskRejection::NoRoot { harp_id, cause } => write!(
-                f,
-                "task {harp_id} has no stream to belong in: its root cannot be derived ({cause})"
-            ),
-            TaskRejection::TaskExists { harp_id } => write!(f, "task {harp_id} already exists"),
-            TaskRejection::NoTask => f.write_str("there is no such task"),
-            TaskRejection::Removed { harp_id } => write!(f, "task {harp_id} was removed"),
-            TaskRejection::TextRequired => f.write_str("a task needs text"),
-            TaskRejection::StatusRequired => f.write_str("a status change needs a status, a trigger, or the trigger cleared"),
-            TaskRejection::StatusReserved { status } => write!(
-                f,
-                "the status {status} is not allowed: '@' is reserved for status classes"
-            ),
-            TaskRejection::TriggerRequired => {
-                f.write_str("a Deferred task needs a trigger: the condition that should revive it")
-            }
-            TaskRejection::TagRequired => f.write_str("a retag needs at least one tag"),
-            TaskRejection::Blank { field } => {
-                write!(f, "the {field} given is blank: give one, or leave it out")
-            }
-            TaskRejection::TriggerWithStatus { status, defers } => write!(
-                f,
-                "a trigger defers the task to {defers}, so it cannot be given with the status {status}: give the trigger alone, or the status alone"
-            ),
-            TaskRejection::Unresolved { field } => write!(
-                f,
-                "the command carries no {field} status: the application resolves it from the configured statuses"
-            ),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -123,30 +91,6 @@ impl Diagnostic for TaskRejection {
             ],
             _ => Vec::new(),
         }
-    }
-}
-
-/// The same key and args, as angzarr-embedded's markup refuses with them
-/// (`TaskAggregate`): a key and its args, never English (decision 14.37).
-impl angzarr_embedded_diagnostic::Diagnostic for TaskRejection {
-    fn code(&self) -> &'static str {
-        Diagnostic::code(self)
-    }
-
-    fn args(&self) -> Vec<(&'static str, angzarr_embedded_diagnostic::Arg)> {
-        use angzarr_embedded_diagnostic::Arg as Embedded;
-        Diagnostic::args(self)
-            .into_iter()
-            .map(|(name, arg)| {
-                let arg = match arg {
-                    Arg::Int(n) => Embedded::Int(n),
-                    Arg::Uint(n) => Embedded::Uint(n),
-                    Arg::Str(s) => Embedded::Str(s),
-                    Arg::Nested(cause) => Embedded::Str(cause.code().to_string()),
-                };
-                (name, arg)
-            })
-            .collect()
     }
 }
 

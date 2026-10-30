@@ -8,8 +8,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-annals.workspace = true
-annals-diagnostic.workspace = true
+prost-types.workspace = true
+angzarr-embedded-diagnostic.workspace = true
 file-system.workspace = true
 # Flavor: which variable the home is read from, for the no-home error.
 os.workspace = true
@@ -19,6 +19,8 @@ serde_json.workspace = true
 time.workspace = true
 
 [dev-dependencies]
+# Rendering catalogs' English, for the tests that hold it to Go's.
+fluent-bundle.workspace = true
 fluent-syntax.workspace = true
 
 [lints]

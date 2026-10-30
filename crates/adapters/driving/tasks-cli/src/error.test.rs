@@ -1,7 +1,9 @@
 //! The errors' English, the wrapper's delegation, and the catalog.
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 use tasks_application::AppError;
+
+crate::english_for!(&[crate::EN_US.1]);
 
 use super::{diagnostic_samples, CliError};
 
@@ -23,8 +25,8 @@ fn test_an_output_failure_says_what_failed() {
     let error = CliError::Output {
         detail: "broken pipe".to_string(),
     };
-    assert_eq!(error.to_string(), "cannot write the output: broken pipe");
-    assert!(matches!(&error.args()[..], [("detail", Arg::Str(d))] if d == "broken pipe"));
+    assert_eq!(error.english(), "cannot write the output: broken pipe");
+    assert!(matches!(&error.args()[..], [("ext_err_txt", Arg::Str(d))] if d == "broken pipe"));
 }
 
 #[test]
@@ -34,7 +36,7 @@ fn test_an_incomplete_import_says_what_it_left() {
         lost: 2,
     };
     assert_eq!(
-        error.to_string(),
+        error.english(),
         "not everything was imported: 1 projects stopped, 2 records not imported"
     );
     assert!(matches!(
@@ -90,10 +92,15 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
 }
 
 #[test]
-fn test_each_diagnostics_english_is_its_catalog_message() {
+fn test_each_diagnostic_renders_its_catalog_message_and_displays_as_its_key() {
     let catalog = crate::catalog(&[]).expect("the catalog loads");
     for sample in diagnostic_samples() {
-        assert_eq!(catalog.render(&*sample), Ok(sample.to_string()));
+        let message = catalog.render(&*sample).expect("a catalog message");
+        assert!(!message.is_empty(), "{}", sample.code());
+        assert!(
+            sample.to_string().starts_with(sample.code()),
+            "Display is the key and args, never English: {sample}"
+        );
     }
 }
 
@@ -103,8 +110,8 @@ fn test_a_usage_error_is_clap_s_words() {
         detail: "error: no\n".to_string(),
     };
     assert_eq!(error.code(), "tasks-cli-usage");
-    assert_eq!(error.to_string(), "error: no\n");
-    assert!(matches!(&error.args()[..], [("detail", Arg::Str(d))] if d == "error: no\n"));
+    assert_eq!(error.english(), "error: no\n");
+    assert!(matches!(&error.args()[..], [("ext_err_txt", Arg::Str(d))] if d == "error: no\n"));
 }
 
 #[test]
@@ -113,7 +120,7 @@ fn test_a_project_notice_names_its_root_and_id() {
         root: "/w".to_string(),
         id: "a-b-c".to_string(),
     };
-    assert_eq!(notice.to_string(), "project /w (a-b-c)");
+    assert_eq!(notice.english(), "project /w (a-b-c)");
     assert_eq!(arg_names(&notice), ["root", "id"]);
     assert_eq!(crate::Notice::NoProject.code(), "tasks-cli-no-project");
 }

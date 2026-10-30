@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 
 use crate::{builtins, Facet};
 
@@ -48,57 +48,7 @@ pub enum PriorityError {
 
 impl fmt::Display for PriorityError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PriorityError::Malformed {
-                facet,
-                target,
-                formula,
-                reason,
-            } => write!(
-                f,
-                "{facet} on {target} is not a formula: {reason} (formula: {formula})"
-            ),
-            PriorityError::UnknownBuiltin {
-                facet,
-                target,
-                name,
-            } => write!(
-                f,
-                "{facet} on {target} reads {name}, which is no tag (no ':') and no built-in of {facet} (those are {})",
-                known(*facet)
-            ),
-            PriorityError::Ambiguous { facet, targets } => write!(
-                f,
-                "more than one {facet} is declared (on {}): exactly one is allowed",
-                targets.join(", ")
-            ),
-            PriorityError::Unevaluable {
-                harp_id,
-                facet,
-                formula,
-                reason,
-            } => write!(
-                f,
-                "{facet} could not score task {harp_id}: {reason} (formula: {formula})"
-            ),
-            PriorityError::NotANumber {
-                harp_id,
-                facet,
-                formula,
-                result,
-            } => write!(
-                f,
-                "{facet} gives task {harp_id} {result}, which is no number (formula: {formula})"
-            ),
-            PriorityError::NonFinite { harp_id, score } => write!(
-                f,
-                "priority_fn gives task {harp_id} the score {score}, which is no finite number: check its tags for a value that is not one"
-            ),
-            PriorityError::NoCreatedAt { harp_id } => write!(
-                f,
-                "task {harp_id} has no creation time, so it has no age to rank by"
-            ),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 

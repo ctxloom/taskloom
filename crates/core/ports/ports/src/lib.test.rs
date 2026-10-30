@@ -1,6 +1,6 @@
 //! The little the ports hold besides traits.
 
-use annals_diagnostic::Report;
+use angzarr_embedded_diagnostic::Report;
 
 use crate::{Configuration, JsonlOp};
 

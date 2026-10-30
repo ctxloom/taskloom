@@ -1,19 +1,16 @@
 [package]
 name = "task-store-sqlite"
 version = "0.1.0"
-description = "A project's task store: annals-store-sql's SQLite store at the project's path, behind the TaskStores port, and its integrity check behind StoreCheck"
+description = "A project's task store: angzarr-store-sqlite's SQLite store at the project's path, behind the TaskStores port, and its integrity check behind StoreCheck"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
-annals.workspace = true
-annals-diagnostic.workspace = true
-annals-store-sql.workspace = true
+angzarr-embedded-diagnostic.workspace = true
 # The store on angzarr-store-sqlite (`embedded`), beside annals-store-sql's
 # until the application moves (step 4 of taskloom-on-angzarr-embedded.plan.md).
-angzarr-embedded-diagnostic.workspace = true
 angzarr-ports.workspace = true
 angzarr-store-sqlite.workspace = true
 file-system.workspace = true

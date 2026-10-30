@@ -3,7 +3,7 @@
 use std::fmt;
 use std::path::Path;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic, Report};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum RegistryError {
@@ -42,6 +42,9 @@ pub enum RegistryError {
     /// A linked worktree whose git directory is gone: its primary checkout
     /// was deleted or moved.
     StaleWorktree { root: String, git_dir: String },
+    /// The registry's lock could not be taken: the lock's own failure, its
+    /// key and args.
+    LockFailed { cause: Report },
 }
 
 impl RegistryError {
@@ -55,47 +58,7 @@ impl RegistryError {
 
 impl fmt::Display for RegistryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RegistryError::NoHome { flavor } => {
-                write!(f, "no home directory: set {}", flavor.home_var())
-            }
-            RegistryError::Io { path, detail } => write!(f, "{path}: {detail}"),
-            RegistryError::InvalidId { id, origin, reason } => write!(
-                f,
-                "the project id {id} from {origin} is not a valid id: {reason}"
-            ),
-            RegistryError::Unreadable { path, detail } => {
-                write!(f, "the project registry {path} cannot be read: {detail}")
-            }
-            RegistryError::Exhausted { attempts } => {
-                write!(f, "no free project id after {attempts} tries")
-            }
-            RegistryError::NoWorkingDirectory { detail } => {
-                write!(f, "the working directory cannot be read: {detail}")
-            }
-            RegistryError::RelativePath { path } => write!(
-                f,
-                "{path} is not an absolute path: nothing is written relative to the working directory"
-            ),
-            RegistryError::LockTimeout { path, waited_ms } => write!(
-                f,
-                "the project registry's lock {path} is still held after {waited_ms}ms: another ctxloom or taskloom process holds it; try again once it exits"
-            ),
-            RegistryError::LockReplaced { path, attempts } => write!(
-                f,
-                "the project registry's lock {path} was replaced {attempts} times while being taken: try again"
-            ),
-            RegistryError::Changed => f.write_str(
-                "the project registry or a marker changed while the change was planned: nothing was changed; run it again",
-            ),
-            RegistryError::NotADatabase { path } => {
-                write!(f, "{path} is not a project's database directory: not removed")
-            }
-            RegistryError::StaleWorktree { root, git_dir } => write!(
-                f,
-                "{root} is a linked worktree whose git directory {git_dir} is gone: run `git worktree repair` from its primary checkout, or remove the worktree"
-            ),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -114,6 +77,7 @@ impl Diagnostic for RegistryError {
             RegistryError::Changed => "project-registry-changed",
             RegistryError::NotADatabase { .. } => "project-registry-not-a-database",
             RegistryError::StaleWorktree { .. } => "project-registry-stale-worktree",
+            RegistryError::LockFailed { .. } => "project-registry-lock-failed",
         }
     }
 
@@ -124,7 +88,7 @@ impl Diagnostic for RegistryError {
             RegistryError::Io { path, detail } | RegistryError::Unreadable { path, detail } => {
                 vec![
                     ("path", path.as_str().into()),
-                    ("detail", detail.as_str().into()),
+                    ("ext_err_txt", detail.as_str().into()),
                 ]
             }
             RegistryError::InvalidId { id, origin, reason } => vec![
@@ -134,7 +98,7 @@ impl Diagnostic for RegistryError {
             ],
             RegistryError::Exhausted { attempts } => vec![("attempts", (*attempts).into())],
             RegistryError::NoWorkingDirectory { detail } => {
-                vec![("detail", detail.as_str().into())]
+                vec![("ext_err_txt", detail.as_str().into())]
             }
             RegistryError::RelativePath { path } | RegistryError::NotADatabase { path } => {
                 vec![("path", path.as_str().into())]
@@ -151,6 +115,7 @@ impl Diagnostic for RegistryError {
                 ("path", path.as_str().into()),
                 ("attempts", (*attempts).into()),
             ],
+            RegistryError::LockFailed { cause } => vec![("cause", Arg::nested(cause))],
         }
     }
 }
@@ -205,6 +170,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(RegistryError::StaleWorktree {
             root: "/work/linked".to_string(),
             git_dir: "/work/main/.git/worktrees/linked".to_string(),
+        }),
+        Box::new(RegistryError::LockFailed {
+            cause: Report::new("file-lock-not-regular")
+                .arg("path", "/h/.ctxloom/projects/index.yaml.lock"),
         }),
     ]
 }

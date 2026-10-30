@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum StoreOpenError {
@@ -27,13 +27,7 @@ pub enum StoreOpenError {
 /// angzarr-embedded-diagnostic's errors display themselves.
 impl fmt::Display for StoreOpenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.code())?;
-        for (name, arg) in self.args() {
-            if let Arg::Str(value) = arg {
-                write!(f, " {name}={}", angzarr_embedded_diagnostic::quote(&value))?;
-            }
-        }
-        Ok(())
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 

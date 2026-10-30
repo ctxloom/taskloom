@@ -4,11 +4,13 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use annals::next::Timestamp;
-use annals_diagnostic::Diagnostic;
+crate::english_for!(&[crate::EN_US.1]);
+
+use angzarr_embedded_diagnostic::Diagnostic;
 use file_system::{Fs, Perms, Rooted};
 use os::Mode;
 use ports::{JsonlOp, JsonlRecord, JsonlTaskLogs};
+use prost_types::Timestamp;
 
 use crate::{parse, JsonlTaskLogDir, LogError, MISSING_TS_INSTANT};
 
@@ -275,7 +277,7 @@ fn test_a_bad_log_reports_its_path() {
         .join("able-calm-fox.jsonl");
     assert!(
         error
-            .to_string()
+            .english()
             .starts_with(&format!("{}:1:", path.display())),
         "{error}"
     );
@@ -316,7 +318,7 @@ fn test_without_a_home_every_read_says_so() {
 /// The variable a no-home error names, as its `var` arg.
 fn named_var(error: &dyn Diagnostic) -> String {
     match &error.args()[..] {
-        [("var", annals_diagnostic::Arg::Str(var))] => var.clone(),
+        [("var", angzarr_embedded_diagnostic::Arg::Str(var))] => var.clone(),
         other => panic!("no var: {other:?}"),
     }
 }

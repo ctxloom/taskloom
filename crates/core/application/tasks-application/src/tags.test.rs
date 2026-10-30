@@ -1,6 +1,7 @@
 //! Tag strings parsed at the edge of a write.
 
 use super::{parse, parse_all, Tag, TagRefusal};
+use crate::english::English;
 
 fn strings(values: &[&str]) -> Vec<String> {
     values.iter().map(|v| v.to_string()).collect()
@@ -69,7 +70,7 @@ fn test_a_refusal_renders_its_english() {
         detail: "why".to_string(),
     };
     assert_eq!(
-        refusal.to_string(),
+        refusal.english(),
         "the tag a b is not a tag in tagma's grammar: why"
     );
 }
@@ -78,7 +79,7 @@ fn test_a_refusal_renders_its_english() {
 
 use super::{admit, admit_all, check_scalars, collapse};
 use crate::schema::TagSchema;
-use annals_diagnostic::Diagnostic as _;
+use angzarr_embedded_diagnostic::Diagnostic as _;
 
 fn refused(spelled: &str, schema: &TagSchema) -> Option<TagRefusal> {
     match parse(spelled)? {
@@ -217,7 +218,7 @@ fn test_a_range_admits_finite_numbers_within_it() {
         );
     }
     let refusal = refused("triage:effort=9", &triage()).unwrap();
-    assert!(refusal.to_string().contains("[0, 5]"), "{refusal}");
+    assert!(refusal.english().contains("[0, 5]"), "{refusal}");
 }
 
 #[test]

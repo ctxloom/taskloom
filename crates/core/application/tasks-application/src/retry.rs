@@ -1,26 +1,51 @@
-//! Running one command through annals' kernel, and running it again when
-//! annals says to.
+//! Running one command through angzarr-embedded's kernel, and running it
+//! again when the kernel says a retry may mend it.
 //!
-//! annals never retries; it answers [`Recovery::Retry`] for a store
-//! conflict, a stale command or a store that could not say, and a retry is
-//! safe because it re-runs the SAME command id in a fresh unit of work: if
-//! the first attempt landed after all, the retry is answered DUPLICATE. The
-//! waits between attempts are capped exponential backoff with full jitter
-//! (each wait drawn from zero to its ceiling), so many contending processes
-//! spread out instead of colliding again in lockstep.
+//! **One retry loop, taskloom's.** The kernel's own capped retry is on by
+//! default; the application turns it off ([`KERNEL_RETRY`]), so every
+//! retryable failure (a lost race: a conflict at the write, a stale
+//! command; a store that could not say) comes straight back here, and one
+//! failure is one attempt: never the kernel's retries times these, and
+//! nothing a person's command could not do is dead-lettered behind them.
+//! A retry is safe because it re-runs the SAME command id: if the first
+//! attempt landed after all, the kernel answers it DUPLICATE. The waits
+//! between attempts are capped exponential backoff with full jitter (each
+//! wait drawn from zero to its ceiling), over the [`Delay`] and [`Jitter`]
+//! ports, so many contending processes spread out instead of colliding
+//! again in lockstep.
+//!
+//! There is no unit of work: a command that depends on the task as it is
+//! (a scalar tag displacing the one held, a removal only of a task that
+//! still qualifies) is shaped from a read of its stream and sent at the
+//! head it read (`Handling.expected_sequence`, STRICT), so a write landing
+//! between is the kernel's conflict, and the retry reads and shapes again.
 
 use std::time::Duration;
 
-use annals::next::v1::{CommandBook, Cover, Uuid};
-use annals::next::{
-    AsyncEventStore, AsyncPurge, AsyncStore, AsyncUnitOfWork, DeadLetterLog, Failure, Kernel,
-    Recovery, Registry, Routes, Sampled, StoreError, Stream,
+use angzarr_embedded::next::v1::{CommandBook, Cover, Handling, Uuid};
+use angzarr_embedded::next::{
+    DeadLetterLog, EventStore, Failure, Kernel, KernelError, OnRetryable, Purge, Recovery,
+    Registry, Sampled, Store, StoreError, Stream, StreamRef,
 };
-use annals_diagnostic::Report;
-use ports::{Clock, Delay, Jitter, PurgingStore};
-use tasks::{TaskRejection, TaskState, Tasks};
+use angzarr_embedded_diagnostic::Report;
+use ports::{Clock, Delay, Jitter};
+use tasks::{TaskAggregate, TaskState};
 
 use crate::AppError;
+
+/// How the application has the kernel retry: not at all. taskloom's loop
+/// ([`Backoff`]) is the one that retries, so a failure is never retried
+/// twice over (the kernel's three retries of each of taskloom's ten
+/// attempts), its waits are the ports' (so a test's are exact), and a
+/// person's command that cannot land comes back to them, not to a dead
+/// letter. The kernel's own backoff otherwise, unused.
+pub const KERNEL_RETRY: OnRetryable = OnRetryable {
+    max_retries: 0,
+    initial_backoff: Duration::from_millis(100),
+    multiplier: 2.0,
+    max_backoff: Duration::from_secs(5),
+    jitter: 0.2,
+};
 
 /// How long to wait between attempts, and how many to make.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -57,8 +82,15 @@ pub(crate) enum Outcome {
     /// It committed, or had already (a retry answered DUPLICATE): either
     /// way the command's events are on the stream once.
     Committed,
-    /// The domain refused it.
-    Refused(TaskRejection),
+    /// The domain refused it: its key and args.
+    Refused(Report),
+}
+
+impl Outcome {
+    /// Whether it was refused under `code`.
+    pub(crate) fn refused_as(&self, code: &str) -> bool {
+        matches!(self, Outcome::Refused(report) if angzarr_embedded_diagnostic::Diagnostic::code(report) == code)
+    }
 }
 
 /// What [`Runner::run`] needs besides the store and the command.
@@ -73,12 +105,12 @@ pub(crate) struct Runner<'a, C, D> {
 }
 
 impl<C: Clock, D: Delay + Jitter> Runner<'_, C, D> {
-    /// Run `book` under `command_id` on `store`, each attempt in a
-    /// fresh unit of work, until it commits, is refused, fails in a way a
-    /// retry will not mend, or the attempts run out.
-    pub async fn run<S: AsyncStore>(
+    /// Run `book` under `command_id` on `store` until it commits, is
+    /// refused, fails in a way a retry will not mend, or the attempts run
+    /// out.
+    pub async fn run<S: Store>(
         &mut self,
-        store: &mut S,
+        store: &S,
         book: &CommandBook,
         command_id: &Uuid,
     ) -> Result<Outcome, AppError> {
@@ -89,14 +121,13 @@ impl<C: Clock, D: Delay + Jitter> Runner<'_, C, D> {
         Ok(outcome.expect("a command run with no condition is never declined"))
     }
 
-    /// [`Runner::run`], if the task on `book`'s stream, read in each
-    /// attempt's own unit of work before the command is decided there,
-    /// meets `holds`: `None` (nothing sent) when it does not. A unit of
-    /// work holds the store's write lock from its first read, so nothing
-    /// changes the task between the reading and the commit.
-    pub async fn run_where<S: AsyncStore, P: Fn(&TaskState) -> bool + Sync>(
+    /// [`Runner::run`], if the task on `book`'s stream, read at each
+    /// attempt, meets `holds`: `None` (nothing sent) when it does not. The
+    /// command is sent at the head read, so nothing changes the task
+    /// between the reading and the write unseen.
+    pub async fn run_where<S: Store, P: Fn(&TaskState) -> bool + Sync>(
         &mut self,
-        store: &mut S,
+        store: &S,
         book: &CommandBook,
         command_id: &Uuid,
         holds: Option<&P>,
@@ -107,60 +138,53 @@ impl<C: Clock, D: Delay + Jitter> Runner<'_, C, D> {
     }
 
     /// [`Runner::run`] of what `shape` makes of the task on `book`'s
-    /// stream, read in each attempt's own unit of work as
-    /// [`Runner::run_where`] reads it: `None` (nothing sent) when it makes
-    /// nothing; `book` itself, unread, when there is no `shape`. A command
-    /// that depends on the task as it is (a scalar value displacing the
-    /// one it holds) is shaped here, so nothing written between an earlier
-    /// read and this unit is missed.
-    pub async fn run_shaped<S: AsyncStore, F: Fn(&TaskState) -> Option<CommandBook> + Sync>(
+    /// stream, read at each attempt: `None` (nothing sent) when it makes
+    /// nothing; `book` itself, unread, when there is no `shape`. A shaped
+    /// book is sent at the head it was shaped from.
+    pub async fn run_shaped<S: Store, F: Fn(&TaskState) -> Option<CommandBook> + Sync>(
         &mut self,
-        store: &mut S,
+        store: &S,
         book: &CommandBook,
         command_id: &Uuid,
         shape: Option<&F>,
     ) -> Result<Option<Outcome>, AppError> {
-        let kernel = Kernel::new(self.registry, self.dead_letters);
-        let routes = Routes::new();
         let mut failed = 0;
         loop {
             let sampled = Sampled {
                 now: self.clock.now(),
                 command_id: command_id.clone(),
             };
-            let mut unit = store.begin().await;
-            let (failure, recovery) = match shaped(self.registry, &mut unit, book, shape).await {
+            let (failure, recovery) = match shaped(self.registry, store, book, shape).await {
                 Ok(None) => return Ok(None),
-                Ok(Some(book)) => match kernel
-                    .handle_async::<Tasks, _, _>(unit, &routes, book, &sampled, &mut ())
+                Ok(Some(book)) => match Kernel::new(self.registry, self.dead_letters)
+                    .on_retryable(KERNEL_RETRY)
+                    .handle::<TaskAggregate, _, _>(store, book, &sampled, &mut ())
                     .await
                 {
                     Ok(_) => return Ok(Some(Outcome::Committed)),
                     Err(Failure::Rejected(rejection)) => {
-                        return Ok(Some(Outcome::Refused(rejection)))
+                        return Ok(Some(Outcome::Refused(rejection.report().clone())))
                     }
                     Err(failure) => (Report::of(&failure), failure.recovery()),
                 },
-                Err(error) => (Report::of(&error), error.recovery()),
+                Err(failed) => failed,
             };
             self.again(&mut failed, failure, recovery).await?;
         }
     }
 
-    /// Purge the stream of the task `harp_id` names, if it holds a removed
-    /// task: in a unit of work of its own, which reads the stream first,
-    /// so a task minted on the harp since is never purged. Each attempt
-    /// is a fresh unit, as [`Runner::run`]'s are. How many events it
-    /// deleted: 0 when the stream holds no removed task.
-    pub async fn purge<S: PurgingStore>(
+    /// Purge the stream of the task `stream` names, if it holds a removed
+    /// task, read first, so a live task minted on the harp since is not
+    /// purged. Each attempt reads again. How many events it deleted: 0
+    /// when the stream holds no removed task.
+    pub async fn purge<S: Store + Purge>(
         &mut self,
-        store: &mut S,
+        store: &S,
         stream: &Cover,
     ) -> Result<u64, AppError> {
         let mut failed = 0;
         loop {
-            let unit = store.begin_purging().await;
-            let (failure, recovery) = match purge_removed(self.registry, unit, stream).await {
+            let (failure, recovery) = match purge_removed(self.registry, store, stream).await {
                 Ok(deleted) => return Ok(deleted),
                 Err(failed) => failed,
             };
@@ -193,49 +217,75 @@ impl<C: Clock, D: Delay + Jitter> Runner<'_, C, D> {
     }
 }
 
-/// Purge `stream` through `unit` and commit, if it holds a removed task.
-async fn purge_removed<U: AsyncUnitOfWork + AsyncPurge>(
-    registry: &Registry,
-    mut unit: U,
-    stream: &Cover,
-) -> Result<u64, (Report, Recovery)> {
-    let store = |e: StoreError| (Report::of(&e), e.recovery());
-    let Some(slice) = unit.read_from(stream, 0).await.map_err(store)? else {
-        return Ok(0);
-    };
-    let replayed = Stream::<Tasks>::replay(stream.clone(), &slice.pages, registry)
-        .map_err(|e| (Report::of(&e), Recovery::Bug))?;
-    if !replayed.state().removed {
-        return Ok(0);
-    }
-    let deleted = unit.purge(stream).await.map_err(store)?;
-    unit.commit().await.map_err(store)?;
-    Ok(deleted)
+/// A store's failure, as the kernel would report it, with what to do.
+fn store_failed(error: StoreError) -> (Report, Recovery) {
+    let error = KernelError::Store(error);
+    let recovery = error.recovery();
+    (Report::of(&error), recovery)
 }
 
-/// What `shape` makes of the task on `book`'s stream, read through
-/// `unit`; `book` itself when there is no `shape`, without reading.
-async fn shaped<U: AsyncEventStore, F: Fn(&TaskState) -> Option<CommandBook> + Sync>(
+/// The task `stream` holds, replayed, and its head; `None` for a stream
+/// with no events.
+async fn task_at<S: EventStore>(
     registry: &Registry,
-    unit: &mut U,
+    store: &S,
+    stream: &Cover,
+) -> Result<Option<(TaskState, u64)>, (Report, Recovery)> {
+    let at = StreamRef::try_from(stream).map_err(store_failed)?;
+    let slice = store.read(at, 0, None).await.map_err(store_failed)?;
+    if slice.pages.is_empty() {
+        return Ok(None);
+    }
+    let replayed = Stream::<TaskAggregate>::replay(stream.clone(), &slice.pages, registry)
+        .map_err(|e| (Report::of(&e), Recovery::Bug))?;
+    Ok(Some((
+        replayed.state().state().clone(),
+        slice.next_sequence,
+    )))
+}
+
+/// Purge `stream`, if it holds a removed task.
+async fn purge_removed<S: EventStore + Purge>(
+    registry: &Registry,
+    store: &S,
+    stream: &Cover,
+) -> Result<u64, (Report, Recovery)> {
+    match task_at(registry, store, stream).await? {
+        Some((task, _)) if task.removed => {
+            let at = StreamRef::try_from(stream).map_err(store_failed)?;
+            store.purge(at).await.map_err(store_failed)
+        }
+        _ => Ok(0),
+    }
+}
+
+/// What `shape` makes of the task on `book`'s stream, read from `store`,
+/// sent at the head read; `book` itself when there is no `shape`, without
+/// reading.
+async fn shaped<S: EventStore, F: Fn(&TaskState) -> Option<CommandBook> + Sync>(
+    registry: &Registry,
+    store: &S,
     book: &CommandBook,
     shape: Option<&F>,
-) -> Result<Option<CommandBook>, StoreError> {
+) -> Result<Option<CommandBook>, (Report, Recovery)> {
     let Some(shape) = shape else {
         return Ok(Some(book.clone()));
     };
     let cover = book.cover.clone().unwrap_or_default();
-    let pages = unit
-        .read_from(&cover, 0)
-        .await?
-        .map(|slice| slice.pages)
-        .unwrap_or_default();
-    // A stream that does not replay is the kernel's to report, as it
-    // replays it again.
-    let Ok(stream) = Stream::<Tasks>::replay(cover, &pages, registry) else {
-        return Ok(Some(book.clone()));
+    let (task, head) = match task_at(registry, store, &cover).await {
+        Ok(read) => read.unwrap_or_default(),
+        // A stream that does not replay is the kernel's to report, as it
+        // replays it again.
+        Err((_, Recovery::Bug)) => return Ok(Some(book.clone())),
+        Err(failed) => return Err(failed),
     };
-    Ok(shape(stream.state()))
+    Ok(shape(&task).map(|mut shaped| {
+        shaped.handling = Some(Handling {
+            expected_sequence: Some(head),
+            ..Handling::default()
+        });
+        shaped
+    }))
 }
 
 #[cfg(test)]

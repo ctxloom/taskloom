@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 use presentation::UnknownFormat;
 use tasks_application::AppError;
 
@@ -33,25 +33,7 @@ pub enum CliError {
 
 impl fmt::Display for CliError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            CliError::App(error) => error.fmt(f),
-            CliError::Output { detail } => write!(f, "cannot write the output: {detail}"),
-            CliError::Incomplete { stopped, lost } => write!(
-                f,
-                "not everything was imported: {stopped} projects stopped, {lost} records not imported"
-            ),
-            CliError::Usage { detail } => f.write_str(detail),
-            CliError::Format(error) => error.fmt(f),
-            CliError::LoadoutFormat { format } => {
-                write!(f, "the loadout is printed only as yaml, not {format}")
-            }
-            CliError::LintViolations { count } => {
-                write!(f, "{count} tag-standard violations found")
-            }
-            CliError::LintCheckedNothing => f.write_str(
-                "lint checked no target: the tag schema declares no enum or range, so a clean sweep proves nothing",
-            ),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -73,7 +55,7 @@ impl Diagnostic for CliError {
         match self {
             CliError::App(error) => error.args(),
             CliError::Output { detail } | CliError::Usage { detail } => {
-                vec![("detail", detail.as_str().into())]
+                vec![("ext_err_txt", detail.as_str().into())]
             }
             CliError::Incomplete { stopped, lost } => {
                 vec![("stopped", (*stopped).into()), ("lost", (*lost).into())]

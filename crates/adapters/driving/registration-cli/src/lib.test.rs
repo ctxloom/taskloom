@@ -3,7 +3,9 @@
 
 use std::path::{Path, PathBuf};
 
-use annals_diagnostic::Report;
+crate::english_for!(&[crate::EN_US.1]);
+
+use angzarr_embedded_diagnostic::Report;
 use ports::{AgentConfigs, McpServer, Rewritten, Scope};
 use presentation::{Catalog, Format};
 use registration_application::Registrations;
@@ -53,7 +55,7 @@ impl AgentConfigs for Fake {
     ) -> Result<Rewritten, Report> {
         self.dry_runs.push(dry_run);
         if self.fails {
-            return Err(Report::new("agent-configs-read", "cannot read it"));
+            return Err(Report::new("agent-configs-read"));
         }
         Ok(Rewritten {
             changed: self.changes,
@@ -88,7 +90,7 @@ struct Ran {
 /// holds agent-configs' (no English crosses without one).
 const AGENT_CONFIGS: presentation::Source = (
     "agent-configs-fake",
-    "agent-configs-read = cannot read it\nagent-configs-parse = parse config: { $detail }\n",
+    "agent-configs-read = cannot read it\nagent-configs-parse = parse config: { $ext_err_txt }\n",
 );
 
 fn catalog() -> Catalog {
@@ -336,7 +338,7 @@ fn test_a_check_is_gos_table() {
         "binary: taskloom on PATH\nclaude-code  user     not registered (/home/.claude.json)\n"
     );
     r.configs.installed = Some(Err(
-        Report::new("agent-configs-parse", "parse config: bad").arg("detail", "bad")
+        Report::new("agent-configs-parse").arg("ext_err_txt", "bad")
     ));
     let ran = manage(&mut r, Format::Text, &["check"]);
     assert!(

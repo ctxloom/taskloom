@@ -31,7 +31,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use annals_diagnostic::Report;
+use angzarr_embedded_diagnostic::Report;
 use file_system::{Fs, Kind, Perms};
 use os::Mode;
 use ports::{AgentConfigs, McpServer, Rewritten, Scope};
@@ -420,3 +420,7 @@ pub fn go_join(dir: &Path, name: &str) -> PathBuf {
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../adapters/driving/presentation/src/english.test.rs"]
+mod english;

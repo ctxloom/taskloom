@@ -1,10 +1,11 @@
 //! The reads over fake ports: what a read reaches, and the listing's
 //! filters, hiding and limit.
 
+use crate::english::English;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use annals_diagnostic::Diagnostic;
+use angzarr_embedded_diagnostic::Diagnostic;
 
 use crate::fakes::{ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores, Flaky};
 use crate::{
@@ -339,7 +340,7 @@ fn test_every_project_is_ranked_in_its_own_section() {
 struct Malformed;
 
 impl ports::Configuration for Malformed {
-    fn tag_schema(&mut self) -> Result<Vec<String>, annals_diagnostic::Report> {
+    fn tag_schema(&mut self) -> Result<Vec<String>, angzarr_embedded_diagnostic::Report> {
         Ok(vec![r#"tagma.priority_fn:"triage:kind"="1 +""#.to_string()])
     }
 }
@@ -533,7 +534,7 @@ fn test_a_project_found_is_read_alone_rootless_or_not() {
 #[test]
 fn test_a_global_read_whose_projects_cannot_be_named_fails_with_why() {
     let mut service = service(&[]);
-    service.identity.fails = Some(annals_diagnostic::Report::new("x-registry", "no home"));
+    service.identity.fails = Some(angzarr_embedded_diagnostic::Report::new("x-registry"));
     let query = ListQuery {
         global: true,
         ..ListQuery::default()
@@ -586,7 +587,7 @@ fn test_show_fails_naming_every_id_no_task_holds() {
         }
     );
     assert!(
-        error.to_string().contains("\"nope-a\", \"nope-b\""),
+        error.english().contains("\"nope-a\", \"nope-b\""),
         "{error}"
     );
 }
@@ -622,7 +623,7 @@ fn test_show_across_projects_fails_on_an_id_two_hold_naming_them() {
     );
     assert!(
         error
-            .to_string()
+            .english()
             .contains("\"swift-amber\" in alpha-proj, zulu-proj"),
         "{error}"
     );
@@ -832,7 +833,7 @@ fn test_a_tag_the_schema_hides_is_not_counted() {
 struct Hides;
 
 impl ports::Configuration for Hides {
-    fn tag_schema(&mut self) -> Result<Vec<String>, annals_diagnostic::Report> {
+    fn tag_schema(&mut self) -> Result<Vec<String>, angzarr_embedded_diagnostic::Report> {
         Ok(vec![r#"tagma.hide:"triage:*"=true"#.to_string()])
     }
 }
@@ -858,7 +859,7 @@ fn test_a_tags_read_refuses_a_malformed_query_or_class_before_reading() {
 struct Enum;
 
 impl ports::Configuration for Enum {
-    fn tag_schema(&mut self) -> Result<Vec<String>, annals_diagnostic::Report> {
+    fn tag_schema(&mut self) -> Result<Vec<String>, angzarr_embedded_diagnostic::Report> {
         Ok(vec![r#"tagma.enum:"area:x"="a,b""#.to_string()])
     }
 }

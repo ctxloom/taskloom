@@ -34,7 +34,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use annals_diagnostic::Report;
+use angzarr_embedded_diagnostic::Report;
 use file_system::Fs;
 use ports::{IdSource, Names, Project, ProjectIdentity};
 
@@ -329,3 +329,7 @@ pub(crate) fn write_marker(fs: &dyn Fs, root: &Path, id: &str) -> Result<(), Reg
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../adapters/driving/presentation/src/english.test.rs"]
+mod english;

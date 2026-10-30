@@ -9,13 +9,16 @@ use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
 use std::time::Duration;
 
-use annals::next::v1::{Cover, EventPage, Snapshot, Uuid};
-use annals::next::{
-    AsyncEventStore, AsyncReadStore, AsyncStore, AsyncUnitOfWork, InMemoryRead, InMemoryStore,
-    InMemoryTx, Ready, Slice, StoreError, Timestamp,
+use angzarr_embedded_diagnostic::Report;
+use angzarr_ports::angzarr_proto::v1::{Cover, EventPage, Snapshot};
+use angzarr_ports::memory::MemoryStore;
+use angzarr_ports::{
+    ChangeToken, EventStore, PositionKey, PositionStore, Purge, ReadStore, Slice, SnapshotStore,
+    StoreError, StreamRef, Watch, Write, Written,
 };
-use annals_diagnostic::Report;
-use ports::{Clock, CommandIds, Delay, Jitter, Names, Project, ProjectIdentity, TaskStores};
+use ports::{
+    Clock, CommandIds, Delay, Jitter, Names, Project, ProjectIdentity, TaskStores, Timestamp, Uuid,
+};
 use tasks_application::Service;
 use tokio::sync::oneshot;
 
@@ -67,111 +70,83 @@ impl ProjectIdentity for FakeIdentity {
     }
 }
 
-/// An in-memory store whose first `conflicts` commits are refused, as when
+/// An in-memory store whose first `conflicts` writes are refused, as when
 /// another writer appended first.
 pub struct Contended {
-    inner: Ready<InMemoryStore>,
-    conflicts: u32,
+    inner: MemoryStore,
+    conflicts: AtomicU32,
 }
 
-pub struct ContendedUnit<'s> {
-    inner: Ready<InMemoryTx<'s>>,
-    conflict: bool,
-}
-
-impl AsyncEventStore for Contended {
-    async fn append(
-        &mut self,
-        stream: &Cover,
-        expected: u64,
-        pages: &[EventPage],
-    ) -> Result<u64, StoreError> {
-        self.inner.append(stream, expected, pages).await
+impl EventStore for Contended {
+    async fn write(&self, write: Write<'_>) -> Result<Written, StoreError> {
+        let left = self.conflicts.load(Ordering::SeqCst);
+        if left > 0 {
+            self.conflicts.store(left - 1, Ordering::SeqCst);
+            let stream = StreamRef::main("tasks", angzarr_ports::Uuid::from_bytes([0; 16]));
+            return Err(StoreError::conflict(stream, 0, 1));
+        }
+        self.inner.write(write).await
     }
 
-    async fn read_from(&mut self, stream: &Cover, from: u64) -> Result<Option<Slice>, StoreError> {
-        self.inner.read_from(stream, from).await
+    async fn read(
+        &self,
+        stream: StreamRef<'_>,
+        from: u64,
+        to: Option<u64>,
+    ) -> Result<Slice, StoreError> {
+        self.inner.read(stream, from, to).await
     }
 
     async fn find_command(
-        &mut self,
-        stream: &Cover,
-        command_id: &Uuid,
+        &self,
+        stream: StreamRef<'_>,
+        command_id: angzarr_ports::Uuid,
     ) -> Result<Vec<EventPage>, StoreError> {
         self.inner.find_command(stream, command_id).await
     }
 
-    async fn covers(&mut self, domain: &str) -> Result<Vec<Cover>, StoreError> {
+    async fn covers(&self, domain: &str) -> Result<Vec<Cover>, StoreError> {
         self.inner.covers(domain).await
     }
 }
 
-impl AsyncReadStore for Contended {
-    type Reads<'s> = Ready<InMemoryRead<'s>>;
+impl SnapshotStore for Contended {
+    async fn read_snapshot(&self, stream: StreamRef<'_>) -> Result<Option<Snapshot>, StoreError> {
+        self.inner.read_snapshot(stream).await
+    }
 
-    async fn begin_read(&mut self) -> Ready<InMemoryRead<'_>> {
+    async fn write_snapshot(
+        &self,
+        stream: StreamRef<'_>,
+        snapshot: &Snapshot,
+    ) -> Result<(), StoreError> {
+        self.inner.write_snapshot(stream, snapshot).await
+    }
+}
+
+impl PositionStore for Contended {
+    async fn position(&self, key: PositionKey<'_>) -> Result<u64, StoreError> {
+        self.inner.position(key).await
+    }
+}
+
+impl ReadStore for Contended {
+    type Reads<'s> = <MemoryStore as ReadStore>::Reads<'s>;
+
+    async fn begin_read(&self) -> Result<Self::Reads<'_>, StoreError> {
         self.inner.begin_read().await
     }
 }
 
-impl AsyncStore for Contended {
-    type Unit<'s> = ContendedUnit<'s>;
-
-    async fn begin(&mut self) -> ContendedUnit<'_> {
-        let conflict = self.conflicts > 0;
-        self.conflicts = self.conflicts.saturating_sub(1);
-        ContendedUnit {
-            inner: self.inner.begin().await,
-            conflict,
-        }
+impl Purge for Contended {
+    async fn purge(&self, stream: StreamRef<'_>) -> Result<u64, StoreError> {
+        self.inner.purge(stream).await
     }
 }
 
-impl AsyncEventStore for ContendedUnit<'_> {
-    async fn append(
-        &mut self,
-        stream: &Cover,
-        expected: u64,
-        pages: &[EventPage],
-    ) -> Result<u64, StoreError> {
-        self.inner.append(stream, expected, pages).await
-    }
-
-    async fn read_from(&mut self, stream: &Cover, from: u64) -> Result<Option<Slice>, StoreError> {
-        self.inner.read_from(stream, from).await
-    }
-
-    async fn find_command(
-        &mut self,
-        stream: &Cover,
-        command_id: &Uuid,
-    ) -> Result<Vec<EventPage>, StoreError> {
-        self.inner.find_command(stream, command_id).await
-    }
-
-    async fn covers(&mut self, domain: &str) -> Result<Vec<Cover>, StoreError> {
-        self.inner.covers(domain).await
-    }
-
-    async fn read_snapshot(&mut self, stream: &Cover) -> Result<Option<Snapshot>, StoreError> {
-        self.inner.read_snapshot(stream).await
-    }
-}
-
-impl AsyncUnitOfWork for ContendedUnit<'_> {
-    async fn commit(self) -> Result<(), StoreError> {
-        if self.conflict {
-            return Err(StoreError::Conflict {
-                stream: Cover {
-                    domain: "tasks".to_string(),
-                    root: None,
-                    edition: None,
-                },
-                expected: 0,
-                actual: 1,
-            });
-        }
-        self.inner.commit().await
+impl Watch for Contended {
+    async fn change_token(&self) -> Result<ChangeToken, StoreError> {
+        self.inner.change_token().await
     }
 }
 
@@ -195,19 +170,19 @@ impl Drop for FakeStores {
 impl TaskStores for FakeStores {
     type Store = Contended;
 
-    async fn open(&mut self, _project: &Project) -> Result<&mut Contended, StoreError> {
+    async fn open(&mut self, _project: &Project) -> Result<&Contended, StoreError> {
         let conflicts = self.conflicts;
         Ok(self.store.get_or_insert_with(|| Contended {
-            inner: Ready(InMemoryStore::new()),
-            conflicts,
+            inner: MemoryStore::new(),
+            conflicts: AtomicU32::new(conflicts),
         }))
     }
 
     async fn open_existing(
         &mut self,
         _project: &Project,
-    ) -> Result<Option<&mut Contended>, StoreError> {
-        Ok(self.store.as_mut())
+    ) -> Result<Option<&Contended>, StoreError> {
+        Ok(self.store.as_ref())
     }
 }
 

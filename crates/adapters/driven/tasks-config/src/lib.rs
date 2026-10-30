@@ -35,7 +35,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use annals_diagnostic::Report;
+use angzarr_embedded_diagnostic::Report;
 use file_system::{Fs, Perms};
 use os::Mode;
 use ports::{Configuration, ConfigurationWriter, TagPermits};
@@ -354,3 +354,7 @@ fn split(source: &str, value: &str) -> Result<Vec<String>, ConfigError> {
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../adapters/driving/presentation/src/english.test.rs"]
+mod english;

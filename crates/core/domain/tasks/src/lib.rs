@@ -3,26 +3,29 @@
 //! removed task's stream keeps its harp reserved; a prune removes a task
 //! and then purges its stream, which frees the harp.
 //!
-//! The domain types, their wire conversions, the [`TaskCommand`] and
-//! [`TaskEvent`] payloads and [`TaskState`]'s annals impl are generated from
-//! `proto/ctxloom/tasks/v1/tasks.proto`; this crate holds the rules.
+//! The domain types, their wire conversions and their `DomainMessage` impls
+//! are generated from `proto/ctxloom/tasks/v1/tasks.proto` (angzarr-build's
+//! markup layer); [`TaskState`], the [`TaskCommand`] and [`TaskEvent`]
+//! payloads and the rules are this crate's, and [`TaskAggregate`] is the
+//! aggregate angzarr-embedded runs.
 
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/ctxloom.tasks.v1.domain.rs"));
 }
 mod aggregate;
-mod markup;
+mod payload;
 mod rejection;
+mod state;
 
 use std::collections::BTreeMap;
-use std::convert::Infallible;
 use std::fmt;
 
-use annals::next::{ids, Domain, IngestCtx, Timestamp, Tx};
+use angzarr_embedded::next::{ids, Timestamp};
 
 pub use aggregate::TaskAggregate;
 pub use generated::*;
 pub use rejection::{diagnostic_samples, TaskRejection, EN_US};
+pub use state::{TaskState, TASK_DOMAIN};
 
 /// The default taxonomy's initial status: the one a task gets when none is
 /// given. Decide never reads it: a command carries its own (`initial`).
@@ -33,70 +36,32 @@ pub const DEFERRED: &str = "Deferred";
 /// The prefix reserved for status classes (`@open`); no status starts with it.
 pub const STATUS_CLASS_SIGIL: char = '@';
 
-/// The tasks aggregate.
-pub struct Tasks;
-
-impl Domain for Tasks {
-    type State = TaskState;
-    type Command = TaskCommand;
-    type Fact = Infallible;
-    type Event = TaskEvent;
-    type Rejection = TaskRejection;
-    type Rules = ();
-
-    const NAME: &'static str = TASK_DOMAIN;
-
-    fn decide(command: &TaskCommand, tx: &mut Tx<'_, Self>) -> Result<(), TaskRejection> {
-        let at = tx.recorded_at();
-        let held = tx.state();
-        let event: Option<TaskEvent> = match command {
-            TaskCommand::AddTask(add) => {
-                let root = tx.stream().root.as_ref().map(|root| &root.value[..]);
-                let taken = !held.harp_id.is_empty();
-                Some(task_added(held, taken, add, root, at)?.into())
-            }
-            TaskCommand::SetStatus(set) => status_changed(held, set, at)?.map(Into::into),
-            TaskCommand::EditText(edit) => Some(text_edited(held, edit)?.into()),
-            TaskCommand::Retag(retag) => retagged(held, retag)?.map(Into::into),
-            TaskCommand::RemoveTask(remove) => Some(task_removed(held, remove)?.into()),
-        };
-        if let Some(event) = event {
-            tx.emit(event);
+/// Fold `event` into `state`: what the aggregate's appliers do, one place.
+/// Pure: the same state and event always give the same result.
+pub(crate) fn apply(state: &mut TaskState, event: &TaskEvent) {
+    match event {
+        TaskEvent::TaskAdded(added) => {
+            state.harp_id = added.harp_id.clone();
+            state.text = added.text.clone();
+            state.status = added.status.clone();
+            state.trigger = added.trigger.clone();
+            state.tags = added.tags.clone();
+            state.origin_session = added.origin_session.clone();
+            state.created_at = added.at;
+            state.status_set_at = added.at;
+            state.deferred_since = added.deferred_since;
+            state.prior_status = added.prior_status.clone();
         }
-        Ok(())
-    }
-
-    // Equivalent: no fact exists (Infallible), so ingest is never called.
-    #[cfg_attr(test, mutants::skip)]
-    fn ingest(_: &TaskState, fact: &Infallible, _: &IngestCtx<'_, Self>) -> Vec<TaskEvent> {
-        match *fact {}
-    }
-
-    fn apply(state: &mut TaskState, event: &TaskEvent, (): &()) {
-        match event {
-            TaskEvent::TaskAdded(added) => {
-                state.harp_id = added.harp_id.clone();
-                state.text = added.text.clone();
-                state.status = added.status.clone();
-                state.trigger = added.trigger.clone();
-                state.tags = added.tags.clone();
-                state.origin_session = added.origin_session.clone();
-                state.created_at = added.at;
-                state.status_set_at = added.at;
-                state.deferred_since = added.deferred_since;
-                state.prior_status = added.prior_status.clone();
-            }
-            TaskEvent::StatusChanged(changed) => {
-                state.status = changed.status.clone();
-                state.trigger = changed.trigger.clone();
-                state.status_set_at = changed.at;
-                state.deferred_since = changed.deferred_since;
-                state.prior_status = changed.prior_status.clone();
-            }
-            TaskEvent::TextEdited(edited) => state.text = edited.text.clone(),
-            TaskEvent::Retagged(retagged) => state.tags = retagged.tags.clone(),
-            TaskEvent::TaskRemoved(_) => state.removed = true,
+        TaskEvent::StatusChanged(changed) => {
+            state.status = changed.status.clone();
+            state.trigger = changed.trigger.clone();
+            state.status_set_at = changed.at;
+            state.deferred_since = changed.deferred_since;
+            state.prior_status = changed.prior_status.clone();
         }
+        TaskEvent::TextEdited(edited) => state.text = edited.text.clone(),
+        TaskEvent::Retagged(retagged) => state.tags = retagged.tags.clone(),
+        TaskEvent::TaskRemoved(_) => state.removed = true,
     }
 }
 

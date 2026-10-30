@@ -23,7 +23,7 @@ mod render;
 use std::ffi::OsString;
 use std::io::{self, Write};
 
-use annals_diagnostic::Diagnostic;
+use angzarr_embedded_diagnostic::Diagnostic;
 use clap::{Args, Parser, Subcommand};
 use presentation::{Catalog, CatalogError, Format, Render, Source, UnknownFormat};
 use tasks_application::{DeadLetter, PermitService, PruneService, TaskService, Written};
@@ -334,7 +334,7 @@ pub(crate) fn notify(
     writeln!(err, "{PROG}: {}", catalog.message(notice))
 }
 
-/// Say each dead letter annals' kernel wrote on stderr: almost certainly
+/// Say each dead letter the kernel wrote on stderr: almost certainly
 /// a bug, so never left unsaid.
 pub(crate) fn dead_lettered(
     letters: &[DeadLetter],
@@ -380,3 +380,7 @@ pub(crate) fn output_failed(error: io::Error) -> CliError {
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../adapters/driving/presentation/src/english.test.rs"]
+mod english;

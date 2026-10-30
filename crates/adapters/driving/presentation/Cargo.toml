@@ -7,14 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
-# Domain-free: no ctxloom crate but the diagnostics crates, which
-# lib.test.rs checks (annals-diagnostic until step 4, then
-# angzarr-embedded-diagnostic alone).
+# Domain-free: no ctxloom crate but angzarr-embedded-diagnostic, the trait
+# it renders, which lib.test.rs checks.
 [dependencies]
-annals-diagnostic.workspace = true
-# Its quoting, so a diagnostic no catalog knows is shown as its key and
-# args exactly as angzarr-embedded's display them; the trait it renders
-# moves here from annals-diagnostic with step 4.
 angzarr-embedded-diagnostic.workspace = true
 fluent-bundle.workspace = true
 serde.workspace = true

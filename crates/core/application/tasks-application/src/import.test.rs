@@ -1,13 +1,15 @@
-//! The import, over fake JSONL logs and annals' in-memory store, run
-//! through annals' kernel as the binary runs it over SQLite.
+//! The import, over fake JSONL logs and angzarr-ports' in-memory store, run
+//! through angzarr-embedded's kernel as the binary runs it over SQLite.
 
+use crate::english::English;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use annals::next::{AsyncEventStore, Stream, Timestamp};
-use annals_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_embedded::next::Stream;
+use angzarr_embedded_diagnostic::{Arg, Diagnostic, Report};
+use ports::Timestamp;
 use ports::{JsonlOp, JsonlRecord, JsonlTaskLogs};
-use tasks::{TaskState, Tasks};
+use tasks::{TaskAggregate, TaskState};
 
 use super::{anomaly_key, record_command_id, rfc3339_nano, Step};
 use crate::fakes::{
@@ -80,8 +82,9 @@ fn at(seconds: i64) -> Timestamp {
 /// The task `harp` as its stream holds it.
 fn state(service: &mut Fake, harp: &str) -> Option<TaskState> {
     let slice = ready(service.stores.store.read_from(&cover(harp), 0)).unwrap()?;
-    let stream = Stream::<Tasks>::replay(cover(harp), &slice.pages, &crate::registry()).unwrap();
-    Some(stream.state().clone())
+    let stream =
+        Stream::<TaskAggregate>::replay(cover(harp), &slice.pages, &crate::registry()).unwrap();
+    Some(stream.state().state().clone())
 }
 
 /// How many events `harp`'s stream holds.
@@ -435,7 +438,7 @@ fn test_a_logged_tag_outside_the_grammar_is_reported_and_the_rest_imported() {
         .into_iter()
         .map(|(name, _)| name)
         .collect();
-    assert_eq!(named, ["tag", "detail"], "the why is the refusal's");
+    assert_eq!(named, ["tag", "ext_err_txt"], "the why is the refusal's");
     assert_eq!(project.applied, 2, "the add, and the tag of y");
     assert_eq!(project.unchanged, 0, "each record changed Go's tags");
     assert_eq!(
@@ -676,7 +679,15 @@ fn test_a_record_imports_under_the_command_id_its_line_derives() {
     let id = record_command_id(&add.raw);
     let mut service = service(vec![add]);
     import(&mut service);
-    let found = ready(service.stores.store.find_command(&cover(HARP), &id)).unwrap();
+    let cover = cover(HARP);
+    let stream = angzarr_embedded::next::StreamRef::try_from(&cover).unwrap();
+    let id = angzarr_embedded::next::angzarr_ports::Uuid::try_from(&id).unwrap();
+    let found = ready(angzarr_embedded::next::EventStore::find_command(
+        &service.stores.store.inner,
+        stream,
+        id,
+    ))
+    .unwrap();
     assert_eq!(found.len(), 1);
 }
 
@@ -686,7 +697,7 @@ fn test_a_command_id_is_the_lines_and_only_its() {
     assert_ne!(record_command_id("a"), record_command_id("b"));
     assert_ne!(
         record_command_id("a"),
-        annals::next::ids::fact_command_id("a"),
+        angzarr_embedded::next::ids::fact_command_id("a"),
         "prefixed, so no other fact's id"
     );
 }
@@ -695,7 +706,7 @@ fn test_a_command_id_is_the_lines_and_only_its() {
 fn test_a_command_id_keeps_the_prefix_imported_stores_already_hold() {
     assert_eq!(
         record_command_id("a"),
-        annals::next::ids::fact_command_id("ctxloom-go-task-log:a"),
+        angzarr_embedded::next::ids::fact_command_id("ctxloom-go-task-log:a"),
         "a store imported before the rename finds its records again"
     );
 }
@@ -749,7 +760,7 @@ fn test_a_named_project_without_a_log_fails() {
     let failed = only(&report).failed.clone().expect("failed");
     assert_eq!(failed.code(), "tasks-application-no-jsonl-log");
     assert_eq!(
-        failed.to_string(),
+        failed.english(),
         "Go taskloom has no task log for project tpyo"
     );
     assert!(matches!(&failed.args()[..], [("project", Arg::Str(s))] if s == "tpyo"));
@@ -770,7 +781,7 @@ fn test_an_empty_log_opens_no_store() {
 #[test]
 fn test_logs_that_cannot_be_listed_fail_the_import() {
     let mut service = service(Vec::new());
-    service.jsonl_logs.projects_fail = Some(Report::new("jsonl-task-log-unreadable", "no"));
+    service.jsonl_logs.projects_fail = Some(Report::new("jsonl-task-log-unreadable"));
     let error = ready(service.import(ImportRequest::default())).unwrap_err();
     assert_eq!(error.code(), "jsonl-task-log-unreadable");
 }
@@ -778,7 +789,7 @@ fn test_logs_that_cannot_be_listed_fail_the_import() {
 #[test]
 fn test_a_log_that_cannot_be_read_fails_its_project() {
     let mut service = service(vec![add(HARP, "One", 1)]);
-    service.jsonl_logs.records_fail = Some(Report::new("jsonl-task-log-malformed", "bad"));
+    service.jsonl_logs.records_fail = Some(Report::new("jsonl-task-log-malformed"));
     let report = import(&mut service);
     assert_eq!(
         only(&report).failed.as_ref().map(|r| r.code()),
@@ -790,7 +801,7 @@ fn test_a_log_that_cannot_be_read_fails_its_project() {
 #[test]
 fn test_a_project_that_cannot_resolve_fails() {
     let mut service = service(vec![add(HARP, "One", 1)]);
-    service.identity.fails = Some(Report::new("project-registry-invalid-id", "bad id"));
+    service.identity.fails = Some(Report::new("project-registry-invalid-id"));
     let report = import(&mut service);
     assert_eq!(
         only(&report).failed.as_ref().map(|r| r.code()),
@@ -805,7 +816,7 @@ fn test_a_store_that_does_not_open_fails_the_project() {
     let report = import(&mut service);
     assert_eq!(
         only(&report).failed.as_ref().map(|r| r.code()),
-        Some("annals-next-store-unavailable")
+        Some("angzarr-ports-store-unavailable")
     );
 }
 
@@ -875,7 +886,7 @@ fn test_a_step_is_a_command_or_why_not() {
 fn test_each_reason_renders_its_english_and_a_refusal_is_its_rejection() {
     let english: Vec<String> = [Why::Displaced, Why::HarpTaken, Why::TaskNotImported]
         .iter()
-        .map(|w| w.to_string())
+        .map(|w| w.english())
         .collect();
     assert_eq!(
         english,
@@ -885,8 +896,11 @@ fn test_each_reason_renders_its_english_and_a_refusal_is_its_rejection() {
             "its task was not imported",
         ]
     );
-    let refused = Why::Refused(Report::new("tasks-status-reserved", "no @").arg("status", "@x"));
-    assert_eq!(refused.to_string(), "no @");
+    let refused = Why::Refused(Report::new("tasks-status-reserved").arg("status", "@x"));
+    assert_eq!(
+        refused.english(),
+        "the status @x is not allowed: '@' is reserved for status classes"
+    );
     assert_eq!(refused.code(), "tasks-status-reserved");
     assert_eq!(refused.args().len(), 1);
     assert!(Why::Displaced.args().is_empty());
@@ -903,7 +917,7 @@ fn spelled(tags: &[tasks::Tag]) -> Vec<String> {
 #[test]
 fn test_an_import_returns_the_dead_letters_written_while_it_ran() {
     let mut service = service(vec![add("swift-amber", "Ship it", 1)]);
-    annals::next::DeadLetterLog::write(&service.dead_letters, "DEAD LETTER: import");
+    angzarr_embedded::next::DeadLetterLog::write(&service.dead_letters, "DEAD LETTER: import");
     let report = import(&mut service);
     let line = "DEAD LETTER: import".to_string();
     assert_eq!(report.dead_letters, [crate::DeadLetter { line }]);

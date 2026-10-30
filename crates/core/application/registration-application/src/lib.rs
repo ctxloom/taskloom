@@ -15,7 +15,7 @@ mod error;
 
 use std::path::{Path, PathBuf};
 
-use annals_diagnostic::Report;
+use angzarr_embedded_diagnostic::Report;
 pub use ports::{AgentConfigs, McpServer, Rewritten, Scope};
 
 pub use error::{diagnostic_samples, RegistrationError, EN_US};
@@ -266,3 +266,7 @@ fn given(scope: &Scope) -> Result<(), RegistrationError> {
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../adapters/driving/presentation/src/english.test.rs"]
+mod english;

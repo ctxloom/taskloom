@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use annals_diagnostic::Report;
+use angzarr_embedded_diagnostic::Report;
 use presentation::Catalog;
 use project_application::{Change, IdSource, Plan, Problem, Shown, Survey};
 
@@ -19,7 +19,7 @@ fn catalog() -> Catalog {
 }
 
 fn damage() -> Report {
-    Report::new("fake-store-damaged", "the English")
+    Report::new("fake-store-damaged")
         .arg("first", "row 2 missing from index i")
         .arg("more", 1u64)
 }

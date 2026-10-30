@@ -1,5 +1,5 @@
-//! The ports the tasks application needs from outside, beyond annals' own
-//! store port: which project a call is about, where its store is, how ids
+//! The ports the tasks application needs from outside, beyond
+//! angzarr-ports' store ports: which project a call is about, where its store is, how ids
 //! are minted, whether its store can purge a stream or say whether
 //! anything changed, what time it is, how to wait, what is configured, the
 //! JSONL task logs to import, what a directory's identity rests on, to show
@@ -7,8 +7,7 @@
 //! configurations, to register a server in. Each is a trait a driven
 //! adapter (or the composition root) implements; nothing here does I/O.
 //!
-//! Every future a port returns is `Send`, as annals requires of its async
-//! store port, so a server on a multi-threaded runtime can spawn a use case
+//! Every future a port returns is `Send`, as angzarr-ports' are, so a server on a multi-threaded runtime can spawn a use case
 //! generic over them (`tokio::spawn`, an MCP server's handlers).
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -16,14 +15,13 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use annals::next::v1::Uuid;
-use annals::next::{
-    AsyncPurge, AsyncReadStore, AsyncStore, AsyncUnitOfWork, ChangeToken, StoreError, Timestamp,
-};
-use annals_diagnostic::Report;
+use angzarr_embedded_diagnostic::Report;
+pub use angzarr_ports::angzarr_proto::v1::Uuid;
+use angzarr_ports::{ChangeToken, Purge, ReadStore, Store, StoreError, Watch};
+/// An instant: prost's `Timestamp`, as every recorded event carries one.
+pub use prost_types::Timestamp;
 
 mod agents;
-pub mod embedded;
 mod project;
 
 pub use agents::{AgentConfigs, McpServer, Rewritten, Scope};
@@ -73,35 +71,30 @@ pub trait ProjectIdentity {
     fn rootless_directory(&mut self) -> Result<Option<String>, Report>;
 }
 
-/// Where a project's tasks are kept.
+/// A project's store, opened where its project says.
 pub trait TaskStores {
-    /// A project's store: it writes in units of work, and opens read-only
-    /// units ([`AsyncReadStore`]) whose reads all see one moment, so a
-    /// read of many streams never mixes two.
-    type Store: AsyncStore + AsyncReadStore + Send;
+    /// A project's store: every base port, one-moment reads, a purge and a
+    /// change token.
+    type Store: Store + ReadStore + Purge + Watch + Send + Sync;
 
     /// The project's store, to write: opened (and created) on first use and
     /// held after.
     fn open(
         &mut self,
         project: &Project,
-    ) -> impl Future<Output = Result<&mut Self::Store, StoreError>> + Send;
+    ) -> impl Future<Output = Result<&Self::Store, StoreError>> + Send;
 
-    /// The project's store, to read: `None` if it has none yet. Nothing is
-    /// created, so a read of a project never written (a mistyped
-    /// `--project`) leaves no trace. A store already held for a write
-    /// serves it too.
+    /// The project's store, to read: `None` if it has none yet, and
+    /// nothing is created. A store already held for a write serves it too.
     fn open_existing(
         &mut self,
         project: &Project,
-    ) -> impl Future<Output = Result<Option<&mut Self::Store>, StoreError>> + Send;
+    ) -> impl Future<Output = Result<Option<&Self::Store>, StoreError>> + Send;
 }
 
-/// What a project's store answers a watcher: annals' [`ChangeToken`],
-/// and which handle on the store answered it. annals compares tokens only
-/// from one handle (another connection to the same database counts
-/// differently), so a token from a store opened again since is never
-/// equal to one from before, whatever their change tokens say.
+/// What a project's store answers a watcher: angzarr-ports'
+/// [`ChangeToken`], and which handle on the store answered it, since
+/// tokens compare only from one handle.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct HeldToken {
     /// The handle that answered: a new one each time a store is opened.
@@ -110,51 +103,21 @@ pub struct HeldToken {
     pub change: ChangeToken,
 }
 
-/// Task stores whose stores say cheaply whether anything was committed:
-/// what a watch needs of [`TaskStores`], to read every stream again only
-/// when something moved. Opt-in, as annals' watch is.
+/// Task stores whose stores say cheaply whether anything was committed.
 pub trait WatchedStores: TaskStores {
     /// The token of `project`'s store, read through the store held for it
-    /// or opened as [`TaskStores::open_existing`] opens one (nothing
-    /// created) and held after, so the next read is through the handle
-    /// that answered; `None` while the project has no store. Equal tokens
-    /// mean nothing was committed between them, through any handle; a new
-    /// token may come with nothing new to read.
+    /// or one opened as [`TaskStores::open_existing`] opens one and held
+    /// after; `None` while the project has no store.
     fn change_token(
         &mut self,
         project: &Project,
     ) -> impl Future<Output = Result<Option<HeldToken>, StoreError>> + Send;
 }
 
-/// A task store that can purge a stream, in a unit of work: what a prune
-/// needs of [`TaskStores::Store`]. Opt-in, as annals' purge is: a store
-/// that cannot purge stays append-only by type, and every store whose
-/// units of work purge (annals' [`AsyncPurge`] on the store and on its
-/// unit) is one.
-pub trait PurgingStore: AsyncStore + AsyncPurge + Send {
-    /// A unit of work that can purge, as well as read and append.
-    type PurgingUnit<'s>: AsyncUnitOfWork + AsyncPurge + Send
-    where
-        Self: 's;
-
-    /// A unit of work over this store, as [`AsyncStore::begin`]: what it
-    /// purges lands at its commit, with what it appends.
-    fn begin_purging(&mut self) -> impl Future<Output = Self::PurgingUnit<'_>> + Send;
-}
-
-impl<S> PurgingStore for S
-where
-    S: AsyncStore + AsyncPurge + Send,
-    for<'s> S::Unit<'s>: AsyncPurge,
-{
-    type PurgingUnit<'s>
-        = S::Unit<'s>
-    where
-        Self: 's;
-
-    fn begin_purging(&mut self) -> impl Future<Output = S::Unit<'_>> + Send {
-        self.begin()
-    }
+/// Fresh command ids, and list instances: UUIDv7 (RFC 9562), as
+/// angzarr-embedded expects of an application.
+pub trait CommandIds {
+    fn command_id(&mut self) -> Uuid;
 }
 
 /// Fresh, random names. Uniqueness is not promised: a caller checks.
@@ -169,12 +132,6 @@ pub trait Names {
 /// The instant a command is recorded at.
 pub trait Clock {
     fn now(&mut self) -> Timestamp;
-}
-
-/// Fresh command ids: UUIDv7 (RFC 9562), as annals expects of an
-/// application.
-pub trait CommandIds {
-    fn command_id(&mut self) -> Uuid;
 }
 
 /// Waiting, between retries.

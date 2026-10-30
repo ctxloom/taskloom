@@ -10,11 +10,13 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use annals_diagnostic::Diagnostic;
+crate::english_for!(&[crate::EN_US.1]);
+
+use angzarr_embedded_diagnostic::Diagnostic;
 use file_system::{CwdError, Entry, Meta, Open, Perms, Rooted};
 use os::Mode;
 use tasks_application::{
-    Changed, ImportRequest, ImportService, ListQuery, NewTask, PermitChange, PermitService,
+    Changed, ImportRequest, ImportService, ListQuery, NewTask, PermitChange, PermitService, Polled,
     PruneService, Reach, TaskService, WatchRequest, WatchService,
 };
 
@@ -317,8 +319,15 @@ fn test_a_watch_sees_what_another_service_writes() {
     let mut watch = block_on(watcher.watch(WatchRequest::default()))
         .unwrap()
         .expect("the project the add minted");
+    let Polled::Snapshot { cursor, .. } = watch.since(None) else {
+        panic!("a first answer is the list whole");
+    };
     block_on(taskloom.tasks().add(new_task("second"))).unwrap();
-    let changes = block_on(watcher.poll(&mut watch)).unwrap();
+    let Polled::Changes { changes, .. } =
+        block_on(watcher.poll(&mut watch, Some(&cursor))).unwrap()
+    else {
+        panic!("resumed from the cursor");
+    };
     let texts: Vec<_> = changes
         .iter()
         .map(|c| match c {
@@ -601,13 +610,12 @@ fn test_the_configuration_skips_a_variable_that_is_not_utf8() {
     assert!(add_level_seven(&wide).is_ok());
 }
 
-/// Every diagnostic the wiring can raise: its own, annals', the use
+/// Every diagnostic the wiring can raise: its own, the runtime's, the use
 /// cases', and every driven and platform adapter's.
 fn wired_samples() -> Vec<Box<dyn Diagnostic>> {
     [
         crate::diagnostic_samples(),
-        annals::diagnostic_samples(),
-        annals_store_sql::diagnostic_samples(),
+        angzarr_embedded::diagnostic_samples(),
         tasks_application::diagnostic_samples(),
         project_application::diagnostic_samples(),
         registration_application::diagnostic_samples(),
@@ -636,32 +644,11 @@ fn test_the_catalog_renders_every_diagnostic_the_wiring_can_raise() {
     }
 }
 
-// RED, step 3c of taskloom-on-angzarr-embedded.plan.md: the catalogs move
-// with the runtime. The wiring's catalog holds angzarr-embedded's
-// (`angzarr_embedded::EN_US`), angzarr-ports' (which angzarr-embedded
-// carries, `ANGZARR_PORTS_EN_US`) and angzarr-store-sqlite's
-// (`angzarr_store_sqlite::EN_US`), so every key the runtime and its store
-// raise renders: the store's causes nested in angzarr-ports' errors, and
-// its damage report. Each sample is carried here as annals' report of its
-// key and args until presentation renders angzarr-embedded-diagnostic's
-// trait itself.
-
-/// `d`, angzarr-embedded's diagnostic, as annals' report of its key and
-/// args, nested causes and all: what presentation renders today.
-fn carried(d: &dyn angzarr_embedded_diagnostic::Diagnostic) -> annals_diagnostic::Report {
-    use angzarr_embedded_diagnostic::Arg;
-    d.args().into_iter().fold(
-        annals_diagnostic::Report::new(d.code(), d.to_string()),
-        |report, (name, arg)| match arg {
-            Arg::Int(n) => report.arg(name, n),
-            Arg::Uint(n) => report.arg(name, n),
-            Arg::Str(s) => report.arg(name, s),
-            Arg::Nested(cause) => {
-                report.arg(name, annals_diagnostic::Arg::nested(&carried(&*cause)))
-            }
-        },
-    )
-}
+// The catalogs move with the runtime: the wiring's holds
+// angzarr-embedded's, the angzarr-ports errors it forwards, and
+// angzarr-store-sqlite's, so every key the runtime and its store raise
+// renders: the store's causes nested in angzarr-ports' errors, and its
+// damage report.
 
 /// angzarr-ports' args as angzarr-embedded-diagnostic's report holds them.
 fn ported(
@@ -692,8 +679,8 @@ fn test_the_catalog_renders_every_key_angzarr_embedded_and_its_store_raise() {
     let damage = ported(damage.code(), damage.args());
     let mut unrendered: Vec<String> = runtime
         .iter()
-        .map(|d| carried(&**d))
-        .chain(store.chain([damage]).map(|d| carried(&d)))
+        .map(|d| angzarr_embedded_diagnostic::Report::of(&**d))
+        .chain(store.chain([damage]))
         .filter_map(|d| {
             catalog
                 .render(&d)
@@ -833,8 +820,9 @@ fn test_taskloom_s_proposed_permits_refuse_an_invented_area_and_admit_a_declared
     let error = block_on(taskloom.tasks().add(tagged(&["area:host-hardening"]))).unwrap_err();
     assert_eq!(error.code(), "tasks-application-tag-not-permitted");
     assert!(
-        error
-            .to_string()
+        catalog(&[])
+            .unwrap()
+            .message(&error)
             .contains("`taskloom permit area:host-hardening`"),
         "{error}"
     );

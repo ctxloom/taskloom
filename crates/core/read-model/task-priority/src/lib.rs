@@ -18,7 +18,7 @@ mod formula;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use annals::next::Timestamp;
+use prost_types::Timestamp;
 use tasks::{Tag, DEFERRED};
 
 pub use error::{diagnostic_samples, PriorityError, EN_US};
@@ -358,3 +358,7 @@ pub(crate) fn rank_normalize(raw: &[f64]) -> Vec<f64> {
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../adapters/driving/presentation/src/english.test.rs"]
+mod english;

@@ -9,9 +9,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use annals_diagnostic::Report;
+use angzarr_embedded_diagnostic::Report;
 use ports::{Clock, Configuration, ProjectIdentity, TaskStores};
-use task_lists::TaskList;
 
 use crate::lint::{self, LintReport};
 use crate::priority::{self, PriorityNote};
@@ -322,8 +321,8 @@ where
         let Some(store) = self.stores.open_existing(project).await.map_err(failed)? else {
             return Ok(None);
         };
-        let mut list = TaskList::default();
-        list.catch_up_async(store, &self.registry)
+        let mut list = crate::read_list();
+        list.catch_up(store, &self.registry)
             .await
             .map_err(|e| AppError::Failed(Report::of(&*e)))?;
         let mut tasks: Vec<Task> = list.entries().into_iter().map(Task::of).collect();

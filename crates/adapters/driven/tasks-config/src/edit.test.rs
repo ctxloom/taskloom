@@ -4,7 +4,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use annals_diagnostic::Diagnostic;
+crate::english_for!(&[crate::EN_US.1]);
+
+use angzarr_embedded_diagnostic::Diagnostic;
 use ports::{NamespacePermit, TagPermits};
 
 use super::verified;
@@ -66,7 +68,7 @@ fn test_an_edit_is_refused_unless_it_reads_back_as_meant() {
     for (why, after) in refused {
         let error = verified(PATH, BEFORE, &after, &meant(&["cli", "mcp"])).unwrap_err();
         assert_eq!(error.code(), "tasks-config-edit-refused", "{why}");
-        assert!(error.to_string().starts_with(PATH), "{why}: {error}");
+        assert!(error.english().starts_with(PATH), "{why}: {error}");
     }
 }
 

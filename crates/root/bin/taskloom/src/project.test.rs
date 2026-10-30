@@ -365,7 +365,7 @@ fn test_heal_reports_a_damaged_database_from_the_catalog_and_leaves_it_damaged()
     assert_eq!(damaged["project_id"], id.as_str());
     assert_eq!(damaged["database"], database.display().to_string());
     let damage = &damaged["damage"];
-    assert_eq!(damage["code"], "annals-store-sql-damaged");
+    assert_eq!(damage["code"], "angzarr-store-sqlite-damaged");
     let first = damage["args"]["first"].as_str().expect("the first problem");
     assert!(first.contains("events_by_command"), "{damage}");
     assert!(damage["args"]["more"].is_u64(), "{damage}");

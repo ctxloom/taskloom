@@ -19,7 +19,7 @@ mod error;
 
 use std::path::PathBuf;
 
-use annals_diagnostic::Report;
+use angzarr_embedded_diagnostic::Report;
 
 pub use error::{diagnostic_samples, ProjectError, EN_US};
 pub use ports::{Change, Checked, IdSource, ProjectAdmin, Registered, StoreCheck, Survey};
@@ -382,3 +382,7 @@ fn orphans(survey: &Survey) -> Vec<Problem> {
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../adapters/driving/presentation/src/english.test.rs"]
+mod english;

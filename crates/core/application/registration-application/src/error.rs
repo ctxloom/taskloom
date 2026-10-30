@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic, Report};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum RegistrationError {
@@ -20,19 +20,7 @@ pub enum RegistrationError {
 
 impl fmt::Display for RegistrationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RegistrationError::UnknownEngine { engine, known } => {
-                write!(f, "unknown engine \"{engine}\"; known engines: {known}")
-            }
-            RegistrationError::NoBackends { known } => write!(
-                f,
-                "no agent backends detected; name one with --engine ({known})"
-            ),
-            RegistrationError::EngineFailed { engine, error } => write!(f, "{engine}: {error}"),
-            RegistrationError::BlankDirectory => {
-                f.write_str("the project directory given is blank: give one, or leave it out")
-            }
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 

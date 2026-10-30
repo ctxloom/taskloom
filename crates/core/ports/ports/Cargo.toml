@@ -1,18 +1,16 @@
 [package]
 name = "ports"
 version = "0.1.0"
-description = "The ports the tasks, project and registration applications need from outside that annals does not provide: project identity and its survey, the store opener and its integrity check, names, time, ids, waiting, configuration and agents' MCP configurations"
+description = "The ports the tasks, project and registration applications need from outside that angzarr-ports does not provide: project identity and its survey, the store opener and its integrity check, names, time, ids, waiting, configuration and agents' MCP configurations"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
-annals.workspace = true
-# The ports on angzarr's types (`embedded`), beside annals' until the
-# application moves (step 4 of taskloom-on-angzarr-embedded.plan.md).
 angzarr-ports.workspace = true
-annals-diagnostic.workspace = true
+angzarr-embedded-diagnostic.workspace = true
+prost-types.workspace = true
 
 [lints]
 workspace = true

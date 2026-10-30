@@ -1,7 +1,7 @@
 //! The tag schema: what it reads and refuses, an unreadable enum or range
 //! included, refused when the schema is read.
 
-use annals_diagnostic::Diagnostic;
+use angzarr_embedded_diagnostic::Diagnostic;
 
 use super::{Range, TagSchema, Why, DEFAULT_TAG_SCHEMA, FACETS};
 

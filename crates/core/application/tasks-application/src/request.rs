@@ -1,11 +1,11 @@
 //! A request's key: the id the caller gives a request, and gives again
 //! when it retries it, from which the command the request sends takes its
 //! command id. No edge mints one: the key is the caller's to keep and
-//! resend. A retried request sends the same command id, and annals answers
+//! resend. A retried request sends the same command id, and the kernel answers
 //! a command it has already applied DUPLICATE: the retry applies nothing,
 //! and answers with the task as it stands.
 
-use annals::next::v1::Uuid;
+use angzarr_embedded::next::v1::Uuid;
 
 /// The namespace of request-derived command ids: UUIDv5 of the URL
 /// `https://github.com/ctxloom/taskloom/request-id` in RFC 9562's URL

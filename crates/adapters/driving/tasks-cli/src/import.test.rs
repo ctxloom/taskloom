@@ -1,6 +1,6 @@
 //! The import report, as a person and as a program reads it.
 
-use annals_diagnostic::Report;
+use angzarr_embedded_diagnostic::Report;
 use serde_json::{json, Value};
 use tasks_application::{ImportReport, Lost, ProjectImport, Why};
 
@@ -35,7 +35,7 @@ fn every_count() -> ProjectImport {
                 op: "status",
                 harp_id: "calm-otter".to_string(),
                 text: String::new(),
-                why: Why::Refused(Report::new("tasks-trigger-required", "needs a trigger")),
+                why: Why::Refused(Report::new("tasks-trigger-required")),
             },
         ],
     }
@@ -52,7 +52,7 @@ fn texted(report: &ImportReport) -> String {
 #[test]
 fn test_text_names_every_count_and_every_record_left_behind() {
     let mut stopped = every_count();
-    stopped.failed = Some(Report::new("x-bad", "the store failed"));
+    stopped.failed = Some(Report::new("x-bad"));
     let report = ImportReport {
         dead_letters: Vec::new(),
         projects: vec![stopped],
@@ -97,7 +97,7 @@ fn test_text_leaves_out_the_counts_that_are_zero() {
 #[test]
 fn test_json_carries_the_whole_report() {
     let mut stopped = every_count();
-    stopped.failed = Some(Report::new("x-bad", "the store failed"));
+    stopped.failed = Some(Report::new("x-bad"));
     let report = ImportReport {
         dead_letters: Vec::new(),
         projects: vec![stopped],

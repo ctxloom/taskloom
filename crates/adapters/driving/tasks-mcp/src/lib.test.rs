@@ -954,7 +954,7 @@ fn test_a_project_is_resolved_off_the_servers_thread() {
 // ------------------------------------------------------------ dead letters
 
 /// The real service, each write's result carrying one dead letter, or its
-/// error two: annals' kernel writes one only for what angzarr would
+/// error two: the kernel writes one only for what angzarr would
 /// dead-letter, which the tasks domain can be made to produce none of.
 struct Lettered<S>(S);
 

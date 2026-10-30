@@ -14,10 +14,10 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use annals::next::Timestamp;
-use annals_diagnostic::Report;
+use angzarr_embedded_diagnostic::Report;
 use file_system::{Fs, Kind};
 use ports::{JsonlOp, JsonlRecord, JsonlTaskLogs};
+use prost_types::Timestamp;
 use serde::Deserialize;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -210,3 +210,7 @@ fn instant(text: &str) -> Result<Timestamp, String> {
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../adapters/driving/presentation/src/english.test.rs"]
+mod english;

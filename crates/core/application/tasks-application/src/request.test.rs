@@ -2,7 +2,7 @@
 
 use super::{request_command_id, REQUEST_NAMESPACE};
 
-fn bytes(id: &annals::next::v1::Uuid) -> [u8; 16] {
+fn bytes(id: &angzarr_embedded::next::v1::Uuid) -> [u8; 16] {
     <[u8; 16]>::try_from(&id.value[..]).expect("16 bytes")
 }
 

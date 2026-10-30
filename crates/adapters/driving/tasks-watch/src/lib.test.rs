@@ -11,10 +11,12 @@ use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
-use annals_diagnostic::Report;
+use angzarr_embedded_diagnostic::Report;
 use presentation::{Catalog, Format};
 use serde_json::Value;
-use tasks_application::{AppError, Changed, Project, Watch, WatchRequest, WatchService};
+use tasks_application::{
+    AppError, Changed, Polled, Project, Watch, WatchCursor, WatchRequest, WatchService,
+};
 
 use super::{
     long_about, run, ChangeLine, Debounce, Group, Interval, Settings, Ticks, CEILING_TICKS,
@@ -79,9 +81,13 @@ impl WatchService for Scripted {
         Ok(self.project.clone().map(Watch::of))
     }
 
-    async fn poll(&mut self, _: &mut Watch) -> Result<Vec<Changed>, AppError> {
+    async fn poll(&mut self, _: &mut Watch, _: Option<&WatchCursor>) -> Result<Polled, AppError> {
         self.polled += 1;
-        self.polls.pop_front().unwrap_or(Ok(Vec::new()))
+        let changes = self.polls.pop_front().unwrap_or(Ok(Vec::new()))?;
+        Ok(Polled::Changes {
+            changes,
+            cursor: WatchCursor::default(),
+        })
     }
 }
 

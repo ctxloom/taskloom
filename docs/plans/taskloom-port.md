@@ -5,6 +5,12 @@ Written 2026-10-20. The Go taskloom is `cmd/taskloom` and
 the Go ctxloom repository; about 12.9k lines. This plan ports it onto annals
 and angzarr here.
 
+Superseded in part (2026-10-30): taskloom has since moved off annals onto
+angzarr-embedded and angzarr-store-sqlite
+(`taskloom-on-angzarr-embedded.plan.md`). What this plan says of annals'
+kernel, annals-store-sql, units of work and `PurgingStore` describes the
+port as it was; the crates' docs and CLAUDE.md describe it as it is.
+
 The port lives in `github.com/ctxloom/taskloom` (Decided 16). Steps 1 to 7
 are done: the importer, healing and repointing, tags on tagma, MCP and the
 companion contract, the remaining commands and tools, priority, and
@@ -90,12 +96,13 @@ cutover ("What remains").
     every task; each poll asks the store's change token first
     (`WatchedStores`: annals' `ChangeToken` and the handle that answered
     it), and only when it moved catches the projector up and answers the
-    changes past its cursor. On annals the cursor is the projector's own
-    sequence; on angzarr-embedded (taskloom-on-angzarr-embedded.plan.md,
-    ruling D7) nothing numbers across streams: the cursor is each task
-    stream's sequence by harp id, of the list's instance, a purge bumps the
-    instance, and a cursor from before it is resynced whole
-    (`task_lists::embedded`). A project with
+    changes past the watcher's cursor. Nothing numbers across streams
+    (taskloom-on-angzarr-embedded.plan.md, ruling D7): the cursor is each
+    task stream's sequence by harp id, of the list's instance (one list per
+    watched project, of an instance it mints), a purge bumps the instance,
+    and a cursor of another instance, or from before a purge, is answered
+    a snapshot (`Polled::Snapshot`); on the wire it is `{"instance":
+    "<id>/<purges>", "streams": {"<harp>": <sequence>}}`. A project with
     no store yet answers nothing until one appears (a look at the
     filesystem each poll). A prune landing whole between two polls is seen
     from the stream's absence (a removal); a poll between its removal and

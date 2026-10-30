@@ -4,7 +4,7 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use annals_diagnostic::Report;
+use angzarr_embedded_diagnostic::Report;
 use clap::Parser;
 use presentation::{Catalog, Format};
 use project_application::{
@@ -112,7 +112,7 @@ fn catalog() -> Catalog {
 }
 
 fn damage() -> Report {
-    Report::new("fake-store-damaged", "the English")
+    Report::new("fake-store-damaged")
         .arg("first", "row 2 missing from index i")
         .arg("more", 1u64)
 }

@@ -653,7 +653,7 @@ fn test_a_relative_path_is_never_resolved_against_the_top_when_the_cwd_is_gone()
     assert!(!added.ok, "{}", added.stdout);
     assert!(
         added.stderr.contains(
-            "cannot create the store's directory taskloom-relative-home/.ctxloom/projects/jolly-mute-magma: the working directory cannot be read"
+            "cannot create the store's directory taskloom-relative-home/.ctxloom/projects/jolly-mute-magma: file-system-no-cwd"
         ),
         "{}",
         added.stderr
@@ -718,9 +718,8 @@ fn test_a_read_spans_every_project_when_asked_or_outside_any_work_root() {
 #[test]
 fn test_every_diagnostic_of_every_crate_renders_from_the_binarys_catalog() {
     let catalog = super::catalog().expect("every catalog loads, no message twice");
-    let samples: Vec<Box<dyn annals_diagnostic::Diagnostic>> = [
-        annals::diagnostic_samples(),
-        annals_store_sql::diagnostic_samples(),
+    let samples: Vec<Box<dyn angzarr_embedded_diagnostic::Diagnostic>> = [
+        angzarr_embedded::diagnostic_samples(),
         tasks::diagnostic_samples(),
         tasks_application::diagnostic_samples(),
         task_priority::diagnostic_samples(),
@@ -753,12 +752,12 @@ fn test_every_diagnostic_of_every_crate_renders_from_the_binarys_catalog() {
     }
 }
 
-// RED, step 4 of taskloom-on-angzarr-embedded.plan.md: the diagnostics
-// move onto angzarr-embedded-diagnostic, and annals leaves the workspace.
+// The diagnostics are angzarr-embedded-diagnostic's, and annals has left the
+// workspace (step 4 of taskloom-on-angzarr-embedded.plan.md).
 
-/// Every crate of this workspace's diagnostic samples (annals' are the
-/// runtime's, which leaves).
-fn ours() -> Vec<Box<dyn annals_diagnostic::Diagnostic>> {
+/// Every crate of this workspace's diagnostic samples (not the runtime's,
+/// angzarr-embedded's, which are its own).
+fn ours() -> Vec<Box<dyn angzarr_embedded_diagnostic::Diagnostic>> {
     [
         tasks::diagnostic_samples(),
         tasks_application::diagnostic_samples(),
@@ -785,12 +784,12 @@ fn ours() -> Vec<Box<dyn annals_diagnostic::Diagnostic>> {
 }
 
 /// The names of `d`'s args, and of every nested cause's, as `code.name`.
-fn arg_names(d: &dyn annals_diagnostic::Diagnostic) -> Vec<String> {
+fn arg_names(d: &dyn angzarr_embedded_diagnostic::Diagnostic) -> Vec<String> {
     d.args()
         .into_iter()
         .flat_map(|(name, arg)| {
             let mut names = vec![format!("{}.{name}", d.code())];
-            if let annals_diagnostic::Arg::Nested(cause) = arg {
+            if let angzarr_embedded_diagnostic::Arg::Nested(cause) = arg {
                 names.extend(arg_names(&*cause));
             }
             names

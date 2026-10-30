@@ -1,10 +1,8 @@
-//! The task aggregate on angzarr-embedded's markup (step 2 of
-//! taskloom-on-angzarr-embedded.plan.md): thin handlers over the rules in
-//! `lib.rs`, which the annals domain ([`crate::Tasks`]) decides by too,
-//! until the rest of the workspace leaves annals (step 3).
+//! The task aggregate on angzarr-embedded's markup: thin handlers over the
+//! rules in `lib.rs`.
 //!
-//! One task is one aggregate, as before: its stream's root is derived from
-//! its harp id. The proposed shape:
+//! One task is one aggregate: its stream's root is derived from its harp
+//! id.
 //!
 //! - the instance holds the folded [`TaskState`], read by [`TaskAggregate::state`];
 //! - one `#[handles_cmd]` per command, each `fn(&self, cmd, ctx: &Context)
@@ -26,7 +24,7 @@ use angzarr_embedded_macros::{aggregate, applies, handles_cmd};
 use crate::{
     retagged, status_changed, task_added, task_removed, text_edited, AddTask, EditText, RemoveTask,
     Retag, Retagged, SetStatus, StatusChanged, TaskAdded, TaskEvent, TaskRejection, TaskRemoved,
-    TaskState, Tasks, TextEdited,
+    TaskState, TextEdited,
 };
 
 /// The task aggregate: one task, folded from its stream.
@@ -42,10 +40,9 @@ impl TaskAggregate {
     }
 }
 
-/// `event`, folded into the task as the annals domain folds it: the same
-/// assignments, one place.
+/// `event`, folded into the task ([`crate::apply`]).
 fn fold(task: &mut TaskState, event: TaskEvent) {
-    <Tasks as annals::next::Domain>::apply(task, &event, &());
+    crate::apply(task, &event);
 }
 
 // The domain is TASK_DOMAIN, spelled as the markup takes it, a literal

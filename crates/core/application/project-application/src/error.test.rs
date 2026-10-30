@@ -1,6 +1,8 @@
 //! The errors' English, the wrapper's delegation, and the catalog.
 
-use annals_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic, Report};
+
+crate::english_for!(&[crate::EN_US.1]);
 
 use super::{diagnostic_samples, ProjectError};
 
@@ -10,16 +12,16 @@ fn arg_names(d: &dyn Diagnostic) -> Vec<&'static str> {
 
 #[test]
 fn test_the_wrapper_is_its_causes_diagnostic() {
-    let wrapper =
-        ProjectError::Port(Report::new("project-registry-io", "/x: denied").arg("path", "/x"));
+    let wrapper = ProjectError::Port(Report::new("project-registry-io").arg("path", "/x"));
     assert_eq!(wrapper.code(), "project-registry-io");
-    assert_eq!(wrapper.to_string(), "/x: denied");
+    // No catalog here has the registry's key: its key and args.
+    assert_eq!(wrapper.english(), "project-registry-io path=/x");
     assert_eq!(arg_names(&wrapper), ["path"]);
 }
 
 #[test]
 fn test_each_error_renders_its_english_fallback() {
-    let english: Vec<String> = diagnostic_samples().iter().map(|d| d.to_string()).collect();
+    let english: Vec<String> = diagnostic_samples().iter().map(|d| d.english()).collect();
     assert_eq!(
         english,
         [

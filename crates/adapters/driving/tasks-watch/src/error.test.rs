@@ -1,7 +1,9 @@
 //! The errors' English, the wrapper's delegation, and the catalog.
 
-use annals_diagnostic::Diagnostic;
+use angzarr_embedded_diagnostic::Diagnostic;
 use tasks_application::AppError;
+
+crate::english_for!(&[crate::EN_US.1]);
 
 use super::{diagnostic_samples, WatchError};
 
@@ -21,7 +23,7 @@ fn test_a_use_case_error_is_its_own_diagnostic() {
 #[test]
 fn test_no_project_is_gos_message() {
     assert_eq!(
-        WatchError::NoProject.to_string(),
+        WatchError::NoProject.english(),
         "no project here yet; add a task first (taskloom add \"<task text>\")"
     );
 }
@@ -72,9 +74,14 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
 }
 
 #[test]
-fn test_each_diagnostics_english_is_its_catalog_message() {
+fn test_each_diagnostic_renders_its_catalog_message_and_displays_as_its_key() {
     let catalog = presentation::Catalog::en_us(&[crate::EN_US]).expect("the catalog loads");
     for sample in diagnostic_samples() {
-        assert_eq!(catalog.render(&*sample), Ok(sample.to_string()));
+        let message = catalog.render(&*sample).expect("a catalog message");
+        assert!(!message.is_empty(), "{}", sample.code());
+        assert!(
+            sample.to_string().starts_with(sample.code()),
+            "Display is the key and args, never English: {sample}"
+        );
     }
 }

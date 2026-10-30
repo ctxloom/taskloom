@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use annals_diagnostic::Diagnostic;
+crate::english_for!(&[crate::EN_US.1]);
+
+use angzarr_embedded_diagnostic::Diagnostic;
 use file_system::{Fs, Perms, Rooted};
 use os::Mode;
 use ports::Configuration;
@@ -361,7 +363,7 @@ fn test_a_blank_item_in_a_config_files_list_is_refused() {
     let error = schema(&dirs.config(&[]), &[]).unwrap_err();
     assert_eq!(error.code(), "tasks-config-blank-item");
     assert_eq!(
-        error.to_string(),
+        error.english(),
         format!(
             "{}: tag_schema has a blank item: give one, or leave it out",
             shown("/home/u/.taskloom/config.yaml")

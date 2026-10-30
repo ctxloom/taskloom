@@ -1,7 +1,7 @@
 //! A diagnostic's JSON.
 
 use crate::Catalog;
-use annals_diagnostic::{Arg, Report};
+use angzarr_embedded_diagnostic::{Arg, Report};
 
 const DEMO: crate::Source = (
     "demo",
@@ -17,8 +17,8 @@ fn json_of(d: &Report) -> String {
 
 #[test]
 fn test_an_envelope_is_code_args_message_with_args_in_their_own_order() {
-    let busy = Report::new("demo-busy", "busy").arg("path", "/db");
-    let gave_up = Report::new("demo-gave-up", "English")
+    let busy = Report::new("demo-busy").arg("path", "/db");
+    let gave_up = Report::new("demo-gave-up")
         .arg("offset", -2i64)
         .arg("attempts", 10u32)
         .arg("error", Arg::nested(&busy));
@@ -36,7 +36,7 @@ fn test_an_envelope_is_code_args_message_with_args_in_their_own_order() {
 #[test]
 fn test_no_args_is_an_empty_object() {
     assert_eq!(
-        json_of(&Report::new("demo-bare", "English")),
+        json_of(&Report::new("demo-bare")),
         r#"{"code":"demo-bare","args":{},"message":"nothing to say"}"#
     );
 }
@@ -47,7 +47,7 @@ fn test_no_args_is_an_empty_object() {
 fn test_an_unknown_code_keeps_its_code_and_args_and_its_message_is_them_never_english() {
     assert_eq!(
         json_of(
-            &Report::new("angzarr-x", "the English")
+            &Report::new("angzarr-x")
                 .arg("n", 3u64)
                 .arg("ext_err_txt", "disk I/O error")
         ),

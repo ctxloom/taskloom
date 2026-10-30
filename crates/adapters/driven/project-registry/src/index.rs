@@ -153,20 +153,23 @@ pub use file_lock::Locked;
 /// bounded wait).
 pub fn lock_within(fs: &dyn Fs, path: &Path, wait: Duration) -> Result<Locked, RegistryError> {
     let lock_path = absolute(path)?.with_file_name("index.yaml.lock");
-    file_lock::lock_within(fs, &lock_path, wait).map_err(|e| from_lock(&lock_path, e))
+    file_lock::lock_within(fs, &lock_path, wait).map_err(from_lock)
 }
 
-/// A failure to take the lock at `lock_path` as the registry's: a timeout
-/// and a replacement keep their own codes, naming the registry's lock;
-/// anything else is an I/O failure on the lock file.
-fn from_lock(lock_path: &Path, error: file_lock::LockError) -> RegistryError {
+/// A failure to take the registry's lock, as the registry's: a timeout
+/// and a replacement keep their own codes, naming the registry's lock, as
+/// does an I/O failure on the lock file; anything else is the lock's own
+/// failure, nested.
+fn from_lock(error: file_lock::LockError) -> RegistryError {
     use file_lock::LockError;
     match error {
         LockError::Timeout { path, waited_ms } => RegistryError::LockTimeout { path, waited_ms },
         LockError::Replaced { path, attempts } => RegistryError::LockReplaced { path, attempts },
         LockError::RelativePath { path } => RegistryError::RelativePath { path },
         LockError::Io { path, detail } => RegistryError::Io { path, detail },
-        other => RegistryError::io(lock_path, other),
+        other => RegistryError::LockFailed {
+            cause: angzarr_embedded_diagnostic::Report::of(&other),
+        },
     }
 }
 

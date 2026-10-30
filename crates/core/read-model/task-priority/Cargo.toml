@@ -8,12 +8,14 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-annals.workspace = true
-annals-diagnostic.workspace = true
+prost-types.workspace = true
+angzarr-embedded-diagnostic.workspace = true
 expr-lang.workspace = true
 tasks.workspace = true
 
 [dev-dependencies]
+# Rendering catalogs' English, for the tests that hold it to Go's.
+fluent-bundle.workspace = true
 fluent-syntax = "0.11"
 mutants.workspace = true
 tagma-core.workspace = true

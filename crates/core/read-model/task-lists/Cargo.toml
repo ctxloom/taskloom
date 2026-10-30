@@ -8,14 +8,11 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-annals.workspace = true
-# The list on angzarr-embedded (`embedded`), beside the annals one until the
-# application moves (step 4 of taskloom-on-angzarr-embedded.plan.md).
 angzarr-embedded.workspace = true
 tasks.workspace = true
 
 [dev-dependencies]
-# The in-memory store the embedded list's tests run the kernel over.
+# The in-memory store the list's tests run the kernel over.
 angzarr-ports = { workspace = true, features = ["memory"] }
 
 [lints]

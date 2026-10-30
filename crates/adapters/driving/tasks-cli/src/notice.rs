@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 use tasks_application::Project;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -49,32 +49,7 @@ impl Notice {
 
 impl fmt::Display for Notice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Notice::Project { root, id } => write!(f, "project {root} ({id})"),
-            Notice::UnrootedProject { id } => write!(f, "project {id}"),
-            Notice::NoProject => f.write_str("no project here yet: nothing to list"),
-            Notice::EveryProject { directory } => write!(
-                f,
-                "no project here: {directory} is in no git repository, has no CTXLOOM_ROOT and no project of its own, so this reads every project; pass --project <id>, or work in a project, to read one"
-            ),
-            Notice::Hidden {
-                hidden,
-                completed,
-                deferred,
-            } => write!(
-                f,
-                "{hidden} more matching tasks hidden by the default view ({completed} completed, {deferred} deferred): add --all to include them"
-            ),
-            Notice::Omitted { omitted } => write!(
-                f,
-                "{omitted} more tasks omitted by --limit: raise or drop it to see them (summary's counts are unaffected)"
-            ),
-            Notice::NothingToPrune => f.write_str("no project here yet: nothing to prune"),
-            Notice::ReportOnly { command } => write!(
-                f,
-                "removed nothing: this was a report, not a removal; to apply exactly this plan, run it again with --yes: {command}"
-            ),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 

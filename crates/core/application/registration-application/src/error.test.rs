@@ -1,6 +1,8 @@
 //! The errors' English and the catalog.
 
-use annals_diagnostic::{Diagnostic, Report};
+use angzarr_embedded_diagnostic::{Diagnostic, Report};
+
+crate::english_for!(&[crate::EN_US.1]);
 
 use super::{diagnostic_samples, RegistrationError};
 
@@ -15,15 +17,19 @@ fn test_each_error_is_gos_message() {
         known: "claude-code".to_string(),
     };
     assert_eq!(
-        unknown.to_string(),
+        unknown.english(),
         "unknown engine \"foo\"; known engines: claude-code"
     );
     assert_eq!(arg_names(&unknown), ["engine", "known"]);
     let failed = RegistrationError::EngineFailed {
         engine: "claude-code".to_string(),
-        error: Report::new("x", "broken"),
+        error: Report::new("x"),
     };
-    assert_eq!(failed.to_string(), "claude-code: broken");
+    assert_eq!(
+        failed.english(),
+        "claude-code: x",
+        "the cause no catalog here has: its key"
+    );
     assert_eq!(arg_names(&failed), ["engine", "error"]);
     assert_eq!(
         arg_names(&RegistrationError::NoBackends {

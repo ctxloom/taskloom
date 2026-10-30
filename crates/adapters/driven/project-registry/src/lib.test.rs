@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use annals_diagnostic::Diagnostic;
+use angzarr_embedded_diagnostic::Diagnostic;
 use file_system::{Fs, Os, Perms, Rooted};
 use os::Mode;
 use ports::{Names, ProjectIdentity};
@@ -668,7 +668,7 @@ fn test_without_a_home_there_is_no_store_and_no_registry() {
 /// The variable a no-home error names, as its `var` arg.
 fn named_var(error: &dyn Diagnostic) -> String {
     match &error.args()[..] {
-        [("var", annals_diagnostic::Arg::Str(var))] => var.clone(),
+        [("var", angzarr_embedded_diagnostic::Arg::Str(var))] => var.clone(),
         other => panic!("no var: {other:?}"),
     }
 }

@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 
 use crate::Source;
 
@@ -39,28 +39,19 @@ pub enum Unrendered {
 
 impl fmt::Display for UnknownFormat {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "the format {} is not one of text or json", self.value)
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
 impl fmt::Display for CatalogError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "the {} message catalog cannot be loaded: {}",
-            self.source, self.detail
-        )
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
 impl fmt::Display for Unrendered {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Unrendered::Unknown { code } => write!(f, "no catalog has a message for {code}"),
-            Unrendered::Unformattable { code, detail } => {
-                write!(f, "the message for {code} cannot be filled in: {detail}")
-            }
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -86,7 +77,7 @@ impl Diagnostic for CatalogError {
     fn args(&self) -> Vec<(&'static str, Arg)> {
         vec![
             ("source", self.source.as_str().into()),
-            ("detail", self.detail.as_str().into()),
+            ("ext_err_txt", self.detail.as_str().into()),
         ]
     }
 }
@@ -104,7 +95,7 @@ impl Diagnostic for Unrendered {
             Unrendered::Unknown { code } => vec![("code", code.as_str().into())],
             Unrendered::Unformattable { code, detail } => vec![
                 ("code", code.as_str().into()),
-                ("detail", detail.as_str().into()),
+                ("ext_err_txt", detail.as_str().into()),
             ],
         }
     }

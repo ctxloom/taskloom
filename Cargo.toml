@@ -15,19 +15,16 @@ publish = false
 # messages and angzarr's are built by one prost.
 prost = "0.14"
 prost-types = "0.14"
-angzarr-proto = { version = "0.1", git = "https://github.com/angzarr-io/angzarr-project", rev = "672ed768aa1c8a8e05818c457c757cd406105e55" }
+angzarr-proto = { version = "0.1", git = "https://github.com/angzarr-io/angzarr-project", rev = "a0be9386a8e535141dea3a5c27499e838ec6abc8" }
 
-# annals and angzarr-build (angzarr-cli's `rust-cli` branch) are pinned by
-# full commit, so a fresh clone builds with no sibling checkouts; bumps are
+# angzarr-build (angzarr-cli's markup domain layer) is pinned by full
+# commit, so a fresh clone builds with no sibling checkouts; bumps are
 # deliberate commits. To build against local checkouts while changing them
-# together, see "Co-developing annals, angzarr-cli or tagma" in CLAUDE.md.
-annals = { git = "https://github.com/benjaminabbitt/annals", rev = "ed00923e915c7fc9b832eba30d32115168ab7c35" }
-annals-diagnostic = { git = "https://github.com/benjaminabbitt/annals", rev = "ed00923e915c7fc9b832eba30d32115168ab7c35" }
-angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "0277731bc9b5e46596633da9786fd5b5e6e993f2" }
+# together, see "Co-developing angzarr-cli or tagma" in CLAUDE.md.
+angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "4ba037650bbaffd1e158f37af0486e47b217bd9f" }
 
-# angzarr-embedded, angzarr's in-app runtime, which taskloom is moving onto
-# from annals (taskloom-on-angzarr-embedded.plan.md; the annals pins above
-# stay until the rest of the workspace moves, step 3). Pinned by rev on
+# angzarr-embedded, angzarr's in-app runtime, taskloom's
+# (taskloom-on-angzarr-embedded.plan.md). Pinned by rev on
 # angzarr-embedded's main: 550052a (router fc6d3a6, spec a0be938: angzarr-ports'
 # StoreError Display quotes ambiguous values).
 angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "550052a30c5c59a106ba99f0f6df8440b456c82e" }
@@ -35,13 +32,10 @@ angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedde
 angzarr-embedded-diagnostic = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "550052a30c5c59a106ba99f0f6df8440b456c82e" }
 angzarr-store-sqlite = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "550052a30c5c59a106ba99f0f6df8440b456c82e" }
 # angzarr's storage contract, at the spec rev angzarr-embedded pins
-# (a0be938), so the embedded side of the graph holds one spec: its
-# in-memory store, for the domain's tests. angzarr-embedded brings
-# angzarr-proto at the same rev; the workspace's angzarr-proto above stays
-# at annals' until step 3.
+# (a0be938), so the graph holds one spec, as angzarr-proto above does: the
+# store ports, and their in-memory store for tests.
 angzarr-ports = { git = "https://github.com/angzarr-io/angzarr-project", rev = "a0be9386a8e535141dea3a5c27499e838ec6abc8" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
-annals-store-sql = { git = "https://github.com/benjaminabbitt/annals", rev = "ed00923e915c7fc9b832eba30d32115168ab7c35", features = ["sqlite"] }
 tasks = { path = "crates/core/domain/tasks" }
 task-lists = { path = "crates/core/read-model/task-lists" }
 task-priority = { path = "crates/core/read-model/task-priority" }

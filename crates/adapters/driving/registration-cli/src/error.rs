@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 use registration_application::RegistrationError;
 
 /// Why `manage` did not answer.
@@ -51,11 +51,7 @@ pub enum ManageNotice {
 
 impl fmt::Display for ManageError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ManageError::App(error) => error.fmt(f),
-            ManageError::Usage { detail } => f.write_str(detail),
-            ManageError::Output { detail } => write!(f, "cannot write the answer: {detail}"),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -63,31 +59,7 @@ impl std::error::Error for ManageError {}
 
 impl fmt::Display for ManageNotice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ManageNotice::Unresolvable { command, flavor } => write!(
-                f,
-                "warning: \"{command}\" does not resolve on this process's PATH: exec: \
-                 \"{command}\": executable file not found in {}",
-                flavor.var_ref("PATH")
-            ),
-            ManageNotice::UnresolvableHint { command } => write!(
-                f,
-                "the registered MCP entry runs \"{command}\", which the agent resolves against \
-                 ITS OWN PATH at startup; install {command} somewhere on that PATH or the server \
-                 will not start"
-            ),
-            ManageNotice::Registered { engine } => {
-                write!(f, "registered MCP server for {engine}")
-            }
-            ManageNotice::Removed { engine } => write!(f, "removed MCP server from {engine}"),
-            ManageNotice::NotRegistered { engine } => {
-                write!(f, "not registered with {engine}, nothing to remove")
-            }
-            ManageNotice::NothingToRemove => f.write_str(
-                "nothing to remove (no agent backends detected; name one with --engine)",
-            ),
-            ManageNotice::Config { path } => write!(f, "config: {path}"),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -104,7 +76,7 @@ impl Diagnostic for ManageError {
         match self {
             ManageError::App(error) => error.args(),
             ManageError::Usage { detail } | ManageError::Output { detail } => {
-                vec![("detail", detail.as_str().into())]
+                vec![("ext_err_txt", detail.as_str().into())]
             }
         }
     }

@@ -1,7 +1,9 @@
 //! The errors' English, the wrapper's delegation, and the catalog.
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 use tasks_application::AppError;
+
+crate::english_for!(&[crate::EN_US.1]);
 
 use super::{diagnostic_samples, McpError, McpNotice};
 
@@ -29,7 +31,7 @@ fn test_each_error_names_what_went_wrong() {
     let unknown = McpError::UnknownResource {
         uri: "taskloom://frob".to_string(),
     };
-    assert_eq!(unknown.to_string(), "no resource is at taskloom://frob");
+    assert_eq!(unknown.english(), "no resource is at taskloom://frob");
     assert!(matches!(
         &unknown.args()[..],
         [("uri", Arg::Str(u))] if u == "taskloom://frob"
@@ -39,14 +41,14 @@ fn test_each_error_names_what_went_wrong() {
         detail: "missing field `text`".to_string(),
     };
     assert_eq!(
-        arguments.to_string(),
+        arguments.english(),
         "invalid arguments to task_add: missing field `text`"
     );
-    assert_eq!(arg_names(&arguments), ["tool", "detail"]);
+    assert_eq!(arg_names(&arguments), ["tool", "ext_err_txt"]);
     let crashed = McpError::Crashed {
         detail: "panicked".to_string(),
     };
-    assert_eq!(arg_names(&crashed), ["detail"]);
+    assert_eq!(arg_names(&crashed), ["ext_err_txt"]);
     assert_eq!(McpNotice::NoProject.code(), "tasks-mcp-no-project");
     assert!(McpNotice::NoProject.args().is_empty());
     let every = McpNotice::EveryProject {
@@ -54,7 +56,7 @@ fn test_each_error_names_what_went_wrong() {
     };
     assert_eq!(every.code(), "tasks-mcp-every-project");
     assert!(every
-        .to_string()
+        .english()
         .starts_with("no project here: /tmp/x is in no git"));
     assert!(matches!(
         &every.args()[..],
@@ -109,9 +111,14 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
 }
 
 #[test]
-fn test_each_diagnostics_english_is_its_catalog_message() {
+fn test_each_diagnostic_renders_its_catalog_message_and_displays_as_its_key() {
     let catalog = catalog();
     for sample in diagnostic_samples() {
-        assert_eq!(catalog.render(&*sample), Ok(sample.to_string()));
+        let message = catalog.render(&*sample).expect("a catalog message");
+        assert!(!message.is_empty(), "{}", sample.code());
+        assert!(
+            sample.to_string().starts_with(sample.code()),
+            "Display is the key and args, never English: {sample}"
+        );
     }
 }

@@ -4,7 +4,7 @@
 //! [`Format::Text`] (UTF-8) for a person, and renders diagnostics from
 //! Fluent catalogs.
 //!
-//! It is domain-free (no ctxloom crate but `annals-diagnostic`; its tests
+//! It is domain-free (no ctxloom crate but `angzarr-embedded-diagnostic`; its tests
 //! hold it to that), so any binary reuses it. A domain's shapes and views
 //! live with that domain's driving adapter and implement [`Render`].
 //!
@@ -68,3 +68,7 @@ pub fn write_json_line<T: Serialize + ?Sized>(out: &mut dyn Write, value: &T) ->
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "english.test.rs"]
+mod english;

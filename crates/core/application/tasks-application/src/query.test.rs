@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use annals_diagnostic::Diagnostic;
+use angzarr_embedded_diagnostic::Diagnostic;
 
 use super::{check, select, QueryError, QUERY_GRAMMAR};
 use crate::schema::TagSchema;

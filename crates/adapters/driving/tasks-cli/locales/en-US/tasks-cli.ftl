@@ -1,6 +1,6 @@
-tasks-cli-output = cannot write the output: { $detail }
+tasks-cli-output = cannot write the output: { $ext_err_txt }
 tasks-cli-import-incomplete = not everything was imported: { $stopped } projects stopped, { $lost } records not imported
-tasks-cli-usage = { $detail }
+tasks-cli-usage = { $ext_err_txt }
 tasks-cli-project = project { $root } ({ $id })
 tasks-cli-unrooted-project = project { $id }
 tasks-cli-no-project = no project here yet: nothing to list

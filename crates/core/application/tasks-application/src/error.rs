@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic, Report};
 
 use crate::DeadLetter;
 
@@ -73,7 +73,7 @@ pub enum AppError {
         permit: String,
         harp_ids: Vec<String>,
     },
-    /// `error`, from a write during which annals' kernel dead-lettered
+    /// `error`, from a write during which the kernel dead-lettered
     /// `dead_letters` (never none): `error`'s diagnostic, its code, args
     /// and English, with the lines beside it for the driving adapter to
     /// say.
@@ -84,7 +84,7 @@ pub enum AppError {
 }
 
 impl AppError {
-    /// The dead letters annals' kernel wrote while the use case that
+    /// The dead letters the kernel wrote while the use case that
     /// failed with this ran: none for most.
     pub fn dead_letters(&self) -> &[DeadLetter] {
         match self {
@@ -123,69 +123,7 @@ fn held_in(held: &[(String, Vec<String>)]) -> String {
 
 impl fmt::Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            AppError::Rejected(cause)
-            | AppError::TagRefused(cause)
-            | AppError::Failed(cause)
-            | AppError::Identity(cause)
-            | AppError::Configuration(cause)
-            | AppError::TagQuery(cause)
-            | AppError::Prune(cause)
-            | AppError::Priority(cause) => cause.fmt(f),
-            AppError::DeadLettered { error, .. } => error.fmt(f),
-            AppError::GaveUp { attempts, error } => {
-                write!(f, "gave up after {attempts} attempts: {error}")
-            }
-            AppError::HarpsExhausted { attempts } => {
-                write!(f, "no free task id after {attempts} tries")
-            }
-            AppError::Vanished { harp_id } => {
-                write!(f, "task {harp_id} was written but cannot be read back")
-            }
-            AppError::NoProject => {
-                f.write_str("there is no project here yet, so no task to change")
-            }
-            AppError::UnknownStatusClass { status } => write!(
-                f,
-                "{status} is no status class (the classes are {}): '@' is reserved for them, so no status starts with it",
-                crate::read::classes()
-            ),
-            AppError::UnknownSort { sort } => {
-                write!(f, "{sort} is no sort: the only one is priority")
-            }
-            AppError::Blank { field } => {
-                write!(f, "the {field} given is blank: give one, or leave it out")
-            }
-            AppError::TriggerAndClear => f.write_str(
-                "a trigger was given and cleared at once: give a trigger, or clear the one held, not both",
-            ),
-            AppError::AddRequestIdNotYet => f.write_str(
-                "not yet: an add's request id needs fix O (the harp position pinned by the key)",
-            ),
-            AppError::NotFound { harp_ids } => write!(
-                f,
-                "no task holds these harp ids: {} (see `taskloom list`)",
-                quoted(harp_ids)
-            ),
-            AppError::PermitMalformed { permit } => write!(
-                f,
-                "{permit} is not a permit: give a namespace (area:), a namespace's key (area:cli) or a flat tag (a key with no namespace), with no value"
-            ),
-            AppError::PermitNotDeclared { permit } => write!(
-                f,
-                "{permit} is not among this project's tag permits, so there is nothing to revoke"
-            ),
-            AppError::PermitInUse { permit, harp_ids } => write!(
-                f,
-                "{permit} cannot be revoked: these tasks still carry it: {} (retag them first)",
-                quoted(harp_ids)
-            ),
-            AppError::Ambiguous { held } => write!(
-                f,
-                "harp ids held by more than one project ({}): pass --project <id> instead of --global to choose one",
-                held_in(held)
-            ),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -283,7 +221,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     let mut samples: Vec<Box<dyn Diagnostic>> = vec![
         Box::new(AppError::GaveUp {
             attempts: 10,
-            error: Report::new("x-busy", "busy"),
+            error: Report::new("x-busy"),
         }),
         Box::new(AppError::HarpsExhausted { attempts: 100 }),
         Box::new(AppError::Vanished {

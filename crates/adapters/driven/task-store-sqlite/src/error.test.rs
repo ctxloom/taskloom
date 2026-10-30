@@ -1,6 +1,6 @@
 //! The errors' keys and args, and the catalog.
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 
 use super::{diagnostic_samples, StoreOpenError};
 

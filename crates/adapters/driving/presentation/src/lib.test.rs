@@ -84,10 +84,9 @@ fn dependencies(manifest: &str) -> Vec<&str> {
     names
 }
 
-// RED, step 3c of taskloom-on-angzarr-embedded.plan.md: the diagnostics
-// move from annals-diagnostic to angzarr-embedded-diagnostic, whose
-// `Display` is a key and its args, never English. Presentation renders
-// that trait alone; annals and its diagnostics are no longer its.
+// The diagnostics are angzarr-embedded-diagnostic's, whose `Display` is a
+// key and its args, never English. Presentation renders that trait alone;
+// annals and its diagnostics are no longer in the workspace.
 #[test]
 fn test_it_depends_on_no_crate_of_this_workspace_but_angzarr_embedded_diagnostic() {
     let workspace = include_str!("../../../../../Cargo.toml");

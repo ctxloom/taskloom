@@ -3,9 +3,9 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use annals::next::v1::Uuid;
-use annals::next::Timestamp;
+use ports::Uuid;
 use ports::{Clock, CommandIds, Delay, Jitter};
+use prost_types::Timestamp;
 
 /// The system's clock, ids, timer and randomness. Its sleep needs a tokio
 /// runtime with the timer enabled.

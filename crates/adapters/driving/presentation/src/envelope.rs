@@ -1,6 +1,6 @@
 //! A diagnostic as JSON.
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 use serde::ser::{SerializeMap, Serializer};
 use serde::Serialize;
 

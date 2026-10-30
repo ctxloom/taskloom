@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use annals_diagnostic::Report;
+use angzarr_embedded_diagnostic::Report;
 use file_system::{Fs, Kind};
 use ports::{Change, Project, ProjectAdmin, Registered, Survey};
 

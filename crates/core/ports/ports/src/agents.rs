@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use annals_diagnostic::Report;
+use angzarr_embedded_diagnostic::Report;
 
 /// Which of an agent's configurations.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -4,7 +4,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use annals_diagnostic::{Diagnostic, Report};
+crate::english_for!(&[crate::EN_US.1]);
+
+use angzarr_embedded_diagnostic::{Diagnostic, Report};
 use ports::{AgentConfigs, McpServer, Rewritten, Scope};
 
 use super::{
@@ -46,7 +48,7 @@ fn path(engine: &str, scope: &Scope) -> PathBuf {
 }
 
 fn why() -> Report {
-    Report::new("agent-configs-corrupt", "it is not JSON")
+    Report::new("agent-configs-corrupt")
 }
 
 impl AgentConfigs for Fake {
@@ -176,7 +178,7 @@ fn test_an_install_with_no_agent_in_use_refuses_naming_the_engines() {
         }
     );
     assert_eq!(
-        refused.to_string(),
+        refused.english(),
         "no agent backends detected; name one with --engine (alpha, beta)"
     );
     assert!(r.configs.asked.is_empty());
@@ -200,7 +202,7 @@ fn test_an_engine_no_one_knows_is_refused_by_name() {
     let mut r = registrations(Fake::default());
     let refused = r.install(&install(Some("foo"), Scope::User)).unwrap_err();
     assert_eq!(
-        refused.to_string(),
+        refused.english(),
         "unknown engine \"foo\"; known engines: alpha, beta"
     );
     let refused = r
@@ -223,7 +225,11 @@ fn test_an_agent_that_fails_stops_the_call_naming_the_agent() {
         ..Fake::default()
     });
     let failed = r.install(&install(None, Scope::User)).unwrap_err();
-    assert_eq!(failed.to_string(), "alpha: it is not JSON");
+    assert_eq!(
+        failed.english(),
+        "alpha: agent-configs-corrupt",
+        "the cause as its key"
+    );
     assert_eq!(r.configs.asked.len(), 1, "beta is not reached");
 
     let mut r = registrations(Fake {
@@ -320,7 +326,11 @@ fn test_an_install_that_one_agent_refuses_writes_no_agent() {
         ..Fake::default()
     });
     let failed = r.install(&install(None, Scope::User)).unwrap_err();
-    assert_eq!(failed.to_string(), "beta: it is not JSON");
+    assert_eq!(
+        failed.english(),
+        "beta: agent-configs-corrupt",
+        "the cause as its key"
+    );
     let written: Vec<&str> = r
         .configs
         .asked

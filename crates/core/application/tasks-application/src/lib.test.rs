@@ -1,9 +1,9 @@
-//! The use cases, over fake ports and annals' in-memory store, run through
-//! annals' kernel as the binary runs them over SQLite.
+//! The use cases, over fake ports and angzarr-ports' in-memory store, run through
+//! the kernel as the binary runs them over SQLite.
 
-use annals::next::v1::event_meta::Causation;
-use annals::next::AsyncEventStore;
-use annals_diagnostic::{Diagnostic, Report};
+use crate::english::English;
+use angzarr_embedded::next::v1::event_meta::Causation;
+use angzarr_embedded_diagnostic::{Diagnostic, Report};
 
 use crate::fakes::{
     project, ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores, Fault, Flaky,
@@ -45,7 +45,7 @@ fn listed(service: &mut Fake, query: ListQuery) -> Vec<String> {
 }
 
 /// The command ids recorded on `harp`'s events.
-fn command_ids(service: &mut Fake, harp: &str) -> Vec<annals::next::v1::Uuid> {
+fn command_ids(service: &mut Fake, harp: &str) -> Vec<angzarr_embedded::next::v1::Uuid> {
     let slice = ready(service.stores.store.read_from(&cover(harp), 0))
         .unwrap()
         .expect("the stream");
@@ -54,7 +54,6 @@ fn command_ids(service: &mut Fake, harp: &str) -> Vec<annals::next::v1::Uuid> {
         .iter()
         .filter_map(|p| match p.meta.as_ref()?.causation.as_ref()? {
             Causation::CommandId(id) => Some(id.clone()),
-            _ => None,
         })
         .collect()
 }
@@ -267,7 +266,11 @@ fn test_an_add_retries_its_one_command_id_through_store_failures() {
     service.stores.store = Flaky::failing(&[Fault::Unavailable, Fault::LandsThenFails]);
     let written = add(&mut service, new_task("Ship it")).unwrap();
     assert_eq!(written.task.harp_id, "swift-amber");
-    assert_eq!(service.stores.store.begun, 3);
+    assert_eq!(
+        service.stores.store.begun(),
+        2,
+        "two writes: the retry after the lost answer found it on the stream"
+    );
     assert_eq!(service.delay.slept.len(), 2);
     assert_eq!(service.clock.ids.len(), 1, "the same command id each time");
     assert_eq!(command_ids(&mut service, "swift-amber").len(), 1);
@@ -276,12 +279,9 @@ fn test_an_add_retries_its_one_command_id_through_store_failures() {
 #[test]
 fn test_an_add_that_cannot_resolve_its_project_fails_with_why() {
     let mut service = service(&["swift-amber"]);
-    service.identity.fails = Some(Report::new("project-registry-x", "no home"));
+    service.identity.fails = Some(Report::new("project-registry-x"));
     let error = add(&mut service, new_task("Ship it")).unwrap_err();
-    assert_eq!(
-        error,
-        AppError::Identity(Report::new("project-registry-x", "no home"))
-    );
+    assert_eq!(error, AppError::Identity(Report::new("project-registry-x")));
     assert!(service.stores.opened.is_empty());
 }
 
@@ -290,7 +290,7 @@ fn test_an_add_whose_store_does_not_open_fails() {
     let mut service = service(&["swift-amber"]);
     service.stores.store.open_fails = true;
     let error = add(&mut service, new_task("Ship it")).unwrap_err();
-    assert_eq!(error.code(), "annals-next-store-unavailable");
+    assert_eq!(error.code(), "angzarr-ports-store-unavailable");
 }
 
 // ------------------------------------------------------------ tag
@@ -378,7 +378,7 @@ impl ports::Configuration for FakeConfiguration {
     fn tag_schema(&mut self) -> Result<Vec<String>, Report> {
         self.asked += 1;
         if self.declarations.iter().any(|d| d == "unreadable") {
-            return Err(Report::new("x-config", "the config cannot be read"));
+            return Err(Report::new("x-config"));
         }
         Ok(self.declarations.clone())
     }
@@ -510,14 +510,11 @@ fn test_a_scalar_value_set_by_another_since_is_displaced_too() {
         remove: vec![parse("triage:level=3")],
     }
     .into();
-    service.stores.store.meanwhile = Some(Box::new(move |store| {
+    service.stores.store.set_meanwhile(Box::new(move |store| {
         crate::fakes::run(store, "swift-amber", retag);
     }));
     let written = ready(service.tag(change("swift-amber", &["triage:level=1"], &[]))).unwrap();
-    assert!(
-        service.stores.store.meanwhile.is_none(),
-        "the other retag ran"
-    );
+    assert!(service.stores.store.meanwhile_ran(), "the other retag ran");
     assert_eq!(spelled(&written.task.tags), ["triage:level=1", "x"]);
 }
 
@@ -596,8 +593,8 @@ fn add_unchecked(service: &mut Configured, tag: &str) {
         dead_letters: &service.dead_letters,
     };
     let book = crate::book("swift-amber", add.into());
-    let id = annals::next::v1::Uuid::from_bytes([7; 16]);
-    ready(runner.run(&mut service.stores.store, &book, &id)).unwrap();
+    let id = angzarr_embedded::next::v1::Uuid::from_bytes([7; 16]);
+    ready(runner.run(&service.stores.store, &book, &id)).unwrap();
 }
 
 #[test]
@@ -683,7 +680,10 @@ fn test_a_tag_in_a_project_with_no_store_yet_is_refused_and_creates_none() {
 fn test_a_tag_retries_through_store_failures() {
     let mut service = service(&["swift-amber"]);
     add(&mut service, new_task("Ship it")).unwrap();
-    service.stores.store.faults = [Fault::Conflict, Fault::LandsThenFails].into();
+    service
+        .stores
+        .store
+        .fail([Fault::Conflict, Fault::LandsThenFails]);
     let written = ready(service.tag(change("swift-amber", &["x"], &[]))).unwrap();
     assert_eq!(spelled(&written.task.tags), ["x"]);
     assert_eq!(service.delay.slept.len(), 2);
@@ -699,7 +699,10 @@ fn test_a_tag_that_gives_up_says_so() {
     let mut service = service(&["swift-amber"]);
     add(&mut service, new_task("Ship it")).unwrap();
     service.backoff.attempts = 2;
-    service.stores.store.faults = [Fault::Unavailable, Fault::Unavailable].into();
+    service
+        .stores
+        .store
+        .fail([Fault::Unavailable, Fault::Unavailable]);
     let error = ready(service.tag(change("swift-amber", &["x"], &[]))).unwrap_err();
     assert!(
         matches!(error, AppError::GaveUp { attempts: 2, .. }),
@@ -710,7 +713,7 @@ fn test_a_tag_that_gives_up_says_so() {
 #[test]
 fn test_a_tag_whose_project_does_not_resolve_fails_with_why() {
     let mut service = service(&[]);
-    service.identity.fails = Some(Report::new("project-registry-x", "no home"));
+    service.identity.fails = Some(Report::new("project-registry-x"));
     let error = ready(service.tag(change("swift-amber", &["x"], &[]))).unwrap_err();
     assert_eq!(error.code(), "project-registry-x");
 }
@@ -721,7 +724,7 @@ fn test_a_tag_whose_store_does_not_open_fails() {
     service.identity.bound = Some(project());
     service.stores.store.open_fails = true;
     let error = ready(service.tag(change("swift-amber", &["x"], &[]))).unwrap_err();
-    assert_eq!(error.code(), "annals-next-store-unavailable");
+    assert_eq!(error.code(), "angzarr-ports-store-unavailable");
 }
 
 // ------------------------------------------------------------ status
@@ -935,7 +938,7 @@ fn test_a_status_change_or_edit_the_domain_refuses_alone_resolves_nothing() {
 fn test_a_status_change_retries_through_store_failures() {
     let mut service = service(&["swift-amber"]);
     add(&mut service, new_task("Ship it")).unwrap();
-    service.stores.store.faults = [Fault::Conflict].into();
+    service.stores.store.fail([Fault::Conflict]);
     let written = ready(service.set_status(moved("swift-amber", "Done", None))).unwrap();
     assert_eq!(written.task.status, "Done");
     assert_eq!(service.delay.slept.len(), 1);
@@ -1188,7 +1191,7 @@ fn test_a_list_opens_its_store_to_read() {
 #[test]
 fn test_a_list_whose_project_does_not_resolve_fails_with_why() {
     let mut service = service(&[]);
-    service.identity.fails = Some(Report::new("project-registry-x", "no home"));
+    service.identity.fails = Some(Report::new("project-registry-x"));
     let error = ready(service.list(ListQuery::default())).unwrap_err();
     assert_eq!(error.code(), "project-registry-x");
 }
@@ -1199,7 +1202,7 @@ fn test_a_list_whose_store_does_not_open_fails() {
     service.identity.bound = Some(project());
     service.stores.store.open_fails = true;
     let error = ready(service.list(ListQuery::default())).unwrap_err();
-    assert_eq!(error.code(), "annals-next-store-unavailable");
+    assert_eq!(error.code(), "angzarr-ports-store-unavailable");
 }
 
 #[test]
@@ -1237,13 +1240,13 @@ fn test_a_task_read_back_as_no_events_is_never_a_blank_task() {
 
 // ------------------------------------------------------------ dead letters
 
-// annals' kernel writes a dead letter only for what angzarr would
+// the kernel writes a dead letter only for what angzarr would
 // dead-letter (an ingest that panicked, a conflict window decide never
 // acknowledged, a policy's malformed book); the tasks domain, with no
 // routes, can be made to produce none. So each test writes one to the log
 // the kernel is handed, as the kernel would during the write.
 fn dead_letter(service: &Fake, line: &str) {
-    annals::next::DeadLetterLog::write(&service.dead_letters, line);
+    angzarr_embedded::next::DeadLetterLog::write(&service.dead_letters, line);
 }
 
 fn letters(lines: &[&str]) -> Vec<crate::DeadLetter> {
@@ -1345,14 +1348,14 @@ fn test_every_failed_write_carries_the_dead_letters_written_while_it_ran() {
 fn test_a_dead_letter_renders_its_line() {
     let letter = &letters(&["DEAD LETTER: x"])[0];
     assert_eq!(letter.code(), "tasks-application-dead-letter");
-    assert_eq!(letter.to_string(), "DEAD LETTER: x");
+    assert_eq!(letter.english(), "DEAD LETTER: x");
     assert_eq!(letter.args().len(), 1);
 }
 
 // ------------------------------------------- idempotency: a request's key
 //
 // The command id is given FAR earlier, at the edge, as the request's key:
-// a request retried under its key sends the same command id, so annals
+// a request retried under its key sends the same command id, so the kernel
 // answers what already applied DUPLICATE and nothing applies twice.
 
 #[test]
@@ -1409,7 +1412,7 @@ fn test_a_tag_change_retried_under_its_request_id_derives_its_command_id() {
 
 // Until O, an add's request id is refused, given at all and before
 // anything is read or written: an add's stream is its minted harp's, and
-// annals deduplicates within a stream, so a retried add would mint another
+// the kernel deduplicates within a stream, so a retried add would mint another
 // harp and add the task twice. The refusal says so, rather than the key
 // promising what it cannot keep.
 #[test]
@@ -1424,7 +1427,7 @@ fn test_an_add_given_a_request_id_is_refused_until_o() {
         assert_eq!(error, AppError::AddRequestIdNotYet, "{key:?}");
         assert_eq!(error.code(), "tasks-application-add-request-id-not-yet");
         assert_eq!(
-            error.to_string(),
+            error.english(),
             "not yet: an add's request id needs fix O (the harp position pinned by the key)"
         );
     }

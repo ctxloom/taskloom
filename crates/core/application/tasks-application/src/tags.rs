@@ -13,7 +13,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use annals_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 use ports::{NamespacePermit, TagPermits};
 
 pub use tasks::Tag;
@@ -81,70 +81,7 @@ pub enum TagRefusal {
 
 impl fmt::Display for TagRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            TagRefusal::Blank => f.write_str("a tag was given blank: give one, or leave it out"),
-            TagRefusal::Unparseable { tag, detail } => {
-                write!(f, "the tag {tag} is not a tag in tagma's grammar: {detail}")
-            }
-            TagRefusal::OperatorWord { tag } => write!(
-                f,
-                "the tag {tag} is a query operator (and, or, not, in any case), so no query could match it"
-            ),
-            TagRefusal::ReservedNamespace { tag, namespace } => write!(
-                f,
-                "the tag {tag} is in the namespace {namespace}: tagma's namespace is reserved for the tag schema's declarations"
-            ),
-            TagRefusal::NotInEnum {
-                tag,
-                value,
-                target,
-                members,
-            } => write!(
-                f,
-                "the tag {tag}'s value {value} is not one of {target}'s declared values: {members}"
-            ),
-            TagRefusal::NotANumber {
-                tag,
-                value,
-                target,
-                min,
-                max,
-            } => write!(
-                f,
-                "the tag {tag}'s value {value} is not a finite number, which {target}'s declared range [{min}, {max}] requires"
-            ),
-            TagRefusal::OutOfRange {
-                tag,
-                value,
-                target,
-                min,
-                max,
-            } => write!(
-                f,
-                "the tag {tag}'s value {value} is outside {target}'s declared range [{min}, {max}]"
-            ),
-            TagRefusal::NotSemver {
-                tag,
-                value,
-                target,
-                detail,
-            } => write!(
-                f,
-                "the tag {tag}'s value {value} is not a SemVer 2.0.0 version, which {target}'s declared type semver requires: {detail}"
-            ),
-            TagRefusal::NotPermitted { tag, permit } => write!(
-                f,
-                "the tag {tag} is not permitted in this project: a person permits it with `taskloom permit {permit}`"
-            ),
-            TagRefusal::ScalarConflict {
-                target,
-                first,
-                second,
-            } => write!(
-                f,
-                "the tags {first} and {second} both give {target} a value, and it takes one: give one of them"
-            ),
-        }
+        angzarr_embedded_diagnostic::display(self, f)
     }
 }
 
@@ -168,7 +105,9 @@ impl Diagnostic for TagRefusal {
         let s = |v: &String| Arg::from(v.as_str());
         match self {
             TagRefusal::Blank => Vec::new(),
-            TagRefusal::Unparseable { tag, detail } => vec![("tag", s(tag)), ("detail", s(detail))],
+            TagRefusal::Unparseable { tag, detail } => {
+                vec![("tag", s(tag)), ("ext_err_txt", s(detail))]
+            }
             TagRefusal::OperatorWord { tag } => vec![("tag", s(tag))],
             TagRefusal::ReservedNamespace { tag, namespace } => {
                 vec![("tag", s(tag)), ("namespace", s(namespace))]
@@ -213,7 +152,7 @@ impl Diagnostic for TagRefusal {
                 ("tag", s(tag)),
                 ("value", s(value)),
                 ("target", s(target)),
-                ("detail", s(detail)),
+                ("ext_err_txt", s(detail)),
             ],
             TagRefusal::NotPermitted { tag, permit } => {
                 vec![("tag", s(tag)), ("permit", s(permit))]

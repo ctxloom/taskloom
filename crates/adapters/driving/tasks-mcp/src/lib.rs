@@ -119,7 +119,7 @@ impl<F> TaskTools<F> {
         }
     }
 
-    /// Say each dead letter annals' kernel wrote on stderr, as the command
+    /// Say each dead letter the kernel wrote on stderr, as the command
     /// line says it: almost certainly a bug, so never left unsaid. A
     /// stderr that cannot be written fails no call.
     fn dead_lettered(&self, letters: &[DeadLetter]) {
@@ -422,3 +422,7 @@ mod tests;
 #[cfg(test)]
 #[path = "fakes.test.rs"]
 mod fakes;
+
+#[cfg(test)]
+#[path = "../../../../adapters/driving/presentation/src/english.test.rs"]
+mod english;

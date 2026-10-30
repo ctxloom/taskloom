@@ -8,7 +8,9 @@ use std::path::PathBuf;
 use std::pin::pin;
 use std::task::{Context as TaskContext, Poll, Waker};
 
-use annals_diagnostic::Report;
+crate::english_for!(&[crate::EN_US.1]);
+
+use angzarr_embedded_diagnostic::Report;
 use tasks_application::{
     AppError, Details, Finding, Hidden, ImportReport, ImportRequest, ImportService, LintReport,
     ListQuery, Listing, NamespacePermit, NewTask, PermitChange, PermitList, PermitService,
@@ -1613,10 +1615,7 @@ fn test_output_that_cannot_be_written_fails_with_why() {
 #[test]
 fn test_a_text_error_is_its_catalog_message_not_its_english() {
     let mut fake = Fake {
-        written: Some(Err(AppError::Rejected(Report::new(
-            "tasks-text-required",
-            "the English fallback",
-        )))),
+        written: Some(Err(AppError::Rejected(Report::new("tasks-text-required")))),
         ..Fake::default()
     };
     let ran = run_on(&mut fake, true, &["add", "x"]);
@@ -1629,11 +1628,7 @@ fn test_a_json_error_is_an_envelope_on_stderr_with_its_cause_nested() {
     let mut fake = Fake {
         written: Some(Err(AppError::GaveUp {
             attempts: 10,
-            error: Report::new(
-                "annals-store-sql-unavailable",
-                "the database failed: locked",
-            )
-            .arg("detail", "locked"),
+            error: Report::new("annals-store-sql-unavailable").arg("ext_err_txt", "locked"),
         })),
         ..Fake::default()
     };
@@ -1649,13 +1644,13 @@ fn test_a_json_error_is_an_envelope_on_stderr_with_its_cause_nested() {
                 "attempts": 10,
                 "error": {
                     "code": "annals-store-sql-unavailable",
-                    "args": {"detail": "locked"},
+                    "args": {"ext_err_txt": "locked"},
                     // No catalog of this test's knows the store's key: its
                     // key and args, never its English.
-                    "message": "annals-store-sql-unavailable detail=locked",
+                    "message": "annals-store-sql-unavailable ext_err_txt=locked",
                 },
             },
-            "message": "gave up after 10 attempts: annals-store-sql-unavailable detail=locked",
+            "message": "gave up after 10 attempts: annals-store-sql-unavailable ext_err_txt=locked",
         })
     );
 }
@@ -1675,7 +1670,10 @@ fn test_a_usage_error_in_json_is_an_envelope() {
         let envelope: serde_json::Value =
             serde_json::from_str(&ran.err).unwrap_or_else(|e| panic!("{args:?}: {e}: {}", ran.err));
         assert_eq!(envelope["code"], "tasks-cli-usage", "{args:?}");
-        assert_eq!(envelope["message"], envelope["args"]["detail"], "{args:?}");
+        assert_eq!(
+            envelope["message"], envelope["args"]["ext_err_txt"],
+            "{args:?}"
+        );
     }
 }
 
@@ -1812,7 +1810,7 @@ fn test_import_that_left_records_behind_fails_after_saying_which() {
 #[test]
 fn test_import_that_stopped_in_a_project_fails() {
     let mut stopped = imported(0);
-    stopped.failed = Some(annals_diagnostic::Report::new("x-bad", "bad log"));
+    stopped.failed = Some(angzarr_embedded_diagnostic::Report::new("x-bad"));
     let mut fake = FakeImporter {
         report: report(vec![stopped, imported(0)]),
         ..FakeImporter::default()
@@ -2093,11 +2091,9 @@ fn test_a_prune_where_there_is_no_project_says_so_on_stderr() {
 
 #[test]
 fn test_a_refused_prune_says_why_and_exits_1() {
-    let refusal = annals_diagnostic::Report::new(
-        "tasks-application-prune-age-unreadable",
-        "the age soon is unreadable",
-    )
-    .arg("age", "soon");
+    let refusal =
+        angzarr_embedded_diagnostic::Report::new("tasks-application-prune-age-unreadable")
+            .arg("age", "soon");
     let mut fake = Fake {
         pruning: Some(Err(AppError::Prune(refusal))),
         ..Fake::default()

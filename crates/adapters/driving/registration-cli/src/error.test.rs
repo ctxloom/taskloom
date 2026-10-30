@@ -1,6 +1,8 @@
 //! The errors' English and the catalog.
 
-use annals_diagnostic::Diagnostic;
+use angzarr_embedded_diagnostic::Diagnostic;
+
+crate::english_for!(&[crate::EN_US.1]);
 
 use registration_application::RegistrationError;
 
@@ -17,19 +19,19 @@ fn test_go_says_it_this_way() {
         flavor: os::Flavor::Unix,
     };
     assert_eq!(
-        warning.to_string(),
+        warning.english(),
         "warning: \"taskloom\" does not resolve on this process's PATH: exec: \"taskloom\": executable file not found in $PATH"
     );
     assert_eq!(arg_names(&warning), ["command", "path_var"]);
     assert_eq!(
-        ManageNotice::NothingToRemove.to_string(),
+        ManageNotice::NothingToRemove.english(),
         "nothing to remove (no agent backends detected; name one with --engine)"
     );
     let app = RegistrationError::NoBackends {
         known: "claude-code".to_string(),
     };
     assert_eq!(ManageError::App(app.clone()).code(), app.code());
-    assert_eq!(ManageError::App(app.clone()).to_string(), app.to_string());
+    assert_eq!(ManageError::App(app.clone()).english(), app.english());
     assert_eq!(arg_names(&ManageError::App(app)), ["known"]);
 }
 
@@ -42,18 +44,23 @@ fn test_windows_names_the_search_path_percent_path() {
         flavor: os::Flavor::Windows,
     };
     let said = "warning: \"taskloom\" does not resolve on this process's PATH: exec: \"taskloom\": executable file not found in %PATH%";
-    assert_eq!(warning.to_string(), said);
+    assert_eq!(warning.english(), said);
     let catalog = presentation::Catalog::en_us(&[crate::EN_US, registration_application::EN_US])
         .expect("the catalog loads");
     assert_eq!(catalog.render(&warning), Ok(said.to_string()));
 }
 
 #[test]
-fn test_each_diagnostics_english_is_its_catalog_message() {
+fn test_each_diagnostic_renders_its_catalog_message_and_displays_as_its_key() {
     let catalog = presentation::Catalog::en_us(&[crate::EN_US, registration_application::EN_US])
         .expect("the catalog loads");
     for sample in diagnostic_samples() {
-        assert_eq!(catalog.render(&*sample), Ok(sample.to_string()));
+        let message = catalog.render(&*sample).expect("a catalog message");
+        assert!(!message.is_empty(), "{}", sample.code());
+        assert!(
+            sample.to_string().starts_with(sample.code()),
+            "Display is the key and args, never English: {sample}"
+        );
     }
 }
 

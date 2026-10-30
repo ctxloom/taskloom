@@ -1,4 +1,4 @@
-# Build against local sibling checkouts of annals, angzarr-cli and tagma,
+# Build against local sibling checkouts of angzarr-cli and tagma,
 # while changing one of them and this workspace together:
 #
 #     cp .cargo/local-deps.toml .cargo/config.toml     # on
@@ -14,11 +14,6 @@
 # While it is on, Cargo.lock records these crates as path dependencies:
 # restore it (`git checkout Cargo.lock`) before committing, and once the
 # sibling's change is pushed, bump the rev in Cargo.toml instead.
-
-[patch."https://github.com/benjaminabbitt/annals"]
-annals = { path = "../../annals/crates/annals" }
-annals-diagnostic = { path = "../../annals/crates/annals-diagnostic" }
-annals-store-sql = { path = "../../annals/crates/annals-store-sql" }
 
 [patch."https://github.com/angzarr-io/angzarr-cli"]
 angzarr-build = { path = "../../angzarr/angzarr-cli/main/crates/angzarr-build" }
