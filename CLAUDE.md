@@ -34,10 +34,11 @@ the architecture; there is no other table of crates.
 - `adapters/platform`: libraries adapters build on (`os`, everything that
   differs between operating systems; the `file-system` seam over it; and
   `file-lock`'s advisory locks over both); they implement no port.
-- `adapters/driving`: CLI, MCP, gRPC: translation only.
+- `adapters/driving`: the CLI (and later gRPC): translation only.
+  taskloom serves no MCP: agents and people alike use the CLI.
 - `root/lib`: the composition root's wiring as a library (`tasks-lib`):
-  the use cases over the default adapters, which the binaries, their
-  servers and ctxloom build from, so no frontend wires an adapter.
+  the use cases over the default adapters, which the binary, any later
+  server and ctxloom build from, so no frontend wires an adapter.
 - `root/bin`: binaries, the composition root.
 
 This repository is taskloom: the `taskloom` binary and the crates it
@@ -103,7 +104,7 @@ Dependencies point inward; a review refuses a change that breaks these:
   internals. Adapters never depend on each other, with one exception:
   driving adapters share the presentation crates, `presentation`
   (domain-free; its tests keep it so) and a domain's own, such as
-  `tasks-presentation` (the task JSON the CLI and MCP server both write).
+  `tasks-presentation` (the task JSON the CLI writes).
 - A domain never depends on a read model (the write side reads no
   projection); a read model never depends on the application layer (a query
   issues no command).
@@ -209,7 +210,7 @@ or tagma, whether pinned or patched onto local checkouts.
 
 `just install` puts it in `~/.local/share/taskloom-rs/bin`, on no PATH;
 `.envrc` (direnv, `direnv allow` once per checkout) puts that first, so a
-session started here runs it as its MCP server and CLI. Run `taskloom` and
+session started here runs it as its CLI (it serves no MCP). Run `taskloom` and
 not `~/go/bin/taskloom`, which writes a log the Rust store never reads.
 
 ## The git-hook gates are in gates/; the justfile gives their parameters

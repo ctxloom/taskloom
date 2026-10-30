@@ -1,14 +1,13 @@
 [package]
 name = "tasks-lib"
 version = "0.1.0"
-description = "The tasks use cases over the default adapters, wired once: the composition root the taskloom binary, its servers and ctxloom share"
+description = "The tasks use cases over the default adapters, wired once: the composition root the taskloom binary and ctxloom share"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
-agent-configs.workspace = true
 angzarr-embedded-diagnostic.workspace = true
 # Their catalogs, in the wiring's (`catalog`).
 angzarr-embedded.workspace = true
@@ -21,7 +20,6 @@ os.workspace = true
 presentation.workspace = true
 project-application.workspace = true
 project-registry.workspace = true
-registration-application.workspace = true
 system.workspace = true
 task-store-sqlite.workspace = true
 tasks-application.workspace = true
@@ -42,10 +40,8 @@ jsonl-task-log = { workspace = true, features = ["test-support"] }
 project-registry = { workspace = true, features = ["test-support"] }
 task-store-sqlite = { workspace = true, features = ["test-support"] }
 file-lock = { workspace = true, features = ["test-support"] }
-registration-application = { workspace = true, features = ["test-support"] }
 tasks-config = { workspace = true, features = ["test-support"] }
 project-application = { workspace = true, features = ["test-support"] }
-agent-configs = { workspace = true, features = ["test-support"] }
 os = { workspace = true, features = ["test-support"] }
 file-system = { workspace = true, features = ["test-support"] }
 tasks-application = { workspace = true, features = ["test-support"] }

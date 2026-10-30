@@ -3,12 +3,12 @@
 //! are minted, whether its store can purge a stream or say whether
 //! anything changed, what time it is, how to wait, what is configured, the
 //! JSONL task logs to import, what a directory's identity rests on, to show
-//! and repair it, whether a project's database is sound, and agents' MCP
-//! configurations, to register a server in. Each is a trait a driven
-//! adapter (or the composition root) implements; nothing here does I/O.
+//! and repair it, and whether a project's database is sound. Each is a
+//! trait a driven adapter (or the composition root) implements; nothing
+//! here does I/O.
 //!
 //! Every future a port returns is `Send`, as angzarr-ports' are, so a server on a multi-threaded runtime can spawn a use case
-//! generic over them (`tokio::spawn`, an MCP server's handlers).
+//! generic over them (`tokio::spawn`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
@@ -21,10 +21,8 @@ use angzarr_ports::{ChangeToken, Purge, ReadStore, Store, StoreError, Watch};
 /// An instant: prost's `Timestamp`, as every recorded event carries one.
 pub use prost_types::Timestamp;
 
-mod agents;
 mod project;
 
-pub use agents::{AgentConfigs, McpServer, Rewritten, Scope};
 pub use project::{Change, Checked, IdSource, ProjectAdmin, Registered, StoreCheck, Survey};
 
 /// A resolved project: its id, the work root it was resolved from, and

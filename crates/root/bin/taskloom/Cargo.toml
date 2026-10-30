@@ -13,18 +13,15 @@ file-lock.workspace = true
 os.workspace = true
 presentation.workspace = true
 project-cli.workspace = true
-registration-cli.workspace = true
 tasks-application.workspace = true
 tasks-cli.workspace = true
 tasks-lib.workspace = true
-tasks-mcp.workspace = true
 tasks-watch.workspace = true
-# The runtime watch and the MCP server run on; the stop signal (SIGINT or
+# The runtime the commands and watch run on; the stop signal (SIGINT or
 # SIGTERM, as Go's watch stops on) is the os crate's.
 tokio.workspace = true
 
 [dev-dependencies]
-agent-configs = { workspace = true, features = ["test-support"] }
 angzarr-embedded.workspace = true
 angzarr-ports.workspace = true
 angzarr-store-sqlite.workspace = true
@@ -36,7 +33,6 @@ jsonl-task-log = { workspace = true, features = ["test-support"] }
 ports.workspace = true
 project-application = { workspace = true, features = ["test-support"] }
 project-registry = { workspace = true, features = ["test-support"] }
-registration-application = { workspace = true, features = ["test-support"] }
 serde.workspace = true
 serde_json.workspace = true
 system.workspace = true
@@ -49,14 +45,12 @@ time.workspace = true
 # Dependencies already, here again for their test-support: every crate's
 # diagnostic_samples for the catalog tests, and os's fixtures.
 project-cli = { workspace = true, features = ["test-support"] }
-tasks-mcp = { workspace = true, features = ["test-support"] }
 tasks-watch = { workspace = true, features = ["test-support"] }
 tasks-cli = { workspace = true, features = ["test-support"] }
 file-lock = { workspace = true, features = ["test-support"] }
 os = { workspace = true, features = ["test-support"] }
 presentation = { workspace = true, features = ["test-support"] }
 tasks-application = { workspace = true, features = ["test-support"] }
-registration-cli = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

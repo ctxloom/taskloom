@@ -196,3 +196,31 @@ fn test_a_tag_the_schema_hides_is_left_out_of_text_and_kept_in_json() {
         serde_json::json!(["triage:cwe=79", "x", "y"])
     );
 }
+
+// `taskloom schema` reads the RESOLVED schema the writes are held to: the
+// default targets, and what the project's configuration declares.
+#[test]
+fn test_schema_prints_the_resolved_tag_schema() {
+    let env = Env::new("calm-otter-fox");
+    configure(
+        env.project.path(),
+        "tag_schema:\n  - 'tagma.enum:\"area:x\"=\"a,b\"'\n",
+    );
+    let ran = env.run(&["schema", "--json"]);
+    assert!(ran.ok, "{}", ran.stderr);
+    let doc: serde_json::Value = serde_json::from_str(&ran.stdout).unwrap();
+    let targets = doc["targets"].as_array().unwrap();
+    let find = |name: &str| {
+        targets
+            .iter()
+            .find(|t| t["target"] == name)
+            .unwrap_or_else(|| panic!("{name} not in {doc}"))
+    };
+    assert_eq!(find("area:x")["enum"], serde_json::json!(["a", "b"]));
+    assert_eq!(find("triage:level")["scalar"], true);
+    assert_eq!(
+        find("triage:level")["range"],
+        serde_json::json!({"min": 1, "max": 5})
+    );
+    assert_eq!(find("triage:blocks-release")["type"], "semver");
+}

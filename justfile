@@ -96,7 +96,7 @@ check-windows:
     [ "${VERBOSE:-}" = 1 ] && terse=()
     exec just --justfile {{TOP}}/justfile _run check-windows platform cargo \
         cargo check "${terse[@]}" --manifest-path {{TOP}}/Cargo.toml --target x86_64-pc-windows-gnu \
-        -p os -p file-system -p file-lock -p agent-configs -p tasks-config -p project-registry --all-targets
+        -p os -p file-system -p file-lock -p tasks-config -p project-registry --all-targets
 
 # Where `just install` puts the Rust taskloom: a cargo root of its own, so
 # the binary lands in <root>/bin, a directory on no one's PATH, and never

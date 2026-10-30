@@ -1,6 +1,6 @@
-//! The wiring's contract: how the binary (one service per command), the
-//! MCP server and a gRPC server (one per call, on threads and spawned
-//! futures) and ctxloom build the use cases from it, over a home and
+//! The wiring's contract: how the binary (one service per command), a
+//! server (one per call, on threads and spawned futures) and ctxloom
+//! build the use cases from it, over a home and
 //! project on a filesystem of the test's own (`Rooted`), never a real one.
 
 use std::ffi::OsString;
@@ -247,8 +247,7 @@ fn texts(listing: &tasks_application::Listing) -> Vec<String> {
 
 /// What a server's factory must be: a maker of services that crosses
 /// threads and outlives the wiring, each service every use case a frontend
-/// calls, its futures `Send`. MCP's `TaskTools::new` and a gRPC server ask
-/// no more.
+/// calls, its futures `Send`. A gRPC server asks no more.
 fn served<F, S>(factory: F) -> F
 where
     F: Fn() -> S + Send + Sync + 'static,
@@ -269,8 +268,9 @@ fn test_a_task_added_by_one_service_is_listed_by_the_next() {
     assert_eq!(listing.reach, Reach::Project(written.project));
 }
 
-// MCP's path: each call on a service the factory makes for it, on a
-// blocking thread of its own; the factory outlives the wiring it came from.
+// A per-call server's path: each call on a service the factory makes for
+// it, on a blocking thread of its own; the factory outlives the wiring it
+// came from.
 #[test]
 fn test_the_factory_makes_a_service_per_call_on_threads_of_their_own() {
     let dirs = Dirs::new();
@@ -325,7 +325,7 @@ fn test_a_watch_sees_what_another_service_writes() {
 }
 
 // CTXLOOM_PROJECT_ID, given to the builder, beats the working directory's
-// project, as it does in the binary and the MCP server.
+// project, as it does in the binary.
 #[test]
 fn test_a_pinned_project_beats_the_working_directorys() {
     let dirs = Dirs::new();
@@ -444,36 +444,6 @@ fn test_projects_shows_the_project_an_add_minted() {
     assert_eq!(shown.store, Some(written.project.store));
 }
 
-// A registration's command is resolved on the PATH among the variables
-// given, and on no other.
-#[test]
-fn test_registrations_resolve_the_server_on_the_path_given() {
-    let dirs = Dirs::new();
-    let program = format!("/bin/{}", os::host().flavor().program_file("taskloom"));
-    dirs.write(&program, b"#!/bin/sh\n", Mode::from_bits(0o755));
-    let on_path = dirs
-        .builder_in(PROJECT)
-        .vars(vec![("PATH".into(), os::fixture("/bin").into())])
-        .build()
-        .unwrap();
-    assert!(
-        on_path
-            .registrations()
-            .check(&os::fixture(PROJECT))
-            .unwrap()
-            .resolvable
-    );
-    assert!(
-        !dirs
-            .taskloom()
-            .registrations()
-            .check(&os::fixture(PROJECT))
-            .unwrap()
-            .resolvable,
-        "no PATH among the variables given: the process's is not read"
-    );
-}
-
 // The filesystem given is the one the wiring holds.
 #[test]
 fn test_the_filesystem_given_is_the_one_the_wiring_holds() {
@@ -510,7 +480,7 @@ fn test_a_relative_working_directory_is_refused_as_a_catalogued_diagnostic() {
 }
 
 // A working directory that cannot be read (it was deleted) fails only
-// what needs it: the wiring is built, `manage` and `import` run, and
+// what needs it: the wiring is built, `import` runs, and
 // resolving the working directory's project is refused with the
 // catalogued error. The filesystem holds that it has none.
 #[test]
@@ -532,10 +502,6 @@ fn test_an_unreadable_working_directory_fails_only_what_needs_it() {
         .home(os::fixture(HOME))
         .build()
         .expect("built with no working directory");
-    taskloom
-        .registrations()
-        .check(&os::fixture(PROJECT))
-        .expect("manage needs no working directory");
     let report = block_on(taskloom.importer().import(ImportRequest::default())).unwrap();
     assert!(report.complete(), "{report:?}");
     let refused = block_on(taskloom.tasks().list(ListQuery::default())).unwrap_err();
@@ -543,37 +509,6 @@ fn test_an_unreadable_working_directory_fails_only_what_needs_it() {
     assert_eq!(
         catalog(&[]).unwrap().render(&refused).unwrap(),
         format!("the working directory cannot be read: {}", no_such_file())
-    );
-}
-
-// The variables are taken as given: PATH is read without loss, though it
-// is not UTF-8.
-#[test]
-fn test_a_path_that_is_not_utf8_is_read_without_loss() {
-    let dirs = Dirs::new();
-    let bin = os::not_unicode(&os::fixture("/b").display().to_string());
-    let server = PathBuf::from(&bin).join(os::host().flavor().program_file("taskloom"));
-    dirs.owner
-        .create_dir_all(Path::new(&bin), Mode::DIR)
-        .unwrap();
-    dirs.owner
-        .write_atomic(
-            &server,
-            b"#!/bin/sh\n",
-            Perms::Exact(Mode::from_bits(0o755)),
-        )
-        .unwrap();
-    let on_path = dirs
-        .builder_in(PROJECT)
-        .vars(vec![("PATH".into(), bin)])
-        .build()
-        .unwrap();
-    assert!(
-        on_path
-            .registrations()
-            .check(&os::fixture(PROJECT))
-            .unwrap()
-            .resolvable
     );
 }
 
@@ -604,12 +539,10 @@ fn wired_samples() -> Vec<Box<dyn Diagnostic>> {
         angzarr_embedded::diagnostic_samples(),
         tasks_application::diagnostic_samples(),
         project_application::diagnostic_samples(),
-        registration_application::diagnostic_samples(),
         project_registry::diagnostic_samples(),
         task_store_sqlite::diagnostic_samples(),
         jsonl_task_log::diagnostic_samples(),
         tasks_config::diagnostic_samples(),
-        agent_configs::diagnostic_samples(),
         file_lock::diagnostic_samples(),
         file_system::diagnostic_samples(),
     ]

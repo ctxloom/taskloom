@@ -1,6 +1,6 @@
 //! The tasks views: answers as a person reads them (text) or a program
 //! does (JSON), on presentation's [`Render`]. A task's JSON is
-//! tasks-presentation's, shared with the MCP server.
+//! tasks-presentation's.
 
 use std::io::{self, Write};
 
@@ -9,10 +9,10 @@ use presentation::{text, Catalog, Envelope, Render};
 use serde::Serialize;
 use tasks_application::{
     Details, LintReport, Listing, NamespacePermit, PermitList, Permitted, Reach, Row, Shown,
-    StatusInfo, Statuses, Summary, Tag, Task, Vocabulary,
+    StatusInfo, Statuses, Summary, Tag, TagSchema, Task, Vocabulary,
 };
 pub(crate) use tasks_presentation::{headline, project_label, CompactJson, RowJson};
-use tasks_presentation::{PermitsJson, SummaryJson, TagCountJson, TaskJson};
+use tasks_presentation::{PermitsJson, SchemaJson, SummaryJson, TagCountJson, TaskJson};
 
 /// The heading of an answer read across every project.
 pub fn projects_heading(out: &mut dyn Write, projects: usize) -> io::Result<()> {
@@ -501,6 +501,62 @@ impl Render for Permits<'_> {
             "Permitted by the tag schema: {}",
             listed(list.schema_targets.iter())
         )
+    }
+}
+
+/// The resolved tag schema: JSON tasks-presentation's [`SchemaJson`];
+/// text one line a target, its facets after it in a column, and its
+/// formulas indented beneath.
+pub struct Schema<'a>(pub &'a TagSchema);
+
+impl Render for Schema<'_> {
+    fn json(&self) -> impl Serialize + '_ {
+        SchemaJson::of(self.0)
+    }
+
+    fn text(&self, out: &mut dyn Write) -> io::Result<()> {
+        let doc = SchemaJson::of(self.0);
+        if doc.targets.is_empty() {
+            return writeln!(out, "No tag schema: no target is declared.");
+        }
+        let width = doc
+            .targets
+            .iter()
+            .map(|t| text::width(&t.target))
+            .max()
+            .unwrap_or(0)
+            + 2;
+        for target in &doc.targets {
+            let mut facets = Vec::new();
+            if target.scalar {
+                facets.push("scalar".to_string());
+            }
+            if !target.members.is_empty() {
+                facets.push(format!("enum: {}", target.members.join(", ")));
+            }
+            if let Some(range) = target.range {
+                facets.push(format!("range: {} to {}", range.min, range.max));
+            }
+            if !target.kind.is_empty() {
+                facets.push(format!("type: {}", target.kind));
+            }
+            match facets.is_empty() {
+                true => writeln!(out, "{}", target.target)?,
+                false => writeln!(
+                    out,
+                    "{}{}",
+                    text::pad(&target.target, width),
+                    facets.join("; ")
+                )?,
+            }
+            if !target.priority_fn.is_empty() {
+                writeln!(out, "    priority_fn: {}", target.priority_fn)?;
+            }
+            if !target.decay_fn.is_empty() {
+                writeln!(out, "    decay_fn: {}", target.decay_fn)?;
+            }
+        }
+        Ok(())
     }
 }
 

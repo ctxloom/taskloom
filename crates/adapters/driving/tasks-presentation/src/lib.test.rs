@@ -5,13 +5,13 @@ use std::path::PathBuf;
 use presentation::write_json;
 use serde_json::json;
 use tasks_application::{
-    NamespacePermit, PermitList, Project, Reach, Row, Summary, TagCount, TagPermits, Task,
-    Timestamp,
+    NamespacePermit, PermitList, Project, Reach, Row, Summary, TagCount, TagPermits, TagSchema,
+    Task, Timestamp,
 };
 
 use super::{
-    headline, project_dir, project_label, rfc3339, spelled, CompactJson, PermitsJson, RowJson,
-    SummaryJson, TagCountJson, TaskJson,
+    headline, project_dir, project_label, rfc3339, spelled, CompactJson, PermitsJson, RangeJson,
+    RowJson, SchemaJson, SummaryJson, TagCountJson, TargetJson, TaskJson,
 };
 
 fn task(harp: &str, status: &str) -> Task {
@@ -258,5 +258,41 @@ fn test_the_permits_are_each_namespace_open_or_closed_the_flat_tags_and_the_targ
     assert_eq!(
         serde_json::to_value(PermitsJson::of(&undeclared)).unwrap(),
         json!({"declared": false, "namespaces": [], "tags": [], "schema_targets": ["triage:kind"]})
+    );
+}
+
+// The tag schema's document: one entry a target, by target, named, each
+// carrying every facet declared for it but `hide`; a target declared by
+// several facets is one entry.
+#[test]
+fn test_the_schema_is_one_named_entry_per_target_with_its_facets() {
+    let schema = TagSchema::parse([
+        r#"tagma.enum:"b:y"="p,q""#,
+        r#"tagma.arity:"b:y"=scalar"#,
+        r#"tagma.decay_fn:"b:y"="2""#,
+        r#"tagma.range:"a:x"="0.5,2""#,
+        r#"tagma.type:"a:x"=semver"#,
+        r#"tagma.priority_fn:"a:x"="1""#,
+        r#"tagma.hide:"c:z"=true"#,
+    ])
+    .unwrap();
+    assert_eq!(
+        SchemaJson::of(&schema).targets,
+        [
+            TargetJson {
+                target: "a:x".to_string(),
+                range: Some(RangeJson { min: 0.5, max: 2.0 }),
+                kind: "semver".to_string(),
+                priority_fn: "1".to_string(),
+                ..TargetJson::default()
+            },
+            TargetJson {
+                target: "b:y".to_string(),
+                scalar: true,
+                members: vec!["p".to_string(), "q".to_string()],
+                decay_fn: "2".to_string(),
+                ..TargetJson::default()
+            },
+        ]
     );
 }

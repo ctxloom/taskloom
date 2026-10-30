@@ -3,7 +3,7 @@
 //! finished ones, read what the project's tag permits permit; and, apart
 //! from them, import the JSONL task logs ([`Importer`], the one use case
 //! that reads them), and grant and revoke tag permits ([`PermitService`],
-//! which no MCP server is handed).
+//! a person's, apart so a frontend can leave it out).
 //!
 //! Each resolves its project through [`ProjectIdentity`], opens the
 //! project's store through [`TaskStores`], and runs its command through
@@ -238,8 +238,8 @@ pub trait TaskService {
     /// configured (none, where it declares none), and the targets the
     /// resolved tag schema declares, which are permitted without one. No
     /// project is resolved and no store opened: permits are configuration.
-    /// Granting and revoking are [`PermitService`]'s, which no MCP server
-    /// is handed; reading them is here, so an agent can see them.
+    /// Granting and revoking are [`PermitService`]'s, a person's; reading
+    /// them is here, so an agent can see them.
     fn permits(&mut self) -> impl Future<Output = Result<PermitList, AppError>> + Send;
 }
 

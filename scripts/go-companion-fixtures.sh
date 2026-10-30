@@ -1,19 +1,14 @@
 #!/usr/bin/env bash
-# Rewrite the fixtures that hold Go taskloom's companion text, from the Go
+# Rewrite the fixture that holds Go taskloom's companion text, from the Go
 # source itself:
 #
-#   crates/adapters/driving/tasks-mcp/fixtures/go/instructions.txt
-#       the MCP server's instructions (cmd/taskloom/mcp.go,
-#       mcpServerInstructions)
-#   crates/adapters/driving/tasks-mcp/fixtures/go/tools.json
-#       every tool as Go's tools/list answers it: name, description, input
-#       and output schema (cmd/taskloom/mcp_tools.go, registerTaskTools)
 #   crates/adapters/driving/tasks-cli/fixtures/go/loadout.yaml
 #       the loadout document (cmd/taskloom/loadout.yaml)
 #
-# The parity tests compare what Rust taskloom serves with these, byte for
-# byte, after applying the human's reviewed factual changes
-# (fixtures/reviewed.rs in tasks-mcp and tasks-cli), which this leaves alone. Go's own code produces them: scripts/go-companion/
+# Rust taskloom serves no MCP, so Go's MCP text is not fixed here. The
+# parity tests compare the loadout Rust taskloom prints with this, byte for
+# byte, after applying the human's reviewed changes
+# (tasks-cli's fixtures/reviewed.rs), which this leaves alone. Go's own code produces it: scripts/go-companion/
 # companion_dump_test.go, laid into the Go checkout's cmd/taskloom with
 # `go test -overlay`, so the checkout is not written. GO_CTXLOOM names that
 # checkout (default ../../ctxloom/ctxloom/main from here, which resolves
@@ -23,7 +18,6 @@ set -euo pipefail
 top=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 go_checkout=${GO_CTXLOOM:-$top/../../ctxloom/ctxloom/main}
 harness=$top/scripts/go-companion/companion_dump_test.go
-mcp_fixtures=$top/crates/adapters/driving/tasks-mcp/fixtures/go
 cli_fixtures=$top/crates/adapters/driving/tasks-cli/fixtures/go
 
 if [ ! -d "$go_checkout/cmd/taskloom" ]; then
@@ -41,9 +35,6 @@ mkdir "$work/out"
     go test -count=1 -overlay "$work/overlay.json" -run '^TestDumpCompanion$' ./cmd/taskloom/ >"$work/go-test.log") \
     || { cat "$work/go-test.log" >&2; exit 1; }
 
-mkdir -p "$mcp_fixtures" "$cli_fixtures"
-cp "$work/out/instructions.txt" "$work/out/capabilities.json" "$work/out/tools.json" \
-    "$work/out/resources.json" "$work/out/tag-schema.json" "$work/out/tag-vocabulary.json" \
-    "$mcp_fixtures/"
+mkdir -p "$cli_fixtures"
 cp "$work/out/loadout.yaml" "$cli_fixtures/"
-echo "go-companion-fixtures: wrote $mcp_fixtures and $cli_fixtures from $go_checkout ($(cd "$go_checkout" && git rev-parse --short HEAD))"
+echo "go-companion-fixtures: wrote $cli_fixtures from $go_checkout ($(cd "$go_checkout" && git rev-parse --short HEAD))"

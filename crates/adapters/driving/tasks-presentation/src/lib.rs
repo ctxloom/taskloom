@@ -1,13 +1,13 @@
 //! The tasks domain's shapes on the driving edge: what a task looks like
-//! to a program, the same whichever adapter answers, so one jq filter
-//! works on the command line's JSON and on the MCP tools' results alike.
+//! to a program, the same whichever adapter answers (the command line
+//! now, a server later), so one jq filter works on each.
 //! presentation itself stays domain-free; this is the tasks domain's.
 
 use std::collections::BTreeMap;
 
 use serde::Serialize;
 use tasks_application::{
-    NamespacePermit, PermitList, Project, Summary, Tag, TagCount, Task, Timestamp,
+    NamespacePermit, PermitList, Project, Summary, Tag, TagCount, TagSchema, Task, Timestamp,
 };
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -182,8 +182,7 @@ impl TagCountJson {
     }
 }
 
-/// What a project permits, as JSON, the same from `taskloom permits
-/// --format json` and the `taskloom://tag-permits` resource:
+/// What a project permits, as JSON (`taskloom permits --format json`):
 ///
 /// ```json
 /// {"declared": true,
@@ -243,6 +242,96 @@ impl PermitsJson {
             schema_targets,
         }
     }
+}
+
+/// The tag schema a write is held to, as JSON (`taskloom schema
+/// --format json`): one entry a target, by target, carrying every facet
+/// declared for it but `hide`, which is about what a listing shows, not
+/// what a write admits. An arity declared other than scalar is no
+/// `scalar`.
+///
+/// ```json
+/// {"targets": [{"target": "triage:kind", "scalar": true,
+///               "enum": ["defect", "capability", "chore"],
+///               "priority_fn": "...", "decay_fn": "..."},
+///              {"target": "triage:level", "scalar": true,
+///               "range": {"min": 1, "max": 5}}]}
+/// ```
+#[derive(Serialize)]
+pub struct SchemaJson {
+    pub targets: Vec<TargetJson>,
+}
+
+/// One declared target and its facets; an undeclared facet is left out.
+#[derive(Serialize, Default, PartialEq, Debug)]
+pub struct TargetJson {
+    pub target: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub scalar: bool,
+    #[serde(rename = "enum", skip_serializing_if = "Vec::is_empty")]
+    pub members: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub range: Option<RangeJson>,
+    #[serde(rename = "type", skip_serializing_if = "String::is_empty")]
+    pub kind: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub priority_fn: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub decay_fn: String,
+}
+
+/// A target's inclusive numeric bounds, each in a float64's shortest
+/// form (`5`, not `5.0`), as the tag-schema resource wrote them.
+#[derive(Serialize, Clone, Copy, PartialEq, Debug)]
+pub struct RangeJson {
+    #[serde(serialize_with = "whole_or_float")]
+    pub min: f64,
+    #[serde(serialize_with = "whole_or_float")]
+    pub max: f64,
+}
+
+fn whole_or_float<S: serde::Serializer>(value: &f64, serializer: S) -> Result<S::Ok, S::Error> {
+    go_number(&Some(*value), serializer)
+}
+
+impl SchemaJson {
+    pub fn of(schema: &TagSchema) -> SchemaJson {
+        let mut targets: BTreeMap<String, TargetJson> = BTreeMap::new();
+        for (target, scalar) in schema.arities() {
+            entry(&mut targets, target).scalar = scalar;
+        }
+        for (target, members) in schema.enums() {
+            entry(&mut targets, target).members = members.to_vec();
+        }
+        for (target, range) in schema.ranges() {
+            entry(&mut targets, target).range = Some(RangeJson {
+                min: range.min,
+                max: range.max,
+            });
+        }
+        for (target, kind) in schema.types() {
+            entry(&mut targets, target).kind = kind.to_string();
+        }
+        for (target, formula) in schema.priority_fns() {
+            entry(&mut targets, target).priority_fn = formula.clone();
+        }
+        for (target, formula) in schema.decay_fns() {
+            entry(&mut targets, target).decay_fn = formula.clone();
+        }
+        SchemaJson {
+            targets: targets.into_values().collect(),
+        }
+    }
+}
+
+/// `target`'s entry, begun if it has none yet.
+fn entry<'m>(targets: &'m mut BTreeMap<String, TargetJson>, target: &str) -> &'m mut TargetJson {
+    targets
+        .entry(target.to_string())
+        .or_insert_with(|| TargetJson {
+            target: target.to_string(),
+            ..TargetJson::default()
+        })
 }
 
 /// Each tag in its canonical spelling (tagma's `Display`).
