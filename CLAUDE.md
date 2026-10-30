@@ -140,6 +140,14 @@ Any store is held to annals' store contract (`annals::store_contract!` or
 and projector tests run through annals' kernel over `InMemoryStore`, as the
 binary runs over SQLite.
 
+Moving to angzarr-store-sqlite (taskloom-on-angzarr-embedded.plan.md): its
+`SqliteStore`, at the same path, is opened by task-store-sqlite's
+`embedded::EmbeddedStores`, beside the annals opener until the application
+moves (step 4). A store from before angzarr-embedded is refused, naming
+its backup (`state.db.pre-embedded`), never migrated in place (ruling D2).
+Projector tests on it run through angzarr-embedded's kernel over
+angzarr-ports' `MemoryStore`.
+
 ## Co-developing annals, angzarr-cli or tagma
 
 annals, angzarr-build (angzarr-cli's `rust-cli` branch) and tagma are git
@@ -153,8 +161,13 @@ committing, and land the change by pushing the sibling and bumping its rev.
 
 ## Errors are localizable: a code, args, and an en-US message
 
-Every error and rejection implements `annals_diagnostic::Diagnostic` with an
-English `Display` fallback. A new variant needs a stable code (prefixed with
+Every error and rejection implements `annals_diagnostic::Diagnostic` (moving
+to `angzarr_embedded_diagnostic::Diagnostic` with step 4). No English
+crosses (angzarr decision 14.37): an error's `Display` is its code and
+args (` name=value`, a text value quoted where it would not parse back),
+a third party's text is the arg `ext_err_txt`, and presentation shows a
+diagnostic no catalog knows as its code and args. Crates still on
+annals-diagnostic keep an English `Display` until they move. A new variant needs a stable code (prefixed with
 the crate's name), an en-US message in `locales/en-US/<crate>.ftl` using
 exactly its args, and a sample in the crate's `diagnostic_samples()`. The
 crate's catalog test checks messages and samples both ways.
@@ -164,8 +177,9 @@ Each crate with diagnostics exports its embedded en-US catalog as `EN_US`
 catalog from every crate's `EN_US` (presentation's `Catalog`), and the
 driving adapters render with it: a diagnostic's catalog message in text,
 its `{code, args, message}` envelope in JSON. A new core, driven or
-platform crate's `EN_US` joins tasks-lib's `catalog()` (beside annals'
-and annals-store-sql's), and its samples tasks-lib's and the binary's
+platform crate's `EN_US` joins tasks-lib's `catalog()` (beside annals',
+annals-store-sql's, angzarr-embedded's, the angzarr-ports errors it
+forwards and angzarr-store-sqlite's), and its samples tasks-lib's and the binary's
 every-diagnostic catalog tests; a driving adapter's joins the frontends
 the binary hands that `catalog()` (`catalog()` in its `main.rs`).
 

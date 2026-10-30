@@ -1,3 +1,7 @@
+//! A project's task store on angzarr-store-sqlite is [`embedded`]'s, which
+//! replaces this one when the application moves (step 4 of
+//! taskloom-on-angzarr-embedded.plan.md).
+//!
 //! A project's task store: annals-store-sql's SQLite store at the path the
 //! project names (`~/.ctxloom/projects/<project-id>/state.db`), opened on
 //! first use and held after, behind the [`TaskStores`] port. A write opens
