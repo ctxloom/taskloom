@@ -29,7 +29,7 @@ use std::time::Duration;
 use clap::Subcommand;
 use presentation::{Catalog, Format};
 use serde::Serialize;
-use tasks_application::{Polled, WatchRequest, WatchService};
+use tasks_application::{Changed, Polled, Task, WatchRequest, WatchService};
 
 pub use error::{diagnostic_samples, WatchError, EN_US};
 
@@ -216,9 +216,10 @@ async fn stream<W: WatchService>(
     // last poll. A token that moves with nothing new for it (a purge of
     // nothing) writes no line; a resync (a purge bumps the list's
     // instance) is a change only if the tasks differ from those it held.
-    let first = watch.since(None);
-    let mut cursor = cursor_of(&first);
-    let mut held = tasks_of(first);
+    let (mut cursor, mut held) = match watch.since(None) {
+        Polled::Snapshot { tasks, cursor } => (cursor, tasks),
+        Polled::Changes { cursor, .. } => (cursor, Vec::new()),
+    };
     let emit = |out: &mut dyn Write| {
         presentation::write_json_line(out, &ChangeLine::of(&project)).map_err(|e| {
             WatchError::Output {
@@ -247,30 +248,47 @@ async fn stream<W: WatchService>(
             .poll(&mut watch, Some(&cursor))
             .await
             .map_err(WatchError::App)?;
-        cursor = cursor_of(&polled);
         let changed = match polled {
-            Polled::Changes { changes, .. } => !changes.is_empty(),
-            Polled::Snapshot { tasks, .. } => tasks != held,
+            Polled::Changes {
+                changes,
+                cursor: after,
+            } => {
+                cursor = after;
+                apply(&mut held, &changes);
+                !changes.is_empty()
+            }
+            Polled::Snapshot {
+                tasks,
+                cursor: after,
+            } => {
+                cursor = after;
+                let changed = tasks != held;
+                held = tasks;
+                changed
+            }
         };
-        held = tasks_of(watch.since(None));
         if debounce.tick(changed) {
             emit(out)?;
         }
     }
 }
 
-/// The cursor `polled` answers with: where its watcher is after it.
-fn cursor_of(polled: &Polled) -> tasks_application::WatchCursor {
-    match polled {
-        Polled::Changes { cursor, .. } | Polled::Snapshot { cursor, .. } => cursor.clone(),
-    }
-}
-
-/// The tasks a snapshot holds; none for changes.
-fn tasks_of(polled: Polled) -> Vec<tasks_application::Task> {
-    match polled {
-        Polled::Snapshot { tasks, .. } => tasks,
-        Polled::Changes { .. } => Vec::new(),
+/// `held`, the tasks a watcher holds by harp id, with `changes` made.
+fn apply(held: &mut Vec<Task>, changes: &[Changed]) {
+    for change in changes {
+        let harp = match change {
+            Changed::Task(task) => &task.harp_id,
+            Changed::Removed { harp_id } => harp_id,
+        };
+        let at = held.binary_search_by(|t| t.harp_id.as_str().cmp(harp));
+        match (change, at) {
+            (Changed::Task(task), Ok(i)) => held[i] = task.clone(),
+            (Changed::Task(task), Err(i)) => held.insert(i, task.clone()),
+            (Changed::Removed { .. }, Ok(i)) => {
+                held.remove(i);
+            }
+            (Changed::Removed { .. }, Err(_)) => {}
+        }
     }
 }
 

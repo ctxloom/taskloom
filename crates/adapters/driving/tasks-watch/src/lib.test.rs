@@ -15,7 +15,8 @@ use angzarr_embedded_diagnostic::Report;
 use presentation::{Catalog, Format};
 use serde_json::Value;
 use tasks_application::{
-    AppError, Changed, Polled, Project, Watch, WatchCursor, WatchRequest, WatchService,
+    AppError, Changed, Polled, Project, Task, Timestamp, Watch, WatchCursor, WatchRequest,
+    WatchService,
 };
 
 use super::{
@@ -57,16 +58,27 @@ fn removed() -> Changed {
 struct Scripted {
     project: Option<Project>,
     fails: Option<AppError>,
-    polls: VecDeque<Result<Vec<Changed>, AppError>>,
+    polls: VecDeque<Result<Polled, AppError>>,
     requests: Vec<WatchRequest>,
     polled: u32,
+    /// The cursor each poll was given.
+    cursors: Vec<Option<WatchCursor>>,
 }
 
 impl Scripted {
     fn of(polls: Vec<Vec<Changed>>) -> Scripted {
+        let changes = |changes| Polled::Changes {
+            changes,
+            cursor: WatchCursor::default(),
+        };
+        Scripted::answering(polls.into_iter().map(changes).collect())
+    }
+
+    /// Polls answering `polled`, in turn.
+    fn answering(polled: Vec<Polled>) -> Scripted {
         Scripted {
             project: Some(project()),
-            polls: polls.into_iter().map(Ok).collect(),
+            polls: polled.into_iter().map(Ok).collect(),
             ..Scripted::default()
         }
     }
@@ -81,13 +93,17 @@ impl WatchService for Scripted {
         Ok(self.project.clone().map(Watch::of))
     }
 
-    async fn poll(&mut self, _: &mut Watch, _: Option<&WatchCursor>) -> Result<Polled, AppError> {
+    async fn poll(
+        &mut self,
+        _: &mut Watch,
+        cursor: Option<&WatchCursor>,
+    ) -> Result<Polled, AppError> {
         self.polled += 1;
-        let changes = self.polls.pop_front().unwrap_or(Ok(Vec::new()))?;
-        Ok(Polled::Changes {
-            changes,
+        self.cursors.push(cursor.cloned());
+        self.polls.pop_front().unwrap_or(Ok(Polled::Changes {
+            changes: Vec::new(),
             cursor: WatchCursor::default(),
-        })
+        }))
     }
 }
 
@@ -166,6 +182,122 @@ fn stream(service: &mut Scripted, settings: &Settings, ticks: u32) -> Streamed {
 }
 
 const LINE: &str = r#"{"event":"changed","kind":"tasks","project":"jolly-mute-magma"}"#;
+
+fn task(harp: &str) -> Task {
+    Task {
+        harp_id: harp.to_string(),
+        text: "Ship it".to_string(),
+        status: "To Do".to_string(),
+        checked: false,
+        text_hash: String::new(),
+        trigger: String::new(),
+        origin_session: String::new(),
+        tags: Vec::new(),
+        created_at: Timestamp::default(),
+    }
+}
+
+fn cursor(instance: &str) -> WatchCursor {
+    WatchCursor {
+        instance: Some(instance.to_string()),
+        ..WatchCursor::default()
+    }
+}
+
+fn snapshot(tasks: Vec<Task>, instance: &str) -> Polled {
+    Polled::Snapshot {
+        tasks,
+        cursor: cursor(instance),
+    }
+}
+
+fn changes(changes: Vec<Changed>, instance: &str) -> Polled {
+    Polled::Changes {
+        changes,
+        cursor: cursor(instance),
+    }
+}
+
+// A resync (a purge bumps the list's instance) is a line only if the
+// tasks it answers differ from those the stream holds.
+#[test]
+fn test_a_snapshot_is_a_line_only_when_its_tasks_differ_from_those_held() {
+    let mut service = Scripted::answering(vec![
+        snapshot(Vec::new(), "a/1"),
+        snapshot(Vec::new(), "a/2"),
+        snapshot(vec![task("swift-amber")], "a/3"),
+    ]);
+    let streamed = stream(&mut service, &settings(Format::Text), 2);
+    assert_eq!(streamed.lines, [LINE], "the same tasks: no line");
+    let mut service = Scripted::answering(vec![
+        snapshot(vec![task("swift-amber")], "a/1"),
+        changes(Vec::new(), "a/1"),
+    ]);
+    let streamed = stream(&mut service, &settings(Format::Text), 2);
+    assert_eq!(streamed.lines, [LINE, LINE], "a task more: a line");
+}
+
+#[test]
+fn test_each_poll_resumes_from_the_cursor_the_last_answered() {
+    let mut service = Scripted::answering(vec![
+        changes(Vec::new(), "a/1"),
+        snapshot(Vec::new(), "a/2"),
+        changes(Vec::new(), "a/2"),
+    ]);
+    stream(&mut service, &settings(Format::Text), 3);
+    let instances: Vec<Option<String>> = service
+        .cursors
+        .iter()
+        .map(|c| c.as_ref().and_then(|c| c.instance.clone()))
+        .collect();
+    assert_eq!(
+        instances[1..],
+        [Some("a/1".to_string()), Some("a/2".to_string())]
+    );
+    assert!(instances[0].is_some(), "the watch's own first cursor");
+}
+
+// The tasks held follow the changes resumed, so a resync answering what
+// they came to is no line, and one answering less is.
+#[test]
+fn test_the_tasks_held_follow_each_change() {
+    let added = |harp| Changed::Task(task(harp));
+    let removed_ = |harp: &str| Changed::Removed {
+        harp_id: harp.to_string(),
+    };
+    let mut service = Scripted::answering(vec![
+        changes(
+            vec![added("b-task"), added("a-task"), added("c-task")],
+            "a/1",
+        ),
+        changes(Vec::new(), "a/1"),
+        changes(
+            vec![removed_("b-task"), removed_("x-task"), added("a-task")],
+            "a/1",
+        ),
+        changes(Vec::new(), "a/1"),
+        snapshot(vec![task("a-task"), task("c-task")], "a/2"),
+        changes(Vec::new(), "a/2"),
+    ]);
+    let streamed = stream(&mut service, &settings(Format::Text), 6);
+    assert_eq!(
+        streamed.lines.len(),
+        3,
+        "the first line and each burst's: the resync is what the changes made"
+    );
+    let mut service = Scripted::answering(vec![
+        changes(vec![added("a-task"), added("c-task")], "a/1"),
+        changes(Vec::new(), "a/1"),
+        snapshot(vec![task("c-task")], "a/2"),
+        changes(Vec::new(), "a/2"),
+    ]);
+    let streamed = stream(&mut service, &settings(Format::Text), 4);
+    assert_eq!(
+        streamed.lines.len(),
+        3,
+        "a resync with a task fewer is a line"
+    );
+}
 
 #[test]
 fn test_a_line_is_written_at_once_before_any_change() {
