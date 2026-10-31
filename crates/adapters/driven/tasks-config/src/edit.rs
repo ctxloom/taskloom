@@ -1,44 +1,35 @@
-//! Editing a config file's `tag_permits` in place, with yaml-rt-core: the
-//! fewest edits that make the block the permits meant (a key added to or
-//! removed from a namespace's list, a namespace or flat tag added or
-//! removed), so every comment and line the edits do not touch is kept as
-//! written, inside the block as well as outside it. A key joins the end of
-//! its list, a namespace the end of `namespaces`: the person's order is
-//! kept, nothing sorted.
+//! Editing a config file's `tag_permits` in place, with angzarr-yaml's
+//! editor (`angzarr_yaml::edit`, the one reader's, the owner's ruling of
+//! 2026-10-31): the fewest edits that make the block the permits meant (a
+//! key added to or removed from a namespace's list, a namespace or flat tag
+//! added or removed), so every comment and line the edits do not touch is
+//! kept as written, inside the block as well as outside it. A key joins the
+//! end of its list, a namespace the end of `namespaces`: the person's order
+//! is kept, nothing sorted.
 //!
-//! serde_norway stays the reader. Every edit is read back with it before
-//! anything is written ([`verified`]), and refused unless its
-//! `tag_permits` are exactly those meant and every other key reads as it
-//! did before: a fault in the editor costs a refused write, never a
-//! config silently changed.
-//!
-//! yaml-rt-core 0.3.2's quirks, worked around here:
-//!
-//! - A block collection of one line, as a fragment of its own, is put on
-//!   its key's line, where it does not parse: a one-item block list
-//!   ("compact block collection value is not allowed"), or a one-entry
-//!   mapping ("plain scalar contains a nested mapping separator"). So a
-//!   list an edit adds is a flow list (`area: [cli]`), and a `namespaces`
-//!   added with one open namespace is a flow mapping (`{relates: open}`).
-//!   A block written whole, where the file has none, is in block style.
-//! - Replacing a value replaces its trailing comment with it (a scalar's
-//!   span runs to the end of its line), and a scalar cannot be replaced by
-//!   a block list in place. So a namespace turning open or closed has only
-//!   its value's spelling replaced, the comment beside it kept
-//!   ([`set_value`]); a block list turning open has its entry rewritten
-//!   as `<key>: open`, the comments above it kept (those of its items go
-//!   with them).
-//! - Removing a block list's last item removes the blank lines after it
-//!   too, so they are put back ([`remove`]).
+//! The editor applies an edit only if the text reads back as the value
+//! meant, so an edit never leaves a file that means something else; and
+//! every edit here is checked once more as a whole ([`verified`]): its
+//! `tag_permits` exactly those meant and every other key as it was. A
+//! fault in the editing costs a refused write, never a config silently
+//! changed.
 
 use std::collections::BTreeSet;
 
+use angzarr_yaml::edit::{Document, Seg};
+use angzarr_yaml::Value;
 use ports::{NamespacePermit, TagPermits};
-use serde_norway::Value;
-use yaml_rt_core::{JsonPointer, NodeId, NodeKind, YamlDoc, YamlFragment};
 
-use crate::permits::{self, Raw, KEY};
+use crate::permits::{Raw, KEY, OPEN};
 use crate::ConfigError;
+
+/// `flow_depth` for a value written in block style all the way down.
+const BLOCK: usize = usize::MAX;
+/// `flow_depth` for a value written on its key's line: `[cli, mcp]`.
+const FLOW: usize = 1;
+
+/// The path to `namespaces`.
+const NAMESPACES: [Seg<'static>; 2] = [Seg::Key(KEY), Seg::Key("namespaces")];
 
 /// `source`, the config file at `path`, with its `tag_permits` made
 /// `permits` by the fewest edits, checked by [`verified`]; the block
@@ -49,18 +40,17 @@ pub(crate) fn edited(
     source: &str,
     permits: &TagPermits,
 ) -> Result<String, ConfigError> {
-    let (_, held) = read_back(path, source).map_err(|detail| ConfigError::EditRefused {
+    let refused = |detail: String| ConfigError::EditRefused {
         path: path.to_string(),
         detail,
-    })?;
+    };
+    let mut doc = Document::parse(source).map_err(|e| refused(e.to_string()))?;
+    let held = held(path, doc.value()).map_err(&refused)?;
     if held.as_ref() == Some(permits) {
         return Ok(source.to_string());
     }
-    let after =
-        edit(source, held.as_ref(), permits).map_err(|detail| ConfigError::EditRefused {
-            path: path.to_string(),
-            detail,
-        })?;
+    edit(&mut doc, held.as_ref(), permits).map_err(|e| refused(e.to_string()))?;
+    let after = doc.into_string();
     verified(path, source, &after, permits)?;
     Ok(after)
 }
@@ -74,70 +64,60 @@ pub(crate) fn retired(path: &str, source: &str) -> Result<Option<String>, Config
         path: path.to_string(),
         detail,
     };
-    let mapping = |text: &str| -> Result<serde_norway::Mapping, String> {
-        let value: Value = serde_norway::from_str(text).map_err(|e| e.to_string())?;
-        Ok(match value {
-            Value::Mapping(mapping) => mapping,
-            _ => serde_norway::Mapping::new(),
-        })
-    };
-    let mut rest = mapping(source).map_err(|detail| ConfigError::EditRefused {
-        path: path.to_string(),
-        detail,
-    })?;
+    let mut doc = Document::parse(source).map_err(|e| refused(e.to_string()))?;
     let held: Vec<&str> = MOVED
         .into_iter()
-        .filter(|key| rest.remove(*key).is_some())
+        .filter(|key| doc.value().get(key).is_some())
         .collect();
     if held.is_empty() {
         return Ok(None);
     }
-    // Each key's entry is cut as text, from the start of its key's line to
-    // the end of its value's (and the line break after it): yaml-rt-core's
-    // own removal takes the comments above an entry with it, which belong
-    // to what is kept.
-    let mut after = source.to_string();
+    let mut rest = doc.value().clone();
     for key in held {
-        let doc = YamlDoc::parse(&after).map_err(|e| refused(e.to_string()))?;
-        let value = node(&doc, &[key]).map_err(&refused)?;
-        let entry = entry(&doc, &[key], value).map_err(&refused)?;
-        let span = doc
-            .node(entry)
-            .ok_or_else(|| refused("no node".to_string()))?
-            .span();
-        let text = doc.as_source();
-        let start = text[..span.start as usize]
-            .rfind('\n')
-            .map_or(0, |at| at + 1);
-        let end = match text[span.end as usize..].find('\n') {
-            Some(at) => span.end as usize + at + 1,
-            None => text.len(),
-        };
-        // A block value's span runs through its last line break already.
-        let end = match text[..span.end as usize].ends_with('\n') {
-            true => span.end as usize,
-            false => end,
-        };
-        after = format!("{}{}", &text[..start], &text[end..]);
+        rest.remove(key);
+        let before = doc.text();
+        doc.remove_key(&[], key)
+            .map_err(|e| refused(e.to_string()))?;
+        // The editor takes the comment lines directly above an entry with
+        // it; here they belong to what is kept.
+        let kept = comments_above_kept(&before, &doc.text());
+        doc = Document::parse(&kept).map_err(|e| refused(e.to_string()))?;
     }
-    let read = mapping(&after).map_err(|why| refused(format!("the edit does not read: {why}")))?;
-    if read != rest {
+    if *doc.value() != rest {
         return Err(refused(
             "a key other than the moved ones changed".to_string(),
         ));
     }
-    Ok(Some(after))
+    Ok(Some(doc.into_string()))
 }
 
 /// The keys that moved into the store.
 const MOVED: [&str; 2] = [KEY, "tag_schema"];
 
+/// `after`, `before` with a run of whole lines taken out, with the comment
+/// lines (and blank ones among them) that led that run put back.
+fn comments_above_kept(before: &str, after: &str) -> String {
+    let was: Vec<&str> = before.split_inclusive('\n').collect();
+    let now: Vec<&str> = after.split_inclusive('\n').collect();
+    let head = was.iter().zip(&now).take_while(|(a, b)| a == b).count();
+    // One run was taken out, so what follows it is the rest of `after`.
+    let cut = &was[head..was.len() - (now.len() - head)];
+    let leading = cut
+        .iter()
+        .take_while(|line| line.trim().is_empty() || line.trim_start().starts_with('#'))
+        .count();
+    let mut out: String = now[..head].concat();
+    out.push_str(&cut[..leading].concat());
+    out.push_str(&now[head..].concat());
+    out
+}
+
 /// Whether `after`, an edit of `before` (the config file at `path`),
-/// reads with serde_norway as `before` does with only its `tag_permits`
-/// replaced by `permits`: refused ([`ConfigError::EditRefused`], saying
-/// how it differs) when it does not parse, when its permits are not
-/// exactly `permits`, or when any other key reads otherwise. Comments and
-/// layout are not read, so are not compared.
+/// reads as `before` does with only its `tag_permits` replaced by
+/// `permits`: refused ([`ConfigError::EditRefused`], saying how it
+/// differs) when it does not parse, when its permits are not exactly
+/// `permits`, or when any other key reads otherwise. Comments and layout
+/// are not read, so are not compared.
 pub(crate) fn verified(
     path: &str,
     before: &str,
@@ -162,262 +142,169 @@ pub(crate) fn verified(
     Ok(())
 }
 
-/// `text` (the config file at `path`) as serde_norway reads it: every key
+/// `text` (the config file at `path`) as the reader reads it: every key
 /// but `tag_permits`, and the permits it declares (`None` for none, or
 /// none under the key).
 fn read_back(path: &str, text: &str) -> Result<(Value, Option<TagPermits>), String> {
-    let mut value: Value = serde_norway::from_str(text).map_err(|e| e.to_string())?;
-    // A file of nothing (or of comments) is a mapping of no keys.
-    if value.is_null() {
-        value = Value::Mapping(serde_norway::Mapping::new());
-    }
-    let held = match value.as_mapping_mut() {
-        Some(mapping) => mapping.remove(KEY),
-        None => None,
-    };
-    let held = match held {
-        None | Some(Value::Null) => None,
-        Some(raw) => {
-            let raw: Raw = serde_norway::from_value(raw).map_err(|e| e.to_string())?;
-            Some(raw.permits(path).map_err(|e| e.to_string())?)
-        }
-    };
+    let mut value = angzarr_yaml::parse(text).map_err(|e| e.to_string())?;
+    let held = held(path, &value)?;
+    value.remove(KEY);
     Ok((value, held))
 }
 
-/// `source` edited from holding `held` to `permits`; why not, when
-/// yaml-rt-core refuses an edit.
-fn edit(source: &str, held: Option<&TagPermits>, permits: &TagPermits) -> Result<String, String> {
-    let mut doc = YamlDoc::parse(source).map_err(|e| e.to_string())?;
-    if doc.document_count() == 0 {
-        // Nothing but comments, or nothing at all: the block is the file's
-        // first key, written whole.
-        return Ok(format!("{}{}", terminated(source), written(permits)));
+/// The permits `doc` (the config file at `path`) declares: `None` for no
+/// block, or none under the key.
+fn held(path: &str, doc: &Value) -> Result<Option<TagPermits>, String> {
+    match doc.get(KEY) {
+        None | Some(Value::Null) => Ok(None),
+        Some(raw) => {
+            let raw: Raw = angzarr_yaml::from_value(raw).map_err(|e| e.to_string())?;
+            raw.permits(path).map(Some).map_err(|e| e.to_string())
+        }
     }
+}
+
+/// `doc` edited from holding `held` to `permits`.
+fn edit(
+    doc: &mut Document,
+    held: Option<&TagPermits>,
+    permits: &TagPermits,
+) -> Result<(), angzarr_yaml::edit::EditError> {
     let Some(held) = held else {
         // No block, or one with nothing under it: written whole, in place
         // of what there was, at the end of the file.
-        if doc.resolve_pointer(0, &pointer(&[KEY])).is_ok() {
-            doc.remove_at(0, &pointer(&[KEY]))
-                .map_err(|e| e.to_string())?;
+        if doc.value().get(KEY).is_some() {
+            doc.remove_key(&[], KEY)?;
         }
-        add(&mut doc, &[KEY], &permits::block(permits))?;
-        return Ok(doc.to_string());
+        return doc.set(&[], KEY, &block(permits), BLOCK);
     };
     if permits.namespaces.is_empty() && permits.flat.is_empty() {
-        set_value(&mut doc, &[KEY], "{}")?;
-        return Ok(doc.to_string());
+        return doc.set(&[], KEY, &Value::Map(Vec::new()), BLOCK);
     }
-    namespaces(&mut doc, held, permits)?;
-    listed(&mut doc, &[KEY, "tags"], &held.flat, &permits.flat)?;
-    Ok(doc.to_string())
+    namespaces(doc, held, permits)?;
+    listed(doc, "tags", &held.flat, &permits.flat)
 }
 
 /// The `namespaces` edits from `held` to `permits`: those gone removed,
 /// those new added after the rest, those changed edited in place.
-fn namespaces(doc: &mut YamlDoc, held: &TagPermits, permits: &TagPermits) -> Result<(), String> {
-    const AT: [&str; 2] = [KEY, "namespaces"];
-    if doc.resolve_pointer(0, &pointer(&AT)).is_err() {
+fn namespaces(
+    doc: &mut Document,
+    held: &TagPermits,
+    permits: &TagPermits,
+) -> Result<(), angzarr_yaml::edit::EditError> {
+    let has = doc
+        .value()
+        .get(KEY)
+        .is_some_and(|block| block.get("namespaces").is_some());
+    if !has {
         if permits.namespaces.is_empty() {
             return Ok(());
         }
-        // yaml-rt-core puts a one-line block fragment on its key's line,
-        // where it does not parse: one namespace, open, goes in flow style.
-        let block = permits::namespaces(&permits.namespaces);
-        let fragment = match block.lines().count() {
-            1 => format!("{{{}}}", block.trim_end()),
-            _ => block,
-        };
-        return add(doc, &AT, &fragment);
+        return doc.set(
+            &NAMESPACES[..1],
+            "namespaces",
+            &namespaces_value(permits),
+            BLOCK,
+        );
     }
     for name in held.namespaces.keys() {
         if !permits.namespaces.contains_key(name) {
-            remove(doc, &[KEY, "namespaces", name])?;
+            doc.remove_key(&NAMESPACES, name)?;
         }
     }
     for (name, permit) in &permits.namespaces {
-        let at = [KEY, "namespaces", name.as_str()];
         match (held.namespaces.get(name), permit) {
-            (None, _) => add(doc, &at, &permits::value(permit))?,
             (Some(was), now) if was == now => {}
             (Some(NamespacePermit::Closed(was)), NamespacePermit::Closed(now)) => {
-                listed(doc, &at, was, now)?;
+                listed_at(doc, &[KEY, "namespaces", name], was, now)?;
             }
-            (Some(_), now) => set_value(doc, &at, &permits::value(now))?,
+            (_, now) => doc.set(&NAMESPACES, name, &permit_value(now), FLOW)?,
         }
     }
     Ok(())
+}
+
+/// The edits to the list at `tag_permits.<key>` from `held` to `keys`.
+fn listed(
+    doc: &mut Document,
+    key: &str,
+    held: &BTreeSet<String>,
+    keys: &BTreeSet<String>,
+) -> Result<(), angzarr_yaml::edit::EditError> {
+    listed_at(doc, &[KEY, key], held, keys)
 }
 
 /// The edits to the list at `at` from `held` to `keys`: each key gone
 /// removed, each new one added at the end. The list is added whole, as a
 /// flow list, when there is none.
-fn listed(
-    doc: &mut YamlDoc,
+fn listed_at(
+    doc: &mut Document,
     at: &[&str],
     held: &BTreeSet<String>,
     keys: &BTreeSet<String>,
-) -> Result<(), String> {
+) -> Result<(), angzarr_yaml::edit::EditError> {
     if held == keys {
         return Ok(());
     }
-    if doc.resolve_pointer(0, &pointer(at)).is_err() {
-        return add(doc, at, &permits::flow(keys));
+    let (last, parent) = at.split_last().expect("a path names a key");
+    let parent: Vec<Seg<'_>> = parent.iter().map(|k| Seg::Key(k)).collect();
+    let list = value_at(doc.value(), at);
+    if list.and_then(Value::as_seq).is_none() {
+        return doc.set(&parent, last, &list_value(keys), FLOW);
     }
     for key in held.difference(keys) {
-        let list = doc
-            .resolve_pointer(0, &pointer(at))
-            .map_err(|e| e.to_string())?;
-        let index = doc
-            .sequence_items(list)
-            .position(|item| doc.scalar_value(item).is_ok_and(|v| v == key.as_str()))
-            .ok_or_else(|| format!("{key} is not in the list at {}", pointer(at).as_str()))?;
-        let item = index.to_string();
-        let mut path = at.to_vec();
-        path.push(&item);
-        remove(doc, &path)?;
+        let index = value_at(doc.value(), at)
+            .and_then(Value::as_seq)
+            .and_then(|items| items.iter().position(|v| v.as_str() == Some(key)))
+            .expect("a held key is in its list");
+        doc.remove(at, index)?;
     }
     for key in keys.difference(held) {
-        let mut path = at.to_vec();
-        path.push("-");
-        add(doc, &path, &permits::scalar(key))?;
+        doc.push(at, &Value::scalar(key.as_str()), FLOW)?;
     }
     Ok(())
 }
 
-/// `fragment` added at `at`.
-fn add(doc: &mut YamlDoc, at: &[&str], fragment: &str) -> Result<(), String> {
-    let fragment = YamlFragment::parse(fragment).map_err(|e| e.to_string())?;
-    doc.add_at(0, &pointer(at), &fragment)
-        .map_err(|e| e.to_string())
+/// The value at the key path `at` in `doc`.
+fn value_at<'v>(doc: &'v Value, at: &[&str]) -> Option<&'v Value> {
+    at.iter().try_fold(doc, |value, key| value.get(key))
 }
 
-/// The value at `at` removed, the blank lines after its collection kept:
-/// yaml-rt-core takes those after a block list's last item with it.
-fn remove(doc: &mut YamlDoc, at: &[&str]) -> Result<(), String> {
-    let parent = &at[..at.len() - 1];
-    let blank_before = blank_after(doc, parent)?;
-    doc.remove_at(0, &pointer(at)).map_err(|e| e.to_string())?;
-    let lost = blank_before.saturating_sub(blank_after(doc, parent)?);
-    if lost != 0 {
-        let node = node(doc, parent)?;
-        let text = slice(doc, node)?;
-        doc.replace_node_text(node, format!("{text}{}", "\n".repeat(lost)))
-            .map_err(|e| e.to_string())?;
-        doc.commit_edits().map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-/// How many blank lines follow the line the value at `at` ends on.
-fn blank_after(doc: &YamlDoc, at: &[&str]) -> Result<usize, String> {
-    let end = doc.node(node(doc, at)?).ok_or("no node")?.span().end as usize;
-    let after = &doc.as_source()[end..];
-    let Some((_, rest)) = after.split_once('\n') else {
-        return Ok(0);
-    };
-    let mut lines = rest.split('\n').collect::<Vec<_>>();
-    // The text after the last line break is no line of its own.
-    lines.pop();
-    Ok(lines
-        .iter()
-        .take_while(|line| line.trim().is_empty())
-        .count())
-}
-
-/// The value at `at` spelled `text` in place, the comment beside it kept:
-/// a plain scalar's spelling replaced, a flow collection replaced, and a
-/// block collection's whole entry rewritten as `<key>: <text>`.
-fn set_value(doc: &mut YamlDoc, at: &[&str], text: &str) -> Result<(), String> {
-    let value = node(doc, at)?;
-    let kind = doc.node(value).ok_or("no node")?.kind();
-    let replacement = match kind {
-        NodeKind::Scalar => {
-            let whole = doc.node(value).ok_or("no node")?.span();
-            let spelled = slice(doc, value)?;
-            match doc
-                .borrowable_scalar_span(value)
-                .map_err(|e| e.to_string())?
-            {
-                // Only the spelling: what is after it (the comment) stays.
-                Some(span) => {
-                    let start = (span.start - whole.start) as usize;
-                    let end = (span.end - whole.start) as usize;
-                    format!("{}{text}{}", &spelled[..start], &spelled[end..])
-                }
-                None => text.to_string(),
-            }
-        }
-        NodeKind::BlockMapping | NodeKind::BlockSequence => {
-            let entry = entry(doc, at, value)?;
-            let written = slice(doc, entry)?;
-            let indent: String = written.chars().take_while(|c| *c == ' ').collect();
-            let key = at.last().ok_or("no key")?;
-            let rewritten = format!("{indent}{}: {text}", permits::scalar(key));
-            doc.replace_node_text(entry, rewritten)
-                .map_err(|e| e.to_string())?;
-            return doc.commit_edits().map_err(|e| e.to_string());
-        }
-        _ => text.to_string(),
-    };
-    doc.replace_node_text(value, replacement)
-        .map_err(|e| e.to_string())?;
-    doc.commit_edits().map_err(|e| e.to_string())
-}
-
-/// The mapping entry holding `value`, the value at `at`.
-fn entry(doc: &YamlDoc, at: &[&str], value: NodeId) -> Result<NodeId, String> {
-    let mapping = node(doc, &at[..at.len() - 1])?;
-    let key = doc
-        .mapping_entries(mapping)
-        .find(|(_, v)| *v == value)
-        .map(|(k, _)| k)
-        .ok_or("no entry")?;
-    doc.node(key)
-        .and_then(|k| k.parent())
-        .filter(|e| {
-            doc.node(*e)
-                .is_some_and(|n| n.kind() == NodeKind::MappingEntry)
-        })
-        .ok_or_else(|| "no entry".to_string())
-}
-
-/// The node at `at`.
-fn node(doc: &YamlDoc, at: &[&str]) -> Result<NodeId, String> {
-    doc.resolve_pointer(0, &pointer(at))
-        .map_err(|e| e.to_string())
-}
-
-/// `node`'s source text.
-fn slice(doc: &YamlDoc, node: NodeId) -> Result<String, String> {
-    let span = doc.node(node).ok_or("no node")?.span();
-    Ok(doc.source().slice(span).to_string())
-}
-
-/// The JSON Pointer to `at`'s keys.
-fn pointer(at: &[&str]) -> JsonPointer {
-    let escaped: String = at
-        .iter()
-        .map(|token| format!("/{}", token.replace('~', "~0").replace('/', "~1")))
-        .collect();
-    JsonPointer::parse(&escaped).expect("an escaped pointer parses")
-}
-
-/// `source`, ending in a line break unless it is empty.
-fn terminated(source: &str) -> String {
-    match source.is_empty() || source.ends_with('\n') {
-        true => source.to_string(),
-        false => format!("{source}\n"),
+/// What a namespace's permit is written as: `open`, or its keys.
+fn permit_value(permit: &NamespacePermit) -> Value {
+    match permit {
+        NamespacePermit::Open => Value::scalar(OPEN),
+        NamespacePermit::Closed(keys) => list_value(keys),
     }
 }
 
-/// The block, written whole: `tag_permits:` and what it maps to.
-fn written(permits: &TagPermits) -> String {
-    let block = permits::block(permits);
-    if block == "{}" {
-        return format!("{KEY}: {{}}\n");
+/// `keys` as a list.
+fn list_value(keys: &BTreeSet<String>) -> Value {
+    Value::Seq(keys.iter().map(|k| Value::scalar(k.as_str())).collect())
+}
+
+/// What `namespaces` maps to.
+fn namespaces_value(permits: &TagPermits) -> Value {
+    Value::Map(
+        permits
+            .namespaces
+            .iter()
+            .map(|(name, permit)| (name.clone(), permit_value(permit)))
+            .collect(),
+    )
+}
+
+/// What `tag_permits` maps to: `namespaces`, then `tags`, each when it
+/// has any; `{}` for permits permitting nothing.
+fn block(permits: &TagPermits) -> Value {
+    let mut entries = Vec::new();
+    if !permits.namespaces.is_empty() {
+        entries.push(("namespaces".to_string(), namespaces_value(permits)));
     }
-    format!("{KEY}:\n{}", permits::indented(&block))
+    if !permits.flat.is_empty() {
+        entries.push(("tags".to_string(), list_value(&permits.flat)));
+    }
+    Value::Map(entries)
 }
 
 #[cfg(test)]

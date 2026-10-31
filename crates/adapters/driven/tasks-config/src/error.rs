@@ -48,8 +48,8 @@ pub enum ConfigError {
     /// Tag permits written where there is no work root, so no project
     /// config file to write them to.
     NoWorkRoot,
-    /// An edit of the config file at `path` that does not read back (with
-    /// serde_norway, the reader) as the file before it with only its
+    /// An edit of the config file at `path` that cannot be made, or does
+    /// not read back (with the reader) as the file before it with only its
     /// `tag_permits` replaced by those meant: refused, nothing written.
     /// `detail` says how it differs. A bug in the editing, never the
     /// person's.

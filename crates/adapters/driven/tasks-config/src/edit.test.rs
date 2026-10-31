@@ -1,10 +1,11 @@
 //! The safety net under every edit (ruling 11): an edit is written only if
-//! it reads back, with serde_norway, as the file before it with only its
-//! tag_permits replaced by those meant.
+//! it reads back, with the reader, as the file before it with only its
+//! tag_permits replaced by those meant; and the edits, by angzarr-yaml's
+//! editor, every line they do not change kept as written.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-crate::english_for!(&[crate::EN_US.1]);
+crate::english_for!(&[crate::EN_US.1, angzarr_yaml::EN_US.1]);
 
 use angzarr_diagnostic::Diagnostic;
 use ports::{NamespacePermit, TagPermits};
@@ -114,8 +115,9 @@ fn edit(before: &str, permits: &TagPermits) -> String {
     super::edited(PATH, before, permits).unwrap()
 }
 
-// yaml-rt-core takes the blank lines after a block list's last item with
-// it; they are put back, whether the list keeps items or is left empty.
+// The blank line after a block list's last item stays, whether the list
+// keeps items or is left empty; of two after a list left empty, the
+// editor keeps one.
 #[test]
 fn test_removing_a_lists_last_item_keeps_the_blank_lines_after_it() {
     let before = "tag_permits:\n  namespaces:\n    area:\n      - cli\n      - mcp  # m\n\n    queue: open\n  tags:\n    - urgent\n\n\n# The schema.\nschema_version: 1\n";
@@ -128,7 +130,7 @@ fn test_removing_a_lists_last_item_keeps_the_blank_lines_after_it() {
     );
     assert_eq!(
         after,
-        "tag_permits:\n  namespaces:\n    area:\n      - cli\n\n    queue: open\n  tags: []\n\n\n# The schema.\nschema_version: 1\n"
+        "tag_permits:\n  namespaces:\n    area:\n      - cli\n\n    queue: open\n  tags: []\n\n# The schema.\nschema_version: 1\n"
     );
 }
 
@@ -154,8 +156,7 @@ fn test_a_namespace_turning_open_or_closed_keeps_its_comment() {
     );
 }
 
-// A quoted `open` has no spelling yaml-rt-core can lend, so the value is
-// replaced whole: the edit still reads back as meant.
+// A quoted `open` is replaced whole: the edit reads back as meant.
 #[test]
 fn test_a_quoted_open_is_replaced_whole() {
     let after = edit(
@@ -184,14 +185,13 @@ fn test_a_block_with_nothing_under_it_is_written_whole() {
 }
 
 // A list or `namespaces` the block lacks is added: a list in flow style,
-// a namespaces of one open entry in flow style (a one-line block fragment
-// does not parse), of more in block style.
+// `namespaces` in block style.
 #[test]
 fn test_what_the_block_lacks_is_added() {
     let before = "tag_permits:\n  tags: [urgent]\n";
     assert_eq!(
         edit(before, &of(open(&["relates"]), &["urgent"])),
-        "tag_permits:\n  tags: [urgent]\n  namespaces: {relates: open}\n"
+        "tag_permits:\n  tags: [urgent]\n  namespaces:\n    relates: open\n"
     );
     assert_eq!(
         edit(
@@ -208,20 +208,24 @@ fn test_what_the_block_lacks_is_added() {
     assert_eq!(edit(before, &of(vec![], &[])), "tag_permits: {}\n");
 }
 
-// A file of comments alone, or ending without a line break, is followed
-// by the block whole.
+// A file ending without a line break is followed by the block whole, and
+// still ends without one, as the editor keeps a file's endings. One
+// of comments alone is no mapping to edit (the reader refuses it first:
+// it has no stamp), so it is refused, never written.
 #[test]
-fn test_a_file_of_comments_is_followed_by_the_block() {
+fn test_a_file_ending_without_a_line_break_is_followed_by_the_block() {
     let permits = of(open(&["relates"]), &[]);
     assert_eq!(
-        edit("# mine", &permits),
-        "# mine\ntag_permits:\n  namespaces:\n    relates: open\n"
+        edit("# mine\nschema_version: 1", &permits),
+        "# mine\nschema_version: 1\ntag_permits:\n  namespaces:\n    relates: open"
     );
-    assert_eq!(edit("", &TagPermits::default()), "tag_permits: {}\n");
+    for source in ["# mine", ""] {
+        let error = super::edited(PATH, source, &permits).unwrap_err();
+        assert_eq!(error.code(), "tasks-config-edit-refused", "{source:?}");
+    }
 }
 
-// Names are keys in a JSON Pointer, escaped as one: a `/` or `~` in a
-// namespace still names it.
+// A `/` or `~` in a namespace still names it.
 #[test]
 fn test_a_namespace_named_with_a_pointers_escapes_is_edited() {
     let before = "tag_permits:\n  namespaces:\n    a/b: [x]\n    c~d: open\n";
@@ -273,6 +277,13 @@ fn test_retiring_takes_out_the_moved_keys_and_keeps_the_rest() {
         retired(PATH, BEFORE).unwrap(),
         Some("# Ours.\nschema_version: 1\n".to_string())
     );
+    let above =
+        "schema_version: 1\n# kept above\ntag_schema:\n  - 'a'\n\n# about homing\nhoming: home\n";
+    assert_eq!(
+        retired(PATH, above).unwrap(),
+        Some("schema_version: 1\n# kept above\n\n# about homing\nhoming: home\n".to_string()),
+        "the comment above a moved key is kept, and what follows"
+    );
     let middle = "tag_schema:\n  - 'tagma.arity:\"a:x\"=scalar'\nhoming: home  # the repo\nschema_version: 1\n";
     assert_eq!(
         retired(PATH, middle).unwrap(),
@@ -284,5 +295,52 @@ fn test_retiring_takes_out_the_moved_keys_and_keeps_the_rest() {
 fn test_a_file_holding_neither_key_is_left_alone() {
     for source in ["", "# nothing\n", "schema_version: 1\nhoming: home\n"] {
         assert_eq!(retired(PATH, source).unwrap(), None, "{source:?}");
+    }
+}
+
+// ------------------------------------------------------------ spelling
+
+// A new block is in block style, sorted, two spaces a level; an empty
+// closed namespace `[]`.
+#[test]
+fn test_a_new_block_is_block_style_sorted_two_spaces_a_level() {
+    let permits = of(
+        vec![
+            open(&["relates"]).remove(0),
+            closed("area", &["mcp", "cli"]),
+            closed("none", &[]),
+        ],
+        &["urgent"],
+    );
+    assert_eq!(
+        edit("schema_version: 1\n", &permits),
+        "schema_version: 1\ntag_permits:\n  namespaces:\n    area:\n      - cli\n      - mcp\n    none: []\n    relates: open\n  tags:\n    - urgent\n"
+    );
+    assert_eq!(
+        edit("schema_version: 1\n", &of(vec![], &["urgent"])),
+        "schema_version: 1\ntag_permits:\n  tags:\n    - urgent\n"
+    );
+    assert_eq!(
+        edit("schema_version: 1\n", &of(open(&["sig"]), &[])),
+        "schema_version: 1\ntag_permits:\n  namespaces:\n    sig: open\n"
+    );
+    assert_eq!(
+        edit("schema_version: 1\n", &TagPermits::default()),
+        "schema_version: 1\ntag_permits: {}\n"
+    );
+}
+
+// A key is written so it reads back as the same string: one YAML gives a
+// meaning (a leading `-`, a `: `, a ` #`, a quote first) is quoted.
+#[test]
+fn test_a_key_is_written_to_read_back_as_itself() {
+    let keys = [
+        "cli", "1", "true", "-x", "a: b", "a #b", "'q", "it's", "x y",
+    ];
+    for key in keys {
+        let permits = of(vec![closed("area", &[key])], &[key]);
+        let after = edit("schema_version: 1\n", &permits);
+        let (_, read) = super::read_back(PATH, &after).unwrap();
+        assert_eq!(read, Some(permits), "{key}: {after}");
     }
 }

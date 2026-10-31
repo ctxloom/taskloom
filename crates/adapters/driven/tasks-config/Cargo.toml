@@ -14,8 +14,6 @@ file-system.workspace = true
 os.workspace = true
 ports.workspace = true
 serde.workspace = true
-serde_norway.workspace = true
-yaml-rt-core.workspace = true
 
 [dev-dependencies]
 # Rendering catalogs' English, for the tests that hold it to Go's.

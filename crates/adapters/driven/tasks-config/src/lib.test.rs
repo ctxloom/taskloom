@@ -630,7 +630,8 @@ mod permits {
         }
     }
 
-    // Ruling 11 (yaml-rt-core): a permit is the fewest edits to the block,
+    // Ruling 11: a permit is the fewest edits to the block (angzarr-yaml's
+    // editor),
     // so every comment survives, INSIDE the block too. A key joins the end
     // of its namespace's list, a namespace the end of `namespaces`, a flat
     // tag the end of `tags`: the person's order is kept, nothing sorted.
@@ -681,10 +682,10 @@ mod permits {
         assert_eq!(dirs.config(&[]).tag_permits(), Ok(Some(permits)));
     }
 
-    // A namespace turning open or closed is rewritten as one entry
-    // (closing an open one is a removal and an addition: yaml-rt-core
-    // cannot turn a scalar into a block list in place). Its own comments
-    // may go with it; every other line of the file stays.
+    // A namespace turning open or closed is rewritten as one entry, in
+    // place: the comment above it and the one on its line stay, those of a
+    // block list's items go with them, and every other line of the file
+    // stays.
     #[test]
     fn test_opening_or_closing_a_namespace_keeps_the_rest_of_the_file() {
         let dirs = Dirs::new(None, Some(COMMENTED));
@@ -697,13 +698,16 @@ mod permits {
             .insert("queue".to_string(), closed(&["nightly"]));
         dirs.config(&[]).write_tag_permits(&permits).unwrap();
         assert_eq!(dirs.config(&[]).tag_permits(), Ok(Some(permits)));
-        let written = file(&dirs);
-        for kept in [
-            "# Taskloom, for this project.\nschema_version: 1   # pinned\n\n# What tags may be used:\ntag_permits:\n  namespaces:\n",
-            "  # Flat tags, kept few.\n  tags:\n    - urgent  # rare\n    - wibble\n\n# The schema.\ntag_schema:\n  - 'tagma.arity:\"area:x\"=scalar'\n",
-        ] {
-            assert!(written.contains(kept), "{written}");
-        }
+        let expected = COMMENTED
+            .replace(
+                "    area:\n      - cli    # the command line\n      - mcp\n      - store  # state.db\n",
+                "    area: open\n",
+            )
+            .replace(
+                "    queue: open  # nightly runs\n",
+                "    queue: [nightly]  # nightly runs\n",
+            );
+        assert_eq!(file(&dirs), expected);
     }
 
     // A list written in flow style (`[a, b]`) is edited in its own style,
