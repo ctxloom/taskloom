@@ -339,3 +339,60 @@ fn a_rejections_display_is_its_code_and_args() {
         "plans-already-governs task=swift-amber"
     );
 }
+
+#[test]
+fn check_refuses_what_decide_refuses_of_a_command_alone() {
+    let PlanCommand::Add(good) = add(HARP) else {
+        unreachable!()
+    };
+    let refused = |add: AddPlan| crate::check(&PlanCommand::Add(add));
+    assert_eq!(crate::check(&PlanCommand::Add(good.clone())), Ok(()));
+    assert_eq!(
+        refused(AddPlan {
+            title: " ".into(),
+            ..good.clone()
+        }),
+        Err(PlanRejection::EmptyTitle)
+    );
+    assert_eq!(
+        refused(AddPlan {
+            status: PlanStatus::Done,
+            ..good.clone()
+        }),
+        Err(PlanRejection::InitialStatus(PlanStatus::Done))
+    );
+    assert_eq!(
+        refused(AddPlan {
+            content_hash: "x".into(),
+            ..good
+        }),
+        Err(PlanRejection::BadHash("x".into()))
+    );
+    assert_eq!(
+        crate::check(&PlanCommand::Rehash("ABC".into())),
+        Err(PlanRejection::BadHash("ABC".into()))
+    );
+    assert_eq!(
+        crate::check(&PlanCommand::SetStatus(PlanStatus::Superseded)),
+        Err(PlanRejection::SupersededBySupersedeOnly)
+    );
+    assert_eq!(
+        crate::check(&PlanCommand::SetStatus(PlanStatus::Done)),
+        Ok(())
+    );
+    assert_eq!(crate::check(&PlanCommand::Reinstate), Ok(()));
+}
+
+#[test]
+fn a_hash_is_well_formed_only_as_64_lowercase_hex_digits() {
+    assert_eq!(crate::well_formed(HASH2), Ok(()));
+    let upper = "A".repeat(64);
+    assert_eq!(
+        crate::well_formed(&upper),
+        Err(PlanRejection::BadHash(upper.clone()))
+    );
+    let short = "a".repeat(63);
+    assert!(crate::well_formed(&short).is_err());
+    let g = format!("{}g", "a".repeat(63));
+    assert!(crate::well_formed(&g).is_err());
+}

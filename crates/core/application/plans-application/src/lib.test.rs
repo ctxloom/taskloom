@@ -5,7 +5,10 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
+use angzarr_embedded_diagnostic::Report;
+
 use super::*;
+use crate::fakes::Service;
 
 const ROOT: &str = "/tree";
 
@@ -40,19 +43,19 @@ impl Files {
 }
 
 impl PlanFiles for Files {
-    fn work_root(&self) -> String {
-        ROOT.to_string()
+    fn work_root(&self) -> Result<String, Report> {
+        Ok(ROOT.to_string())
     }
     fn read(&self, path: &str) -> Option<Vec<u8>> {
         self.files.borrow().get(path).cloned()
     }
-    fn create(&self, path: &str, text: &[u8]) -> bool {
+    fn create(&self, path: &str, text: &[u8]) -> Result<bool, Report> {
         let mut files = self.files.borrow_mut();
         if files.contains_key(path) {
-            return false;
+            return Ok(false);
         }
         files.insert(path.to_string(), text.to_vec());
-        true
+        Ok(true)
     }
     fn plan_files(&self, dir: &str) -> Vec<String> {
         let prefix = format!("{dir}/");
@@ -92,27 +95,28 @@ impl FakeTasks {
     }
 }
 
-impl Tasks for FakeTasks {
-    fn exists(&self, harp_id: &str) -> bool {
-        self.tasks.borrow().contains_key(harp_id)
+impl Tasks for &FakeTasks {
+    async fn exists(&mut self, harp_id: &str) -> Result<bool, Report> {
+        Ok(self.tasks.borrow().contains_key(harp_id))
     }
-    fn tagged(&self, key: &str) -> Vec<(String, String)> {
+    async fn tagged(&mut self, key: &str) -> Result<Vec<(String, String)>, Report> {
         let tasks = self.tasks.borrow();
-        tasks
+        Ok(tasks
             .iter()
             .flat_map(|(h, tags)| {
                 tags.iter()
                     .filter(|(k, _)| k == key)
                     .map(move |(_, v)| (h.clone(), v.clone()))
             })
-            .collect()
+            .collect())
     }
-    fn untag(&self, harp_id: &str, key: &str, value: &str) {
+    async fn untag(&mut self, harp_id: &str, key: &str, value: &str) -> Result<(), Report> {
         self.tasks
             .borrow_mut()
             .get_mut(harp_id)
             .unwrap()
             .remove(&(key.to_string(), value.to_string()));
+        Ok(())
     }
 }
 
@@ -237,7 +241,7 @@ fn the_ctxloom_plan_tag_is_retired_and_no_other() {
 #[test]
 fn add_with_no_path_writes_the_file_under_dot_taskloom_plans_and_records_its_hash() {
     let (files, tasks, mint) = (Files::default(), FakeTasks::default(), Counter::default());
-    let mut service = PlanService::new(&files, &tasks, &mint);
+    let mut service = Service::new(&files, &tasks, &mint);
     let plan = service.add(new("Plans move into taskloom")).unwrap();
     assert_eq!(plan.harp_id, "plan-1");
     assert_eq!(plan.path, ".taskloom/plans/plan-1.plan.md");
@@ -258,7 +262,7 @@ fn add_with_no_path_writes_the_file_under_dot_taskloom_plans_and_records_its_has
 fn add_with_no_path_refuses_to_overwrite_an_existing_file() {
     let files = Files::with(&[(".taskloom/plans/plan-1.plan.md", "mine")]);
     let (tasks, mint) = (FakeTasks::default(), Counter::default());
-    let mut service = PlanService::new(&files, &tasks, &mint);
+    let mut service = Service::new(&files, &tasks, &mint);
     assert_eq!(
         service.add(new("T")),
         Err(PlanError::FileExists(
@@ -275,7 +279,7 @@ fn add_with_no_path_refuses_to_overwrite_an_existing_file() {
 fn add_with_a_path_registers_the_file_by_relative_path_and_hashes_it() {
     let files = Files::with(&[("docs/design.plan.md", TEXT)]);
     let (tasks, mint) = (FakeTasks::default(), Counter::default());
-    let mut service = PlanService::new(&files, &tasks, &mint);
+    let mut service = Service::new(&files, &tasks, &mint);
     let plan = service
         .add(NewPlan {
             path: Some("/tree/docs/design.plan.md".into()),
@@ -291,7 +295,7 @@ fn add_with_a_path_registers_the_file_by_relative_path_and_hashes_it() {
 fn add_with_a_path_refuses_a_missing_file_a_path_outside_the_root_and_a_path_taken() {
     let files = Files::with(&[("docs/design.plan.md", TEXT)]);
     let (tasks, mint) = (FakeTasks::default(), Counter::default());
-    let mut service = PlanService::new(&files, &tasks, &mint);
+    let mut service = Service::new(&files, &tasks, &mint);
     let at = |p: &str| NewPlan {
         path: Some(p.into()),
         ..new("T")
@@ -320,7 +324,7 @@ fn add_with_a_path_refuses_a_missing_file_a_path_outside_the_root_and_a_path_tak
 fn add_records_the_session_and_its_governs_links() {
     let tasks = FakeTasks::with(&[("swift-amber-falcon", &[])]);
     let (files, mint) = (Files::default(), Counter::default());
-    let mut service = PlanService::new(&files, &tasks, &mint);
+    let mut service = Service::new(&files, &tasks, &mint);
     let plan = service
         .add(NewPlan {
             governs: vec!["swift-amber-falcon".into()],
@@ -335,7 +339,7 @@ fn add_records_the_session_and_its_governs_links() {
 #[test]
 fn add_governing_a_missing_task_is_refused_and_writes_no_file() {
     let (files, tasks, mint) = (Files::default(), FakeTasks::default(), Counter::default());
-    let mut service = PlanService::new(&files, &tasks, &mint);
+    let mut service = Service::new(&files, &tasks, &mint);
     let refused = service.add(NewPlan {
         governs: vec!["no-such-task".into()],
         ..new("T")
@@ -350,8 +354,8 @@ fn service_with_two_plans<'a>(
     files: &'a Files,
     tasks: &'a FakeTasks,
     mint: &'a Counter,
-) -> PlanService<'a> {
-    let mut service = PlanService::new(files, tasks, mint);
+) -> Service<&'a Files, &'a FakeTasks, &'a Counter> {
+    let mut service = Service::new(files, tasks, mint);
     service.add(new("One")).unwrap();
     service.add(new("Two")).unwrap();
     service
@@ -495,7 +499,7 @@ fn list_filters_by_status() {
 fn show_finds_a_plan_by_id_relative_path_or_absolute_path_and_returns_its_text() {
     let files = Files::with(&[("docs/design.plan.md", TEXT)]);
     let (tasks, mint) = (FakeTasks::default(), Counter::default());
-    let mut service = PlanService::new(&files, &tasks, &mint);
+    let mut service = Service::new(&files, &tasks, &mint);
     service
         .add(NewPlan {
             path: Some("docs/design.plan.md".into()),
@@ -517,7 +521,7 @@ fn show_finds_a_plan_by_id_relative_path_or_absolute_path_and_returns_its_text()
 fn show_of_a_plan_whose_file_is_gone_has_no_content() {
     let files = Files::default();
     let (tasks, mint) = (FakeTasks::default(), Counter::default());
-    let mut service = PlanService::new(&files, &tasks, &mint);
+    let mut service = Service::new(&files, &tasks, &mint);
     let plan = service.add(new("T")).unwrap();
     files.remove(&plan.path);
     assert_eq!(service.show("plan-1").unwrap().content, None);
@@ -550,23 +554,20 @@ fn check_reports_a_missing_file_and_fails() {
     assert!(report.failed());
 }
 
+/// Ruling (a), 2026-10-30: the hash tracks edits. `check` reads the file
+/// and records its new hash, so an edit is no finding.
 #[test]
-fn check_reports_a_hash_mismatch_with_both_hashes_and_fails() {
+fn check_records_an_edited_files_new_hash_and_finds_nothing() {
     let (files, tasks, mint) = (Files::default(), FakeTasks::default(), Counter::default());
     let service = service_with_two_plans(&files, &tasks, &mint);
     let recorded = service.show("plan-2").unwrap().plan.content_hash;
     files.put(".taskloom/plans/plan-2.plan.md", "edited");
     let report = service.check();
-    assert_eq!(
-        report.findings,
-        vec![Finding::HashMismatch {
-            plan: "plan-2".into(),
-            path: ".taskloom/plans/plan-2.plan.md".into(),
-            recorded,
-            actual: content_hash(b"edited"),
-        }]
-    );
-    assert!(report.failed());
+    assert_eq!(report.findings, vec![]);
+    assert!(!report.failed());
+    let tracked = service.show("plan-2").unwrap().plan.content_hash;
+    assert_eq!(tracked, content_hash(b"edited"));
+    assert_ne!(tracked, recorded);
 }
 
 #[test]
@@ -582,8 +583,10 @@ fn check_reports_an_unregistered_plan_file_under_dot_taskloom_plans() {
     );
 }
 
+/// Ruling (a): check's findings are only a missing file or an
+/// unregistered one, so a governed task since pruned is none.
 #[test]
-fn check_reports_a_governed_task_since_pruned() {
+fn check_does_not_report_a_governed_task_since_pruned() {
     let tasks = FakeTasks::with(&[("task-a", &[])]);
     let (files, mint) = (Files::default(), Counter::default());
     let mut service = service_with_two_plans(&files, &tasks, &mint);
@@ -591,37 +594,32 @@ fn check_reports_a_governed_task_since_pruned() {
         .link("plan-1", Link::Governs("task-a".into()))
         .unwrap();
     tasks.tasks.borrow_mut().remove("task-a");
-    assert_eq!(
-        service.check().findings,
-        vec![Finding::MissingTask {
-            plan: "plan-1".into(),
-            task: "task-a".into()
-        }]
-    );
+    assert_eq!(service.check().findings, vec![]);
 }
 
+/// Ruling (a): every finding fails check.
 #[test]
-fn an_external_plan_is_a_finding_that_does_not_fail_check() {
-    let finding = Finding::External {
-        plan: "p".into(),
-        path: "/elsewhere/x.plan.md".into(),
+fn any_finding_fails_check() {
+    let report = CheckReport {
+        findings: vec![Finding::Unregistered {
+            path: ".taskloom/plans/x.plan.md".into(),
+        }],
     };
-    assert!(!finding.fails());
-    assert!(CheckReport {
-        findings: vec![finding]
-    }
-    .findings
-    .iter()
-    .all(|f| !f.fails()));
+    assert!(report.failed());
 }
 
+/// Ruling (a): no `--accept`: `list` and `show` read the file as it now is
+/// and record its hash, as `check` does.
 #[test]
-fn accept_records_the_files_hash_as_it_now_is_and_clears_the_mismatch() {
+fn list_and_show_record_the_files_hash_as_it_now_is() {
     let (files, tasks, mint) = (Files::default(), FakeTasks::default(), Counter::default());
-    let mut service = service_with_two_plans(&files, &tasks, &mint);
+    let service = service_with_two_plans(&files, &tasks, &mint);
     files.put(".taskloom/plans/plan-1.plan.md", "edited");
-    let plan = service.accept("plan-1").unwrap();
-    assert_eq!(plan.content_hash, content_hash(b"edited"));
+    let listed = service.list(&PlanQuery::default());
+    assert_eq!(listed[0].content_hash, content_hash(b"edited"));
+    files.put(".taskloom/plans/plan-1.plan.md", "edited again");
+    let shown = service.show("plan-1").unwrap().plan;
+    assert_eq!(shown.content_hash, content_hash(b"edited again"));
     assert_eq!(service.check().findings, vec![]);
 }
 
@@ -654,7 +652,7 @@ fn tagged_project() -> (Files, FakeTasks) {
 fn import_turns_each_distinct_plan_path_into_one_plan_governing_its_tasks() {
     let (files, tasks) = tagged_project();
     let mint = Counter::default();
-    let mut service = PlanService::new(&files, &tasks, &mint);
+    let mut service = Service::new(&files, &tasks, &mint);
     let report = service.import(false);
     assert_eq!(
         report.plans,
@@ -666,14 +664,28 @@ fn import_turns_each_distinct_plan_path_into_one_plan_governing_its_tasks() {
                 new: true,
                 governs: vec!["task-a".into(), "task-b".into()],
             },
+            // Ruling (b): an external plan is copied in, and the copy
+            // registered.
             ImportedPlan {
                 harp_id: "plan-2".into(),
-                path: "/home/b/sessions/s1/v1-removal.plan.md".into(),
+                path: ".taskloom/plans/plan-2.plan.md".into(),
                 external: true,
                 new: true,
                 governs: vec!["task-b".into()],
             },
         ]
+    );
+    assert_eq!(
+        files.text(".taskloom/plans/plan-2.plan.md").as_deref(),
+        Some("# V1 removal\n"),
+        "the copy holds the original's text"
+    );
+    assert_eq!(
+        files
+            .text("/home/b/sessions/s1/v1-removal.plan.md")
+            .as_deref(),
+        Some("# V1 removal\n"),
+        "the original is left as it was"
     );
     let design = service.show("plan-1").unwrap().plan;
     assert_eq!(
@@ -697,7 +709,7 @@ fn import_turns_each_distinct_plan_path_into_one_plan_governing_its_tasks() {
 fn import_reports_dead_paths_and_non_plan_files_and_keeps_their_tags() {
     let (files, tasks) = tagged_project();
     let mint = Counter::default();
-    let mut service = PlanService::new(&files, &tasks, &mint);
+    let mut service = Service::new(&files, &tasks, &mint);
     let report = service.import(false);
     assert_eq!(
         report.dead,
@@ -724,7 +736,7 @@ fn import_reports_dead_paths_and_non_plan_files_and_keeps_their_tags() {
 fn import_retires_every_migrated_tag() {
     let (files, tasks) = tagged_project();
     let mint = Counter::default();
-    let mut service = PlanService::new(&files, &tasks, &mint);
+    let mut service = Service::new(&files, &tasks, &mint);
     let report = service.import(false);
     assert_eq!(
         report.retired,
@@ -745,7 +757,7 @@ fn import_retires_every_migrated_tag() {
 fn import_dry_run_reports_the_same_and_changes_nothing() {
     let (files, tasks) = tagged_project();
     let mint = Counter::default();
-    let mut service = PlanService::new(&files, &tasks, &mint);
+    let mut service = Service::new(&files, &tasks, &mint);
     let report = service.import(true);
     assert_eq!(report.plans.len(), 2);
     assert_eq!(report.retired.len(), 3);
@@ -757,7 +769,7 @@ fn import_dry_run_reports_the_same_and_changes_nothing() {
 fn import_again_adds_no_plan_and_links_a_registered_path_as_not_new() {
     let (files, tasks) = tagged_project();
     let mint = Counter::default();
-    let mut service = PlanService::new(&files, &tasks, &mint);
+    let mut service = Service::new(&files, &tasks, &mint);
     service.import(false);
     // A task tagged later with a path already registered.
     tasks.tasks.borrow_mut().insert(
@@ -778,17 +790,17 @@ fn import_again_adds_no_plan_and_links_a_registered_path_as_not_new() {
     assert_eq!(service.list(&PlanQuery::default()).len(), 2);
 }
 
+/// Ruling (b): an imported external plan is copied into the work tree,
+/// so check finds nothing of it.
 #[test]
-fn an_imported_external_plan_is_reported_by_check() {
+fn an_imported_external_plan_is_copied_in_so_check_finds_nothing() {
     let (files, tasks) = tagged_project();
     let mint = Counter::default();
-    let mut service = PlanService::new(&files, &tasks, &mint);
+    let mut service = Service::new(&files, &tasks, &mint);
     service.import(false);
+    assert_eq!(service.check().findings, vec![]);
     assert_eq!(
-        service.check().findings,
-        vec![Finding::External {
-            plan: "plan-2".into(),
-            path: "/home/b/sessions/s1/v1-removal.plan.md".into()
-        }]
+        service.show("plan-2").unwrap().plan.path,
+        ".taskloom/plans/plan-2.plan.md"
     );
 }

@@ -1431,17 +1431,26 @@ dependencies = [
 name = "plans-application"
 version = "0.1.0"
 dependencies = [
+ "angzarr-embedded",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=3edfe314b468bf75e4f35d05a3b079d8d97ab46f)",
+ "angzarr-ports",
+ "fluent-syntax",
  "plan-lists",
  "plans",
+ "ports",
  "sha2",
+ "tasks-application",
 ]
 
 [[package]]
 name = "plans-cli"
 version = "0.1.0"
 dependencies = [
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=3edfe314b468bf75e4f35d05a3b079d8d97ab46f)",
  "clap",
+ "fluent-syntax",
  "plans-application",
+ "presentation",
  "serde",
  "serde_json",
 ]

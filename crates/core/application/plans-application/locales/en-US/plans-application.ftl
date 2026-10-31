@@ -1,0 +1,12 @@
+plans-application-outside-work-root = { $path } is outside the work root: a plan's text is committed with the work tree
+plans-application-not-a-plan-file = { $path } is not a plan file: its name must end .plan.md
+plans-application-empty-path = the path given is empty
+plans-application-no-such-plan = there is no plan { $plan } (see `taskloom plan list`)
+plans-application-no-such-task = there is no task { $task } to govern (see `taskloom list --all`)
+plans-application-supersede-cycle = plan { $plan } cannot supersede { $target }: { $target } already supersedes it, directly or through other plans
+plans-application-already-superseded = plan { $plan } is already superseded by { $by }: unlink that first
+plans-application-file-missing = there is no file at { $path }
+plans-application-file-exists = { $path } already exists: register it with --path, or move it aside
+plans-application-already-registered = { $path } is already plan { $plan }'s text
+plans-application-harps-exhausted = no free plan id after { $attempts } tries
+plans-application-gave-up = gave up after { $attempts } attempts: { $error }

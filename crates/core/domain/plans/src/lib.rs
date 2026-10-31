@@ -250,20 +250,41 @@ pub fn decide(state: &PlanState, command: &PlanCommand) -> Result<Vec<PlanEvent>
     Ok(vec![event])
 }
 
+/// Whether `command` keeps the rules decide holds it to by what it carries
+/// alone, whatever its stream holds: an add's title, initial status and
+/// hash, a rehash's hash, a status change's not naming Superseded. Decide
+/// holds every command to these same rules; a caller runs them first, so a
+/// command they refuse is refused before any file is written for it.
+pub fn check(command: &PlanCommand) -> Result<(), PlanRejection> {
+    match command {
+        PlanCommand::Add(add) => carried(add),
+        PlanCommand::Rehash(hash) => well_formed(hash),
+        PlanCommand::SetStatus(PlanStatus::Superseded) => {
+            Err(PlanRejection::SupersededBySupersedeOnly)
+        }
+        _ => Ok(()),
+    }
+}
+
 /// What an add to `state` records: refused on a stream holding a plan, and
 /// for a blank title, a status a plan cannot start in, or a malformed hash.
 fn added(state: &PlanState, add: &AddPlan) -> Result<PlanEvent, PlanRejection> {
     if state.added {
         return Err(PlanRejection::AlreadyAdded);
     }
+    carried(add)?;
+    Ok(PlanEvent::PlanAdded(add.clone()))
+}
+
+/// An add's own fields: a title, a status a plan starts in, a sha-256.
+fn carried(add: &AddPlan) -> Result<(), PlanRejection> {
     if add.title.trim().is_empty() {
         return Err(PlanRejection::EmptyTitle);
     }
     if !matches!(add.status, PlanStatus::Draft | PlanStatus::Active) {
         return Err(PlanRejection::InitialStatus(add.status));
     }
-    well_formed(&add.content_hash)?;
-    Ok(PlanEvent::PlanAdded(add.clone()))
+    well_formed(&add.content_hash)
 }
 
 /// What `plan status` moving `state` to `to` records.

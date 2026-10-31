@@ -3,7 +3,8 @@
 //! are minted, whether its store can purge a stream or say whether
 //! anything changed, what time it is, how to wait, what is configured, the
 //! JSONL task logs to import, what a directory's identity rests on, to show
-//! and repair it, and whether a project's database is sound. Each is a
+//! and repair it, whether a project's database is sound, and, for plans,
+//! the work tree's plan files, the tasks they govern and fresh plan ids. Each is a
 //! trait a driven adapter (or the composition root) implements; nothing
 //! here does I/O.
 //!
@@ -21,8 +22,10 @@ use angzarr_ports::{ChangeToken, Purge, ReadStore, Store, StoreError, Watch};
 /// An instant: prost's `Timestamp`, as every recorded event carries one.
 pub use prost_types::Timestamp;
 
+mod plans;
 mod project;
 
+pub use plans::{Mint, PlanFiles, Tasks};
 pub use project::{Change, Checked, IdSource, ProjectAdmin, Registered, StoreCheck, Survey};
 
 /// A resolved project: its id, the work root it was resolved from, and

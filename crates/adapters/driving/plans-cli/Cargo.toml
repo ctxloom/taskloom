@@ -1,17 +1,27 @@
 [package]
 name = "plans-cli"
 version = "0.1.0"
-description = "`taskloom plan`: arguments parsed into the plans use cases, answers as text or JSON (RED STUB)"
+description = "The plan command group (add, list, show, status, link, unlink, check, import), for any binary to mount: arguments parsed into the plans use cases, and their answers rendered as text or JSON"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
+angzarr-embedded-diagnostic.workspace = true
 clap.workspace = true
 plans-application.workspace = true
+presentation.workspace = true
 serde.workspace = true
+
+[dev-dependencies]
+fluent-syntax.workspace = true
 serde_json.workspace = true
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests: their
+# dev-dependency turns it on, and no build of a binary does.
+test-support = []
 
 [lints]
 workspace = true

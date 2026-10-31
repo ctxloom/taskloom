@@ -1,16 +1,31 @@
 [package]
 name = "plans-application"
 version = "0.1.0"
-description = "The plans use cases: add, status, link, check and the import of ctxloom:plan tags (RED STUB)"
+description = "The plans use cases: add, status, link, list, show, check and the import of ctxloom:plan tags, over the ports and angzarr-embedded's kernel"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
+angzarr-embedded.workspace = true
+angzarr-embedded-diagnostic.workspace = true
 plan-lists.workspace = true
 plans.workspace = true
+ports.workspace = true
 sha2.workspace = true
+# The retry budget and the kernel's retry setting the tasks use cases run
+# under, and their dead letter: plans run the same way.
+tasks-application.workspace = true
+
+[dev-dependencies]
+angzarr-ports = { workspace = true, features = ["memory"] }
+fluent-syntax.workspace = true
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests: their
+# dev-dependency turns it on, and no build of a binary does.
+test-support = []
 
 [lints]
 workspace = true

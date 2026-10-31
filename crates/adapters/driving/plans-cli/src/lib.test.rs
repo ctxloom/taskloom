@@ -2,13 +2,73 @@
 //! for, and what it writes, as text and as JSON, the VS Code fields
 //! included.
 
+use std::future::Future;
+
+use clap::Parser;
 use plans_application::{
     CheckReport, Finding, ImportReport, ImportedPlan, LeftTag, Link, NewPlan, PlanError, PlanQuery,
     PlanStatus, PlanText, PlanView,
 };
+use presentation::{Catalog, Format};
 use serde_json::{json, Value};
 
 use super::*;
+
+/// What the binary reads from its process for the group, besides its
+/// arguments.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+struct Context {
+    session: String,
+    stdout_is_terminal: bool,
+}
+
+/// The command line as a binary mounting the group parses it: its global
+/// format flags, and `plan`.
+#[derive(Parser, Debug)]
+#[command(name = "taskloom")]
+struct Cli {
+    #[command(subcommand)]
+    group: Group,
+    #[arg(long, global = true)]
+    json: bool,
+    #[arg(long, global = true)]
+    format: Option<String>,
+}
+
+/// Poll `future` once: every fake answers at once.
+fn ready<F: Future>(future: F) -> F::Output {
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    match std::pin::pin!(future).poll(&mut cx) {
+        std::task::Poll::Ready(out) => out,
+        std::task::Poll::Pending => panic!("the fakes answer at once"),
+    }
+}
+
+/// `args` (the program's name first) parsed as a binary mounting the group
+/// does, the format chosen as it chooses, and the group run on `plans`
+/// with the catalog the binary would hand it: the exit code.
+fn run(
+    args: &[&str],
+    context: &Context,
+    plans: &mut impl Plans,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> u8 {
+    let cli = Cli::try_parse_from(args).unwrap_or_else(|e| panic!("{e}"));
+    let settings = Settings {
+        format: Format::choose(
+            cli.json,
+            cli.format.map(|f| f.parse().unwrap()),
+            context.stdout_is_terminal,
+        ),
+        session: context.session.clone(),
+        prog: "taskloom",
+    };
+    let mut sources = vec![EN_US];
+    sources.extend(plans_application::CATALOGS);
+    let catalog = Catalog::en_us(&sources).unwrap();
+    ready(super::run(cli.group, &settings, &catalog, plans, out, err))
+}
 
 const TEXT: &str = "---\ntitle: Plans move into taskloom\n---\n# Plans\n";
 
@@ -39,29 +99,29 @@ struct Fake {
 }
 
 impl Plans for Fake {
-    fn add(&mut self, new: NewPlan) -> Result<PlanView, PlanError> {
+    async fn add(&mut self, new: NewPlan) -> Result<PlanView, PlanError> {
         self.asked.push(format!("{new:?}"));
         Ok(view("plan-1", new.status))
     }
-    fn set_status(&mut self, plan: &str, status: PlanStatus) -> Result<PlanView, PlanError> {
+    async fn set_status(&mut self, plan: &str, status: PlanStatus) -> Result<PlanView, PlanError> {
         self.asked.push(format!("status {plan} {status:?}"));
         Ok(view(plan, status))
     }
-    fn link(&mut self, plan: &str, link: Link) -> Result<PlanView, PlanError> {
+    async fn link(&mut self, plan: &str, link: Link) -> Result<PlanView, PlanError> {
         self.asked.push(format!("link {plan} {link:?}"));
         if link == Link::Governs("ghost".into()) {
             return Err(PlanError::NoSuchTask("ghost".into()));
         }
         Ok(view(plan, PlanStatus::Active))
     }
-    fn unlink(&mut self, plan: &str, link: Link) -> Result<PlanView, PlanError> {
+    async fn unlink(&mut self, plan: &str, link: Link) -> Result<PlanView, PlanError> {
         self.asked.push(format!("unlink {plan} {link:?}"));
         Ok(view(plan, PlanStatus::Active))
     }
-    fn list(&self, query: &PlanQuery) -> Vec<PlanView> {
-        self.plans.clone()
+    async fn list(&mut self, _query: &PlanQuery) -> Result<Vec<PlanView>, PlanError> {
+        Ok(self.plans.clone())
     }
-    fn show(&self, id_or_path: &str) -> Result<PlanText, PlanError> {
+    async fn show(&mut self, id_or_path: &str) -> Result<PlanText, PlanError> {
         self.plans
             .iter()
             .find(|p| p.harp_id == id_or_path || p.abs_path == id_or_path)
@@ -71,16 +131,12 @@ impl Plans for Fake {
             })
             .ok_or_else(|| PlanError::NoSuchPlan(id_or_path.into()))
     }
-    fn check(&self) -> CheckReport {
-        self.report.clone()
+    async fn check(&mut self) -> Result<CheckReport, PlanError> {
+        Ok(self.report.clone())
     }
-    fn accept(&mut self, plan: &str) -> Result<PlanView, PlanError> {
-        self.asked.push(format!("accept {plan}"));
-        Ok(view(plan, PlanStatus::Active))
-    }
-    fn import(&mut self, dry_run: bool) -> ImportReport {
+    async fn import(&mut self, dry_run: bool) -> Result<ImportReport, PlanError> {
         self.asked.push(format!("import dry_run={dry_run}"));
-        self.import.clone()
+        Ok(self.import.clone())
     }
 }
 
@@ -240,33 +296,30 @@ fn list_text_is_a_line_per_plan() {
 struct Querying(std::cell::RefCell<Vec<PlanQuery>>, Fake);
 
 impl Plans for Querying {
-    fn add(&mut self, new: NewPlan) -> Result<PlanView, PlanError> {
-        self.1.add(new)
+    async fn add(&mut self, new: NewPlan) -> Result<PlanView, PlanError> {
+        self.1.add(new).await
     }
-    fn set_status(&mut self, plan: &str, status: PlanStatus) -> Result<PlanView, PlanError> {
-        self.1.set_status(plan, status)
+    async fn set_status(&mut self, plan: &str, status: PlanStatus) -> Result<PlanView, PlanError> {
+        self.1.set_status(plan, status).await
     }
-    fn link(&mut self, plan: &str, link: Link) -> Result<PlanView, PlanError> {
-        self.1.link(plan, link)
+    async fn link(&mut self, plan: &str, link: Link) -> Result<PlanView, PlanError> {
+        self.1.link(plan, link).await
     }
-    fn unlink(&mut self, plan: &str, link: Link) -> Result<PlanView, PlanError> {
-        self.1.unlink(plan, link)
+    async fn unlink(&mut self, plan: &str, link: Link) -> Result<PlanView, PlanError> {
+        self.1.unlink(plan, link).await
     }
-    fn list(&self, query: &PlanQuery) -> Vec<PlanView> {
+    async fn list(&mut self, query: &PlanQuery) -> Result<Vec<PlanView>, PlanError> {
         self.0.borrow_mut().push(query.clone());
-        Vec::new()
+        Ok(Vec::new())
     }
-    fn show(&self, id_or_path: &str) -> Result<PlanText, PlanError> {
-        self.1.show(id_or_path)
+    async fn show(&mut self, id_or_path: &str) -> Result<PlanText, PlanError> {
+        self.1.show(id_or_path).await
     }
-    fn check(&self) -> CheckReport {
-        self.1.check()
+    async fn check(&mut self) -> Result<CheckReport, PlanError> {
+        self.1.check().await
     }
-    fn accept(&mut self, plan: &str) -> Result<PlanView, PlanError> {
-        self.1.accept(plan)
-    }
-    fn import(&mut self, dry_run: bool) -> ImportReport {
-        self.1.import(dry_run)
+    async fn import(&mut self, dry_run: bool) -> Result<ImportReport, PlanError> {
+        self.1.import(dry_run).await
     }
 }
 
@@ -304,12 +357,28 @@ fn list_sends_its_status_and_governs_filters() {
 
 // ---- show ----
 
+/// Ruling (c), 2026-10-30: `plan show` follows the CLI's convention, JSON
+/// off a terminal; the markdown, raw, is its text (`--format text`, which
+/// the VS Code extension passes).
 #[test]
-fn show_off_a_terminal_without_json_writes_the_markdown_raw_for_vscode() {
+fn show_off_a_terminal_writes_json_and_its_text_is_the_markdown_raw() {
     let ran = run_on(
         &mut two_plans(),
         false,
         &["plan", "show", "/tree/.taskloom/plans/plan-1.plan.md"],
+    );
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(ran.json()["content"], TEXT);
+    let ran = run_on(
+        &mut two_plans(),
+        false,
+        &[
+            "plan",
+            "show",
+            "/tree/.taskloom/plans/plan-1.plan.md",
+            "--format",
+            "text",
+        ],
     );
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(ran.out, TEXT);
@@ -440,15 +509,10 @@ fn drifted() -> Fake {
                     plan: "plan-1".into(),
                     path: ".taskloom/plans/plan-1.plan.md".into(),
                 },
-                Finding::HashMismatch {
-                    plan: "plan-2".into(),
-                    path: "docs/x.plan.md".into(),
-                    recorded: "a".repeat(64),
-                    actual: "b".repeat(64),
-                },
-                Finding::External {
-                    plan: "plan-3".into(),
-                    path: "/home/b/v1.plan.md".into(),
+                // Ruling (a): check's findings are only a missing file or
+                // an unregistered one.
+                Finding::Unregistered {
+                    path: ".taskloom/plans/stray.plan.md".into(),
                 },
             ],
         },
@@ -463,8 +527,7 @@ fn check_text_is_a_line_per_finding_and_exits_1_on_drift() {
     assert_eq!(
         ran.out,
         "missing: plan-1 .taskloom/plans/plan-1.plan.md\n\
-         changed: plan-2 docs/x.plan.md (recorded aaaaaaaaaaaa, now bbbbbbbbbbbb)\n\
-         external: plan-3 /home/b/v1.plan.md\n"
+         unregistered: .taskloom/plans/stray.plan.md\n"
     );
 }
 
@@ -478,9 +541,7 @@ fn check_json_names_each_finding_by_kind() {
             "ok": false,
             "findings": [
                 {"kind": "missing", "plan": "plan-1", "path": ".taskloom/plans/plan-1.plan.md"},
-                {"kind": "hash_mismatch", "plan": "plan-2", "path": "docs/x.plan.md",
-                 "recorded": "a".repeat(64), "actual": "b".repeat(64)},
-                {"kind": "external", "plan": "plan-3", "path": "/home/b/v1.plan.md"},
+                {"kind": "unregistered", "path": ".taskloom/plans/stray.plan.md"},
             ],
         })
     );
@@ -495,19 +556,12 @@ fn check_with_nothing_found_exits_0_and_says_so() {
     assert_eq!(ran.json(), json!({"ok": true, "findings": []}));
 }
 
+/// Ruling (a): every finding fails check, an unregistered file alone too.
 #[test]
-fn check_with_only_an_external_finding_exits_0() {
+fn check_with_only_an_unregistered_file_exits_1() {
     let mut fake = drifted();
-    fake.report.findings.drain(..2);
-    assert_eq!(run_on(&mut fake, true, &["plan", "check"]).code, 0);
-}
-
-#[test]
-fn check_accept_records_the_hash_and_then_checks() {
-    let mut fake = Fake::default();
-    let ran = run_on(&mut fake, true, &["plan", "check", "--accept", "plan-2"]);
-    assert_eq!(fake.asked, vec!["accept plan-2"]);
-    assert_eq!(ran.code, 0);
+    fake.report.findings.drain(..1);
+    assert_eq!(run_on(&mut fake, true, &["plan", "check"]).code, 1);
 }
 
 // ---- import ----
@@ -577,5 +631,156 @@ fn import_json_is_the_whole_report() {
     assert_eq!(
         report["retired"][0],
         json!({"task": "task-a", "value": "docs/design.plan.md"})
+    );
+}
+
+// ---- beyond the reviewed tests ----
+
+/// Refuses its second link; dead-letters one line.
+#[derive(Default)]
+struct Refusing(Fake, u32);
+
+impl Plans for Refusing {
+    async fn add(&mut self, new: NewPlan) -> Result<PlanView, PlanError> {
+        self.0.add(new).await
+    }
+    async fn set_status(&mut self, plan: &str, status: PlanStatus) -> Result<PlanView, PlanError> {
+        self.0.set_status(plan, status).await
+    }
+    async fn link(&mut self, plan: &str, link: Link) -> Result<PlanView, PlanError> {
+        self.1 += 1;
+        match self.1 {
+            1 => self.0.link(plan, link).await,
+            _ => Err(PlanError::NoSuchTask("task-b".into())),
+        }
+    }
+    async fn unlink(&mut self, plan: &str, link: Link) -> Result<PlanView, PlanError> {
+        self.0.unlink(plan, link).await
+    }
+    async fn list(&mut self, query: &PlanQuery) -> Result<Vec<PlanView>, PlanError> {
+        self.0.list(query).await
+    }
+    async fn show(&mut self, id_or_path: &str) -> Result<PlanText, PlanError> {
+        Ok(PlanText {
+            plan: view(id_or_path, PlanStatus::Draft),
+            content: None,
+        })
+    }
+    async fn check(&mut self) -> Result<CheckReport, PlanError> {
+        self.0.check().await
+    }
+    async fn import(&mut self, dry_run: bool) -> Result<ImportReport, PlanError> {
+        self.0.import(dry_run).await
+    }
+    fn dead_letters(&mut self) -> Vec<plans_application::DeadLetter> {
+        vec![plans_application::DeadLetter {
+            line: "DEAD-LETTER x".into(),
+        }]
+    }
+}
+
+fn run_refusing(terminal: bool, args: &[&str]) -> Ran {
+    let mut argv = vec!["taskloom"];
+    argv.extend_from_slice(args);
+    let context = Context {
+        session: String::new(),
+        stdout_is_terminal: terminal,
+    };
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let code = run(
+        &argv,
+        &context,
+        &mut Refusing::default(),
+        &mut out,
+        &mut err,
+    );
+    Ran {
+        code,
+        out: String::from_utf8(out).unwrap(),
+        err: String::from_utf8(err).unwrap(),
+    }
+}
+
+#[test]
+fn a_link_refused_part_way_says_the_links_made_and_the_refusal() {
+    let ran = run_refusing(
+        true,
+        &[
+            "plan",
+            "link",
+            "plan-1",
+            "--governs",
+            "task-a",
+            "--governs",
+            "task-b",
+        ],
+    );
+    assert_eq!(ran.code, 1);
+    assert_eq!(ran.out, "plan-1 governs task-a\n");
+    assert!(ran.err.contains("task-b"), "{}", ran.err);
+}
+
+#[test]
+fn every_dead_letter_is_said_on_stderr() {
+    let ran = run_refusing(true, &["plan", "list"]);
+    assert_eq!(ran.code, 0);
+    // Its message is the tasks use cases' catalog's, which the binary's
+    // holds and this one does not.
+    assert!(ran.err.starts_with("taskloom: "), "{}", ran.err);
+    assert!(ran.err.contains("DEAD-LETTER x"), "{}", ran.err);
+}
+
+#[test]
+fn show_in_text_of_a_plan_whose_file_is_gone_exits_1_naming_it() {
+    let ran = run_refusing(true, &["plan", "show", "plan-1"]);
+    assert_eq!(ran.code, 1);
+    assert!(ran.out.is_empty());
+    assert!(
+        ran.err.contains(".taskloom/plans/plan-1.plan.md"),
+        "{}",
+        ran.err
+    );
+    let ran = run_refusing(false, &["plan", "show", "plan-1"]);
+    assert_eq!(ran.code, 0);
+    assert_eq!(ran.json()["content"], Value::Null);
+}
+
+#[test]
+fn an_unknown_status_anywhere_is_a_usage_error() {
+    let mut fake = two_plans();
+    assert_eq!(
+        run_on(&mut fake, true, &["plan", "status", "plan-1", "nope"]).code,
+        2
+    );
+    assert_eq!(
+        run_on(&mut fake, true, &["plan", "list", "--status", "nope"]).code,
+        2
+    );
+    assert!(fake.asked.is_empty());
+}
+
+#[test]
+fn unlink_governs_says_each_link_removed() {
+    let mut fake = two_plans();
+    let ran = run_on(
+        &mut fake,
+        true,
+        &["plan", "unlink", "plan-1", "--governs", "task-a"],
+    );
+    assert_eq!(ran.out, "plan-1 no longer governs task-a\n");
+    assert_eq!(
+        run_on(&mut fake, true, &["plan", "unlink", "plan-1"]).code,
+        2
+    );
+}
+
+#[test]
+fn a_dry_run_import_says_nothing_changed() {
+    let ran = run_on(&mut imported(), true, &["plan", "import", "--dry-run"]);
+    assert!(
+        ran.out
+            .ends_with("2 ctxloom:plan tags would be retired (dry run: nothing changed)\n"),
+        "{}",
+        ran.out
     );
 }
