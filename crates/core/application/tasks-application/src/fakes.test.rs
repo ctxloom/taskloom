@@ -455,12 +455,14 @@ impl TaskStores for FakeStores {
 }
 
 /// Task ids in the order given; project ids are never asked for here. A
-/// key's task id is `seeded`'s for it, or else the next in order, kept for
-/// the key from then on.
+/// key's task id at a position is `seeded`'s for it, or else the next in
+/// order, kept for the key and position from then on.
 #[derive(Default)]
 pub struct FakeNames {
     pub task_ids: VecDeque<String>,
-    pub seeded: BTreeMap<String, String>,
+    pub seeded: BTreeMap<(String, u64), String>,
+    /// Each key and position asked for, in order.
+    pub probed: Vec<(String, u64)>,
     /// Given forever once `task_ids` runs out, if set.
     pub then: Option<String>,
     pub minted: u32,
@@ -471,6 +473,14 @@ impl FakeNames {
         FakeNames {
             task_ids: ids.iter().map(|s| s.to_string()).collect(),
             ..FakeNames::default()
+        }
+    }
+
+    /// `key`'s task ids, position 0 first.
+    pub fn seed(&mut self, key: &str, ids: &[&str]) {
+        for (position, id) in (0..).zip(ids) {
+            self.seeded
+                .insert((key.to_string(), position), id.to_string());
         }
     }
 }
@@ -484,8 +494,10 @@ impl Names for FakeNames {
             .expect("a task id scripted")
     }
 
-    fn task_id_for(&mut self, request_id: &str) -> String {
-        if let Some(id) = self.seeded.get(request_id) {
+    fn task_id_for(&mut self, request_id: &str, position: u64) -> String {
+        let at = (request_id.to_string(), position);
+        self.probed.push(at.clone());
+        if let Some(id) = self.seeded.get(&at) {
             return id.clone();
         }
         let id = self
@@ -493,7 +505,7 @@ impl Names for FakeNames {
             .pop_front()
             .or_else(|| self.then.clone())
             .expect("a task id scripted");
-        self.seeded.insert(request_id.to_string(), id.clone());
+        self.seeded.insert(at, id.clone());
         id
     }
 

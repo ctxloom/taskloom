@@ -1539,10 +1539,7 @@ fn test_a_tag_change_retried_under_its_request_id_derives_its_command_id() {
 #[test]
 fn test_an_add_under_a_request_id_takes_the_keys_harp_and_command_id() {
     let mut service = service(&["calm-otter"]);
-    service
-        .names
-        .seeded
-        .insert("r-1".to_string(), "swift-amber".to_string());
+    service.names.seed("r-1", &["swift-amber"]);
     let task = NewTask {
         request_id: Some("r-1".to_string()),
         ..new_task("Ship it")
@@ -1556,57 +1553,111 @@ fn test_an_add_under_a_request_id_takes_the_keys_harp_and_command_id() {
     );
 }
 
-// Another request's task on the key's harp is a collision, refused: never
-// merged into that task's stream, and never moved to another harp, which a
-// retry under the same key could not find again.
+fn keyed(key: &str, text: &str) -> NewTask {
+    NewTask {
+        request_id: Some(key.to_string()),
+        ..new_task(text)
+    }
+}
+
+/// Each listed task's harp and text.
+fn held(service: &mut Fake) -> Vec<(String, String)> {
+    ready(service.list(ListQuery::default()))
+        .unwrap()
+        .tasks()
+        .map(|t| (t.harp_id.clone(), t.text.clone()))
+        .collect()
+}
+
+// Another request's task on the key's first harp: the add probes the key's
+// next, never merging into that task's stream.
 #[test]
-fn test_an_add_whose_keys_harp_holds_another_requests_task_is_refused() {
+fn test_a_keyed_add_whose_first_harp_is_held_lands_on_its_next() {
     let mut service = service(&["swift-amber"]);
     add(&mut service, new_task("Theirs")).unwrap();
-    for key in ["r-2", "r-3"] {
-        service
-            .names
-            .seeded
-            .insert(key.to_string(), "swift-amber".to_string());
-    }
-    let first = NewTask {
-        request_id: Some("r-2".to_string()),
-        ..new_task("Mine")
-    };
-    for task in [
-        first.clone(),
-        first,
-        NewTask {
-            request_id: Some("r-3".to_string()),
-            ..new_task("Mine")
-        },
-    ] {
-        let key = task.request_id.clone().unwrap();
-        let error = add(&mut service, task).unwrap_err();
-        assert_eq!(
-            error,
-            AppError::AddRequestIdCollides {
-                request_id: key.clone(),
-                harp_id: "swift-amber".to_string(),
-            }
-        );
-        assert_eq!(error.code(), "tasks-application-add-request-id-collides");
-        assert_eq!(
-            error.english(),
-            format!(
-                "request id {key} derives task id swift-amber, which another request's task holds: give this add a new request id"
-            )
-        );
-    }
-    assert_eq!(listed(&mut service, ListQuery::default()), ["swift-amber"]);
+    service.names.seed("r-1", &["swift-amber", "calm-otter"]);
+    let written = add(&mut service, keyed("r-1", "Mine")).unwrap();
+    assert_eq!(written.task.harp_id, "calm-otter");
+    let mut tasks = held(&mut service);
+    tasks.sort();
+    assert_eq!(
+        tasks,
+        [
+            ("calm-otter".to_string(), "Mine".to_string()),
+            ("swift-amber".to_string(), "Theirs".to_string())
+        ]
+    );
     assert_eq!(
         command_ids(&mut service, "swift-amber").len(),
         1,
         "theirs alone"
     );
-    let listing = ready(service.list(ListQuery::default())).unwrap();
-    let texts: Vec<&str> = listing.tasks().map(|t| t.text.as_str()).collect();
-    assert_eq!(texts, ["Theirs"], "theirs untouched");
+    assert_eq!(
+        command_ids(&mut service, "calm-otter"),
+        [crate::request_command_id("add", "r-1")]
+    );
+}
+
+// The retry probes the same order: past the held first harp to its own,
+// answered DUPLICATE there, never on to a third.
+#[test]
+fn test_a_keyed_add_retried_after_a_probe_answers_with_the_task_it_added() {
+    let mut service = service(&["swift-amber"]);
+    add(&mut service, new_task("Theirs")).unwrap();
+    service
+        .names
+        .seed("r-1", &["swift-amber", "calm-otter", "brisk-oak"]);
+    let first = add(&mut service, keyed("r-1", "Mine")).unwrap();
+    let again = add(&mut service, keyed("r-1", "Mine")).unwrap();
+    assert_eq!(first.task.harp_id, "calm-otter");
+    assert_eq!(again.task, first.task);
+    let mut harps: Vec<String> = held(&mut service).into_iter().map(|(h, _)| h).collect();
+    harps.sort();
+    assert_eq!(harps, ["calm-otter", "swift-amber"], "nothing on brisk-oak");
+    assert_eq!(
+        command_ids(&mut service, "calm-otter").len(),
+        1,
+        "added once"
+    );
+}
+
+// Every probed harp held by another request's task: refused, nothing added.
+#[test]
+fn test_a_keyed_add_whose_every_probed_harp_is_held_is_refused() {
+    let harps = [
+        "swift-amber",
+        "calm-otter",
+        "brisk-oak",
+        "dusky-fox",
+        "pale-wren",
+        "bold-elm",
+        "quiet-moth",
+        "keen-lark",
+    ];
+    assert_eq!(harps.len(), crate::KEYED_PROBES as usize);
+    let mut service = service(&harps);
+    for _ in harps {
+        add(&mut service, new_task("Theirs")).unwrap();
+    }
+    service.names.seed("r-1", &harps);
+    let error = add(&mut service, keyed("r-1", "Mine")).unwrap_err();
+    assert_eq!(
+        error,
+        AppError::AddRequestIdCollides {
+            request_id: "r-1".to_string(),
+            probes: crate::KEYED_PROBES,
+        }
+    );
+    assert_eq!(error.code(), "tasks-application-add-request-id-collides");
+    assert_eq!(
+        error.english(),
+        "every one of the 8 task ids request id r-1 derives holds another request's task: give this add a new request id"
+    );
+    let probed: Vec<(String, u64)> = (0..8).map(|p| ("r-1".to_string(), p)).collect();
+    assert_eq!(service.names.probed, probed, "positions 0 to 7, each once");
+    let tasks = held(&mut service);
+    assert_eq!(tasks.len(), harps.len());
+    assert!(tasks.iter().all(|(_, text)| text == "Theirs"), "{tasks:?}");
 }
 
 // O's starting point: once the key pins the harp an add mints, a retried

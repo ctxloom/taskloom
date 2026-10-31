@@ -25,7 +25,7 @@ impl Names for Scripted {
         unreachable!("no task ids here")
     }
 
-    fn task_id_for(&mut self, _request_id: &str) -> String {
+    fn task_id_for(&mut self, _request_id: &str, _position: u64) -> String {
         unreachable!("no task ids here")
     }
 

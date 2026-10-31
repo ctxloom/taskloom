@@ -49,10 +49,10 @@ pub enum AppError {
     Blank { field: &'static str },
     /// A status change giving a trigger and clearing the trigger at once.
     TriggerAndClear,
-    /// An add given a request id whose derived harp (`harp_id`) holds a task
-    /// another request added: refused, never merged into that task's stream
-    /// nor moved to another harp, which a retry under the key could not find.
-    AddRequestIdCollides { request_id: String, harp_id: String },
+    /// An add given a request id each of whose `probes` derived harps
+    /// ([`crate::KEYED_PROBES`]) holds a task another request added: refused,
+    /// never merged into any of their streams.
+    AddRequestIdCollides { request_id: String, probes: u32 },
     /// Priority could not be derived (`task_priority::PriorityError`): a
     /// formula that does not compile, or a task it cannot score.
     Priority(Report),
@@ -175,12 +175,9 @@ impl Diagnostic for AppError {
             AppError::HarpsExhausted { attempts } => vec![("attempts", (*attempts).into())],
             AppError::Vanished { harp_id } => vec![("harp_id", harp_id.as_str().into())],
             AppError::NoProject | AppError::TriggerAndClear => Vec::new(),
-            AppError::AddRequestIdCollides {
-                request_id,
-                harp_id,
-            } => vec![
+            AppError::AddRequestIdCollides { request_id, probes } => vec![
                 ("request_id", request_id.as_str().into()),
-                ("harp_id", harp_id.as_str().into()),
+                ("probes", (*probes).into()),
             ],
             AppError::UnknownStatusClass { status } => vec![
                 ("status", status.as_str().into()),
@@ -250,7 +247,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(AppError::TriggerAndClear),
         Box::new(AppError::AddRequestIdCollides {
             request_id: "r-1".to_string(),
-            harp_id: "swift-amber".to_string(),
+            probes: 8,
         }),
         Box::new(AppError::NotFound {
             harp_ids: vec!["swift-amber".to_string(), "calm-otter".to_string()],

@@ -82,6 +82,18 @@ pub use watch::{Watch, WatchRequest, WatchService};
 /// task already holds it.
 pub(crate) const HARP_ATTEMPTS: u32 = 100;
 
+/// How many positions of its key's order ([`Names::task_id_for`]) an add
+/// under a request id probes, from position 0, before refusing
+/// ([`AppError::AddRequestIdCollides`]): a position another request's task
+/// holds is passed, its own is answered DUPLICATE, a free one is added on.
+///
+/// Compatibility promise: the key's harps are fixed by the seed (FNV-1a 64
+/// of the key, in harp-names), harp's seeded index (scheme v1), and this
+/// probe order (positions 0 to `KEYED_PROBES - 1`, in turn). A retry finds
+/// the task it added only if all three are what they were when it was
+/// added; raising the bound is safe, lowering it or reordering is not.
+pub const KEYED_PROBES: u32 = 8;
+
 /// A task to add. A value given (`Some`) is never read as one left out:
 /// given blank, it is refused ([`AppError::Blank`]).
 #[derive(Clone, PartialEq, Debug, Default)]
@@ -100,10 +112,11 @@ pub struct NewTask {
     pub origin_session: Option<String>,
     /// The request's key, as [`TagChange::request_id`]'s. An add's stream
     /// is its harp's and the kernel deduplicates within a stream, so the
-    /// key pins the harp too ([`Names::task_id_for`]): a retry lands on the
-    /// stream the first landed on and is answered DUPLICATE, answering with
-    /// the task it added. A task another request added on that harp is a
-    /// collision, refused ([`AppError::AddRequestIdCollides`]).
+    /// key pins the harp too ([`Names::task_id_for`]): the add probes the
+    /// key's order past harps other requests' tasks hold ([`KEYED_PROBES`]),
+    /// so a retry walks to the stream the first landed on and is answered
+    /// DUPLICATE, answering with the task it added. Every probed harp held,
+    /// it is refused ([`AppError::AddRequestIdCollides`]).
     pub request_id: Option<String>,
 }
 
@@ -476,9 +489,16 @@ where
         let (tags, _) = tags::collapse(&rules, &[], tags);
         let warnings = judged(rules.validate(&[], &tags, &[]))?;
         let template = AddTask { tags, ..template };
-        for _ in 0..HARP_ATTEMPTS {
+        let attempts = match request_id {
+            Some(_) => KEYED_PROBES,
+            None => HARP_ATTEMPTS,
+        };
+        for position in 0..attempts {
             let (harp_id, command_id) = match request_id.as_deref() {
-                Some(key) => (self.names.task_id_for(key), request_command_id("add", key)),
+                Some(key) => (
+                    self.names.task_id_for(key, u64::from(position)),
+                    request_command_id("add", key),
+                ),
                 None => (self.names.task_id(), runner.clock.command_id()),
             };
             let add = AddTask {
@@ -503,23 +523,21 @@ where
                         warnings,
                     });
                 }
-                // Another request's task: the key's harp is the key's only
-                // one, so a collision is refused, never merged into that
-                // task's stream nor moved where a retry would not look.
-                refused if refused.refused_as("tasks-task-exists") => match &request_id {
-                    Some(request_id) => {
-                        return Err(AppError::AddRequestIdCollides {
-                            request_id: request_id.clone(),
-                            harp_id,
-                        })
-                    }
-                    None => continue,
-                },
+                // Another task holds the harp (this request's own would
+                // have been answered DUPLICATE): never merged into its
+                // stream, the next harp is tried, the key's next given one.
+                refused if refused.refused_as("tasks-task-exists") => continue,
                 retry::Outcome::Refused(rejection) => return Err(rejected(&rejection)),
             }
         }
-        Err(AppError::HarpsExhausted {
-            attempts: HARP_ATTEMPTS,
+        Err(match request_id {
+            Some(request_id) => AppError::AddRequestIdCollides {
+                request_id,
+                probes: KEYED_PROBES,
+            },
+            None => AppError::HarpsExhausted {
+                attempts: HARP_ATTEMPTS,
+            },
         })
     }
 

@@ -127,11 +127,18 @@ pub trait Names {
     /// A task's harp id: two words ("swift-amber").
     fn task_id(&mut self) -> String;
 
-    /// The task harp id `request_id` derives: two words, as
-    /// [`Names::task_id`]'s, the same for the same key every time and in
-    /// every process, so an add retried under its key lands on the stream
-    /// it landed on first. Another key may derive the same one.
-    fn task_id_for(&mut self, request_id: &str) -> String;
+    /// The task harp id at `position` of the order `request_id` derives:
+    /// two words, as [`Names::task_id`]'s. An add under the key probes
+    /// positions 0, 1, and so on, past harps other requests' tasks hold, so
+    /// a retry walks the same order to the task it added.
+    ///
+    /// Compatibility promise: a key's order is the same every time, in
+    /// every process and release. In harp-names it is harp's seeded index
+    /// (scheme v1) seeded by FNV-1a 64 of the key's UTF-8 bytes; together
+    /// with the application's probe bound and order (`KEYED_PROBES`,
+    /// positions from 0), changing any of them makes a retry across the
+    /// change add its task again. Another key may derive the same harp.
+    fn task_id_for(&mut self, request_id: &str, position: u64) -> String;
 
     /// A project's id: three words ("jolly-mute-magma").
     fn project_id(&mut self) -> String;
