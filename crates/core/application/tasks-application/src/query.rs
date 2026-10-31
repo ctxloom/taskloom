@@ -19,8 +19,8 @@ use std::sync::Arc;
 use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 use tagma_core::Index;
 
-use crate::schema::{TagSchema, SEMVER};
-use crate::semver::Semver;
+use crate::semver::{Semver, SEMVER};
+use crate::store_schema::StoreRules;
 use crate::Tag;
 
 /// The namespace of the presence tag every candidate carries. A task may
@@ -64,24 +64,20 @@ impl Diagnostic for QueryError {
 }
 
 /// The ids of `candidates` (`(harp id, tags)`) that `query` selects under
-/// `schema`, or why the query is malformed. No query selects every
+/// the store's `rules` (its `tagma.type` declarations), or why the query is malformed. No query selects every
 /// candidate; a blank one is refused before it gets here
 /// ([`crate::AppError::Blank`]), and tagma judges one that reaches it.
 pub fn select<'a>(
     query: Option<&str>,
     candidates: impl IntoIterator<Item = (&'a str, &'a [Tag])>,
-    schema: &TagSchema,
+    rules: &StoreRules,
 ) -> Result<BTreeSet<String>, QueryError> {
     let mut index = Index::new();
     index.register_type(SEMVER, Arc::new(Semver));
-    let types: Vec<tagma_core::Tag> = schema
-        .types()
-        .map(|(target, name)| tagma_core::Tag {
-            namespace: Some("tagma.type".to_string()),
-            key: target.to_string(),
-            value: Some(name.to_string()),
-        })
-        .collect();
+    // Only the types: an index reads the other facets too (arity collapses
+    // a candidate's values, hide narrows what a query sees), and a query
+    // is over the tags as stored.
+    let types = rules.types();
     if !types.is_empty() {
         index.add_item(TYPE_CONFIG_ITEM, types);
     }
@@ -104,7 +100,7 @@ pub fn select<'a>(
 
 /// Refuse `query` if it is malformed, whatever it would be run over.
 pub fn check(query: Option<&str>) -> Result<(), QueryError> {
-    select(query, [], &TagSchema::default()).map(|_| ())
+    select(query, [], &StoreRules::default()).map(|_| ())
 }
 
 /// The tag every candidate carries, so that it takes part in the query.

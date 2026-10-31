@@ -496,7 +496,7 @@ fn test_a_logged_tag_in_tagmas_namespace_is_reported_and_left_out() {
         .map(|h| (*h, state(&mut service, h).unwrap().tags))
         .collect();
     let candidates = || held.iter().map(|(h, t)| (*h, t.as_slice()));
-    let schema = crate::schema::TagSchema::default();
+    let schema = crate::store_schema::StoreRules::parsed(&[]);
     let select = |query| crate::query::select(Some(query), candidates(), &schema).unwrap();
     assert!(select("*:k").contains("calm-bay"), "nothing hides x:k");
     assert!(select("p:k=1").contains("wry-moss"), "p:k is not scalar");

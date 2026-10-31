@@ -98,11 +98,12 @@ impl Diagnostic for TaskRejection {
 /// embeds to render its diagnostics.
 pub const EN_US: (&str, &str) = ("tasks", include_str!("../locales/en-US/tasks.ftl"));
 
-/// One value of every rejection, for the catalog test.
+/// One value of every rejection, a task's and the schema's, for the
+/// catalog test.
 #[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     let harp_id = || "swift-amber".to_string();
-    vec![
+    let tasks: Vec<Box<dyn Diagnostic>> = vec![
         Box::new(TaskRejection::HarpIdRequired),
         Box::new(TaskRejection::NotItsStream { harp_id: harp_id() }),
         Box::new(TaskRejection::NoRoot {
@@ -129,5 +130,6 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(TaskRejection::Unresolved {
             field: "defers".to_string(),
         }),
-    ]
+    ];
+    tasks.into_iter().chain(crate::schema::samples()).collect()
 }

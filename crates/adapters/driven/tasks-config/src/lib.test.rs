@@ -72,114 +72,159 @@ fn strings(values: &[&str]) -> Vec<String> {
     values.iter().map(|v| v.to_string()).collect()
 }
 
-/// What `config`, made with `overrides`, resolves.
-fn schema(config: &TaskloomConfig, overrides: &[&str]) -> Result<Vec<String>, ConfigError> {
+/// What `config`, made with `overrides`, says of the moved keys.
+fn moved(config: &TaskloomConfig, overrides: &[&str]) -> Result<(), ConfigError> {
     let config = TaskloomConfig {
         overrides: strings(overrides),
         ..config.clone()
     };
-    config.resolve()
+    config.moved_keys()
 }
 
 const HOME: &str = "tag_schema:\n  - 'tagma.arity:\"home:x\"=scalar'\n";
 const ROOT: &str = "schema_version: 1\nhoming: home\ntag_schema:\n  - 'tagma.arity:\"root:x\"=scalar'\n  - 'tagma.enum:\"root:y\"=\"a,b\"'\n";
 
+// The tag rules moved into the store (docs/plans/self-hosted-schema.md):
+// nothing configured sets them, and that is no refusal.
 #[test]
-fn test_nothing_configured_is_no_declaration() {
-    let dirs = Dirs::new(None, None);
-    assert_eq!(schema(&dirs.config(&[]), &[]), Ok(Vec::new()));
+fn test_nothing_configured_moves_nothing() {
+    let dirs = Dirs::new(Some("homing: home\n"), Some("schema_version: 1\n"));
+    assert_eq!(moved(&dirs.config(&[]), &[]), Ok(()));
     let nowhere = TaskloomConfig::new(Arc::clone(&dirs.fs), None, None, Vec::new(), Vec::new());
-    assert_eq!(schema(&nowhere, &[]), Ok(Vec::new()));
+    assert_eq!(moved(&nowhere, &[]), Ok(()));
+    let known = dirs.config(&[
+        ("TASKLOOM_CONFIG_HOMING", "home"),
+        ("TASKLOOM_CONFIG_SCHEMA_VERSION", "1"),
+    ]);
+    assert_eq!(moved(&known, &["schema_version=1", "Homing=repo"]), Ok(()));
 }
 
+// Was: each layer's tag_schema replaced the one below it. Now every layer
+// still setting a moved key, a file's tag_schema or tag_permits, the
+// variable or an override, is refused naming it and the import.
 #[test]
-fn test_the_home_config_is_read() {
-    let dirs = Dirs::new(Some(HOME), None);
-    assert_eq!(
-        schema(&dirs.config(&[]), &[]),
-        Ok(strings(&[r#"tagma.arity:"home:x"=scalar"#]))
-    );
-}
-
-// Each layer that sets tag_schema replaces the list below it whole.
-#[test]
-fn test_the_work_roots_config_replaces_the_homes_list() {
-    let dirs = Dirs::new(Some(HOME), Some(ROOT));
-    assert_eq!(
-        schema(&dirs.config(&[]), &[]),
-        Ok(strings(&[
-            r#"tagma.arity:"root:x"=scalar"#,
-            r#"tagma.enum:"root:y"="a,b""#
-        ]))
-    );
-    // A root config that does not set it leaves the home's.
-    let dirs = Dirs::new(Some(HOME), Some("homing: home\n"));
-    assert_eq!(schema(&dirs.config(&[]), &[]).unwrap().len(), 1);
-}
-
-#[test]
-fn test_the_environment_beats_the_files_and_an_override_beats_it() {
-    let dirs = Dirs::new(Some(HOME), Some(ROOT));
-    let env = [
+fn test_every_layer_setting_a_moved_key_is_refused_naming_it() {
+    let file = |dir: &str| shown(&format!("{dir}/.taskloom/config.yaml"));
+    for (home, root, key, source) in [
+        (Some(HOME), None, "tag_schema", file("/home/u")),
+        (None, Some(ROOT), "tag_schema", file("/tree")),
         (
+            None,
+            Some("tag_permits:\n  tags: [urgent]\n"),
+            "tag_permits",
+            file("/tree"),
+        ),
+        (
+            Some("tag_permits:\n  tags: [urgent]\n"),
+            None,
+            "tag_permits",
+            file("/home/u"),
+        ),
+    ] {
+        let dirs = Dirs::new(home, root);
+        let error = moved(&dirs.config(&[]), &[]).unwrap_err();
+        assert_eq!(
+            error,
+            ConfigError::KeyMoved {
+                source: source.clone(),
+                key: key.to_string()
+            },
+            "{source}"
+        );
+        assert!(
+            error.english().contains("taskloom schema import-config"),
+            "{error}"
+        );
+    }
+    let dirs = Dirs::new(None, None);
+    for (env, overrides, source, key) in [
+        (
+            &[("TASKLOOM_CONFIG_TAG_SCHEMA", "x")][..],
+            &[][..],
             "TASKLOOM_CONFIG_TAG_SCHEMA",
-            r#"tagma.arity:"env:x"=scalar, tagma.enum:"env:y"="a,b""#,
+            "tag_schema",
         ),
-        ("HOME", "/elsewhere"),
-        ("CTXLOOM_CONFIG_WHATEVER", "x"),
-    ];
-    let config = dirs.config(&env);
-    assert_eq!(
-        schema(&config, &[]),
-        Ok(strings(&[
-            r#"tagma.arity:"env:x"=scalar"#,
-            r#"tagma.enum:"env:y"="a,b""#
-        ]))
-    );
-    assert_eq!(
-        schema(
-            &config,
-            &[r#"Tag_Schema=tagma.arity:"set:x"=scalar"#, "homing=repo"]
+        (
+            &[("TASKLOOM_CONFIG_TAG_PERMITS", "x")],
+            &[],
+            "TASKLOOM_CONFIG_TAG_PERMITS",
+            "tag_permits",
         ),
-        Ok(strings(&[r#"tagma.arity:"set:x"=scalar"#]))
-    );
-    assert_eq!(
-        schema(&config, &["tag_schema=a", "tag_schema=b"]),
-        Ok(strings(&["b"])),
-        "the last override wins"
-    );
-    assert_eq!(
-        schema(&config, &["tag_schema="]),
-        Ok(Vec::new()),
-        "set to none"
-    );
+        (&[], &["Tag_Schema=x"], "--config-set", "tag_schema"),
+        (&[], &["tag_permits=x"], "--config-set", "tag_permits"),
+        (&[], &["tag_schema="], "--config-set", "tag_schema"),
+    ] {
+        assert_eq!(
+            moved(&dirs.config(env), overrides),
+            Err(ConfigError::KeyMoved {
+                source: source.to_string(),
+                key: key.to_string()
+            }),
+            "{source}"
+        );
+    }
 }
 
 #[test]
 fn test_through_the_port() {
     let dirs = Dirs::new(None, Some(ROOT));
-    let mut config = dirs.config(&[]);
-    assert_eq!(config.tag_schema().unwrap().len(), 2);
-    let home = Some(dirs.home.clone());
-    let root = Some(dirs.root.clone());
-    let set = strings(&[r#"tag_schema=tagma.arity:"set:x"=scalar"#]);
-    let mut config = TaskloomConfig::new(
-        Arc::clone(&dirs.fs),
-        home.clone(),
-        root.clone(),
-        Vec::new(),
-        set,
-    );
-    assert_eq!(
-        config.tag_schema(),
-        Ok(strings(&[r#"tagma.arity:"set:x"=scalar"#])),
-        "the overrides it was made with, applied last"
-    );
+    let error = dirs.config(&[]).moved().unwrap_err();
+    assert_eq!(error.code(), "tasks-config-key-moved");
     let nonsense = strings(&["nonsense"]);
-    let error = TaskloomConfig::new(Arc::clone(&dirs.fs), home, root, Vec::new(), nonsense)
-        .tag_schema()
-        .unwrap_err();
+    let error = TaskloomConfig::new(
+        Arc::clone(&dirs.fs),
+        None,
+        Some(dirs.root.clone()),
+        Vec::new(),
+        nonsense,
+    )
+    .moved()
+    .unwrap_err();
+    assert_eq!(
+        error.code(),
+        "tasks-config-key-moved",
+        "the root's file first"
+    );
+    let dirs = Dirs::new(None, None);
+    let error = TaskloomConfig::new(
+        Arc::clone(&dirs.fs),
+        None,
+        None,
+        Vec::new(),
+        strings(&["nonsense"]),
+    )
+    .moved()
+    .unwrap_err();
     assert_eq!(error.code(), "tasks-config-not-an-override");
+}
+
+// The import alone reads the work root's file's tag_schema, as written,
+// and no other layer's.
+#[test]
+fn test_the_import_reads_the_work_roots_tag_schema_alone() {
+    let dirs = Dirs::new(Some(HOME), Some(ROOT));
+    let env = [("TASKLOOM_CONFIG_TAG_SCHEMA", "tagma.arity:\"env:x\"=scalar")];
+    assert_eq!(
+        dirs.config(&env).tag_schema(),
+        Ok(strings(&[
+            r#"tagma.arity:"root:x"=scalar"#,
+            r#"tagma.enum:"root:y"="a,b""#
+        ]))
+    );
+    let dirs = Dirs::new(Some(HOME), Some("homing: home\n"));
+    assert_eq!(
+        dirs.config(&[]).tag_schema(),
+        Ok(Vec::new()),
+        "not the home's"
+    );
+    let rootless = TaskloomConfig::new(
+        Arc::clone(&dirs.fs),
+        Some(dirs.home.clone()),
+        None,
+        Vec::new(),
+        Vec::new(),
+    );
+    assert_eq!(rootless.clone().tag_schema(), Ok(Vec::new()));
 }
 
 #[test]
@@ -191,7 +236,7 @@ fn test_a_file_that_is_not_taskloom_config_is_refused() {
         ("schema_version: 2\n", "tasks-config-newer"),
     ] {
         let dirs = Dirs::new(None, Some(text));
-        let error = schema(&dirs.config(&[]), &[]).unwrap_err();
+        let error = moved(&dirs.config(&[]), &[]).unwrap_err();
         assert_eq!(error.code(), code, "{text}");
         assert!(error.to_string().contains("config.yaml"), "{error}");
     }
@@ -202,7 +247,7 @@ fn test_a_file_that_is_not_taskloom_config_is_refused() {
         "schema_version: 1\n",
     ] {
         let dirs = Dirs::new(Some(fine), None);
-        assert_eq!(schema(&dirs.config(&[]), &[]), Ok(Vec::new()), "{fine:?}");
+        assert_eq!(moved(&dirs.config(&[]), &[]), Ok(()), "{fine:?}");
     }
 }
 
@@ -213,7 +258,7 @@ fn test_a_config_file_that_cannot_be_read_is_refused() {
     dirs.fs
         .create_dir_all(&dirs.root.join(".taskloom/config.yaml"), Mode::DIR)
         .unwrap();
-    let error = schema(&dirs.config(&[]), &[]).unwrap_err();
+    let error = moved(&dirs.config(&[]), &[]).unwrap_err();
     assert_eq!(error.code(), "tasks-config-unreadable");
     assert!(
         error
@@ -226,7 +271,7 @@ fn test_a_config_file_that_cannot_be_read_is_refused() {
 #[test]
 fn test_an_override_or_variable_naming_no_key_is_refused() {
     let dirs = Dirs::new(None, None);
-    let error = schema(&dirs.config(&[("TASKLOOM_CONFIG_TAGS", "x")]), &[]).unwrap_err();
+    let error = moved(&dirs.config(&[("TASKLOOM_CONFIG_TAGS", "x")]), &[]).unwrap_err();
     assert_eq!(
         error,
         ConfigError::UnknownKey {
@@ -235,133 +280,52 @@ fn test_an_override_or_variable_naming_no_key_is_refused() {
         }
     );
     for bad in ["tagz=x", "=x", " =x", "tag_schema"] {
-        assert!(schema(&dirs.config(&[]), &[bad]).is_err(), "{bad}");
+        assert!(moved(&dirs.config(&[]), &[bad]).is_err(), "{bad}");
     }
-    let known = schema(
-        &dirs.config(&[
-            ("TASKLOOM_CONFIG_HOMING", "home"),
-            ("TASKLOOM_CONFIG_SCHEMA_VERSION", "1"),
-        ]),
-        &["schema_version=1"],
-    );
-    assert_eq!(known, Ok(Vec::new()));
-}
-
-/// What `split` makes of `value`, given by `--config-set`.
-fn split(value: &str) -> Result<Vec<String>, ConfigError> {
-    super::split("--config-set", value)
-}
-
-#[test]
-fn test_a_list_splits_on_commas_outside_quotes() {
-    assert_eq!(split("a, b,c "), Ok(strings(&["a", "b", "c"])));
-    assert_eq!(
-        split(r#"k="a,b",x:"y,z"=1"#),
-        Ok(strings(&[r#"k="a,b""#, r#"x:"y,z"=1"#]))
-    );
-    assert_eq!(
-        split(r#"k="a\",b",c"#),
-        Ok(strings(&[r#"k="a\",b""#, "c"])),
-        "an escaped quote does not close"
-    );
-    assert_eq!(split(""), Ok(Vec::new()));
-    assert_eq!(split("  "), Ok(Vec::new()), "no item, so none blank");
-    assert_eq!(
-        split(r#"k="a,b"#),
-        Err(ConfigError::Unterminated {
-            source: "--config-set".to_string(),
-            value: r#"k="a,b"#.to_string(),
-        })
-    );
-    let dirs = Dirs::new(None, None);
-    let error = schema(&dirs.config(&[]), &[r#"tag_schema=k="a"#]).unwrap_err();
-    assert_eq!(error.code(), "tasks-config-unterminated");
 }
 
 // A variable's name is compared as the host compares names: exactly on
 // unix, in any case on Windows (os's Flavor::env_has_prefix).
 #[test]
 fn test_a_variable_is_named_as_the_host_names_it() {
-    let dirs = Dirs::new(Some(HOME), Some(ROOT));
+    let dirs = Dirs::new(None, None);
     let lower = dirs.config(&[(
         "taskloom_config_tag_schema",
         r#"tagma.arity:"env:x"=scalar"#,
     )]);
-    let read = schema(&lower, &[]) == Ok(strings(&[r#"tagma.arity:"env:x"=scalar"#]));
-    assert_eq!(read, os::host().flavor() == os::Flavor::Windows);
+    let refused = moved(&lower, &[]).is_err();
+    assert_eq!(refused, os::host().flavor() == os::Flavor::Windows);
 }
 
-// An empty variable of the environment is unset, as everywhere else
-// (CTXLOOM_PROJECT_ID, CTXLOOM_SESSION_HARP): `TASKLOOM_CONFIG_TAG_SCHEMA=`
-// left over in a shell is no layer, never an empty list that drops every
-// declaration the files make (their enums, ranges and scalar targets).
+// An empty variable of the environment is unset, as everywhere else:
+// `TASKLOOM_CONFIG_TAG_SCHEMA=` left over in a shell is no layer, so it
+// sets nothing that moved. An override is given, so even empty it is one.
 #[test]
 fn test_an_empty_variable_is_no_layer() {
-    let dirs = Dirs::new(Some(HOME), Some(ROOT));
+    let dirs = Dirs::new(None, None);
     let config = dirs.config(&[("TASKLOOM_CONFIG_TAG_SCHEMA", "")]);
-    assert_eq!(schema(&config, &[]), schema(&dirs.config(&[]), &[]));
+    assert_eq!(moved(&config, &[]), Ok(()));
     let config = dirs.config(&[("TASKLOOM_CONFIG_TAGS", "")]);
     assert_eq!(
-        schema(&config, &[]).map(|s| s.len()),
-        Ok(2),
+        moved(&config, &[]),
+        Ok(()),
         "unset, so naming no key is no refusal"
     );
-    // An override is given, so its empty list is one.
-    assert_eq!(schema(&dirs.config(&[]), &["tag_schema="]), Ok(Vec::new()));
 }
 
-// A blank item is refused, never dropped: `a,,b`, a trailing comma or
-// `"$A,$B"` with B unset is a list given wrong, and dropping the item would
-// quietly lose the declaration the caller meant to give.
-#[test]
-fn test_a_blank_item_in_a_list_is_refused() {
-    for value in ["a,,b", "a,", ",a", "a, ,b", ",", " , "] {
-        assert_eq!(
-            split(value),
-            Err(ConfigError::BlankItem {
-                source: "--config-set".to_string(),
-                value: value.to_string(),
-            }),
-            "{value:?}"
-        );
-    }
-    assert_eq!(
-        split(r#"k=",",a"#),
-        Ok(strings(&[r#"k=",""#, "a"])),
-        "a quoted comma"
-    );
-    let dirs = Dirs::new(Some(HOME), None);
-    let error = schema(&dirs.config(&[]), &["tag_schema=a,"]).unwrap_err();
-    assert_eq!(error.code(), "tasks-config-blank-item");
-    let config = dirs.config(&[("TASKLOOM_CONFIG_TAG_SCHEMA", "a,")]);
-    assert_eq!(
-        schema(&config, &[]),
-        Err(ConfigError::BlankItem {
-            source: "TASKLOOM_CONFIG_TAG_SCHEMA".to_string(),
-            value: "a,".to_string(),
-        })
-    );
-}
-
-// A config file's list is held to the same rule: a blank item in it is
-// refused, the file and its key named, never dropped.
+// A config file's list is held to taskloom's rule: a blank item in it is
+// refused, the file and its key named, never dropped, when the import
+// reads it.
 #[test]
 fn test_a_blank_item_in_a_config_files_list_is_refused() {
     for item in ["''", "'  '"] {
         let text = format!("tag_schema:\n  - 'a'\n  - {item}\n");
         let dirs = Dirs::new(None, Some(&text));
-        assert_eq!(
-            schema(&dirs.config(&[]), &[]),
-            Err(ConfigError::BlankItem {
-                source: shown("/tree/.taskloom/config.yaml"),
-                value: "tag_schema".to_string(),
-            }),
-            "{item}"
-        );
+        let error = dirs.config(&[]).tag_schema().unwrap_err();
+        assert_eq!(error.code(), "tasks-config-blank-item", "{item}");
     }
     let dirs = Dirs::new(Some("tag_schema:\n  - ''\n"), None);
-    let error = schema(&dirs.config(&[]), &[]).unwrap_err();
-    assert_eq!(error.code(), "tasks-config-blank-item");
+    let error = moved(&dirs.config(&[]), &[]).unwrap_err();
     assert_eq!(
         error.english(),
         format!(
@@ -373,14 +337,10 @@ fn test_a_blank_item_in_a_config_files_list_is_refused() {
 
 // The environment is given as the process has it; a variable whose name or
 // value is not UTF-8 is skipped where the configuration reads it, never
-// refused, and the rest still read.
+// refused.
 #[test]
 fn test_a_variable_that_is_not_utf8_is_skipped() {
-    let dirs = Dirs::new(Some(HOME), None);
-    let set: (OsString, OsString) = (
-        "TASKLOOM_CONFIG_TAG_SCHEMA".into(),
-        r#"tagma.arity:"env:x"=scalar"#.into(),
-    );
+    let dirs = Dirs::new(None, None);
     for odd in [
         (os::not_unicode("TASKLOOM_CONFIG_"), OsString::from("x")),
         (
@@ -392,13 +352,10 @@ fn test_a_variable_that_is_not_utf8_is_skipped() {
             Arc::clone(&dirs.fs),
             Some(dirs.home.clone()),
             None,
-            vec![set.clone(), odd],
+            vec![odd],
             Vec::new(),
         );
-        assert_eq!(
-            schema(&config, &[]),
-            Ok(strings(&[r#"tagma.arity:"env:x"=scalar"#]))
-        );
+        assert_eq!(moved(&config, &[]), Ok(()));
     }
 }
 
@@ -424,6 +381,25 @@ fn test_a_work_root_found_on_reading_is_not_sought_until_then() {
     assert!(format!("{config:?}").contains("FindRoot"), "{config:?}");
     assert_eq!(config.tag_schema().unwrap().len(), 2, "the root's list");
     assert_eq!(sought.load(Ordering::SeqCst), 1);
+}
+
+// The import takes the moved keys out of the work root's file, its other
+// keys and comments kept; with neither key there, nothing is written.
+#[test]
+fn test_retiring_takes_the_moved_keys_out_of_the_work_roots_file() {
+    use ports::ConfigurationWriter;
+    let dirs = Dirs::new(Some(HOME), Some(ROOT));
+    assert_eq!(dirs.config(&[]).retire_moved(), Ok(true));
+    let file = |dir: &Path| {
+        dirs.fs
+            .read_to_string(&dir.join(".taskloom/config.yaml"))
+            .unwrap()
+    };
+    assert_eq!(file(&dirs.root), "schema_version: 1\nhoming: home\n");
+    assert_eq!(file(&dirs.home), HOME, "the home's is never written");
+    assert_eq!(dirs.config(&[]).retire_moved(), Ok(false), "once");
+    let dirs = Dirs::new(None, None);
+    assert_eq!(dirs.config(&[]).retire_moved(), Ok(false), "no file");
 }
 
 // ------------------------------------------------------------ tag permits
@@ -497,36 +473,6 @@ mod permits {
             dirs.config(&[]).tag_permits(),
             Ok(Some(TagPermits::default()))
         );
-    }
-
-    // PROPOSAL: a project's vocabulary is its own (ruling 4): permits in
-    // the home's config are refused, never merged or silently ignored.
-    #[test]
-    fn test_tag_permits_in_the_homes_config_are_refused() {
-        let dirs = Dirs::new(Some(PERMITS), None);
-        let error = dirs.config(&[]).tag_permits().unwrap_err();
-        assert_eq!(error.code(), "tasks-config-permits-outside-project");
-        assert!(error
-            .to_string()
-            .contains(&shown("/home/u/.taskloom/config.yaml")));
-    }
-
-    // PROPOSAL: permits are not layered: no variable or --config-set sets
-    // them, so a run cannot widen the vocabulary for itself.
-    #[test]
-    fn test_tag_permits_cannot_be_set_by_a_variable_or_override() {
-        let dirs = Dirs::new(None, None);
-        let error = schema(&dirs.config(&[]), &["tag_permits=x"]).unwrap_err();
-        assert_eq!(
-            error,
-            ConfigError::FileOnly {
-                source: "--config-set".to_string(),
-                key: "tag_permits".to_string()
-            }
-        );
-        let env = [("TASKLOOM_CONFIG_TAG_PERMITS", "x")];
-        let error = schema(&dirs.config(&env), &[]).unwrap_err();
-        assert_eq!(error.code(), "tasks-config-file-only");
     }
 
     #[test]

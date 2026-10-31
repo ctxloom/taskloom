@@ -23,8 +23,8 @@ mod query;
 mod read;
 mod request;
 mod retry;
-mod schema;
 mod semver;
+mod store_schema;
 mod tags;
 mod view;
 mod watch;
@@ -38,6 +38,9 @@ use angzarr_embedded::next::{
 use angzarr_embedded_diagnostic::{Diagnostic, Report};
 use dead_letter::DeadLetters;
 use ports::{Clock, CommandIds, Configuration, Delay, Jitter, Names, ProjectIdentity, TaskStores};
+use std::sync::Mutex;
+use store_schema::judged;
+use tasks::schema::SchemaAggregate;
 use tasks::{
     AddTask, EditText, Retag, SetStatus, TaskAggregate, TaskCommand, TaskRejection, TaskState,
     TASK_DOMAIN,
@@ -60,8 +63,13 @@ pub use prune::{
 pub use read::{Details, Hidden, Listing, Reach, Statuses, Summary, TagCount, Vocabulary};
 pub use request::{request_command_id, REQUEST_NAMESPACE};
 pub use retry::{Backoff, KERNEL_RETRY};
-pub use schema::{Range, TagSchema};
-pub use semver::{Semver, Version};
+pub use semver::{Semver, Version, SEMVER};
+pub use store_schema::{
+    Code as RuleCode, Declaration, Declared, Finding as RuleFinding, Origin, RuleWarning,
+    RulesRefusal, SchemaService, SchemaSummary, TargetSummary, SEEDED_SCHEMA, TASKLOOM_NAMESPACE,
+};
+/// A finding's tag is tagma's own type, as tagma reports it.
+pub use tagma_core::Tag as RuleTag;
 pub use tags::{parse as parse_tag, schema_free as schema_free_tag, Tag};
 pub use view::{text_hash, Row, Shown, StatusInfo, Task};
 
@@ -209,6 +217,8 @@ pub struct Written {
     pub task: Task,
     pub shown: Shown,
     pub dead_letters: Vec<DeadLetter>,
+    /// tagma's `Existing` findings on the task written ([`Written::warnings`]).
+    pub warnings: Vec<RuleFinding>,
 }
 
 /// The use cases, as a driving adapter calls them. Their futures are
@@ -231,22 +241,24 @@ pub trait TaskService {
         query: ListQuery,
     ) -> impl Future<Output = Result<Vocabulary, AppError>> + Send;
     fn lint(&mut self, scope: Scope) -> impl Future<Output = Result<LintReport, AppError>> + Send;
-    /// The tag schema a write is held to: the default one, extended by
-    /// what is configured. No project is resolved.
-    fn tag_schema(&mut self) -> impl Future<Output = Result<TagSchema, AppError>> + Send;
-    /// What the project's tag permits permit, read-only: its permits as
-    /// configured (none, where it declares none), and the targets the
-    /// resolved tag schema declares, which are permitted without one. No
-    /// project is resolved and no store opened: permits are configuration.
-    /// Granting and revoking are [`PermitService`]'s, a person's; reading
-    /// them is here, so an agent can see them.
+    /// The store's rules a write is held to, as `taskloom schema show`
+    /// prints them: the work root's project's store's (the seed, where it
+    /// has none yet).
+    fn tag_schema(&mut self) -> impl Future<Output = Result<SchemaSummary, AppError>> + Send;
+    /// What the store's permits permit, read-only: its `tagma.permit`
+    /// patterns, whether its world is closed, and the targets its rules
+    /// constrain. Granting and revoking are [`PermitService`]'s, a
+    /// person's; reading them is here, so an agent can see them.
     fn permits(&mut self) -> impl Future<Output = Result<PermitList, AppError>> + Send;
 }
 
-/// The registry the tasks domain runs under: the task aggregate.
+/// The registry the tasks domain runs under: the task aggregate, and the
+/// store's schema stream's.
 pub fn registry() -> Registry {
     let mut registry = Registry::new();
-    registry.aggregate::<TaskAggregate>(TaskAggregate::default);
+    registry
+        .aggregate::<TaskAggregate>(TaskAggregate::default)
+        .aggregate::<SchemaAggregate>(SchemaAggregate::default);
     registry
 }
 
@@ -269,9 +281,20 @@ pub struct Service<I, S, N, C, D, G = NotConfigured> {
 }
 
 /// Configuration, as a service without any has it: nothing configured, so
-/// the tag schema is the default one.
+/// no moved key set and none to import.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct NotConfigured;
+
+/// Nothing configured is nothing to write: nothing calls it
+/// ([`ports::ConfigurationWriter::write_tag_permits`] goes with the
+/// import), and there is no moved key to retire.
+impl ports::ConfigurationWriter for NotConfigured {
+    // Equivalent: nothing is configured, so nothing is written.
+    #[cfg_attr(test, mutants::skip)]
+    fn write_tag_permits(&mut self, _: &ports::TagPermits) -> Result<(), Report> {
+        Ok(())
+    }
+}
 
 impl Configuration for NotConfigured {
     // Equivalent: `Ok(vec![])` is the empty list this returns.
@@ -311,35 +334,6 @@ impl<I, S, N, C, D, G> Service<I, S, N, C, D, G> {
             registry: self.registry,
             dead_letters: self.dead_letters,
         }
-    }
-}
-
-impl<I, S, N, C, D, G: Configuration> Service<I, S, N, C, D, G> {
-    /// The tag schema: the default one, extended by what is configured.
-    fn schema(&mut self) -> Result<TagSchema, AppError> {
-        let configured = self
-            .configuration
-            .tag_schema()
-            .map_err(AppError::Configuration)?;
-        TagSchema::resolved(&configured).map_err(|e| AppError::Configuration(Report::of(&e)))
-    }
-
-    /// The project's tag permits as configured: `None` where it declares
-    /// none.
-    fn tag_permits(&mut self) -> Result<Option<TagPermits>, AppError> {
-        self.configuration
-            .tag_permits()
-            .map_err(AppError::Configuration)
-    }
-
-    /// Whether the project's tag permits permit every tag of `add`, the
-    /// tags a write adds: refused at the first they do not.
-    fn check_permitted(&mut self, add: &[Tag], schema: &TagSchema) -> Result<(), AppError> {
-        let permits = self.tag_permits()?;
-        for tag in add {
-            tags::permitted(tag, permits.as_ref(), schema).map_err(|r| refused(&r))?;
-        }
-        Ok(())
     }
 }
 
@@ -445,11 +439,7 @@ where
         let status = given(task.status, "status")?;
         let trigger = given(task.trigger, "trigger")?;
         let origin_session = given(task.origin_session, "origin_session")?;
-        let schema = self.schema()?;
-        let tags = tags::admit_all(&task.tags, &schema).map_err(|r| refused(&r))?;
-        self.check_permitted(&tags, &schema)?;
-        tags::check_scalars(&schema, &tags).map_err(|r| refused(&r))?;
-        let (tags, _) = tags::collapse(&schema, &[], tags);
+        let tags = tags::admit_all(&task.tags).map_err(|r| refused(&r))?;
         // Each attempt mints its own harp; everything else is this, held to
         // the domain's rules now, before a project is bound or a store
         // created for an add they refuse.
@@ -458,12 +448,18 @@ where
             text: task.text,
             status,
             trigger,
-            tags,
+            tags: Vec::new(),
             origin_session,
             defers: view::DEFERS.to_string(),
             initial: view::INITIAL.to_string(),
         };
         tasks::check(&template.clone().into()).map_err(|r| rejected(&r))?;
+        // The store's rules as read before anything is bound: a refused
+        // add binds no project and creates no store. They are read again
+        // once the store is open and seeded, and judge the add there.
+        let rules = self.rules_for(task.project.as_deref()).await?;
+        let (collapsed, _) = tags::collapse(&rules, &[], tags.clone());
+        judged(rules.validate(&[], &collapsed, &[]))?;
         let project = self
             .identity
             .for_write(task.project.as_deref())
@@ -476,6 +472,10 @@ where
             backoff: self.backoff,
             dead_letters: &self.dead_letters,
         };
+        let rules = store_schema::seed_in(&mut runner, store).await?;
+        let (tags, _) = tags::collapse(&rules, &[], tags);
+        let warnings = judged(rules.validate(&[], &tags, &[]))?;
+        let template = AddTask { tags, ..template };
         for _ in 0..HARP_ATTEMPTS {
             let harp_id = self.names.task_id();
             let command_id = runner.clock.command_id();
@@ -493,12 +493,12 @@ where
                     let task = read(store, &self.registry, &harp_id)
                         .await?
                         .ok_or(AppError::Vanished { harp_id })?;
-                    let shown = Shown::of(&schema);
                     return Ok(Written {
                         project,
                         task,
-                        shown,
+                        shown: rules.shown(),
                         dead_letters: self.dead_letters.take(),
+                        warnings,
                     });
                 }
                 refused if refused.refused_as("tasks-task-exists") => continue,
@@ -521,32 +521,38 @@ where
         }
         .into();
         tasks::check(&retag).map_err(|r| rejected(&r))?;
-        let schema = self.schema()?;
         for tag in &add {
-            tags::admit(tag, &schema).map_err(|r| refused(&r))?;
+            tags::admit(tag).map_err(|r| refused(&r))?;
         }
-        self.check_permitted(&add, &schema)?;
-        tags::check_scalars(&schema, &add).map_err(|r| refused(&r))?;
+        self.refuse_moved()?;
         let project = self.existing(change.project.as_deref()).await?;
-        // A scalar target's new value displaces the one the task holds:
-        // resolved here, against the task as the retag's own unit of work
-        // reads it, so decide never reads the schema and no value written
-        // since is left beside the new one.
+        let rules = self.seeded(&project).await?;
+        // Judged against the task as the retag's own attempt reads it, and
+        // sent at the head read: a write landing between is the kernel's
+        // conflict, and the next attempt reads, collapses and judges
+        // again. A scalar target's new value displaces the one the task
+        // holds, resolved here, so decide never reads the schema.
+        let verdict: Mutex<Result<Vec<RuleFinding>, AppError>> = Mutex::new(Ok(Vec::new()));
         let shape = |task: &TaskState| {
-            let (add, displaced) = tags::collapse(&schema, &task.tags, add.clone());
+            let (add, displaced) = tags::collapse(&rules, &task.tags, add.clone());
             let mut remove = remove.clone();
             remove.extend(displaced);
-            Some(book(&change.harp_id, Retag { add, remove }.into()))
+            let judgement = judged(rules.validate(&task.tags, &add, &remove));
+            let send = judgement.is_ok();
+            *verdict.lock().unwrap_or_else(|e| e.into_inner()) = judgement;
+            send.then(|| book(&change.harp_id, Retag { add, remove }.into()))
         };
         let command_id = self.command_id("tag", request_id.as_deref());
         let task = self
             .commit_shaped(&project, &change.harp_id, retag, command_id, Some(&shape))
-            .await?;
+            .await;
+        let warnings = verdict.into_inner().unwrap_or_else(|e| e.into_inner())?;
         Ok(Written {
             project,
-            task,
-            shown: Shown::of(&schema),
+            task: task?,
+            shown: rules.shown(),
             dead_letters: self.dead_letters.take(),
+            warnings,
         })
     }
 
@@ -569,8 +575,9 @@ where
         }
         .into();
         tasks::check(&set).map_err(|r| rejected(&r))?;
-        let schema = self.schema()?;
+        self.refuse_moved()?;
         let project = self.existing(change.project.as_deref()).await?;
+        let rules = self.seeded(&project).await?;
         let command_id = self.command_id("set_status", request_id.as_deref());
         let task = self
             .commit(&project, &change.harp_id, set, command_id)
@@ -578,8 +585,9 @@ where
         Ok(Written {
             project,
             task,
-            shown: Shown::of(&schema),
+            shown: rules.shown(),
             dead_letters: self.dead_letters.take(),
+            warnings: Vec::new(),
         })
     }
 
@@ -587,8 +595,9 @@ where
         let request_id = given(edit.request_id, "request_id")?;
         let command: TaskCommand = EditText { text: edit.text }.into();
         tasks::check(&command).map_err(|r| rejected(&r))?;
-        let schema = self.schema()?;
+        self.refuse_moved()?;
         let project = self.existing(edit.project.as_deref()).await?;
+        let rules = self.seeded(&project).await?;
         let command_id = self.command_id("edit", request_id.as_deref());
         let task = self
             .commit(&project, &edit.harp_id, command, command_id)
@@ -596,8 +605,9 @@ where
         Ok(Written {
             project,
             task,
-            shown: Shown::of(&schema),
+            shown: rules.shown(),
             dead_letters: self.dead_letters.take(),
+            warnings: Vec::new(),
         })
     }
 }
@@ -655,15 +665,16 @@ where
         self.linted(scope).await
     }
 
-    async fn tag_schema(&mut self) -> Result<TagSchema, AppError> {
-        self.schema()
+    async fn tag_schema(&mut self) -> Result<SchemaSummary, AppError> {
+        Ok(self.rules_for(None).await?.summary())
     }
 
     async fn permits(&mut self) -> Result<PermitList, AppError> {
-        let schema = self.schema()?;
+        let rules = self.rules_for(None).await?;
         Ok(PermitList {
-            permits: self.tag_permits()?,
-            schema_targets: schema.targets(),
+            closed: rules.closed(),
+            patterns: rules.permits(),
+            schema_targets: rules.targets(),
         })
     }
 }
@@ -730,15 +741,15 @@ pub(crate) fn store_report(error: StoreError) -> Report {
 }
 
 /// A store's failure, as the use cases fail with it.
-fn failed(error: StoreError) -> AppError {
+pub(crate) fn failed(error: StoreError) -> AppError {
     AppError::Failed(store_report(error))
 }
 
-fn refused(refusal: &TagRefusal) -> AppError {
+pub(crate) fn refused(refusal: &TagRefusal) -> AppError {
     AppError::TagRefused(Report::of(refusal))
 }
 
-fn rejected(rejection: &dyn Diagnostic) -> AppError {
+pub(crate) fn rejected(rejection: &dyn Diagnostic) -> AppError {
     AppError::Rejected(Report::of(rejection))
 }
 

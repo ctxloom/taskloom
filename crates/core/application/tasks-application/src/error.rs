@@ -218,7 +218,6 @@ pub const CATALOGS: [(&str, &str); 3] = [tasks::EN_US, task_priority::EN_US, EN_
 #[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     let tags = crate::tags::samples().into_iter();
-    let schema = crate::schema::samples().into_iter();
     let mut samples: Vec<Box<dyn Diagnostic>> = vec![
         Box::new(AppError::GaveUp {
             attempts: 10,
@@ -268,7 +267,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(crate::Why::TaskNotImported),
     ];
     samples.extend(tags.map(|t| Box::new(t) as Box<dyn Diagnostic>));
-    samples.extend(schema.map(|s| Box::new(s) as Box<dyn Diagnostic>));
+    samples.extend(crate::store_schema::samples());
     samples.extend(
         crate::lint::samples()
             .into_iter()

@@ -313,10 +313,12 @@ run:
         the same thing, or propose the one you need to the human. Never coin
         a near-twin that happens to pass.
 
-        Agents must not run `taskloom permit`, `taskloom revoke` (or any
-        future schema-declaring command) without explicit permission from
-        the human for that specific change — agents can widen the tag rules
-        and frequently will; ask first.
+        Agents must not run `taskloom schema declare`, `taskloom permit`,
+        `taskloom revoke` or `taskloom schema import-config` without
+        explicit permission from the human for that specific change — they
+        change the store's tag rules, agents can widen them and frequently
+        will; ask first. Reading the rules (`taskloom schema`, `taskloom
+        schema export`, `taskloom schema check`) needs no permission.
 
         Rate the level FROM THE CODE, never from the task's own prose: a task
         description outlives the code it describes, and tasks here have named

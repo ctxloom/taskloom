@@ -1,4 +1,4 @@
-//! The task's commands and events as payloads: packed as `Any` by their wire
+//! The task's and the schema's commands and events as payloads: packed as `Any` by their wire
 //! types' names, and read back.
 
 use angzarr_embedded::next::markup::DomainMessage;
@@ -6,8 +6,9 @@ use angzarr_embedded::next::{decode_as, pack, type_name, Any, Payload, PayloadEr
 use prost::{Message, Name};
 
 use crate::{
-    AddTask, EditText, RemoveTask, Retag, Retagged, SetStatus, StatusChanged, TaskAdded,
-    TaskCommand, TaskEvent, TaskRemoved, TextEdited,
+    AddTask, Declare, EditText, RemoveTask, Retag, Retagged, SchemaCommand, SchemaEvent,
+    SchemaRetagged, SetStatus, StatusChanged, TaskAdded, TaskCommand, TaskEvent, TaskRemoved,
+    TextEdited,
 };
 
 /// `value` as its wire type, packed.
@@ -95,5 +96,49 @@ impl Payload for TaskEvent {
             tasks_proto::v1::Retagged::type_url(),
             tasks_proto::v1::TaskRemoved::type_url(),
         ]
+    }
+}
+
+impl Payload for SchemaCommand {
+    fn to_any(&self) -> Any {
+        match self {
+            SchemaCommand::Declare(value) => packed(value),
+        }
+    }
+
+    fn from_any(any: &Any) -> Result<Self, PayloadError> {
+        read::<Declare>(any)
+            .map(|r| r.map(SchemaCommand::Declare))
+            .unwrap_or_else(|| {
+                Err(PayloadError::UnknownType {
+                    type_url: any.type_url.clone(),
+                })
+            })
+    }
+
+    fn type_urls() -> Vec<String> {
+        vec![tasks_proto::v1::Declare::type_url()]
+    }
+}
+
+impl Payload for SchemaEvent {
+    fn to_any(&self) -> Any {
+        match self {
+            SchemaEvent::SchemaRetagged(value) => packed(value),
+        }
+    }
+
+    fn from_any(any: &Any) -> Result<Self, PayloadError> {
+        read::<SchemaRetagged>(any)
+            .map(|r| r.map(SchemaEvent::SchemaRetagged))
+            .unwrap_or_else(|| {
+                Err(PayloadError::UnknownType {
+                    type_url: any.type_url.clone(),
+                })
+            })
+    }
+
+    fn type_urls() -> Vec<String> {
+        vec![tasks_proto::v1::SchemaRetagged::type_url()]
     }
 }

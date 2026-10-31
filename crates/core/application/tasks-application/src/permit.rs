@@ -1,42 +1,40 @@
-//! Tag permits: a project's closed tag vocabulary, declared in its work
-//! root's `.taskloom/config.yaml` (`tag_permits`) and changed only by
+//! Tag permits: the store's closed tag vocabulary, declared on its schema
+//! stream as tagma's `tagma.permit` tags and changed only by
 //! [`PermitService`], which a person runs from the command line.
 //!
-//! A permit is spelled as the tag it permits, without a value:
+//! A permit is spelled as the tag it permits, without a value, and is the
+//! tagma pattern it declares (`tagma.permit:<pattern>=true`):
 //!
-//! - `area:` permits the namespace `area`, OPEN: any key;
-//! - `area:cli` permits the key `cli` of the namespace `area`, which is
-//!   then CLOSED: only its permitted keys;
-//! - `urgent` permits the flat tag `urgent` (no namespace).
+//! - `area:` permits the namespace `area`, any key: `"area:*"`;
+//! - `area:cli` permits the key `cli` of the namespace `area`: `"area:cli"`;
+//! - `urgent` permits the flat tag `urgent` (no namespace): `urgent`.
 //!
-//! Where a project declares permits, a write adding a tag they do not
-//! permit is refused ([`crate::TagRefusal::NotPermitted`]), naming the tag
-//! and the permit that would admit it; a tag the schema declares a target
-//! for (the built-in `triage:*` among them) is permitted without one.
-//! Where it declares none, every tag the schema admits is permitted.
+//! The first permit closes the store's world (`tagma.permit:"*:*"=false`)
+//! and keeps admitted every target the store's rules constrain (a permit
+//! for each), so a declared `triage:*` target stays writable. From then on
+//! a write adding a tag no permit admits is refused, by tagma's
+//! `not-permitted`. Where no permit is declared, tagma's implicit
+//! `"*:*"=true` admits every tag.
 
-use std::collections::BTreeSet;
 use std::fmt;
 use std::future::Future;
 
-use ports::{
-    Clock, CommandIds, Configuration, ConfigurationWriter, NamespacePermit, ProjectIdentity,
-    TagPermits, TaskStores,
-};
+use ports::{Clock, CommandIds, Configuration, ConfigurationWriter, ProjectIdentity, TaskStores};
+use tasks::schema::Declare;
 
-use crate::schema::FACET_NAMESPACE;
-use crate::{tags, AppError, Service, Tag};
+use crate::store_schema::{closing, permit_tag, Declared, StoreRules};
+use crate::{tags, AppError, Declaration, Service, Tag};
 
 /// A permit to grant or revoke, spelled as above. It is the work root's
-/// project's: the config file written is the work root's, as the one the
-/// tag schema is read from, so there is no `--project`.
+/// project's: the store written is the work root's, so there is no
+/// `--project`.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct PermitChange {
     pub permit: String,
 }
 
 /// What a permit or revoke did: the permit, spelled canonically, and
-/// whether the config file changed (a permit already granted changes
+/// whether the store's rules changed (a permit already granted changes
 /// nothing).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Permitted {
@@ -44,42 +42,56 @@ pub struct Permitted {
     pub changed: bool,
 }
 
-/// What a project permits, as [`crate::TaskService::permits`] reads it
-/// for `taskloom permits`.
+/// What a store permits, as [`crate::TaskService::permits`] reads it for
+/// `taskloom permits`.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct PermitList {
-    /// The work root's `tag_permits`; `None` where it declares none, and
-    /// then every tag the schema admits is permitted.
-    pub permits: Option<TagPermits>,
-    /// Every target the resolved tag schema declares (any facet), sorted:
-    /// permitted as a key without a permit, whatever the permits say of
-    /// its namespace.
+    /// Whether the world is closed (`tagma.permit:"*:*"=false`): only what
+    /// a pattern admits is written.
+    pub closed: bool,
+    /// The patterns permitted (`tagma.permit:<pattern>=true`), sorted.
+    pub patterns: Vec<String>,
+    /// The exact targets the store's rules constrain, sorted.
     pub schema_targets: Vec<String>,
 }
 
-/// Granting and revoking tag permits. Apart from [`crate::TaskService`]
-/// so that a driving adapter that should not offer it (one an agent
-/// drives: an agent permitting its own inventions is what permits exist
-/// to stop) is never handed it.
+/// Granting and revoking tag permits, and every other change to the
+/// store's rules. Apart from [`crate::TaskService`] so that a driving
+/// adapter that should not offer it (one an agent drives: an agent
+/// permitting its own inventions is what permits exist to stop) is never
+/// handed it.
 pub trait PermitService {
-    /// Permit `change.permit`, persisted to the work root's config file.
-    /// Permitting a key of a namespace not yet permitted closes it to that
-    /// key; permitting a namespace (`area:`) opens it, its keys dropped.
-    /// Where the project declares no permits yet, this is where it starts
-    /// to: every tag not permitted is refused from then on.
+    /// Permit `change.permit`, declared on the work root's project's
+    /// store. Where the store declares no permits yet, this is where it
+    /// starts to: the world is closed, every target the rules constrain
+    /// permitted, and every tag not permitted is refused from then on.
     fn permit(
         &mut self,
         change: PermitChange,
     ) -> impl Future<Output = Result<Permitted, AppError>> + Send;
 
-    /// Revoke `change.permit`, persisted to the work root's config file;
-    /// refused, listing them, while any of the project's tasks (whatever
-    /// its status) carries a tag it permits, and refused when it is not
-    /// among the project's permits.
+    /// Revoke `change.permit`; refused, listing them, while any of the
+    /// project's tasks (whatever its status) carries a tag it admits, and
+    /// refused when it is not among the store's permits.
     fn revoke(
         &mut self,
         change: PermitChange,
     ) -> impl Future<Output = Result<Permitted, AppError>> + Send;
+
+    /// Add and remove the store's schema tags (`taskloom schema declare`),
+    /// recorded on its schema stream. A person's: the loadout tells agents
+    /// never to run it unasked.
+    fn declare(
+        &mut self,
+        declaration: Declaration,
+    ) -> impl Future<Output = Result<Declared, AppError>> + Send;
+
+    /// `taskloom schema import-config`: the work root's config file's
+    /// `tag_schema` and `tag_permits` (the keys that moved) declared in its
+    /// project's store, in tagma's facets, then taken out of the file, its
+    /// other keys and comments kept. Nothing to import is no error: it
+    /// answers unchanged.
+    fn import_config(&mut self) -> impl Future<Output = Result<Declared, AppError>> + Send;
 }
 
 impl<I, S, N, C, D, G> PermitService for Service<I, S, N, C, D, G>
@@ -88,53 +100,205 @@ where
     S: TaskStores + Send,
     N: Send,
     C: Clock + CommandIds + Send,
-    D: Send,
+    D: ports::Delay + ports::Jitter + Send,
     G: Configuration + ConfigurationWriter + Send,
 {
     async fn permit(&mut self, change: PermitChange) -> Result<Permitted, AppError> {
         let permit = Permit::parse(&change.permit)?;
-        let held = self.tag_permits()?;
-        let declared = held.is_some();
-        let mut permits = held.unwrap_or_default();
-        let widened = permit.grant(&mut permits);
-        // The first permit of a project declaring none starts its permits,
-        // whatever it permits.
-        let changed = widened || !declared;
-        if changed {
-            self.configuration
-                .write_tag_permits(&permits)
-                .map_err(AppError::Configuration)?;
+        self.refuse_moved()?;
+        let project = self.identity.for_write(None).map_err(AppError::Identity)?;
+        let rules = self.seeded(&project).await?;
+        let mut add = vec![permit.tag()];
+        if !rules.closed() {
+            add.extend(first_permits(&rules));
         }
+        let declared = self
+            .declaring(
+                &project,
+                Declare {
+                    add: add.into_iter().map(Tag::from).collect(),
+                    remove: Vec::new(),
+                },
+            )
+            .await?;
         Ok(Permitted {
             permit: permit.to_string(),
-            changed,
+            changed: declared.changed,
         })
     }
 
     async fn revoke(&mut self, change: PermitChange) -> Result<Permitted, AppError> {
         let permit = Permit::parse(&change.permit)?;
+        self.refuse_moved()?;
         let not_declared = || AppError::PermitNotDeclared {
             permit: permit.to_string(),
         };
-        let mut permits = self.tag_permits()?.ok_or_else(not_declared)?;
-        if !permit.withdraw(&mut permits) {
+        let Some(project) = self.identity.for_read(None).map_err(AppError::Identity)? else {
+            return Err(not_declared());
+        };
+        let rules = self.rules_of(&project).await?;
+        if !rules.holds(&permit.tag()) {
             return Err(not_declared());
         }
-        let harp_ids = self.carrying(&permit).await?;
+        let harp_ids = self.carrying(&project, &permit).await?;
         if !harp_ids.is_empty() {
             return Err(AppError::PermitInUse {
                 permit: permit.to_string(),
                 harp_ids,
             });
         }
-        self.configuration
-            .write_tag_permits(&permits)
-            .map_err(AppError::Configuration)?;
+        let declared = self
+            .declaring(
+                &project,
+                Declare {
+                    add: Vec::new(),
+                    remove: vec![permit.tag().into()],
+                },
+            )
+            .await?;
         Ok(Permitted {
             permit: permit.to_string(),
-            changed: true,
+            changed: declared.changed,
         })
     }
+
+    async fn declare(&mut self, declaration: Declaration) -> Result<Declared, AppError> {
+        self.refuse_moved()?;
+        self.declared(declaration).await
+    }
+
+    async fn import_config(&mut self) -> Result<Declared, AppError> {
+        self.importing_config().await
+    }
+}
+
+/// What a first permit declares beside its own: the world closed, and a
+/// permit for every target the rules constrain, so they stay writable.
+fn first_permits(rules: &StoreRules) -> Vec<tagma_core::Tag> {
+    let mut tags = vec![closing()];
+    tags.extend(
+        rules
+            .targets()
+            .iter()
+            .map(|target| permit_tag(target, true)),
+    );
+    tags
+}
+
+impl<I, S, N, C, D, G> Service<I, S, N, C, D, G>
+where
+    I: ProjectIdentity,
+    S: TaskStores,
+    C: Clock + CommandIds,
+    D: ports::Delay + ports::Jitter,
+    G: Configuration + ConfigurationWriter,
+{
+    /// [`PermitService::import_config`]. The moved keys are not refused
+    /// here, as everywhere else ([`ports::Configuration::moved`]): this is
+    /// what moves them.
+    async fn importing_config(&mut self) -> Result<Declared, AppError> {
+        let schema = self
+            .configuration
+            .tag_schema()
+            .map_err(AppError::Configuration)?;
+        let permits = self
+            .configuration
+            .tag_permits()
+            .map_err(AppError::Configuration)?;
+        let mut add: Vec<tagma_core::Tag> = Vec::new();
+        for declaration in &schema {
+            add.extend(imported(declaration)?);
+        }
+        let project = self.identity.for_write(None).map_err(AppError::Identity)?;
+        let rules = self.seeded(&project).await?;
+        if let Some(permits) = &permits {
+            add.extend(permitted(permits));
+            if !rules.closed() {
+                // Every target the store's rules, and those imported,
+                // constrain stays admitted, as the old permits admitted a
+                // declared target without a permit.
+                let mut after = rules.clone();
+                after.extend(&add);
+                add.extend(first_permits(&after));
+            }
+        }
+        let declared = match add.is_empty() {
+            true => Declared {
+                tags: rules.export(),
+                changed: false,
+            },
+            false => {
+                let declare = Declare {
+                    add: add.into_iter().map(Tag::from).collect(),
+                    remove: Vec::new(),
+                };
+                self.declaring(&project, declare).await?
+            }
+        };
+        let retired = self
+            .configuration
+            .retire_moved()
+            .map_err(AppError::Configuration)?;
+        Ok(Declared {
+            changed: declared.changed || retired,
+            ..declared
+        })
+    }
+}
+
+/// The old `tag_schema` declaration `spelled`, in tagma's facets: an enum
+/// of `a,b` one tag a value, a range of `lo,hi` as `lo..hi`, the formulas
+/// in `taskloom.*`; any other facet as written, for `taskloom schema
+/// check` to judge. Refused when it is not a tag in tagma's grammar.
+fn imported(spelled: &str) -> Result<Vec<tagma_core::Tag>, AppError> {
+    let trimmed = spelled.trim();
+    let tag = tagma_core::Tag::parse(trimmed).map_err(|detail| {
+        crate::refused(&tags::TagRefusal::Unparseable {
+            tag: trimmed.to_string(),
+            detail,
+        })
+    })?;
+    let with = |namespace: &str, value: Option<String>| tagma_core::Tag {
+        namespace: Some(namespace.to_string()),
+        key: tag.key.clone(),
+        value,
+    };
+    let value = tag.value.clone();
+    Ok(match (tag.namespace.as_deref(), value) {
+        (Some("tagma.enum"), Some(members)) => members
+            .split(',')
+            .map(str::trim)
+            .filter(|member| !member.is_empty())
+            .map(|member| with("tagma.enum", Some(member.to_string())))
+            .collect(),
+        (Some("tagma.range"), Some(range)) => match range.split_once(',') {
+            Some((lo, hi)) => vec![with(
+                "tagma.range",
+                Some(format!("{}..{}", lo.trim(), hi.trim())),
+            )],
+            None => vec![tag],
+        },
+        (Some("tagma.priority_fn"), value) => vec![with(crate::store_schema::PRIORITY_FN, value)],
+        (Some("tagma.decay_fn"), value) => vec![with(crate::store_schema::DECAY_FN, value)],
+        _ => vec![tag],
+    })
+}
+
+/// The old `tag_permits`, as tagma's permits: an open namespace `"ns:*"`,
+/// a closed one's keys `"ns:key"` each, a flat tag its key.
+fn permitted(permits: &ports::TagPermits) -> Vec<tagma_core::Tag> {
+    let mut tags = Vec::new();
+    for (namespace, permit) in &permits.namespaces {
+        match permit {
+            ports::NamespacePermit::Open => tags.push(permit_tag(&format!("{namespace}:*"), true)),
+            ports::NamespacePermit::Closed(keys) => tags.extend(
+                keys.iter()
+                    .map(|key| permit_tag(&format!("{namespace}:{key}"), true)),
+            ),
+        }
+    }
+    tags.extend(permits.flat.iter().map(|key| permit_tag(key, true)));
+    tags
 }
 
 impl<I, S, N, C, D, G> Service<I, S, N, C, D, G>
@@ -144,17 +308,26 @@ where
     C: Clock,
     G: Configuration,
 {
-    /// The harp ids, sorted, of the work root's project's tasks (whatever
-    /// their status) carrying a tag `permit` permits: none where there is
-    /// no project or no store yet.
-    async fn carrying(&mut self, permit: &Permit) -> Result<Vec<String>, AppError> {
-        let Some(project) = self.identity.for_read(None).map_err(AppError::Identity)? else {
-            return Ok(Vec::new());
-        };
-        let rows = self.rows_of(&project).await?.unwrap_or_default();
+    /// The harp ids, sorted, of `project`'s tasks (whatever their status)
+    /// carrying a tag `permit` admits, as tagma matches its pattern.
+    async fn carrying(
+        &mut self,
+        project: &crate::Project,
+        permit: &Permit,
+    ) -> Result<Vec<String>, AppError> {
+        let rows = self.rows_of(project).await?.unwrap_or_default();
+        let alone = tagma_core::Rules::from_tags(&[closing(), permit.tag()]);
         let mut harp_ids: Vec<String> = rows
             .into_iter()
-            .filter(|row| row.task.tags.iter().any(|tag| permit.covers(tag)))
+            .filter(|row| {
+                let tags: Vec<tagma_core::Tag> = row.task.tags.iter().map(Tag::to_core).collect();
+                let refused = alone.validate(&tags, &tagma_core::Change::default());
+                tags.iter().any(|tag| {
+                    !refused
+                        .iter()
+                        .any(|f| f.code == tagma_core::Code::NotPermitted && f.tag == *tag)
+                })
+            })
             .map(|row| row.task.harp_id)
             .collect();
         harp_ids.sort();
@@ -162,15 +335,14 @@ where
     }
 }
 
-/// A permit, parsed: what it is of.
+/// A permit, parsed: the tagma pattern it is (`area:*`, `area:cli`,
+/// `urgent`), and the spelling `taskloom permit` takes.
 #[derive(Clone, PartialEq, Eq, Debug)]
-enum Permit {
-    /// `area:`: the namespace, any key.
-    Namespace(String),
-    /// `area:cli`: one key of a namespace.
-    Key { namespace: String, key: String },
-    /// `urgent`: a flat tag.
-    Flat(String),
+struct Permit {
+    /// The canonical spelling: `area:`, `area:cli`, `urgent`.
+    spelled: String,
+    /// tagma's pattern for it.
+    pattern: String,
 }
 
 impl Permit {
@@ -204,80 +376,49 @@ impl Permit {
             return Err(malformed());
         }
         if let Some(namespace) = &tag.namespace {
-            let reserved = namespace
-                .strip_prefix(FACET_NAMESPACE)
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'));
-            if reserved || namespace.is_empty() {
+            if tags::is_reserved(namespace) || namespace.is_empty() {
                 return Err(malformed());
             }
         }
         match (tag.namespace, namespace_only) {
-            (Some(namespace), true) => Ok(Permit::Namespace(namespace)),
-            (Some(namespace), false) => Ok(Permit::Key {
-                namespace,
-                key: tag.key,
+            (Some(namespace), true) => {
+                let spelled = Tag {
+                    namespace: Some(namespace.clone()),
+                    key: PLACEHOLDER.to_string(),
+                    value: None,
+                }
+                .to_string();
+                let cut = spelled.len() - PLACEHOLDER.len();
+                Ok(Permit {
+                    spelled: spelled[..cut].to_string(),
+                    pattern: format!("{namespace}:*"),
+                })
+            }
+            (Some(namespace), false) => Ok(Permit {
+                spelled: Tag {
+                    namespace: Some(namespace.clone()),
+                    key: tag.key.clone(),
+                    value: None,
+                }
+                .to_string(),
+                pattern: format!("{namespace}:{}", tag.key),
             }),
-            (None, false) => Ok(Permit::Flat(tag.key)),
+            (None, false) => Ok(Permit {
+                spelled: Tag {
+                    namespace: None,
+                    key: tag.key.clone(),
+                    value: None,
+                }
+                .to_string(),
+                pattern: tag.key,
+            }),
             (None, true) => Err(malformed()),
         }
     }
 
-    /// Grant this permit in `permits`: whether that widened them. A key of
-    /// a namespace not yet permitted closes it to that key; the namespace
-    /// itself opens it, its keys dropped.
-    fn grant(&self, permits: &mut TagPermits) -> bool {
-        match self {
-            Permit::Namespace(namespace) => {
-                let held = permits
-                    .namespaces
-                    .insert(namespace.clone(), NamespacePermit::Open);
-                held != Some(NamespacePermit::Open)
-            }
-            Permit::Key { namespace, key } => {
-                match permits
-                    .namespaces
-                    .entry(namespace.clone())
-                    .or_insert_with(|| NamespacePermit::Closed(BTreeSet::new()))
-                {
-                    NamespacePermit::Open => false,
-                    NamespacePermit::Closed(keys) => keys.insert(key.clone()),
-                }
-            }
-            Permit::Flat(key) => permits.flat.insert(key.clone()),
-        }
-    }
-
-    /// Withdraw this permit from `permits`: whether it was among them. A
-    /// namespace's goes with its keys; a closed namespace's last key takes
-    /// the namespace with it. A key of an open namespace is not among
-    /// them: its namespace's permit admits it.
-    fn withdraw(&self, permits: &mut TagPermits) -> bool {
-        match self {
-            Permit::Namespace(namespace) => permits.namespaces.remove(namespace).is_some(),
-            Permit::Key { namespace, key } => {
-                let Some(NamespacePermit::Closed(keys)) = permits.namespaces.get_mut(namespace)
-                else {
-                    return false;
-                };
-                let removed = keys.remove(key);
-                if keys.is_empty() {
-                    permits.namespaces.remove(namespace);
-                }
-                removed
-            }
-            Permit::Flat(key) => permits.flat.remove(key),
-        }
-    }
-
-    /// Whether `tag` is one this permit permits, whatever its value.
-    fn covers(&self, tag: &Tag) -> bool {
-        match self {
-            Permit::Namespace(namespace) => tag.namespace.as_ref() == Some(namespace),
-            Permit::Key { namespace, key } => {
-                tag.namespace.as_ref() == Some(namespace) && tag.key == *key
-            }
-            Permit::Flat(key) => tag.namespace.is_none() && tag.key == *key,
-        }
+    /// `tagma.permit:<pattern>=true`.
+    fn tag(&self) -> tagma_core::Tag {
+        permit_tag(&self.pattern, true)
     }
 }
 
@@ -287,31 +428,7 @@ const PLACEHOLDER: &str = "x";
 /// The canonical spelling, as `taskloom permit` takes it.
 impl fmt::Display for Permit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let spelled = match self {
-            Permit::Namespace(namespace) => {
-                let tag = Tag {
-                    namespace: Some(namespace.clone()),
-                    key: PLACEHOLDER.to_string(),
-                    value: None,
-                };
-                let spelled = tag.to_string();
-                let cut = spelled.len() - PLACEHOLDER.len();
-                spelled[..cut].to_string()
-            }
-            Permit::Key { namespace, key } => Tag {
-                namespace: Some(namespace.clone()),
-                key: key.clone(),
-                value: None,
-            }
-            .to_string(),
-            Permit::Flat(key) => Tag {
-                namespace: None,
-                key: key.clone(),
-                value: None,
-            }
-            .to_string(),
-        };
-        f.write_str(&spelled)
+        f.write_str(&self.spelled)
     }
 }
 

@@ -7,7 +7,8 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 use tasks_application::{
-    NamespacePermit, PermitList, Project, Summary, Tag, TagCount, TagSchema, Task, Timestamp,
+    Origin, PermitList, Project, RuleFinding, SchemaSummary, Summary, Tag, TagCount, Task,
+    Timestamp,
 };
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -199,46 +200,63 @@ impl TagCountJson {
 /// whatever the permits say of their namespace.
 #[derive(Serialize, Default)]
 pub struct PermitsJson {
-    declared: bool,
-    namespaces: Vec<NamespaceJson>,
-    tags: Vec<String>,
-    schema_targets: Vec<String>,
+    pub declared: bool,
+    pub namespaces: Vec<NamespaceJson>,
+    pub tags: Vec<String>,
+    pub schema_targets: Vec<String>,
 }
 
 /// One permitted namespace: open (any key; `keys` empty) or closed to its
 /// `keys`.
 #[derive(Serialize)]
 pub struct NamespaceJson {
-    namespace: String,
-    open: bool,
-    keys: Vec<String>,
+    pub namespace: String,
+    pub open: bool,
+    pub keys: Vec<String>,
 }
 
 impl PermitsJson {
+    /// The store's permits in the shape `tag_permits` had: a pattern
+    /// `ns:*` an open namespace, `ns:key` a key of a closed one, a bare
+    /// key a flat tag; any other pattern (`*:secret`, declared by hand)
+    /// among the flat tags, spelled as declared.
     pub fn of(list: &PermitList) -> PermitsJson {
         let schema_targets = list.schema_targets.clone();
-        let Some(permits) = &list.permits else {
+        if !list.closed {
             return PermitsJson {
                 schema_targets,
                 ..PermitsJson::default()
             };
-        };
-        let namespaces = permits
-            .namespaces
-            .iter()
-            .map(|(namespace, permit)| NamespaceJson {
-                namespace: namespace.clone(),
-                open: *permit == NamespacePermit::Open,
-                keys: match permit {
-                    NamespacePermit::Open => Vec::new(),
-                    NamespacePermit::Closed(keys) => keys.iter().cloned().collect(),
-                },
-            })
-            .collect();
+        }
+        let mut namespaces: BTreeMap<String, NamespaceJson> = BTreeMap::new();
+        let mut tags = Vec::new();
+        for pattern in &list.patterns {
+            let Some((namespace, key)) = pattern
+                .split_once(':')
+                .filter(|(namespace, _)| *namespace != "*")
+            else {
+                tags.push(pattern.clone());
+                continue;
+            };
+            let entry = namespaces
+                .entry(namespace.to_string())
+                .or_insert_with(|| NamespaceJson {
+                    namespace: namespace.to_string(),
+                    open: false,
+                    keys: Vec::new(),
+                });
+            match key {
+                "*" => entry.open = true,
+                key => entry.keys.push(key.to_string()),
+            }
+        }
+        for namespace in namespaces.values_mut().filter(|n| n.open) {
+            namespace.keys.clear();
+        }
         PermitsJson {
             declared: true,
-            namespaces,
-            tags: permits.flat.iter().cloned().collect(),
+            namespaces: namespaces.into_values().collect(),
+            tags,
             schema_targets,
         }
     }
@@ -281,57 +299,106 @@ pub struct TargetJson {
 }
 
 /// A target's inclusive numeric bounds, each in a float64's shortest
-/// form (`5`, not `5.0`), as the tag-schema resource wrote them.
+/// form (`5`, not `5.0`), as the tag-schema resource wrote them; an
+/// open side left out.
 #[derive(Serialize, Clone, Copy, PartialEq, Debug)]
 pub struct RangeJson {
-    #[serde(serialize_with = "whole_or_float")]
-    pub min: f64,
-    #[serde(serialize_with = "whole_or_float")]
-    pub max: f64,
+    #[serde(
+        serialize_with = "whole_or_float",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub min: Option<f64>,
+    #[serde(
+        serialize_with = "whole_or_float",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max: Option<f64>,
 }
 
-fn whole_or_float<S: serde::Serializer>(value: &f64, serializer: S) -> Result<S::Ok, S::Error> {
-    go_number(&Some(*value), serializer)
+fn whole_or_float<S: serde::Serializer>(
+    value: &Option<f64>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    go_number(value, serializer)
+}
+
+impl RangeJson {
+    /// The numeric bounds every one of `ranges` (`lo..hi`, tagma's
+    /// spelling) leaves, as tagma intersects them: `None` when one is not
+    /// numbers, or there is none. Display only: tagma judges a value.
+    fn of(ranges: &[String]) -> Option<RangeJson> {
+        let bound = |b: &str| match b {
+            "" => Some(None),
+            b => b.parse::<f64>().ok().filter(|f| f.is_finite()).map(Some),
+        };
+        let mut joint = RangeJson {
+            min: None,
+            max: None,
+        };
+        for range in ranges {
+            let (lo, hi) = range.split_once("..")?;
+            let (lo, hi) = (bound(lo)?, bound(hi)?);
+            joint.min = match (joint.min, lo) {
+                (Some(a), Some(b)) => Some(a.max(b)),
+                (a, b) => a.or(b),
+            };
+            joint.max = match (joint.max, hi) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
+        }
+        (!ranges.is_empty()).then_some(joint)
+    }
 }
 
 impl SchemaJson {
-    pub fn of(schema: &TagSchema) -> SchemaJson {
-        let mut targets: BTreeMap<String, TargetJson> = BTreeMap::new();
-        for (target, scalar) in schema.arities() {
-            entry(&mut targets, target).scalar = scalar;
-        }
-        for (target, members) in schema.enums() {
-            entry(&mut targets, target).members = members.to_vec();
-        }
-        for (target, range) in schema.ranges() {
-            entry(&mut targets, target).range = Some(RangeJson {
-                min: range.min,
-                max: range.max,
-            });
-        }
-        for (target, kind) in schema.types() {
-            entry(&mut targets, target).kind = kind.to_string();
-        }
-        for (target, formula) in schema.priority_fns() {
-            entry(&mut targets, target).priority_fn = formula.clone();
-        }
-        for (target, formula) in schema.decay_fns() {
-            entry(&mut targets, target).decay_fn = formula.clone();
-        }
+    pub fn of(schema: &SchemaSummary) -> SchemaJson {
         SchemaJson {
-            targets: targets.into_values().collect(),
+            targets: schema
+                .targets
+                .iter()
+                .map(|target| TargetJson {
+                    target: target.target.clone(),
+                    scalar: target.scalar,
+                    members: target.members.clone(),
+                    range: RangeJson::of(&target.ranges),
+                    kind: target.kind.clone(),
+                    priority_fn: target.priority_fn.clone(),
+                    decay_fn: target.decay_fn.clone(),
+                })
+                .collect(),
         }
     }
 }
 
-/// `target`'s entry, begun if it has none yet.
-fn entry<'m>(targets: &'m mut BTreeMap<String, TargetJson>, target: &str) -> &'m mut TargetJson {
-    targets
-        .entry(target.to_string())
-        .or_insert_with(|| TargetJson {
-            target: target.to_string(),
-            ..TargetJson::default()
-        })
+/// One of tagma's findings (`taskloom schema check`, a write's
+/// `warnings`), as tagma's SPEC §13 shapes it: its code, its tag in its
+/// canonical spelling, its args as `[name, value]` pairs, and its origin.
+#[derive(Serialize, PartialEq, Debug)]
+pub struct FindingJson {
+    pub code: &'static str,
+    pub tag: String,
+    pub args: Vec<(String, String)>,
+    pub origin: &'static str,
+}
+
+impl FindingJson {
+    pub fn of(finding: &RuleFinding) -> FindingJson {
+        FindingJson {
+            code: finding.code.as_str(),
+            tag: finding.tag.to_string(),
+            args: finding.args.clone(),
+            origin: match finding.origin {
+                Origin::Introduced => "introduced",
+                Origin::Existing => "existing",
+            },
+        }
+    }
+
+    /// Each of `findings`.
+    pub fn all(findings: &[RuleFinding]) -> Vec<FindingJson> {
+        findings.iter().map(FindingJson::of).collect()
+    }
 }
 
 /// Each tag in its canonical spelling (tagma's `Display`).

@@ -305,13 +305,15 @@ fn add_level_seven(
     }))
 }
 
-// The variables given are the configuration's environment layer.
+// The variables given are the configuration's environment layer: one
+// still setting the tag rules, which moved into the store, is refused.
 #[test]
 fn test_the_configuration_reads_the_variables_given() {
     let dirs = Dirs::new();
+    let error = add_level_seven(&dirs.taskloom()).unwrap_err();
     assert!(
-        add_level_seven(&dirs.taskloom()).is_err(),
-        "the default range, 1-5"
+        error.to_string().contains("out-of-range"),
+        "the seeded range, 1-5: {error}"
     );
     let wide = dirs
         .builder_in(PROJECT)
@@ -321,18 +323,17 @@ fn test_the_configuration_reads_the_variables_given() {
         )])
         .build()
         .unwrap();
-    assert!(add_level_seven(&wide).is_ok());
+    assert_eq!(
+        add_level_seven(&wide).unwrap_err().code(),
+        "tasks-config-key-moved"
+    );
 }
 
 // The `--config-set` overrides, bound once at composition, are the
-// configuration's last layer.
+// configuration's last layer: one setting the tag rules is refused.
 #[test]
 fn test_the_configuration_applies_the_overrides_given() {
     let dirs = Dirs::new();
-    assert!(
-        add_level_seven(&dirs.taskloom()).is_err(),
-        "the default range, 1-5"
-    );
     let wide = dirs
         .builder_in(PROJECT)
         .config_set(vec![
@@ -340,7 +341,10 @@ fn test_the_configuration_applies_the_overrides_given() {
         ])
         .build()
         .unwrap();
-    assert!(add_level_seven(&wide).is_ok());
+    assert_eq!(
+        add_level_seven(&wide).unwrap_err().code(),
+        "tasks-config-key-moved"
+    );
 }
 
 // Building the tasks use cases does no I/O: no work root is searched for
@@ -478,7 +482,11 @@ fn test_the_configuration_skips_a_variable_that_is_not_utf8() {
         ])
         .build()
         .unwrap();
-    assert!(add_level_seven(&wide).is_ok());
+    assert_eq!(
+        add_level_seven(&wide).unwrap_err().code(),
+        "tasks-config-key-moved",
+        "the rest still read"
+    );
 }
 
 /// Every diagnostic the wiring can raise: its own, the runtime's, the use
@@ -589,16 +597,21 @@ fn test_a_root_given_is_the_work_root_the_configuration_reads() {
     dirs.owner
         .create_dir_all(&os::fixture("/elsewhere"), Mode::DIR)
         .unwrap();
+    let elsewhere = add_level_seven(&dirs.builder_in("/elsewhere").build().unwrap());
     assert!(
-        add_level_seven(&dirs.builder_in("/elsewhere").build().unwrap()).is_err(),
-        "elsewhere's work root has no config"
+        elsewhere.unwrap_err().to_string().contains("out-of-range"),
+        "elsewhere's work root has no config: the store's rules hold"
     );
     let rooted = dirs
         .builder_in("/elsewhere")
         .root(os::fixture(PROJECT))
         .build()
         .unwrap();
-    assert!(add_level_seven(&rooted).is_ok());
+    assert_eq!(
+        add_level_seven(&rooted).unwrap_err().code(),
+        "tasks-config-key-moved",
+        "the root's config read, and its moved key refused"
+    );
 }
 
 // What the process gives: HOME, CTXLOOM_ROOT and CTXLOOM_PROJECT_ID from
@@ -633,35 +646,34 @@ fn test_the_process_is_read_from_its_variables_and_working_directory() {
     );
 }
 
-// Tag permits, wired: the work root's config refuses a tag it does not
-// permit; `permit` writes it there, keeping the human's comment; and the
-// next service, reading the file again, admits it.
+// Tag permits, wired: `permit` declares them in the project's store, and
+// no config file is written; a tag no permit admits is then refused, until
+// it is permitted.
 #[test]
 fn test_a_projects_permits_refuse_a_tag_until_it_is_permitted() {
     let dirs = Dirs::new();
-    dirs.write(
-        "/project/.taskloom/config.yaml",
-        b"# Our vocabulary.\ntag_permits:\n  tags:\n    - urgent\n",
-        Mode::FILE,
-    );
     let taskloom = dirs.taskloom();
     let task = || NewTask {
         tags: vec!["area:cli".to_string()],
         ..new_task("Ship it")
     };
+    let permit = |permit: &str| {
+        block_on(taskloom.tasks().permit(PermitChange {
+            permit: permit.to_string(),
+        }))
+        .unwrap()
+    };
+    assert!(permit("urgent").changed);
     let error = block_on(taskloom.tasks().add(task())).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-tag-not-permitted");
-    let permitted = block_on(taskloom.tasks().permit(PermitChange {
-        permit: "area:cli".to_string(),
-    }))
-    .unwrap();
-    assert!(permitted.changed);
-    let file = dirs
-        .owner
-        .read_to_string(&os::fixture("/project/.taskloom/config.yaml"))
-        .unwrap();
-    assert!(file.starts_with("# Our vocabulary.\n"), "{file}");
-    assert!(file.contains("area:"), "{file}");
+    assert_eq!(error.code(), "tasks-application-tag-rules");
+    assert!(error.to_string().contains("not-permitted"), "{error}");
+    assert!(permit("area:cli").changed);
+    assert!(
+        dirs.owner
+            .read_to_string(&os::fixture("/project/.taskloom/config.yaml"))
+            .is_err(),
+        "no config file written"
+    );
     block_on(taskloom.tasks().add(task())).unwrap();
 }
 
@@ -669,13 +681,14 @@ fn test_a_projects_permits_refuse_a_tag_until_it_is_permitted() {
 /// adapted to the rulings): a fixture, not this repository's live config.
 const TASKLOOM_PERMITS: &[u8] = include_bytes!("../fixtures/taskloom-tag-permits.yaml");
 
-// Tag permits end to end, under taskloom's own proposed vocabulary: an
-// invented area (the agent's `area:host-hardening`, the problem permits
-// exist to fix) is refused, naming the command a person would run; a
+// Tag permits end to end, under taskloom's own proposed vocabulary, moved
+// into the store by `schema import-config`: an invented area (the agent's
+// `area:host-hardening`, the problem permits exist to fix) is refused; a
 // declared area is admitted, beside a closed namespace's key, a factual
 // flag from the closed triage: list, an open namespace's key, and the
-// schema's declared targets (blind-gate among them), none of which the
-// fixture lists. The read-only list says what the file says.
+// seeded rules' targets (blind-gate among them), none of which the
+// fixture lists. The read-only list says what the store says, and the
+// file no longer holds the permits.
 #[test]
 fn test_taskloom_s_proposed_permits_refuse_an_invented_area_and_admit_a_declared_one() {
     let dirs = Dirs::new();
@@ -685,17 +698,19 @@ fn test_taskloom_s_proposed_permits_refuse_an_invented_area_and_admit_a_declared
         Mode::FILE,
     );
     let taskloom = dirs.taskloom();
+    let imported = block_on(taskloom.tasks().import_config()).unwrap();
+    assert!(imported.changed);
     let tagged = |tags: &[&str]| NewTask {
         tags: tags.iter().map(|t| t.to_string()).collect(),
         ..new_task("Harden the host")
     };
     let error = block_on(taskloom.tasks().add(tagged(&["area:host-hardening"]))).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-tag-not-permitted");
+    assert_eq!(error.code(), "tasks-application-tag-rules");
     assert!(
         catalog(&[])
             .unwrap()
             .message(&error)
-            .contains("`taskloom permit area:host-hardening`"),
+            .contains("not-permitted area:host-hardening"),
         "{error}"
     );
     let written = block_on(taskloom.tasks().add(tagged(&[
@@ -710,10 +725,13 @@ fn test_taskloom_s_proposed_permits_refuse_an_invented_area_and_admit_a_declared
     .unwrap();
     assert_eq!(written.task.tags.len(), 7);
     let listed = block_on(taskloom.tasks().permits()).unwrap();
-    let permits = listed.permits.expect("the fixture declares permits");
-    assert_eq!(permits.namespaces.len(), 11);
-    assert!(permits.flat.is_empty());
+    assert!(listed.closed);
     assert!(listed
         .schema_targets
         .contains(&"triage:blind-gate".to_string()));
+    let file = dirs
+        .owner
+        .read_to_string(&os::fixture("/project/.taskloom/config.yaml"))
+        .unwrap();
+    assert!(!file.contains("tag_permits"), "{file}");
 }

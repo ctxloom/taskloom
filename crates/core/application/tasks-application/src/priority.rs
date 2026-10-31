@@ -10,8 +10,9 @@ use angzarr_embedded_diagnostic::{Arg, Diagnostic, Report};
 use ports::Timestamp;
 use task_priority::{Candidate, Diagnostics, Formulas};
 
+use crate::store_schema::StoreRules;
 use crate::view::{is_terminal, Row};
-use crate::{AppError, TagSchema};
+use crate::AppError;
 
 /// A ranking warns of a formula term reaching fewer than this share of
 /// the live tasks: most of them are ranked by its absence, not by
@@ -60,9 +61,11 @@ impl Ranked {
     }
 }
 
-/// `schema`'s formulas, compiled.
-pub(crate) fn formulas(schema: &TagSchema) -> Result<Formulas, AppError> {
-    Formulas::compile(schema.priority_fns(), schema.decay_fns()).map_err(refused)
+/// The store's formulas (`taskloom.priority_fn`, `taskloom.decay_fn`),
+/// compiled by taskloom's own evaluator: tagma stores them and reads none.
+pub(crate) fn formulas(rules: &StoreRules) -> Result<Formulas, AppError> {
+    let (priority_fns, decay_fns) = rules.formulas();
+    Formulas::compile(&priority_fns, &decay_fns).map_err(refused)
 }
 
 /// `row` as a candidate for ranking.
@@ -81,7 +84,7 @@ pub(crate) fn candidate(row: &Row) -> Candidate<'_> {
 /// name their project if `attributed`.
 pub(crate) fn rank_rows(
     rows: &[Row],
-    formulas: &Formulas,
+    formulas_of: impl Fn(&str) -> Result<Formulas, AppError>,
     now: Timestamp,
     attributed: bool,
 ) -> Result<Ranked, AppError> {
@@ -95,7 +98,8 @@ pub(crate) fn rank_rows(
     };
     for (project, rows) in by_project {
         let candidates: Vec<Candidate<'_>> = rows.iter().map(|row| candidate(row)).collect();
-        let ranking = task_priority::rank(&candidates, formulas, now).map_err(refused)?;
+        let formulas = formulas_of(project)?;
+        let ranking = task_priority::rank(&candidates, &formulas, now).map_err(refused)?;
         let priorities = rows
             .iter()
             .zip(&ranking.scores)

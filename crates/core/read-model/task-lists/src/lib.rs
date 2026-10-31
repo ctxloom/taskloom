@@ -20,6 +20,8 @@
 //!   across catch-ups still projects each stream by its own sequence:
 //!   nothing numbers across streams.
 
+pub mod schema;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use angzarr_embedded::next::v1::{Cover, Uuid};

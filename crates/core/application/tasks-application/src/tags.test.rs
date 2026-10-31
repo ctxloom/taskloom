@@ -76,25 +76,19 @@ fn test_a_refusal_renders_its_english() {
 }
 
 // ------------------------------------------------------------ admission
+//
+// What every task's tag must pass whatever the store's rules. What a
+// value may be (enum, range, type), how many a target holds and whether a
+// tag is permitted are tagma's to judge (store_schema.test.rs).
 
-use super::{admit, admit_all, check_scalars, collapse};
-use crate::schema::TagSchema;
-use angzarr_embedded_diagnostic::Diagnostic as _;
+use super::{admit, admit_all, collapse};
+use crate::store_schema::StoreRules;
 
-fn refused(spelled: &str, schema: &TagSchema) -> Option<TagRefusal> {
+fn refused(spelled: &str) -> Option<TagRefusal> {
     match parse(spelled)? {
         Err(refusal) => Some(refusal),
-        Ok(tag) => admit(&tag, schema).err(),
+        Ok(tag) => admit(&tag).err(),
     }
-}
-
-fn triage() -> TagSchema {
-    TagSchema::parse([
-        r#"tagma.enum:"triage:kind"="defect,capability,chore""#,
-        r#"tagma.range:"triage:effort"="0,5""#,
-        r#"tagma.type:"triage:blocks-release"=semver"#,
-    ])
-    .unwrap()
 }
 
 #[test]
@@ -103,16 +97,13 @@ fn test_an_operator_word_is_refused_in_any_case() {
         "and", "AND", "And", "or", "OR", "not", "NOT", " and ", "\"and\"",
     ] {
         assert!(
-            matches!(
-                refused(word, &TagSchema::default()),
-                Some(TagRefusal::OperatorWord { .. })
-            ),
+            matches!(refused(word), Some(TagRefusal::OperatorWord { .. })),
             "{word}"
         );
     }
     // Only the bare word: with a namespace or a value, a query can match it.
     for fine in ["x:and", "and=1", "android", "cannot", "note", "north"] {
-        assert_eq!(refused(fine, &TagSchema::default()), None, "{fine}");
+        assert_eq!(refused(fine), None, "{fine}");
     }
 }
 
@@ -120,10 +111,7 @@ fn test_an_operator_word_is_refused_in_any_case() {
 fn test_a_tag_outside_the_grammar_is_refused() {
     for bad in ["urgent*", "+", "*", "foo/bar", "has space"] {
         assert!(
-            matches!(
-                refused(bad, &TagSchema::default()),
-                Some(TagRefusal::Unparseable { .. })
-            ),
+            matches!(refused(bad), Some(TagRefusal::Unparseable { .. })),
             "{bad}"
         );
     }
@@ -145,134 +133,41 @@ fn test_ordinary_tags_are_admitted() {
         "+1",
         "-1",
         "tagmatic:foo=bar",
+        "taskloomish:foo",
+        "triage:kind=sparkles",
     ] {
-        assert_eq!(refused(tag, &triage()), None, "{tag}");
+        assert_eq!(refused(tag), None, "{tag}");
     }
 }
 
 #[test]
-fn test_the_tagma_namespace_is_the_schemas() {
-    for tag in [
-        r#"tagma.arity:"triage:type"=scalar"#,
-        "tagma:foo",
-        "tagma.priority_fn:x=y",
+fn test_the_tagma_and_taskloom_namespaces_are_the_schemas() {
+    for (tag, root) in [
+        (r#"tagma.arity:"triage:type"=scalar"#, "tagma"),
+        ("tagma:foo", "tagma"),
+        ("tagma.priority_fn:x=y", "tagma"),
+        ("taskloom:x", "taskloom"),
+        (r#"taskloom.priority_fn:"x:y"="1""#, "taskloom"),
     ] {
-        let Some(TagRefusal::ReservedNamespace { namespace, .. }) =
-            refused(tag, &TagSchema::default())
-        else {
+        let Some(TagRefusal::ReservedNamespace { namespace, .. }) = refused(tag) else {
             panic!("{tag} refused");
         };
-        assert!(namespace.starts_with("tagma"), "{namespace}");
-    }
-}
-
-#[test]
-fn test_an_enum_admits_its_members_only() {
-    assert_eq!(refused("triage:kind=defect", &triage()), None);
-    let Some(refusal @ TagRefusal::NotInEnum { .. }) = refused("triage:kind=sparkles", &triage())
-    else {
-        panic!("refused");
-    };
-    let text = refusal.to_string();
-    assert!(
-        text.contains("triage:kind") && text.contains("sparkles"),
-        "{text}"
-    );
-    assert!(text.contains("defect, capability, chore"), "{text}");
-    // A valueless tag carries nothing to check.
-    assert_eq!(refused("triage:kind", &triage()), None);
-}
-
-#[test]
-fn test_a_range_admits_finite_numbers_within_it() {
-    for fine in [
-        "triage:effort=3",
-        "triage:effort=0",
-        "triage:effort=5",
-        "triage:effort=2.5",
-    ] {
-        assert_eq!(refused(fine, &triage()), None, "{fine}");
-    }
-    assert!(matches!(
-        refused("triage:effort=9", &triage()),
-        Some(TagRefusal::OutOfRange { .. })
-    ));
-    assert!(matches!(
-        refused("triage:effort=-1", &triage()),
-        Some(TagRefusal::OutOfRange { .. })
-    ));
-    for not_a_number in [
-        "triage:effort=notanumber",
-        "triage:effort=NaN",
-        "triage:effort=nan",
-        "triage:effort=Inf",
-        "triage:effort=-Inf",
-        "triage:effort=\" 3\"",
-    ] {
-        assert!(
-            matches!(
-                refused(not_a_number, &triage()),
-                Some(TagRefusal::NotANumber { .. })
-            ),
-            "{not_a_number}"
-        );
-    }
-    let refusal = refused("triage:effort=9", &triage()).unwrap();
-    assert!(refusal.english().contains("[0, 5]"), "{refusal}");
-}
-
-#[test]
-fn test_type_semver_admits_strict_versions_only() {
-    for fine in [
-        "triage:blocks-release=0.7.0",
-        "triage:blocks-release=0.7.0-pre001",
-    ] {
-        assert_eq!(refused(fine, &triage()), None, "{fine}");
-    }
-    for bad in [
-        "triage:blocks-release=notasemver",
-        "triage:blocks-release=0.7",
-        "triage:blocks-release=v0.7.0",
-    ] {
-        let Some(refusal @ TagRefusal::NotSemver { .. }) = refused(bad, &triage()) else {
-            panic!("{bad} refused");
-        };
-        assert!(
-            refusal.to_string().contains("triage:blocks-release"),
-            "{refusal}"
-        );
-    }
-    // A type no check is known for is not checked.
-    let other = TagSchema::parse([r#"tagma.type:"x:y"=date"#]).unwrap();
-    assert_eq!(refused("x:y=whenever", &other), None);
-}
-
-#[test]
-fn test_an_absent_schema_checks_no_value() {
-    for tag in [
-        "triage:kind=sparkles",
-        "triage:effort=9",
-        "triage:effort=notanumber",
-    ] {
-        assert_eq!(refused(tag, &TagSchema::default()), None, "{tag}");
+        assert!(namespace.starts_with(root), "{namespace}");
     }
 }
 
 #[test]
 fn test_admitting_every_tag_stops_at_the_first_refused() {
-    let given = strings(&["ok", "triage:kind=sparkles", "and"]);
+    let given = strings(&["ok", "tagma:x", "and"]);
     assert!(matches!(
-        admit_all(&given, &triage()),
-        Err(TagRefusal::NotInEnum { .. })
+        admit_all(&given),
+        Err(TagRefusal::ReservedNamespace { .. })
     ));
     assert_eq!(
-        admit_all(&strings(&["ok"]), &triage()),
+        admit_all(&strings(&["ok"])),
         Ok(vec![tag(None, "ok", None)])
     );
-    assert_eq!(
-        admit_all(&strings(&["ok", " "]), &triage()),
-        Err(TagRefusal::Blank)
-    );
+    assert_eq!(admit_all(&strings(&["ok", " "])), Err(TagRefusal::Blank));
 }
 
 // ------------------------------------------------------------ collapse
@@ -281,8 +176,8 @@ fn tags(spelled: &[&str]) -> Vec<Tag> {
     spelled.iter().map(|s| parse(s).unwrap().unwrap()).collect()
 }
 
-fn scalar() -> TagSchema {
-    TagSchema::parse([r#"tagma.arity:"triage:type"=scalar"#]).unwrap()
+fn scalar() -> StoreRules {
+    StoreRules::parsed(&[r#"tagma.arity:"triage:type"=scalar"#])
 }
 
 #[test]
@@ -307,6 +202,8 @@ fn test_the_same_scalar_value_displaces_nothing_however_spelled() {
     assert!(displaced.is_empty());
 }
 
+// tagma's own collapse, inside validate, keeps the last value too: the
+// two never disagree about what a write leaves (SPEC §8, §13).
 #[test]
 fn test_only_the_last_of_several_scalar_values_is_added() {
     let (add, displaced) = collapse(
@@ -316,22 +213,35 @@ fn test_only_the_last_of_several_scalar_values_is_added() {
     );
     assert_eq!(add, tags(&["x", "triage:type=c"]));
     assert!(displaced.is_empty());
+    assert!(scalar().validate(&[], &add, &[]).is_empty());
 }
 
 #[test]
-fn test_an_undeclared_or_bare_target_keeps_every_value() {
-    let schema = TagSchema::parse([r#"tagma.arity:"triage:type"=scalar"#]).unwrap();
+fn test_an_undeclared_target_keeps_every_value() {
     let given = tags(&["area:x=1", "area:x=2", "type=a", "type=b"]);
-    let (add, displaced) = collapse(&schema, &tags(&["area:x=0"]), given.clone());
+    let (add, displaced) = collapse(&scalar(), &tags(&["area:x=0"]), given.clone());
     assert_eq!(add, given);
     assert!(displaced.is_empty());
     let (add, displaced) = collapse(
-        &TagSchema::default(),
+        &StoreRules::parsed(&[]),
         &tags(&["triage:type=a"]),
         tags(&["triage:type=b"]),
     );
     assert_eq!(add, tags(&["triage:type=b"]));
-    assert!(displaced.is_empty(), "no schema, no collapse");
+    assert!(displaced.is_empty(), "no arity, no collapse");
+}
+
+#[test]
+fn test_a_set_arity_beside_a_scalar_one_is_scalar_the_restrictive_reading() {
+    let rules = StoreRules::parsed(&[
+        r#"tagma.arity:"triage:type"=scalar"#,
+        r#"tagma.arity:"triage:type"=set"#,
+    ]);
+    let (_, displaced) = collapse(&rules, &tags(&["triage:type=a"]), tags(&["triage:type=b"]));
+    assert_eq!(displaced, tags(&["triage:type=a"]));
+    let set = StoreRules::parsed(&[r#"tagma.arity:"triage:type"=set"#]);
+    let (_, displaced) = collapse(&set, &tags(&["triage:type=a"]), tags(&["triage:type=b"]));
+    assert!(displaced.is_empty());
 }
 
 #[test]
@@ -340,63 +250,21 @@ fn test_a_valueless_scalar_tag_displaces_a_valued_one() {
     assert_eq!(displaced, tags(&["triage:type=a"]));
 }
 
-// ------------------------------------------------------------ check_scalars
-
-#[test]
-fn test_two_values_given_one_scalar_target_conflict() {
-    assert_eq!(
-        check_scalars(
-            &scalar(),
-            &tags(&["triage:type=a", "x", "triage:type=b", "triage:type=c"])
-        ),
-        Err(TagRefusal::ScalarConflict {
-            target: "triage:type".to_string(),
-            first: "triage:type=a".to_string(),
-            second: "triage:type=b".to_string(),
-        })
-    );
-}
-
-#[test]
-fn test_one_value_given_twice_however_spelled_is_no_conflict() {
-    let given = tags(&["triage:type=a", "triage:type=\"a\"", "x"]);
-    assert_eq!(check_scalars(&scalar(), &given), Ok(()));
-}
-
-#[test]
-fn test_a_valueless_and_a_valued_scalar_tag_conflict() {
-    let refusal = check_scalars(&scalar(), &tags(&["triage:type", "triage:type=a"]));
-    assert_eq!(
-        refusal.map_err(|r| r.code()),
-        Err("tasks-application-tag-scalar-conflict")
-    );
-}
-
-#[test]
-fn test_an_undeclared_or_bare_target_takes_many_values() {
-    let given = tags(&["area:x=1", "area:x=2", "type=a", "type=b"]);
-    assert_eq!(check_scalars(&scalar(), &given), Ok(()));
-    let given = tags(&["triage:type=a", "triage:type=b"]);
-    assert_eq!(check_scalars(&TagSchema::default(), &given), Ok(()));
-}
-
 // ------------------------------------------------------------ retired
 
 // Plans replace `ctxloom:plan` (docs/plans/plans-aggregate.md): a write
 // adding it is refused, whatever its value; other ctxloom tags are not.
 #[test]
 fn test_the_retired_plan_tag_is_refused_and_no_other() {
-    let schema = TagSchema::default();
-    let Some(TagRefusal::Retired { tag, target }) =
-        refused(r#"ctxloom:plan="docs/x.plan.md""#, &schema)
+    let Some(TagRefusal::Retired { tag, target }) = refused(r#"ctxloom:plan="docs/x.plan.md""#)
     else {
         panic!("refused as retired");
     };
     assert_eq!(target, "ctxloom:plan");
     assert_eq!(tag, r#"ctxloom:plan="docs/x.plan.md""#);
-    assert!(refused("ctxloom:plan", &schema).is_some());
-    assert_eq!(refused("ctxloom:session=calm-otter", &schema), None);
-    assert_eq!(refused("plan=x", &schema), None);
+    assert!(refused("ctxloom:plan").is_some());
+    assert_eq!(refused("ctxloom:session=calm-otter"), None);
+    assert_eq!(refused("plan=x"), None);
     let english = TagRefusal::Retired {
         tag: "ctxloom:plan=x".into(),
         target: "ctxloom:plan".into(),

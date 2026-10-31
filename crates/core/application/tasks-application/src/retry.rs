@@ -24,7 +24,7 @@ use std::time::Duration;
 
 use angzarr_embedded::next::v1::{CommandBook, Cover, Handling, Uuid};
 use angzarr_embedded::next::{
-    DeadLetterLog, EventStore, Failure, Kernel, KernelError, OnRetryable, Purge, Recovery,
+    DeadLetterLog, Domain, EventStore, Failure, Kernel, KernelError, OnRetryable, Purge, Recovery,
     Registry, Sampled, Store, StoreError, Stream, StreamRef,
 };
 use angzarr_embedded_diagnostic::Report;
@@ -39,8 +39,15 @@ use crate::AppError;
 /// attempts), its waits are the ports' (so a test's are exact), and a
 /// person's command that cannot land comes back to them, not to a dead
 /// letter. The kernel's own backoff otherwise, unused.
+///
+/// A command stamped with the head it loaded that loses the race at its
+/// write is run once only and handed back as the store's conflict
+/// (`max_race_runs` 0): the kernel neither re-runs it on the new head
+/// (angzarr decision 14.46) nor dead-letters it; taskloom's loop is the one
+/// that retries.
 pub const KERNEL_RETRY: OnRetryable = OnRetryable {
     max_retries: 0,
+    max_race_runs: 0,
     initial_backoff: Duration::from_millis(100),
     multiplier: 2.0,
     max_backoff: Duration::from_secs(5),
@@ -148,27 +155,47 @@ impl<C: Clock, D: Delay + Jitter> Runner<'_, C, D> {
         command_id: &Uuid,
         shape: Option<&F>,
     ) -> Result<Option<Outcome>, AppError> {
+        let shape = shape.map(|shape| |task: &TaskAggregate| shape(task.state()));
+        self.run_shaped_on::<TaskAggregate, _, _>(store, book, command_id, shape.as_ref())
+            .await
+    }
+
+    /// [`Runner::run_shaped`] on a stream of the domain `A`, any marked-up
+    /// aggregate: the schema stream's as well as a task's.
+    pub async fn run_shaped_on<A, S, F>(
+        &mut self,
+        store: &S,
+        book: &CommandBook,
+        command_id: &Uuid,
+        shape: Option<&F>,
+    ) -> Result<Option<Outcome>, AppError>
+    where
+        A: Domain<State = A> + Default + Clone,
+        S: Store,
+        F: Fn(&A) -> Option<CommandBook> + Sync,
+    {
         let mut failed = 0;
         loop {
             let sampled = Sampled {
                 now: self.clock.now(),
                 command_id: command_id.clone(),
             };
-            let (failure, recovery) = match shaped(self.registry, store, book, shape).await {
-                Ok(None) => return Ok(None),
-                Ok(Some(book)) => match Kernel::new(self.registry, self.dead_letters)
-                    .on_retryable(KERNEL_RETRY)
-                    .handle::<TaskAggregate, _, _>(store, book, &sampled, &mut ())
-                    .await
-                {
-                    Ok(_) => return Ok(Some(Outcome::Committed)),
-                    Err(Failure::Rejected(rejection)) => {
-                        return Ok(Some(Outcome::Refused(rejection.report().clone())))
-                    }
-                    Err(failure) => (Report::of(&failure), failure.recovery()),
-                },
-                Err(failed) => failed,
-            };
+            let (failure, recovery) =
+                match shaped::<A, _, _>(self.registry, store, book, shape).await {
+                    Ok(None) => return Ok(None),
+                    Ok(Some(book)) => match Kernel::new(self.registry, self.dead_letters)
+                        .on_retryable(KERNEL_RETRY)
+                        .handle::<A, _, _>(store, book, &sampled, &mut ())
+                        .await
+                    {
+                        Ok(_) => return Ok(Some(Outcome::Committed)),
+                        Err(Failure::Rejected(rejection)) => {
+                            return Ok(Some(Outcome::Refused(rejection.report().clone())))
+                        }
+                        Err(failure) => (Report::of(&failure), failure.recovery()),
+                    },
+                    Err(failed) => failed,
+                };
             self.again(&mut failed, failure, recovery).await?;
         }
     }
@@ -232,17 +259,25 @@ async fn task_at<S: EventStore>(
     store: &S,
     stream: &Cover,
 ) -> Result<Option<(TaskState, u64)>, (Report, Recovery)> {
+    let read = state_at::<TaskAggregate, _>(registry, store, stream).await?;
+    Ok(read.map(|(task, head)| (task.state().clone(), head)))
+}
+
+/// The aggregate `stream` holds, replayed, and its head; `None` for a
+/// stream with no events.
+async fn state_at<A: Domain<State = A> + Clone, S: EventStore>(
+    registry: &Registry,
+    store: &S,
+    stream: &Cover,
+) -> Result<Option<(A, u64)>, (Report, Recovery)> {
     let at = StreamRef::try_from(stream).map_err(store_failed)?;
     let slice = store.read(at, 0, None).await.map_err(store_failed)?;
     if slice.pages.is_empty() {
         return Ok(None);
     }
-    let replayed = Stream::<TaskAggregate>::replay(stream.clone(), &slice.pages, registry)
+    let replayed = Stream::<A>::replay(stream.clone(), &slice.pages, registry)
         .map_err(|e| (Report::of(&e), Recovery::Bug))?;
-    Ok(Some((
-        replayed.state().state().clone(),
-        slice.next_sequence,
-    )))
+    Ok(Some((replayed.state().clone(), slice.next_sequence)))
 }
 
 /// Purge `stream`, if it holds a removed task.
@@ -263,20 +298,25 @@ async fn purge_removed<S: EventStore + Purge>(
     }
 }
 
-/// What `shape` makes of the task on `book`'s stream, read from `store`,
-/// sent at the head read; `book` itself when there is no `shape`, without
-/// reading.
-async fn shaped<S: EventStore, F: Fn(&TaskState) -> Option<CommandBook> + Sync>(
+/// What `shape` makes of the aggregate on `book`'s stream, read from
+/// `store`, sent at the head read; `book` itself when there is no `shape`,
+/// without reading.
+async fn shaped<A, S, F>(
     registry: &Registry,
     store: &S,
     book: &CommandBook,
     shape: Option<&F>,
-) -> Result<Option<CommandBook>, (Report, Recovery)> {
+) -> Result<Option<CommandBook>, (Report, Recovery)>
+where
+    A: Domain<State = A> + Default + Clone,
+    S: EventStore,
+    F: Fn(&A) -> Option<CommandBook> + Sync,
+{
     let Some(shape) = shape else {
         return Ok(Some(book.clone()));
     };
     let cover = book.cover.clone().unwrap_or_default();
-    let (task, head) = match task_at(registry, store, &cover).await {
+    let (task, head) = match state_at::<A, _>(registry, store, &cover).await {
         Ok(read) => read.unwrap_or_default(),
         // A stream that does not replay is the kernel's to report, as it
         // replays it again.

@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use angzarr_embedded_diagnostic::Diagnostic;
 
 use super::{check, select, QueryError, QUERY_GRAMMAR};
-use crate::schema::TagSchema;
+use crate::store_schema::StoreRules;
 use crate::tags::parse;
 use crate::Tag;
 
@@ -86,7 +86,8 @@ fn go() -> BTreeMap<(String, String), Option<BTreeSet<String>>> {
 /// refused before it reaches [`select`] (`AppError::Blank`).
 fn run(scenario: &Scenario, query: &str) -> Result<BTreeSet<String>, QueryError> {
     let query = Some(query).filter(|q| !q.is_empty());
-    let schema = TagSchema::parse(&scenario.schema).expect("the schema parses");
+    let spelled: Vec<&str> = scenario.schema.iter().map(String::as_str).collect();
+    let schema = StoreRules::parsed(&spelled);
     let candidates = scenario
         .tasks
         .iter()
@@ -155,7 +156,7 @@ fn test_no_query_selects_every_candidate() {
     let selected = select(
         None,
         [("a", &tags[..]), ("b", &[][..])],
-        &TagSchema::default(),
+        &StoreRules::parsed(&[]),
     );
     assert_eq!(selected.unwrap().len(), 2);
 }
@@ -164,7 +165,7 @@ fn test_no_query_selects_every_candidate() {
 // the item holding them is no candidate.
 #[test]
 fn test_the_type_declarations_are_never_selected() {
-    let schema = TagSchema::parse([r#"tagma.type:"triage:x"=semver"#]).unwrap();
+    let schema = StoreRules::parsed(&[r#"tagma.type:"triage:x"=semver"#]);
     let selected = select(Some("*:*"), [("a", &[][..])], &schema).unwrap();
     assert_eq!(selected, BTreeSet::from(["a".to_string()]));
     let selected = select(Some("tagma.type:*"), [("a", &[][..])], &schema).unwrap();

@@ -8,11 +8,13 @@ use angzarr_embedded_diagnostic::Diagnostic;
 use presentation::{text, Catalog, Envelope, Render};
 use serde::Serialize;
 use tasks_application::{
-    Details, LintReport, Listing, NamespacePermit, PermitList, Permitted, Reach, Row, Shown,
-    StatusInfo, Statuses, Summary, Tag, TagSchema, Task, Vocabulary,
+    Declared, Details, LintReport, Listing, PermitList, Permitted, Reach, Row, RuleFinding,
+    SchemaSummary, Shown, StatusInfo, Statuses, Summary, Tag, Task, Vocabulary,
 };
 pub(crate) use tasks_presentation::{headline, project_label, CompactJson, RowJson};
-use tasks_presentation::{PermitsJson, SchemaJson, SummaryJson, TagCountJson, TaskJson};
+use tasks_presentation::{
+    FindingJson, PermitsJson, SchemaJson, SummaryJson, TagCountJson, TaskJson,
+};
 
 /// The heading of an answer read across every project.
 pub fn projects_heading(out: &mut dyn Write, projects: usize) -> io::Result<()> {
@@ -466,53 +468,47 @@ impl Render for Permits<'_> {
     }
 
     fn text(&self, out: &mut dyn Write) -> io::Result<()> {
-        let list = self.0;
-        match &list.permits {
-            None => writeln!(
+        let doc = PermitsJson::of(self.0);
+        if !doc.declared {
+            writeln!(
                 out,
-                "No tag permits: this project declares none, so every tag the tag schema admits is permitted (`taskloom permit <permit>` starts them)."
-            )?,
-            Some(permits) => {
-                if permits.namespaces.is_empty() {
-                    writeln!(out, "Namespaces: (none)")?;
-                } else {
-                    writeln!(out, "Namespaces:")?;
-                    let width = permits
-                        .namespaces
-                        .keys()
-                        .map(|n| text::width(n) + 1)
-                        .max()
-                        .unwrap_or(0)
-                        + 2;
-                    for (namespace, permit) in &permits.namespaces {
-                        let keys = match permit {
-                            NamespacePermit::Open => "(open: any key)".to_string(),
-                            NamespacePermit::Closed(keys) if keys.is_empty() => {
-                                "(no key)".to_string()
-                            }
-                            NamespacePermit::Closed(keys) => {
-                                keys.iter().cloned().collect::<Vec<_>>().join(", ")
-                            }
-                        };
-                        let name = format!("{namespace}:");
-                        writeln!(out, "  {}{keys}", text::pad(&name, width))?;
-                    }
+                "No tag permits: this store declares none, so every tag its rules admit is permitted (`taskloom permit <permit>` starts them)."
+            )?;
+        } else {
+            if doc.namespaces.is_empty() {
+                writeln!(out, "Namespaces: (none)")?;
+            } else {
+                writeln!(out, "Namespaces:")?;
+                let width = doc
+                    .namespaces
+                    .iter()
+                    .map(|n| text::width(&n.namespace) + 1)
+                    .max()
+                    .unwrap_or(0)
+                    + 2;
+                for namespace in &doc.namespaces {
+                    let keys = match namespace.open {
+                        true => "(open: any key)".to_string(),
+                        false => namespace.keys.join(", "),
+                    };
+                    let name = format!("{}:", namespace.namespace);
+                    writeln!(out, "  {}{keys}", text::pad(&name, width))?;
                 }
-                writeln!(out, "Flat tags: {}", listed(permits.flat.iter()))?;
             }
+            writeln!(out, "Flat tags: {}", listed(doc.tags.iter()))?;
         }
         writeln!(
             out,
-            "Permitted by the tag schema: {}",
-            listed(list.schema_targets.iter())
+            "Constrained by the store's rules: {}",
+            listed(doc.schema_targets.iter())
         )
     }
 }
 
-/// The resolved tag schema: JSON tasks-presentation's [`SchemaJson`];
-/// text one line a target, its facets after it in a column, and its
-/// formulas indented beneath.
-pub struct Schema<'a>(pub &'a TagSchema);
+/// The store's tag rules: JSON tasks-presentation's [`SchemaJson`]; text
+/// one line a target, its facets after it in a column, and its formulas
+/// indented beneath.
+pub struct Schema<'a>(pub &'a SchemaSummary);
 
 impl Render for Schema<'_> {
     fn json(&self) -> impl Serialize + '_ {
@@ -522,7 +518,7 @@ impl Render for Schema<'_> {
     fn text(&self, out: &mut dyn Write) -> io::Result<()> {
         let doc = SchemaJson::of(self.0);
         if doc.targets.is_empty() {
-            return writeln!(out, "No tag schema: no target is declared.");
+            return writeln!(out, "No tag rules: the store declares no target.");
         }
         let width = doc
             .targets
@@ -540,7 +536,8 @@ impl Render for Schema<'_> {
                 facets.push(format!("enum: {}", target.members.join(", ")));
             }
             if let Some(range) = target.range {
-                facets.push(format!("range: {} to {}", range.min, range.max));
+                let side = |b: Option<f64>| b.map_or("any".to_string(), |b| b.to_string());
+                facets.push(format!("range: {} to {}", side(range.min), side(range.max)));
             }
             if !target.kind.is_empty() {
                 facets.push(format!("type: {}", target.kind));
@@ -562,6 +559,87 @@ impl Render for Schema<'_> {
             }
         }
         Ok(())
+    }
+}
+
+/// The store's schema tags, in tagma syntax (`taskloom schema export`):
+/// one a line, as tagma reads them back. `export` prints its text in any
+/// format; its JSON, an array of them, is for a frontend that asks.
+pub struct Exported<'a>(pub &'a [String]);
+
+impl Render for Exported<'_> {
+    fn json(&self) -> impl Serialize + '_ {
+        self.0
+    }
+
+    fn text(&self, out: &mut dyn Write) -> io::Result<()> {
+        self.0.iter().try_for_each(|line| writeln!(out, "{line}"))
+    }
+}
+
+/// tagma's findings over the store's rules (`taskloom schema check`):
+/// JSON tagma's §13 shape, an array; text one a line, its code, its tag
+/// and its args, or that there is none.
+pub struct Checked<'a>(pub &'a [RuleFinding]);
+
+impl Render for Checked<'_> {
+    fn json(&self) -> impl Serialize + '_ {
+        FindingJson::all(self.0)
+    }
+
+    fn text(&self, out: &mut dyn Write) -> io::Result<()> {
+        if self.0.is_empty() {
+            return writeln!(out, "The store's tag rules check clean.");
+        }
+        for finding in FindingJson::all(self.0) {
+            let args: Vec<String> = finding
+                .args
+                .iter()
+                .map(|(name, value)| format!("{name}={value}"))
+                .collect();
+            match args.is_empty() {
+                true => writeln!(out, "{}\t{}", finding.code, finding.tag)?,
+                false => writeln!(
+                    out,
+                    "{}\t{}\t{}",
+                    finding.code,
+                    finding.tag,
+                    args.join(", ")
+                )?,
+            }
+        }
+        Ok(())
+    }
+}
+
+/// What a declaration left on the store's schema stream: JSON
+/// `{"tags", "changed"}`; text whether it changed, then the tags one a
+/// line.
+pub struct DeclaredView<'a>(pub &'a Declared);
+
+#[derive(Serialize)]
+struct DeclaredJson<'a> {
+    tags: &'a [String],
+    changed: bool,
+}
+
+impl Render for DeclaredView<'_> {
+    fn json(&self) -> impl Serialize + '_ {
+        DeclaredJson {
+            tags: &self.0.tags,
+            changed: self.0.changed,
+        }
+    }
+
+    fn text(&self, out: &mut dyn Write) -> io::Result<()> {
+        match self.0.changed {
+            true => writeln!(out, "declared: the store's tag rules are now")?,
+            false => writeln!(out, "unchanged: the store's tag rules are still")?,
+        }
+        self.0
+            .tags
+            .iter()
+            .try_for_each(|line| writeln!(out, "  {line}"))
     }
 }
 

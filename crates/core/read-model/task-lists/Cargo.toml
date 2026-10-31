@@ -10,6 +10,8 @@ publish.workspace = true
 [dependencies]
 angzarr-embedded.workspace = true
 tasks.workspace = true
+# The schema view hands its tags to tagma, as tagma's own type.
+tagma-core.workspace = true
 
 [dev-dependencies]
 # The in-memory store the list's tests run the kernel over.

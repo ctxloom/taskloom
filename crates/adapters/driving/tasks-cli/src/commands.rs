@@ -7,14 +7,15 @@ use angzarr_embedded_diagnostic::Diagnostic;
 use clap::Args;
 use presentation::{Catalog, Format};
 use tasks_application::{
-    AppError, ListQuery, Listing, NewTask, PermitChange, PermitService, PruneRequest, PruneService,
-    Reach, Scope, ShowQuery, StatusChange, TagChange, TaskService, TextEdit, DEFAULT_OLDER_THAN,
-    DEFAULT_PRUNE_STATUSES,
+    AppError, Declaration, ListQuery, Listing, NewTask, PermitChange, PermitService, PruneRequest,
+    PruneService, Reach, SchemaService, Scope, ShowQuery, StatusChange, TagChange, TaskService,
+    TextEdit, DEFAULT_OLDER_THAN, DEFAULT_PRUNE_STATUSES,
 };
 
 use crate::prune::{apply_command, PruneReport};
 use crate::render::{
-    Added, Changed, Counted, Detailed, Linted, Listed, Permits, Schema, Summed, Tagged, Taxonomy,
+    Added, Changed, Checked, Counted, DeclaredView, Detailed, Exported, Linted, Listed, Permits,
+    Schema, Summed, Tagged, Taxonomy,
 };
 use crate::{dead_lettered, notify, output_failed, wrote, CliError, Notice};
 
@@ -413,25 +414,89 @@ pub struct SchemaArgs {
     action: Option<SchemaAction>,
 }
 
-/// What `schema` does: `show`, its default, alone so far.
+/// What `schema` does: `show`, its default; `export` and `check`, which
+/// read the store's rules too; and `declare` and `import-config`, a
+/// person's, which change them.
 #[derive(clap::Subcommand, Debug)]
 enum SchemaAction {
-    /// Print the resolved tag schema (what `schema` alone prints).
+    /// Print the store's tag rules (what `schema` alone prints).
     Show,
+    /// Print the store's tag rules as tagma config tags, one a line,
+    /// sorted: tagma's own syntax, which tagma reads back, in any format.
+    Export,
+    /// Check the store's tag rules with tagma (an unknown facet, a
+    /// malformed value, a contradiction, a rule that can never hold);
+    /// exits 1 on any finding.
+    Check,
+    /// Add and remove the store's tag rules (tagma.* and taskloom.* tags).
+    /// A person's command: an agent runs it only with the human's
+    /// permission for that change.
+    Declare(DeclareArgs),
+    /// Move the work root's .taskloom/config.yaml tag_schema and
+    /// tag_permits into the project's store, once, then take them out of
+    /// the file, its other keys and comments kept. A person's command.
+    ImportConfig,
 }
 
-/// Print the resolved tag schema: in text one line a target with its
-/// facets, its formulas beneath; in JSON
-/// [`tasks_presentation::SchemaJson`].
+#[derive(Args, Debug)]
+struct DeclareArgs {
+    /// A tag rule to add, in tagma's grammar (repeatable).
+    #[arg(long = "add")]
+    add: Vec<String>,
+    /// A tag rule to remove, in tagma's grammar (repeatable).
+    #[arg(long = "remove")]
+    remove: Vec<String>,
+}
+
+/// Run `schema`'s action: `show` the store's rules (text one line a
+/// target with its facets, its formulas beneath; JSON
+/// [`tasks_presentation::SchemaJson`]), `export` them, `check` them
+/// (failing on a finding), `declare` a change to them or `import-config`.
 pub(crate) async fn schema(
     args: SchemaArgs,
     ctx: Ctx<'_>,
-    service: &mut impl TaskService,
+    service: &mut (impl TaskService + SchemaService + PermitService),
     out: &mut dyn Write,
 ) -> Result<(), CliError> {
-    let (None | Some(SchemaAction::Show)) = args.action;
-    let schema = service.tag_schema().await.map_err(CliError::App)?;
-    presentation::render(out, ctx.format, &Schema(&schema)).map_err(output_failed)
+    let format = ctx.format;
+    match args.action {
+        None | Some(SchemaAction::Show) => {
+            let schema = service.tag_schema().await.map_err(CliError::App)?;
+            presentation::render(out, format, &Schema(&schema)).map_err(output_failed)
+        }
+        // Printed in its own format, tagma's syntax, whatever is asked,
+        // as `loadout` is in yaml: it is what tagma reads back.
+        Some(SchemaAction::Export) => {
+            let tags = service
+                .schema_export(ctx.project)
+                .await
+                .map_err(CliError::App)?;
+            presentation::render(out, Format::Text, &Exported(&tags)).map_err(output_failed)
+        }
+        Some(SchemaAction::Check) => {
+            let findings = service
+                .schema_check(ctx.project)
+                .await
+                .map_err(CliError::App)?;
+            presentation::render(out, format, &Checked(&findings)).map_err(output_failed)?;
+            match findings.len() {
+                0 => Ok(()),
+                count => Err(CliError::SchemaFindings { count }),
+            }
+        }
+        Some(SchemaAction::Declare(declare)) => {
+            let declaration = Declaration {
+                add: declare.add,
+                remove: declare.remove,
+            };
+            let declared = service.declare(declaration).await.map_err(CliError::App)?;
+            presentation::render(out, format, &DeclaredView(&declared)).map_err(output_failed)
+        }
+        Some(SchemaAction::ImportConfig) => {
+            let declared = service.import_config().await.map_err(CliError::App)?;
+            presentation::render(out, format, &DeclaredView(&declared)).map_err(output_failed)
+        }
+    }
 }
 
 #[derive(Args, Debug)]

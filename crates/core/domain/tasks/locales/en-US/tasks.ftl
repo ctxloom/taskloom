@@ -12,3 +12,5 @@ tasks-tag-required = a retag needs at least one tag
 tasks-blank = the { $field } given is blank: give one, or leave it out
 tasks-trigger-with-status = a trigger defers the task to { $defers }, so it cannot be given with the status { $status }: give the trigger alone, or the status alone
 tasks-unresolved = the command carries no { $field } status: the application resolves it from the configured statuses
+tasks-schema-tag-required = a schema declaration needs at least one tag to add or remove
+tasks-schema-not-config = { $tag } is not a rule: a schema declares only tagma.* and taskloom.* tags

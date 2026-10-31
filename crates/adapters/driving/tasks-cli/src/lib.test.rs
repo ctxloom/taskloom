@@ -13,10 +13,11 @@ crate::english_for!(&[crate::EN_US.1]);
 use angzarr_embedded_diagnostic::Report;
 use tasks_application::{
     AppError, Details, Finding, Hidden, ImportReport, ImportRequest, ImportService, LintReport,
-    ListQuery, Listing, NamespacePermit, NewTask, PermitChange, PermitList, PermitService,
-    Permitted, PriorityNote, PriorityWarning, Project, ProjectImport, PruneRequest, PruneService,
-    Pruning, Reach, Row, Scope, ShowQuery, StatusChange, StatusInfo, Statuses, Summary, TagChange,
-    TagCount, TagPermits, TagSchema, Task, TaskService, TextEdit, Violation, Vocabulary, Written,
+    ListQuery, Listing, NewTask, PermitChange, PermitList, PermitService, Permitted, PriorityNote,
+    PriorityWarning, Project, ProjectImport, PruneRequest, PruneService, Pruning, Reach, Row,
+    RuleFinding, SchemaService, SchemaSummary, Scope, ShowQuery, StatusChange, StatusInfo,
+    Statuses, Summary, TagChange, TagCount, TargetSummary, Task, TaskService, TextEdit, Violation,
+    Vocabulary, Written,
 };
 
 use presentation::Catalog;
@@ -64,6 +65,16 @@ fn project() -> Project {
 /// Answers scripted per use case; requests recorded.
 #[derive(Default)]
 struct Fake {
+    /// RED (red/self-hosted-schema): every schema declaration sent, and the answer.
+    declares: Vec<tasks_application::Declaration>,
+    declared: Option<Result<tasks_application::Declared, AppError>>,
+    /// Every import asked for (its answer is `declared`'s).
+    imports_of_config: usize,
+    /// The store's schema tags `schema export` answers, and the projects asked.
+    exported: Option<Result<Vec<String>, AppError>>,
+    /// tagma's findings `schema check` answers, and the projects asked.
+    checked: Option<Result<Vec<RuleFinding>, AppError>>,
+    schema_reads: Vec<Option<String>>,
     added: Vec<NewTask>,
     tagged: Vec<TagChange>,
     moved: Vec<StatusChange>,
@@ -88,7 +99,7 @@ struct Fake {
     permitted: Option<Result<Permitted, AppError>>,
     permit_list: Option<Result<PermitList, AppError>>,
     permit_lists: usize,
-    schema: Option<Result<TagSchema, AppError>>,
+    schema: Option<Result<SchemaSummary, AppError>>,
     schemas: usize,
 }
 
@@ -143,7 +154,7 @@ impl TaskService for Fake {
         self.report_of_lint.clone().expect("a lint answer scripted")
     }
 
-    async fn tag_schema(&mut self) -> Result<TagSchema, AppError> {
+    async fn tag_schema(&mut self) -> Result<SchemaSummary, AppError> {
         self.schemas += 1;
         self.schema.clone().expect("a tag schema scripted")
     }
@@ -186,6 +197,34 @@ impl PermitService for Fake {
         self.revokes.push(change);
         self.permitted.clone().expect("a revoke answer scripted")
     }
+
+    async fn declare(
+        &mut self,
+        declaration: tasks_application::Declaration,
+    ) -> Result<tasks_application::Declared, AppError> {
+        self.declares.push(declaration);
+        self.declared.clone().expect("a declare answer scripted")
+    }
+
+    async fn import_config(&mut self) -> Result<tasks_application::Declared, AppError> {
+        self.imports_of_config += 1;
+        self.declared.clone().expect("an import answer scripted")
+    }
+}
+
+impl SchemaService for Fake {
+    async fn schema_export(&mut self, project: Option<String>) -> Result<Vec<String>, AppError> {
+        self.schema_reads.push(project);
+        self.exported.clone().expect("an export answer scripted")
+    }
+
+    async fn schema_check(
+        &mut self,
+        project: Option<String>,
+    ) -> Result<Vec<RuleFinding>, AppError> {
+        self.schema_reads.push(project);
+        self.checked.clone().expect("a check answer scripted")
+    }
 }
 
 fn written(task: Task) -> Option<Result<Written, AppError>> {
@@ -194,6 +233,7 @@ fn written(task: Task) -> Option<Result<Written, AppError>> {
         shown: tasks_application::Shown::default(),
         project: project(),
         task,
+        warnings: Vec::new(),
     }))
 }
 
@@ -340,6 +380,7 @@ fn test_a_write_to_a_project_with_no_root_is_named_by_its_id() {
                 ..project()
             },
             task: shapes::task("swift-amber", "To Do"),
+            warnings: Vec::new(),
         })),
         ..Fake::default()
     };
@@ -1157,10 +1198,10 @@ fn lint_report(reach: Reach, checked: usize, found: usize) -> Option<Result<Lint
     let violation = |harp: &str| Violation {
         project: Some("jolly-mute-magma".to_string()),
         harp_id: harp.to_string(),
-        finding: Finding::NotInEnum {
-            target: "area:x".to_string(),
-            value: "c".to_string(),
-            members: "a, b".to_string(),
+        finding: Finding::Rule {
+            rule: "not-in-enum".to_string(),
+            tags: "area:x=c".to_string(),
+            args: "allowed=a, allowed=b".to_string(),
         },
     };
     Some(Ok(LintReport {
@@ -1201,8 +1242,8 @@ fn test_lint_says_each_violation_and_exits_1_for_any() {
     );
     assert_eq!(
         ran.out,
-        "swift-amber: area:x=c is not one of the declared enum values: a, b\n\
-         calm-otter: area:x=c is not one of the declared enum values: a, b\n"
+        "swift-amber: area:x=c: not-in-enum (allowed=a, allowed=b)\n\
+         calm-otter: area:x=c: not-in-enum (allowed=a, allowed=b)\n"
     );
     assert_eq!(ran.err, "taskloom: 2 tag-standard violations found\n");
     let ran = run_on(&mut fake, false, &["lint"]);
@@ -1214,13 +1255,10 @@ fn test_lint_says_each_violation_and_exits_1_for_any() {
     assert_eq!(first["project_id"], "jolly-mute-magma");
     assert_eq!(
         first["reason"],
-        "area:x=c is not one of the declared enum values: a, b"
+        "area:x=c: not-in-enum (allowed=a, allowed=b)"
     );
-    assert_eq!(
-        first["finding"]["code"],
-        "tasks-application-lint-not-in-enum"
-    );
-    assert_eq!(first["finding"]["args"]["value"], "c");
+    assert_eq!(first["finding"]["code"], "tasks-application-lint-rule");
+    assert_eq!(first["finding"]["args"]["rule"], "not-in-enum");
     let envelope: serde_json::Value = serde_json::from_str(&ran.err).unwrap();
     assert_eq!(envelope["code"], "tasks-cli-lint-violations");
 }
@@ -1238,7 +1276,7 @@ fn test_lint_across_projects_names_each_violations_project() {
     let ran = run_on(&mut fake, true, &["lint", "--global"]);
     assert_eq!(
         ran.out,
-        "swift-amber (jolly-mute-magma): area:x=c is not one of the declared enum values: a, b\n"
+        "swift-amber (jolly-mute-magma): area:x=c: not-in-enum (allowed=a, allowed=b)\n"
     );
 }
 
@@ -2376,36 +2414,29 @@ fn test_a_refused_revoke_names_the_tasks_still_carrying_it() {
 
 // ------------------------------------------------------------ permits
 
-/// `area:` closed to cli and mcp, `relates:` open and the flat `urgent`,
-/// with two schema targets.
-fn listed(permits: Option<TagPermits>) -> Option<Result<PermitList, AppError>> {
+/// A closed store permitting `area:cli`, `area:mcp`, `relates:` and the
+/// flat `urgent` (`closed`), or none at all, with two rule targets.
+fn listed(closed: bool) -> Option<Result<PermitList, AppError>> {
+    let patterns = match closed {
+        true => ["area:cli", "area:mcp", "relates:*", "urgent"]
+            .map(String::from)
+            .into(),
+        false => Vec::new(),
+    };
     Some(Ok(PermitList {
-        permits,
+        closed,
+        patterns,
         schema_targets: vec!["triage:kind".to_string(), "triage:level".to_string()],
     }))
 }
 
-fn usual_permits() -> TagPermits {
-    TagPermits {
-        namespaces: [
-            (
-                "area".to_string(),
-                NamespacePermit::Closed(["cli", "mcp"].map(String::from).into()),
-            ),
-            ("relates".to_string(), NamespacePermit::Open),
-        ]
-        .into(),
-        flat: ["urgent".to_string()].into(),
-    }
-}
-
-// Ruling 9: a person reads what the project permits, one line a
-// namespace (its keys, or that it is open), then the flat tags and the
-// targets the schema permits without a permit.
+// Ruling 9: a person reads what the store permits, one line a namespace
+// (its keys, or that it is open), then the flat tags and the targets the
+// store's rules constrain.
 #[test]
 fn test_permits_lists_the_namespaces_flat_tags_and_schema_targets() {
     let mut fake = Fake {
-        permit_list: listed(Some(usual_permits())),
+        permit_list: listed(true),
         ..Fake::default()
     };
     let ran = run_on(&mut fake, true, &["permits"]);
@@ -2413,16 +2444,20 @@ fn test_permits_lists_the_namespaces_flat_tags_and_schema_targets() {
     assert_eq!(fake.permit_lists, 1);
     assert_eq!(
         ran.out,
-        "Namespaces:\n  area:     cli, mcp\n  relates:  (open: any key)\nFlat tags: urgent\nPermitted by the tag schema: triage:kind, triage:level\n"
+        "Namespaces:\n  area:     cli, mcp\n  relates:  (open: any key)\nFlat tags: urgent\nConstrained by the store's rules: triage:kind, triage:level\n"
     );
     let mut fake = Fake {
-        permit_list: listed(Some(TagPermits::default())),
+        permit_list: Some(Ok(PermitList {
+            closed: true,
+            patterns: Vec::new(),
+            schema_targets: vec!["triage:kind".to_string()],
+        })),
         ..Fake::default()
     };
     let ran = run_on(&mut fake, true, &["permits"]);
     assert_eq!(
         ran.out,
-        "Namespaces: (none)\nFlat tags: (none)\nPermitted by the tag schema: triage:kind, triage:level\n"
+        "Namespaces: (none)\nFlat tags: (none)\nConstrained by the store's rules: triage:kind\n"
     );
 }
 
@@ -2431,14 +2466,14 @@ fn test_permits_lists_the_namespaces_flat_tags_and_schema_targets() {
 #[test]
 fn test_permits_where_none_are_declared_says_every_tag_is_permitted() {
     let mut fake = Fake {
-        permit_list: listed(None),
+        permit_list: listed(false),
         ..Fake::default()
     };
     let ran = run_on(&mut fake, true, &["permits"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(
         ran.out,
-        "No tag permits: this project declares none, so every tag the tag schema admits is permitted (`taskloom permit <permit>` starts them).\nPermitted by the tag schema: triage:kind, triage:level\n"
+        "No tag permits: this store declares none, so every tag its rules admit is permitted (`taskloom permit <permit>` starts them).\nConstrained by the store's rules: triage:kind, triage:level\n"
     );
 }
 
@@ -2446,7 +2481,7 @@ fn test_permits_where_none_are_declared_says_every_tag_is_permitted() {
 #[test]
 fn test_permits_in_json_is_the_permits_document() {
     let mut fake = Fake {
-        permit_list: listed(Some(usual_permits())),
+        permit_list: listed(true),
         ..Fake::default()
     };
     let ran = run_on(&mut fake, false, &["permits"]);
@@ -2465,7 +2500,7 @@ fn test_permits_in_json_is_the_permits_document() {
         })
     );
     let mut fake = Fake {
-        permit_list: listed(None),
+        permit_list: listed(false),
         ..Fake::default()
     };
     let ran = run_on(&mut fake, false, &["permits"]);
@@ -2474,50 +2509,38 @@ fn test_permits_in_json_is_the_permits_document() {
     assert_eq!(json["namespaces"], serde_json::json!([]));
 }
 
-// A namespace closed to no key (a person's `area: []`) permits none of
-// its keys, and the listing says so rather than leave the column blank.
-#[test]
-fn test_permits_says_a_namespace_closed_to_no_key_permits_none() {
-    let mut fake = Fake {
-        permit_list: listed(Some(TagPermits {
-            namespaces: [(
-                "area".to_string(),
-                NamespacePermit::Closed(Default::default()),
-            )]
-            .into(),
-            flat: Default::default(),
-        })),
-        ..Fake::default()
-    };
-    let ran = run_on(&mut fake, true, &["permits"]);
-    assert_eq!(ran.code, 0, "{}", ran.err);
-    assert_eq!(
-        ran.out,
-        "Namespaces:\n  area:  (no key)\nFlat tags: (none)\nPermitted by the tag schema: triage:kind, triage:level\n"
-    );
-}
-
 // ------------------------------------------------------------ schema
 
-/// A target of every facet the schema command reports, one of formulas
-/// alone, and one only hidden, which it leaves out.
-fn declared() -> Option<Result<TagSchema, AppError>> {
-    Some(Ok(TagSchema::parse([
-        r#"tagma.arity:"a:x"=scalar"#,
-        r#"tagma.enum:"a:x"="p,q""#,
-        r#"tagma.range:"b:long-name"="0.5,2""#,
-        r#"tagma.type:"b:long-name"=semver"#,
-        r#"tagma.arity:"b:long-name"=multi"#,
-        r#"tagma.priority_fn:"c:y"="{{age_days}} > 1 ? 2 : 1""#,
-        r#"tagma.decay_fn:"c:y"="1""#,
-        r#"tagma.hide:"d:z"=true"#,
-    ])
-    .unwrap()))
+/// A target of every facet the schema command reports, and one of
+/// formulas alone.
+fn declared() -> Option<Result<SchemaSummary, AppError>> {
+    Some(Ok(SchemaSummary {
+        targets: vec![
+            TargetSummary {
+                target: "a:x".to_string(),
+                scalar: true,
+                members: vec!["p".to_string(), "q".to_string()],
+                ..TargetSummary::default()
+            },
+            TargetSummary {
+                target: "b:long-name".to_string(),
+                ranges: vec!["0.5..2".to_string()],
+                kind: "semver".to_string(),
+                ..TargetSummary::default()
+            },
+            TargetSummary {
+                target: "c:y".to_string(),
+                priority_fn: "{{age_days}} > 1 ? 2 : 1".to_string(),
+                decay_fn: "1".to_string(),
+                ..TargetSummary::default()
+            },
+        ],
+    }))
 }
 
-// The tag schema a write is held to, as a person (or an agent choosing a
-// tag) reads it: one line a target, its facets after it, and its formulas
-// on lines of their own beneath; a hidden-only target is not vocabulary.
+// The tag rules a write is held to, as a person (or an agent choosing a
+// tag) reads them: one line a target, its facets after it, and its
+// formulas on lines of their own beneath.
 #[test]
 fn test_schema_lists_each_target_with_its_facets_and_formulas() {
     let mut fake = Fake {
@@ -2535,8 +2558,8 @@ fn test_schema_lists_each_target_with_its_facets_and_formulas() {
     );
 }
 
-// `schema` is a group whose default is `show`, so a later `schema export`
-// sits beside it: both spellings print the same.
+// `schema` is a group whose default is `show`: both spellings print the
+// same.
 #[test]
 fn test_schema_show_is_what_schema_alone_prints() {
     let mut bare = Fake {
@@ -2575,19 +2598,19 @@ fn test_schema_in_json_is_one_entry_per_target_with_every_facet() {
     );
 }
 
-// A schema declaring no target says so, in text, and is an empty list in
+// Rules declaring no target say so, in text, and are an empty list in
 // JSON.
 #[test]
 fn test_schema_declaring_nothing_says_so() {
     let mut fake = Fake {
-        schema: Some(Ok(TagSchema::default())),
+        schema: Some(Ok(SchemaSummary::default())),
         ..Fake::default()
     };
     let ran = run_on(&mut fake, true, &["schema"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
-    assert_eq!(ran.out, "No tag schema: no target is declared.\n");
+    assert_eq!(ran.out, "No tag rules: the store declares no target.\n");
     let mut fake = Fake {
-        schema: Some(Ok(TagSchema::default())),
+        schema: Some(Ok(SchemaSummary::default())),
         ..Fake::default()
     };
     let ran = run_on(&mut fake, false, &["schema"]);
@@ -2595,7 +2618,7 @@ fn test_schema_declaring_nothing_says_so() {
     assert_eq!(json, serde_json::json!({"targets": []}));
 }
 
-// A schema that cannot be read is the command's error, and nothing is
+// Rules that cannot be read are the command's error, and nothing is
 // printed on stdout.
 #[test]
 fn test_schema_unread_is_an_error() {
@@ -2607,6 +2630,143 @@ fn test_schema_unread_is_an_error() {
     assert_eq!(ran.code, 1);
     assert_eq!(ran.out, "");
     assert!(ran.err.starts_with("taskloom: "), "{}", ran.err);
+}
+
+// `schema export` prints the store's tags one a line, in tagma's syntax,
+// for the --project given, whatever the format: it is what tagma reads.
+#[test]
+fn test_schema_export_prints_the_tags_one_a_line() {
+    let tags = vec![
+        "tagma.keys-per-item:area=1".to_string(),
+        r#"tagma.range:"triage:level"=1..5"#.to_string(),
+    ];
+    let mut fake = Fake {
+        exported: Some(Ok(tags.clone())),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["--project", "p", "schema", "export"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(ran.out, format!("{}\n{}\n", tags[0], tags[1]));
+    assert_eq!(fake.schema_reads, [Some("p".to_string())]);
+    let mut fake = Fake {
+        exported: Some(Ok(tags.clone())),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, false, &["schema", "export", "--json"]);
+    assert_eq!(ran.out, format!("{}\n{}\n", tags[0], tags[1]));
+}
+
+fn finding() -> RuleFinding {
+    RuleFinding {
+        code: tasks_application::RuleCode::InertFalse,
+        tag: tasks_application::RuleTag::parse("tagma.permit:x=false").unwrap(),
+        args: vec![("facet".to_string(), "permit".to_string())],
+        origin: tasks_application::Origin::Existing,
+    }
+}
+
+// `schema check` prints tagma's findings and fails on any, as lint fails
+// on a violation; a clean check exits 0.
+#[test]
+fn test_schema_check_prints_tagmas_findings_and_fails_on_any() {
+    let mut fake = Fake {
+        checked: Some(Ok(vec![finding()])),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["schema", "check"]);
+    assert_eq!(ran.code, 1);
+    assert_eq!(ran.out, "inert-false\ttagma.permit:x=false\tfacet=permit\n");
+    assert!(
+        ran.err
+            .contains("tagma's check of the store's tag rules found 1"),
+        "{}",
+        ran.err
+    );
+    let mut fake = Fake {
+        checked: Some(Ok(vec![finding()])),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, false, &["schema", "check"]);
+    let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!([{
+            "code": "inert-false",
+            "tag": "tagma.permit:x=false",
+            "args": [["facet", "permit"]],
+            "origin": "existing",
+        }])
+    );
+    let mut fake = Fake {
+        checked: Some(Ok(vec![])),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["schema", "check"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(ran.out, "The store's tag rules check clean.\n");
+}
+
+// `schema import-config` asks the use case once and prints what it left.
+#[test]
+fn test_schema_import_config_runs_the_import_and_prints_what_it_left() {
+    let mut fake = Fake {
+        declared: schema_declared(&["tagma.permit:urgent=true"], true),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["schema", "import-config"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(fake.imports_of_config, 1);
+    assert_eq!(
+        ran.out,
+        "declared: the store's tag rules are now\n  tagma.permit:urgent=true\n"
+    );
+}
+
+// A write's existing findings are said: on stderr in text, beside the
+// task's fields as `warnings` in JSON; a write with none carries no
+// `warnings` field.
+#[test]
+fn test_a_writes_warnings_are_on_stderr_in_text_and_in_the_json_document() {
+    let warned = || {
+        let mut written = written(shapes::task("swift-amber", "To Do"));
+        if let Some(Ok(w)) = written.as_mut() {
+            w.warnings = vec![RuleFinding {
+                code: tasks_application::RuleCode::TooManyKeys,
+                tag: tasks_application::RuleTag::parse("lang:en").unwrap(),
+                args: vec![("namespace".to_string(), "lang".to_string())],
+                origin: tasks_application::Origin::Existing,
+            }];
+        }
+        written
+    };
+    let mut fake = Fake {
+        written: warned(),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["tag", "swift-amber", "--add", "x"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert!(
+        ran.err
+            .contains("warning: lang:en breaks the store's rule too-many-keys (namespace=lang)"),
+        "{}",
+        ran.err
+    );
+    let mut fake = Fake {
+        written: warned(),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, false, &["tag", "swift-amber", "--add", "x"]);
+    let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
+    assert_eq!(json["harp_id"], "swift-amber");
+    assert_eq!(json["warnings"][0]["code"], "too-many-keys");
+    assert_eq!(json["warnings"][0]["origin"], "existing");
+    let mut fake = Fake {
+        written: written(shapes::task("swift-amber", "To Do")),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, false, &["tag", "swift-amber", "--add", "x"]);
+    let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
+    assert!(json.get("warnings").is_none(), "{json}");
 }
 
 // `--request-id <id>` on every write names the request's key, passed on
@@ -2684,4 +2844,70 @@ fn test_no_help_teaches_the_retired_urgent_tag() {
         assert!(!help.out.is_empty(), "{command:?}");
         assert!(!help.out.contains("urgent"), "{command:?}: {}", help.out);
     }
+}
+
+// ---------------------------------------------- RED: self-hosted schema
+//
+// red/self-hosted-schema, for the owner's review
+// (docs/plans/self-hosted-schema.md): `taskloom schema declare` edits the
+// store's schema stream; the loadout tells agents never to run it unasked.
+
+fn schema_declared(
+    tags: &[&str],
+    changed: bool,
+) -> Option<Result<tasks_application::Declared, AppError>> {
+    Some(Ok(tasks_application::Declared {
+        tags: tags.iter().map(|t| t.to_string()).collect(),
+        changed,
+    }))
+}
+
+#[test]
+fn test_schema_declare_sends_its_adds_and_removes_as_one_declaration() {
+    let mut fake = Fake {
+        declared: schema_declared(&["tagma.keys-per-item:lang=1"], true),
+        ..Fake::default()
+    };
+    let ran = run_on(
+        &mut fake,
+        false,
+        &[
+            "schema",
+            "declare",
+            "--add",
+            "tagma.keys-per-item:lang=1",
+            "--remove",
+            "tagma.keys-per-item:area=1",
+        ],
+    );
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(
+        fake.declares,
+        [tasks_application::Declaration {
+            add: vec!["tagma.keys-per-item:lang=1".to_string()],
+            remove: vec!["tagma.keys-per-item:area=1".to_string()],
+        }]
+    );
+    let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({"tags": ["tagma.keys-per-item:lang=1"], "changed": true})
+    );
+}
+
+#[test]
+fn test_the_loadout_forbids_agents_every_schema_changing_command_unasked() {
+    let loadout = crate::companion::LOADOUT;
+    for command in [
+        "`taskloom schema declare`",
+        "`taskloom permit`",
+        "`taskloom revoke`",
+    ] {
+        assert!(loadout.contains(command), "{command} not named");
+    }
+    assert!(
+        !loadout.contains("future schema-declaring command"),
+        "the command exists now: the loadout names it"
+    );
+    assert!(loadout.contains("taskloom schema check"));
 }

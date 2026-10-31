@@ -147,30 +147,45 @@ pub trait Jitter {
     fn up_to(&mut self, ceiling: Duration) -> Duration;
 }
 
-/// Taskloom's configuration, as far as the use cases read it: the tag
-/// schema's declarations and the project's tag permits.
+/// Taskloom's configuration, as far as the use cases read it: whether it
+/// still sets a key that moved into the store, and, for `taskloom schema
+/// import-config` alone, what those keys held.
+///
+/// The store's tag rules live on its schema stream
+/// (docs/plans/self-hosted-schema.md): no use case reads them from a file,
+/// a variable or an override. `tag_schema` and `tag_permits` are the keys
+/// that moved, kept here only so the one-shot import can read them; they
+/// go when the import is retired.
 ///
 /// Synchronous, and it blocks on the filesystem, as [`ProjectIdentity`]
 /// does.
 pub trait Configuration {
-    /// The tag schema's declarations as configured (the default schema's
-    /// are not among them): every layer read, a higher one's list
-    /// replacing a lower one's, the overrides the configuration was made
-    /// with (`--config-set`'s) last. Empty when no layer sets one.
+    /// Refused (`tasks-config-key-moved`, naming `taskloom schema
+    /// import-config`) where any layer still sets a key that moved into the
+    /// store: a config file's `tag_schema` or `tag_permits`, the
+    /// `TASKLOOM_CONFIG_TAG_SCHEMA` variable, a `--config-set` of either.
+    /// Every use case but the import asks this first.
+    ///
+    /// The default answers that nothing is set: a configuration that
+    /// knows nothing of those keys (ctxloom's, a test's) sets none.
+    fn moved(&mut self) -> Result<(), Report> {
+        Ok(())
+    }
+
+    /// The work root's config file's `tag_schema`, as written (the old
+    /// declarations, `tagma.enum:"k:x"="a,b"` and `tagma.range:"k:n"="1,5"`
+    /// among them): read by the import alone. Empty when it sets none.
     fn tag_schema(&mut self) -> Result<Vec<String>, Report>;
 
-    /// The project's tag permits, from the work root's config file alone
-    /// (`tag_permits`): `None` when it declares none, and then every tag
-    /// the schema admits is permitted, as before permits existed.
-    ///
-    /// Opt-in: the default answers `None`, so a configuration that knows
-    /// nothing of permits (ctxloom's, a test's) stays permissive.
+    /// The work root's config file's `tag_permits`, read by the import
+    /// alone: `None` when it declares none.
     fn tag_permits(&mut self) -> Result<Option<TagPermits>, Report> {
         Ok(None)
     }
 }
 
-/// Where the tag permits are written: the work root's config file.
+/// Where the moved keys are taken out of the work root's config file once
+/// the import has declared them in the store.
 ///
 /// Synchronous, and it blocks on the filesystem, as [`Configuration`]
 /// does.
@@ -178,8 +193,20 @@ pub trait ConfigurationWriter {
     /// Replace the work root's config file's `tag_permits` with
     /// `permits`, keeping the rest of the file (its other keys, comments
     /// and layout) as written; the file and its directory made when there
-    /// is none. Refused where there is no work root.
+    /// is none. Refused where there is no work root. Nothing calls it any
+    /// more (`permit` and `revoke` declare in the store): it goes with the
+    /// import.
     fn write_tag_permits(&mut self, permits: &TagPermits) -> Result<(), Report>;
+
+    /// Take `tag_schema` and `tag_permits` out of the work root's config
+    /// file, keeping its other keys, comments and layout as written:
+    /// whether it held either. Nothing is written where it holds neither.
+    ///
+    /// The default holds neither and writes nothing: a configuration that
+    /// knows nothing of those keys has none to take out.
+    fn retire_moved(&mut self) -> Result<bool, Report> {
+        Ok(false)
+    }
 }
 
 /// A project's closed tag vocabulary: the namespaces its tasks' tags may

@@ -65,6 +65,73 @@ pub(crate) fn edited(
     Ok(after)
 }
 
+/// `source`, the config file at `path`, with the keys that moved into the
+/// store (`tag_permits`, `tag_schema`) taken out, everything else kept as
+/// written; `None` when it holds neither. Read back first: refused
+/// ([`ConfigError::EditRefused`]) unless every other key reads as it did.
+pub(crate) fn retired(path: &str, source: &str) -> Result<Option<String>, ConfigError> {
+    let refused = |detail: String| ConfigError::EditRefused {
+        path: path.to_string(),
+        detail,
+    };
+    let mapping = |text: &str| -> Result<serde_norway::Mapping, String> {
+        let value: Value = serde_norway::from_str(text).map_err(|e| e.to_string())?;
+        Ok(match value {
+            Value::Mapping(mapping) => mapping,
+            _ => serde_norway::Mapping::new(),
+        })
+    };
+    let mut rest = mapping(source).map_err(|detail| ConfigError::Malformed {
+        path: path.to_string(),
+        detail,
+    })?;
+    let held: Vec<&str> = MOVED
+        .into_iter()
+        .filter(|key| rest.remove(*key).is_some())
+        .collect();
+    if held.is_empty() {
+        return Ok(None);
+    }
+    // Each key's entry is cut as text, from the start of its key's line to
+    // the end of its value's (and the line break after it): yaml-rt-core's
+    // own removal takes the comments above an entry with it, which belong
+    // to what is kept.
+    let mut after = source.to_string();
+    for key in held {
+        let doc = YamlDoc::parse(&after).map_err(|e| refused(e.to_string()))?;
+        let value = node(&doc, &[key]).map_err(&refused)?;
+        let entry = entry(&doc, &[key], value).map_err(&refused)?;
+        let span = doc
+            .node(entry)
+            .ok_or_else(|| refused("no node".to_string()))?
+            .span();
+        let text = doc.as_source();
+        let start = text[..span.start as usize]
+            .rfind('\n')
+            .map_or(0, |at| at + 1);
+        let end = match text[span.end as usize..].find('\n') {
+            Some(at) => span.end as usize + at + 1,
+            None => text.len(),
+        };
+        // A block value's span runs through its last line break already.
+        let end = match text[..span.end as usize].ends_with('\n') {
+            true => span.end as usize,
+            false => end,
+        };
+        after = format!("{}{}", &text[..start], &text[end..]);
+    }
+    let read = mapping(&after).map_err(|why| refused(format!("the edit does not read: {why}")))?;
+    if read != rest {
+        return Err(refused(
+            "a key other than the moved ones changed".to_string(),
+        ));
+    }
+    Ok(Some(after))
+}
+
+/// The keys that moved into the store.
+const MOVED: [&str; 2] = [KEY, "tag_schema"];
+
 /// Whether `after`, an edit of `before` (the config file at `path`),
 /// reads with serde_norway as `before` does with only its `tag_permits`
 /// replaced by `permits`: refused ([`ConfigError::EditRefused`], saying

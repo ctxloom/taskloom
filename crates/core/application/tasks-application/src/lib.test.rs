@@ -6,7 +6,7 @@ use angzarr_embedded::next::v1::event_meta::Causation;
 use angzarr_embedded_diagnostic::{Diagnostic, Report};
 
 use crate::fakes::{
-    project, ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores, Fault, Flaky,
+    project, ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores, Fault,
 };
 use crate::{
     cover, AppError, ListQuery, NewTask, Service, StatusChange, TagChange, TaskService, TextEdit,
@@ -119,10 +119,15 @@ fn test_an_add_mints_a_harp_and_answers_with_the_task_and_its_project() {
     assert_eq!(spelled(&written.task.tags), ["a", "b"]);
     assert_eq!(written.task.origin_session, "calm-otter-fox");
     assert_eq!(
-        written.task.created_at.seconds, 1_700_000_001,
-        "recorded at the clock's instant"
+        written.task.created_at.seconds,
+        1_700_000_000 + service.clock.seconds,
+        "recorded at the clock's instant (its last reading: the store's schema is seeded first)"
     );
-    assert_eq!(service.identity.pins, [Some("pinned-id".to_string())]);
+    assert_eq!(
+        service.identity.pins,
+        [Some("pinned-id".to_string()), Some("pinned-id".to_string())],
+        "resolved to read the store's rules, then to write"
+    );
     assert_eq!(service.stores.opened, ["jolly-mute-magma"]);
 }
 
@@ -134,9 +139,13 @@ fn test_an_add_whose_harp_is_taken_mints_another_with_a_fresh_command_id() {
     assert_eq!(second.task.harp_id, "calm-otter");
     assert_eq!(second.task.text, "Second");
     assert_eq!(service.names.minted, 3);
-    assert_eq!(service.clock.ids.len(), 3, "one command id per harp tried");
+    assert_eq!(
+        service.clock.ids.len(),
+        1 + 3,
+        "the seed's, and one command id per harp tried"
+    );
     let landed = command_ids(&mut service, "calm-otter");
-    assert_eq!(landed, [service.clock.ids[2].clone()]);
+    assert_eq!(landed, [service.clock.ids[3].clone()]);
     assert_eq!(command_ids(&mut service, "swift-amber").len(), 1);
 }
 
@@ -276,16 +285,25 @@ fn test_an_add_leaving_out_status_trigger_and_session_is_to_do_with_none() {
 #[test]
 fn test_an_add_retries_its_one_command_id_through_store_failures() {
     let mut service = service(&["swift-amber"]);
-    service.stores.store = Flaky::failing(&[Fault::Unavailable, Fault::LandsThenFails]);
+    // The store's schema seeded first, so the faults fall on the add.
+    ready(service.seeded(&project())).unwrap();
+    service
+        .stores
+        .store
+        .fail([Fault::Unavailable, Fault::LandsThenFails]);
     let written = add(&mut service, new_task("Ship it")).unwrap();
     assert_eq!(written.task.harp_id, "swift-amber");
     assert_eq!(
         service.stores.store.begun(),
-        2,
-        "two writes: the retry after the lost answer found it on the stream"
+        1 + 2,
+        "the seed, then two writes: the retry after the lost answer found it on the stream"
     );
     assert_eq!(service.delay.slept.len(), 2);
-    assert_eq!(service.clock.ids.len(), 1, "the same command id each time");
+    assert_eq!(
+        service.clock.ids.len(),
+        1 + 1,
+        "the seed's, then the same command id each time"
+    );
     assert_eq!(command_ids(&mut service, "swift-amber").len(), 1);
 }
 
@@ -407,6 +425,10 @@ fn test_a_tag_spelled_another_way_is_the_same_tag() {
 }
 
 // ------------------------------------------------------------ schema
+//
+// The store's rules are its schema stream's, judged by tagma
+// (store_schema.test.rs pins the boundary). The configuration is asked
+// only whether a layer still sets a moved key ("unreadable": it fails).
 
 /// What the configuration answers, and how often it was asked.
 #[derive(Default)]
@@ -416,12 +438,22 @@ struct FakeConfiguration {
 }
 
 impl ports::Configuration for FakeConfiguration {
-    fn tag_schema(&mut self) -> Result<Vec<String>, Report> {
+    fn moved(&mut self) -> Result<(), Report> {
         self.asked += 1;
         if self.declarations.iter().any(|d| d == "unreadable") {
             return Err(Report::new("x-config"));
         }
-        Ok(self.declarations.clone())
+        Ok(())
+    }
+
+    fn tag_schema(&mut self) -> Result<Vec<String>, Report> {
+        panic!("only the import reads the moved keys")
+    }
+}
+
+impl ports::ConfigurationWriter for FakeConfiguration {
+    fn write_tag_permits(&mut self, _: &ports::TagPermits) -> Result<(), Report> {
+        panic!("nothing writes a config file")
     }
 }
 
@@ -429,7 +461,7 @@ type Configured =
     Service<FakeIdentity, FakeStores, FakeNames, FakeClock, FakeDelay, FakeConfiguration>;
 
 fn configured(declarations: &[&str]) -> Configured {
-    service(&["swift-amber"]).with_configuration(FakeConfiguration {
+    service(&["swift-amber", "calm-otter", "brisk-oak"]).with_configuration(FakeConfiguration {
         declarations: declarations.iter().map(|d| d.to_string()).collect(),
         asked: 0,
     })
@@ -442,13 +474,28 @@ fn tagged(add: &[&str]) -> NewTask {
     }
 }
 
-// The default schema holds with nothing configured: triage:level is 1-5.
+fn declare(service: &mut Configured, add: &[&str], remove: &[&str]) {
+    let strings = |s: &[&str]| s.iter().map(|t| t.to_string()).collect();
+    ready(crate::PermitService::declare(
+        service,
+        crate::Declaration {
+            add: strings(add),
+            remove: strings(remove),
+        },
+    ))
+    .unwrap();
+}
+
+// The seeded schema holds before anything is declared: triage:level is
+// 1-5. An add it refuses binds no project and creates no store.
 #[test]
-fn test_a_write_is_held_to_the_default_schema() {
+fn test_a_write_is_held_to_the_seeded_schema() {
     let mut service = service(&["swift-amber"]);
     let error = add(&mut service, tagged(&["triage:level=9"])).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-tag-out-of-range");
-    assert!(service.identity.pins.is_empty(), "refused before resolving");
+    assert_eq!(error.code(), "tasks-application-tag-rules");
+    assert!(error.to_string().contains("out-of-range"), "{error}");
+    assert_eq!(service.identity.writes, 0, "no project bound");
+    assert!(service.stores.opened.is_empty(), "no store created");
     for refused in [
         &["and"][..],
         &["tagma.hide:x=true"],
@@ -458,56 +505,66 @@ fn test_a_write_is_held_to_the_default_schema() {
     }
 }
 
+// A rule declared in the store holds beside the seeded ones; two ranges
+// on one target both hold (tagma: their intersection), so widening one
+// replaces it.
 #[test]
-fn test_a_configured_declaration_extends_the_default_schema() {
-    let mut service = configured(&[
-        r#"tagma.range:"triage:level"="1,9""#,
-        r#"tagma.enum:"area:x"="a""#,
-    ]);
+fn test_a_declared_rule_holds_beside_the_seeded_ones() {
+    let mut service = configured(&[]);
+    ready(service.add(new_task("Ship it"))).unwrap();
+    declare(
+        &mut service,
+        &[
+            r#"tagma.range:"triage:level"=1..9"#,
+            r#"tagma.enum:"area:x"=a"#,
+        ],
+        &[r#"tagma.range:"triage:level"=1..5"#],
+    );
     let written = ready(service.add(tagged(&["triage:level=9"]))).unwrap();
     assert_eq!(spelled(&written.task.tags), ["triage:level=9"]);
-    assert_eq!(service.configuration.asked, 1);
     let error = ready(service.add(tagged(&["area:x=b"]))).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-tag-not-in-enum");
+    assert!(error.to_string().contains("not-in-enum"), "{error}");
     let error = ready(service.add(tagged(&["triage:kind=sparkles"]))).unwrap_err();
-    assert_eq!(
-        error.code(),
-        "tasks-application-tag-not-in-enum",
-        "the default still holds"
+    assert!(
+        error.to_string().contains("not-in-enum"),
+        "the seeded still holds: {error}"
     );
 }
 
+// A layer still setting a moved key refuses every use case, before a
+// store is opened.
 #[test]
-fn test_a_malformed_or_unreadable_configuration_refuses_every_write() {
-    let mut service = configured(&["tagma.arty:x=1"]);
-    let error = ready(service.add(new_task("Ship it"))).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-schema-unknown-facet");
-    assert!(matches!(error, AppError::Configuration(_)));
-    let error = ready(service.tag(change("swift-amber", &["x"], &[]))).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-schema-unknown-facet");
+fn test_a_configuration_still_setting_a_moved_key_refuses_every_write() {
     let mut service = configured(&["unreadable"]);
     let error = ready(service.add(new_task("Ship it"))).unwrap_err();
+    assert_eq!(error.code(), "x-config");
+    assert!(matches!(error, AppError::Configuration(_)));
+    let error = ready(service.tag(change("swift-amber", &["x"], &[]))).unwrap_err();
+    assert_eq!(error.code(), "x-config");
+    let error = ready(service.list(ListQuery::default())).unwrap_err();
     assert_eq!(error.code(), "x-config");
     assert!(service.stores.opened.is_empty());
 }
 
-// The tag schema a write is held to, as a reader asks for it: the default
-// extended by what is configured; and refused as a write is, where the
-// configuration is.
+// The tag schema a reader asks for is the store's, as a write is held to
+// it.
 #[test]
 fn test_the_tag_schema_is_the_one_a_write_is_held_to() {
-    let mut service = configured(&[r#"tagma.range:"triage:level"="1,9""#]);
+    let mut service = configured(&[]);
+    ready(service.add(new_task("Ship it"))).unwrap();
+    declare(&mut service, &[r#"tagma.range:"area:n"=1..9"#], &[]);
     let schema = ready(service.tag_schema()).unwrap();
-    assert_eq!(
-        schema.range_of("triage:level"),
-        Some(crate::Range { min: 1.0, max: 9.0 })
-    );
-    assert!(schema.is_scalar("triage:kind"), "the default still holds");
-    assert_eq!(service.configuration.asked, 1);
-    assert!(service.identity.pins.is_empty(), "no project is resolved");
-    let mut service = configured(&["tagma.arty:x=1"]);
-    let error = ready(service.tag_schema()).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-schema-unknown-facet");
+    let target = |name: &str| {
+        schema
+            .targets
+            .iter()
+            .find(|t| t.target == name)
+            .cloned()
+            .unwrap_or_else(|| panic!("{name}"))
+    };
+    assert_eq!(target("area:n").ranges, ["1..9"]);
+    assert!(target("triage:kind").scalar, "the seeded still holds");
+    assert_eq!(service.configuration.asked, 3, "add, declare, schema");
 }
 
 // Scalar collapse, resolved in the retag's own unit of work, over the default
@@ -586,21 +643,21 @@ fn test_a_scalar_value_set_between_the_shaping_read_and_the_write_is_displaced_t
     assert_eq!(service.delay.slept.len(), 1, "the stale head, retried once");
 }
 
-// Two values for one scalar target in one add are refused, as a rule of
-// the add, before a project is resolved: neither is the one meant more than
-// the other. One value given twice is one value.
+// Two values for one scalar target in one add: the last wins, as tagma's
+// write rules have it (SPEC §8, last value wins within a batch too), so
+// the write leaves one. One value given twice is one value.
 #[test]
-fn test_an_add_giving_a_scalar_target_two_values_is_refused_and_writes_nothing() {
-    let mut service = service(&["swift-amber"]);
-    let error = add(
+fn test_an_add_giving_a_scalar_target_two_values_keeps_the_last() {
+    let mut service = service(&["swift-amber", "calm-otter"]);
+    let written = add(
         &mut service,
         tagged(&["triage:level=3", "area:x=1", "area:x=2", "triage:level=2"]),
     )
-    .unwrap_err();
-    assert_eq!(error.code(), "tasks-application-tag-scalar-conflict");
-    assert!(error.to_string().contains("triage:level=2"), "{error}");
-    assert!(service.identity.pins.is_empty(), "no project resolved");
-    assert!(service.stores.opened.is_empty());
+    .unwrap();
+    assert_eq!(
+        spelled(&written.task.tags),
+        ["area:x=1", "area:x=2", "triage:level=2"]
+    );
     let written = add(
         &mut service,
         tagged(&[
@@ -617,18 +674,15 @@ fn test_an_add_giving_a_scalar_target_two_values_is_refused_and_writes_nothing()
     );
 }
 
-// The same holds for one retag: two values for one scalar target are
-// refused before anything is read, and the task keeps what it holds.
+// The same holds for one retag: the last value given displaces the one
+// held.
 #[test]
-fn test_a_tag_giving_a_scalar_target_two_values_is_refused_and_changes_nothing() {
+fn test_a_tag_giving_a_scalar_target_two_values_keeps_the_last() {
     let mut service = service(&["swift-amber"]);
     add(&mut service, tagged(&["triage:level=3"])).unwrap();
-    let pins = service.identity.pins.len();
     let given = change("swift-amber", &["triage:level=1", "triage:level=2"], &[]);
-    let error = ready(service.tag(given)).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-tag-scalar-conflict");
-    assert_eq!(service.identity.pins.len(), pins, "no project resolved");
-    assert_eq!(command_ids(&mut service, "swift-amber").len(), 1);
+    let written = ready(service.tag(given)).unwrap();
+    assert_eq!(spelled(&written.task.tags), ["triage:level=2"]);
 }
 
 #[test]
@@ -1013,10 +1067,10 @@ fn test_a_status_change_retries_through_store_failures() {
 }
 
 #[test]
-fn test_a_status_change_under_a_malformed_configuration_is_refused() {
-    let mut service = configured(&["tagma.arty:x=1"]);
+fn test_a_status_change_under_a_configuration_setting_a_moved_key_is_refused() {
+    let mut service = configured(&["unreadable"]);
     let error = ready(service.set_status(moved("swift-amber", "Done", None))).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-schema-unknown-facet");
+    assert_eq!(error.code(), "x-config");
     assert!(service.identity.pins.is_empty());
 }
 
@@ -1069,9 +1123,9 @@ fn test_an_edit_to_no_text_or_no_task_is_refused() {
         ready(nowhere.edit(unpinned)).unwrap_err(),
         AppError::NoProject
     );
-    let mut configured = configured(&["tagma.arty:x=1"]);
+    let mut configured = configured(&["unreadable"]);
     let error = ready(configured.edit(edited("swift-amber", "x"))).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-schema-unknown-facet");
+    assert_eq!(error.code(), "x-config");
 }
 
 // ------------------------------------------------------------ list
@@ -1557,4 +1611,94 @@ fn test_a_blank_request_id_is_refused_before_anything_is_read() {
     }
     assert!(service.configuration.asked == 0, "no configuration read");
     assert!(service.identity.pins.is_empty(), "no project resolved");
+}
+
+// ------------------------------------------------------- the seed's race
+
+/// Another process seeding `store`'s schema stream with `tag` alone.
+fn seeded_meanwhile(store: &angzarr_embedded::next::angzarr_ports::memory::MemoryStore, tag: &str) {
+    use angzarr_embedded::next::v1::{command_page, Command, CommandBook, CommandPage, Cover};
+    use angzarr_embedded::next::{Kernel, MemoryDeadLetters, Payload, Sampled};
+    let registry = crate::registry();
+    let dead_letters = MemoryDeadLetters::new();
+    let declare = tasks::schema::Declare {
+        add: vec![tagma_core::Tag::parse(tag).unwrap().into()],
+        remove: vec![],
+    };
+    let book = CommandBook {
+        cover: Some(Cover {
+            domain: tasks::schema::SCHEMA_DOMAIN.to_string(),
+            root: Some(tasks::schema::schema_root()),
+            edition: None,
+        }),
+        page: Some(CommandPage {
+            body: Some(command_page::Body::Command(Command {
+                payload: Some(tasks::schema::SchemaCommand::from(declare).to_any()),
+            })),
+            ..CommandPage::default()
+        }),
+        handling: None,
+    };
+    let sampled = Sampled {
+        now: ports::Timestamp {
+            seconds: 1_700_000_000,
+            nanos: 0,
+        },
+        command_id: angzarr_embedded::next::v1::Uuid::from_bytes([0xee; 16]),
+    };
+    ready(
+        Kernel::new(&registry, &dead_letters)
+            .on_retryable(crate::KERNEL_RETRY)
+            .handle::<tasks::schema::SchemaAggregate, _, _>(store, book, &sampled, &mut ()),
+    )
+    .unwrap_or_else(|failure| panic!("{failure:?}"));
+}
+
+/// The events on `service`'s store's schema stream.
+fn schema_events(service: &mut Fake) -> usize {
+    let cover = angzarr_embedded::next::v1::Cover {
+        domain: tasks::schema::SCHEMA_DOMAIN.to_string(),
+        root: Some(tasks::schema::schema_root()),
+        edition: None,
+    };
+    ready(service.stores.store.read_from(&cover, 0))
+        .unwrap()
+        .map_or(0, |slice| slice.pages.len())
+}
+
+// Two writers seeding one store at once land one seed: the seed is sent at
+// the head its shaping read saw (empty), so another's seed landing between
+// that read and the write is the kernel's conflict, and the retry reads the
+// stream declared and sends nothing. The race is forced: the other's seed
+// lands just before the kernel's own read of the stream.
+#[test]
+fn test_a_seed_racing_another_lands_once_and_keeps_the_others() {
+    let mut service = service(&["swift-amber"]);
+    service.stores.store.set_before_read(
+        2,
+        Box::new(|store| seeded_meanwhile(store, "tagma.keys-per-item:lang=1")),
+    );
+    add(&mut service, new_task("Ship it")).unwrap();
+    assert!(service.stores.store.before_read_ran(), "the other seeded");
+    assert_eq!(schema_events(&mut service), 1, "one seed");
+    assert_eq!(service.delay.slept.len(), 1, "the stale head, retried once");
+    let exported = ready(crate::SchemaService::schema_export(&mut service, None)).unwrap();
+    assert_eq!(
+        exported,
+        ["tagma.keys-per-item:lang=1"],
+        "the other's seed stands"
+    );
+}
+
+// A store already declared is read and never seeded again, whatever it
+// holds: an emptied schema stays empty.
+#[test]
+fn test_a_declared_store_is_never_seeded_again() {
+    let mut service = configured(&[]);
+    ready(service.add(new_task("Ship it"))).unwrap();
+    let every: Vec<&str> = crate::SEEDED_SCHEMA.to_vec();
+    declare(&mut service, &[], &every);
+    ready(service.add(new_task("Again"))).unwrap();
+    let exported = ready(crate::SchemaService::schema_export(&mut service, None)).unwrap();
+    assert!(exported.is_empty(), "{exported:?}");
 }

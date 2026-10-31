@@ -26,17 +26,14 @@ pub enum ConfigError {
     UnknownKey { source: String, key: String },
     /// A `--config-set` entry that is not `<path>=<value>`.
     NotAnOverride { entry: String },
-    /// A list value whose quote is never closed.
-    Unterminated { source: String, value: String },
-    /// A list value with a blank item (`a,,b`, a trailing comma), or a
-    /// config file's list with one (`source` the file, `value` its key).
+    /// A config file's list with a blank item (`source` the file, `value`
+    /// its key).
     BlankItem { source: String, value: String },
-    /// `tag_permits` in a config file other than the work root's: a
-    /// project's tag vocabulary is its own.
-    PermitsOutsideProject { path: String },
-    /// An environment variable or `--config-set` setting a key only the
-    /// work root's config file sets (`tag_permits`).
-    FileOnly { source: String, key: String },
+    /// A key that moved into the project's store (`tag_schema`,
+    /// `tag_permits`) set by `source`: a config file, an environment
+    /// variable or `--config-set`. Refused, naming `taskloom schema
+    /// import-config`, which moves a work root's file's into its store.
+    KeyMoved { source: String, key: String },
     /// Tag permits written where there is no work root, so no project
     /// config file to write them to.
     NoWorkRoot,
@@ -63,10 +60,8 @@ impl Diagnostic for ConfigError {
             ConfigError::Newer { .. } => "tasks-config-newer",
             ConfigError::UnknownKey { .. } => "tasks-config-unknown-key",
             ConfigError::NotAnOverride { .. } => "tasks-config-not-an-override",
-            ConfigError::Unterminated { .. } => "tasks-config-unterminated",
             ConfigError::BlankItem { .. } => "tasks-config-blank-item",
-            ConfigError::PermitsOutsideProject { .. } => "tasks-config-permits-outside-project",
-            ConfigError::FileOnly { .. } => "tasks-config-file-only",
+            ConfigError::KeyMoved { .. } => "tasks-config-key-moved",
             ConfigError::NoWorkRoot => "tasks-config-no-work-root",
             ConfigError::EditRefused { .. } => "tasks-config-edit-refused",
         }
@@ -96,12 +91,10 @@ impl Diagnostic for ConfigError {
                 ("known", KEYS.join(", ").into()),
             ],
             ConfigError::NotAnOverride { entry } => vec![("entry", s(entry))],
-            ConfigError::Unterminated { source, value }
-            | ConfigError::BlankItem { source, value } => {
+            ConfigError::BlankItem { source, value } => {
                 vec![("source", s(source)), ("value", s(value))]
             }
-            ConfigError::PermitsOutsideProject { path } => vec![("path", s(path))],
-            ConfigError::FileOnly { source, key } => vec![("source", s(source)), ("key", s(key))],
+            ConfigError::KeyMoved { source, key } => vec![("source", s(source)), ("key", s(key))],
             ConfigError::NoWorkRoot => Vec::new(),
         }
     }
@@ -139,18 +132,13 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(ConfigError::NotAnOverride {
             entry: "tag_schema".to_string(),
         }),
-        Box::new(ConfigError::Unterminated {
-            source: "--config-set".to_string(),
-            value: "\"a,b".to_string(),
-        }),
         Box::new(ConfigError::BlankItem {
-            source: "TASKLOOM_CONFIG_TAG_SCHEMA".to_string(),
-            value: "a,,b".to_string(),
+            source: path(),
+            value: "tag_schema".to_string(),
         }),
-        Box::new(ConfigError::PermitsOutsideProject { path: path() }),
-        Box::new(ConfigError::FileOnly {
-            source: "--config-set".to_string(),
-            key: "tag_permits".to_string(),
+        Box::new(ConfigError::KeyMoved {
+            source: "TASKLOOM_CONFIG_TAG_SCHEMA".to_string(),
+            key: "tag_schema".to_string(),
         }),
         Box::new(ConfigError::NoWorkRoot),
         Box::new(ConfigError::EditRefused {

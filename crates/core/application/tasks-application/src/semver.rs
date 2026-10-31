@@ -6,6 +6,10 @@
 use std::cmp::Ordering;
 use std::fmt;
 
+/// The `tagma.type` name whose tags are SemVer 2.0.0 versions: the
+/// comparator taskloom registers with tagma under it.
+pub const SEMVER: &str = "semver";
+
 /// A version, as precedence (§11) needs it: build metadata is kept out,
 /// since it takes no part.
 #[derive(Clone, PartialEq, Eq, Debug)]

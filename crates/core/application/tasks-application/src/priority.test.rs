@@ -1,4 +1,4 @@
-//! What the shipped formulas rank, read from the default tag schema itself
+//! What the shipped formulas rank, read from the seeded schema itself
 //! (a copy here would go on proving things of formulas no longer shipped),
 //! and the warnings a ranking that means little earns.
 
@@ -8,8 +8,9 @@ use ports::Timestamp;
 use task_priority::{Diagnostics, Ranking, TargetCoverage, MAX};
 
 use super::{candidate, formulas, rank_rows, warnings, PriorityNote, PriorityWarning};
+use crate::store_schema::StoreRules;
 use crate::view::{text_hash, Row, Task};
-use crate::{Project, TagSchema};
+use crate::Project;
 
 /// 2026-07-20T12:00:00Z: every age here is measured from it.
 const NOW: Timestamp = Timestamp {
@@ -51,8 +52,7 @@ fn row(p: &str, harp_id: &str, status: &str, tags: &[&str], days: i64) -> Row {
 
 /// `rows` ranked by the default schema's formulas.
 fn shipped(rows: &[Row]) -> Ranking {
-    let schema = TagSchema::resolved(&[]).unwrap();
-    let formulas = formulas(&schema).unwrap();
+    let formulas = formulas(&StoreRules::default()).unwrap();
     let candidates: Vec<_> = rows.iter().map(candidate).collect();
     task_priority::rank(&candidates, &formulas, NOW).unwrap()
 }
@@ -208,8 +208,8 @@ fn test_rows_are_ranked_within_their_own_project() {
         row("a", "a-low", "To Do", &["triage:level=5"], 0),
         row("b", "b-only", "To Do", &["triage:level=5"], 0),
     ];
-    let schema = TagSchema::resolved(&[]).unwrap();
-    let ranked = rank_rows(&rows, &formulas(&schema).unwrap(), NOW, false).unwrap();
+    let shipped = |_: &str| formulas(&StoreRules::default());
+    let ranked = rank_rows(&rows, shipped, NOW, false).unwrap();
     assert_eq!(ranked.priority(&rows[0]), MAX);
     assert_eq!(ranked.priority(&rows[1]), MAX / 2.0);
     assert_eq!(ranked.priority(&rows[2]), MAX, "b's one task tops b");
@@ -221,12 +221,11 @@ fn test_warnings_are_attributed_to_their_project_when_asked() {
         row("a", "a-1", "To Do", &[], 0),
         row("a", "a-2", "To Do", &[], 0),
     ];
-    let schema = TagSchema::resolved(&[]).unwrap();
-    let formulas = formulas(&schema).unwrap();
-    let plain = rank_rows(&rows, &formulas, NOW, false).unwrap();
+    let shipped = |_: &str| formulas(&StoreRules::default());
+    let plain = rank_rows(&rows, shipped, NOW, false).unwrap();
     assert!(!plain.notes.is_empty());
     assert!(plain.notes.iter().all(|n| n.project.is_none()));
-    let attributed = rank_rows(&rows, &formulas, NOW, true).unwrap();
+    let attributed = rank_rows(&rows, shipped, NOW, true).unwrap();
     assert!(attributed
         .notes
         .iter()
