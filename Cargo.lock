@@ -26,7 +26,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 [[package]]
 name = "angzarr-build"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-cli?rev=24bdfbba34509a8a584a19f47b21454f250e70b8#24bdfbba34509a8a584a19f47b21454f250e70b8"
+source = "git+https://github.com/angzarr-io/angzarr-cli?rev=a774486257a5cc0cb417811a7b5cffcab3b012ec#a774486257a5cc0cb417811a7b5cffcab3b012ec"
 dependencies = [
  "angzarr-codegen",
  "angzarr-diagnostic",
@@ -37,7 +37,7 @@ dependencies = [
 [[package]]
 name = "angzarr-codegen"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-cli?rev=24bdfbba34509a8a584a19f47b21454f250e70b8#24bdfbba34509a8a584a19f47b21454f250e70b8"
+source = "git+https://github.com/angzarr-io/angzarr-cli?rev=a774486257a5cc0cb417811a7b5cffcab3b012ec#a774486257a5cc0cb417811a7b5cffcab3b012ec"
 dependencies = [
  "angzarr-diagnostic",
  "angzarr-embedded-host-config",
@@ -53,12 +53,12 @@ dependencies = [
 [[package]]
 name = "angzarr-diagnostic"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr?rev=a75eb28f8416ca485aea2e28fe7b45924404d3fe#a75eb28f8416ca485aea2e28fe7b45924404d3fe"
+source = "git+https://github.com/angzarr-io/angzarr?rev=d5bb6692bd0fbc6ed8450b1db280578de21a48bc#d5bb6692bd0fbc6ed8450b1db280578de21a48bc"
 
 [[package]]
 name = "angzarr-embedded"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=77e62062765446d0a339f05bcb69a9593a30b94e#77e62062765446d0a339f05bcb69a9593a30b94e"
+source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=a9374883218474da2cdeaa4c05a07a4ff70a91f3#a9374883218474da2cdeaa4c05a07a4ff70a91f3"
 dependencies = [
  "angzarr-diagnostic",
  "angzarr-ports",
@@ -72,7 +72,7 @@ dependencies = [
 [[package]]
 name = "angzarr-embedded-host-config"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=77e62062765446d0a339f05bcb69a9593a30b94e#77e62062765446d0a339f05bcb69a9593a30b94e"
+source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=a9374883218474da2cdeaa4c05a07a4ff70a91f3#a9374883218474da2cdeaa4c05a07a4ff70a91f3"
 dependencies = [
  "angzarr-yaml",
  "serde",
@@ -81,7 +81,7 @@ dependencies = [
 [[package]]
 name = "angzarr-embedded-macros"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=77e62062765446d0a339f05bcb69a9593a30b94e#77e62062765446d0a339f05bcb69a9593a30b94e"
+source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=a9374883218474da2cdeaa4c05a07a4ff70a91f3#a9374883218474da2cdeaa4c05a07a4ff70a91f3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -91,7 +91,7 @@ dependencies = [
 [[package]]
 name = "angzarr-ports"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr?rev=a75eb28f8416ca485aea2e28fe7b45924404d3fe#a75eb28f8416ca485aea2e28fe7b45924404d3fe"
+source = "git+https://github.com/angzarr-io/angzarr?rev=d5bb6692bd0fbc6ed8450b1db280578de21a48bc#d5bb6692bd0fbc6ed8450b1db280578de21a48bc"
 dependencies = [
  "angzarr-diagnostic",
  "angzarr-proto",
@@ -102,7 +102,7 @@ dependencies = [
 [[package]]
 name = "angzarr-proto"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr?rev=a75eb28f8416ca485aea2e28fe7b45924404d3fe#a75eb28f8416ca485aea2e28fe7b45924404d3fe"
+source = "git+https://github.com/angzarr-io/angzarr?rev=d5bb6692bd0fbc6ed8450b1db280578de21a48bc#d5bb6692bd0fbc6ed8450b1db280578de21a48bc"
 dependencies = [
  "bytes",
  "prost",
@@ -114,13 +114,11 @@ dependencies = [
 [[package]]
 name = "angzarr-router"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-router?rev=6a736aed134fd64b7b0b83dc21641bbc2d6ff91f#6a736aed134fd64b7b0b83dc21641bbc2d6ff91f"
+source = "git+https://github.com/angzarr-io/angzarr-router?rev=c02faddb560323c0eb15150f6285b887fc0f51af#c02faddb560323c0eb15150f6285b887fc0f51af"
 dependencies = [
  "angzarr-ports",
  "angzarr-proto",
- "heck 0.5.0",
  "prost",
- "prost-build",
  "prost-types",
  "tracing",
 ]
@@ -128,7 +126,7 @@ dependencies = [
 [[package]]
 name = "angzarr-store-sqlite"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=77e62062765446d0a339f05bcb69a9593a30b94e#77e62062765446d0a339f05bcb69a9593a30b94e"
+source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=a9374883218474da2cdeaa4c05a07a4ff70a91f3#a9374883218474da2cdeaa4c05a07a4ff70a91f3"
 dependencies = [
  "angzarr-ports",
  "prost",
@@ -142,7 +140,7 @@ dependencies = [
 [[package]]
 name = "angzarr-yaml"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr?rev=a75eb28f8416ca485aea2e28fe7b45924404d3fe#a75eb28f8416ca485aea2e28fe7b45924404d3fe"
+source = "git+https://github.com/angzarr-io/angzarr?rev=d5bb6692bd0fbc6ed8450b1db280578de21a48bc#d5bb6692bd0fbc6ed8450b1db280578de21a48bc"
 dependencies = [
  "angzarr-diagnostic",
  "serde",
@@ -2587,7 +2585,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
