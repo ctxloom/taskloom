@@ -115,9 +115,8 @@ fn edit(before: &str, permits: &TagPermits) -> String {
     super::edited(PATH, before, permits).unwrap()
 }
 
-// The blank line after a block list's last item stays, whether the list
-// keeps items or is left empty; of two after a list left empty, the
-// editor keeps one.
+// The blank lines after a block list's last item stay, whether the list
+// keeps items or is left empty, two of them as two.
 #[test]
 fn test_removing_a_lists_last_item_keeps_the_blank_lines_after_it() {
     let before = "tag_permits:\n  namespaces:\n    area:\n      - cli\n      - mcp  # m\n\n    queue: open\n  tags:\n    - urgent\n\n\n# The schema.\nschema_version: 1\n";
@@ -130,7 +129,7 @@ fn test_removing_a_lists_last_item_keeps_the_blank_lines_after_it() {
     );
     assert_eq!(
         after,
-        "tag_permits:\n  namespaces:\n    area:\n      - cli\n\n    queue: open\n  tags: []\n\n# The schema.\nschema_version: 1\n"
+        "tag_permits:\n  namespaces:\n    area:\n      - cli\n\n    queue: open\n  tags: []\n\n\n# The schema.\nschema_version: 1\n"
     );
 }
 

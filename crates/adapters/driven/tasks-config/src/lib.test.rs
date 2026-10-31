@@ -236,8 +236,8 @@ fn test_the_import_reads_the_work_roots_tag_schema_alone() {
 // 2026-10-31: one reader for every Rust config, Go's schemaver the
 // reference). A file it does not load is the reader's diagnostic, coded,
 // a key path where the decode failed; a newer one is taskloom's own
-// refusal; and one with no stamp, an empty or comment-only one included,
-// is older than taskloom reads, as Go's taskloom refuses it.
+// refusal; one stamped below 1 is older than taskloom reads. One with no
+// stamp loads (below).
 #[test]
 fn test_a_file_that_is_not_taskloom_config_is_refused() {
     for (text, shown_as) in [
@@ -254,10 +254,7 @@ fn test_a_file_that_is_not_taskloom_config_is_refused() {
             "problem=angzarr-yaml-decode-unknown-key problem.key_path=tag_permits.areas",
         ),
         ("[unclosed\n", "problem=angzarr-yaml-"),
-        ("homing: home\n", "problem=angzarr-yaml-too-old problem.found=0 problem.oldest=1"),
-        ("", "problem=angzarr-yaml-too-old"),
-        ("# nothing here\n", "problem=angzarr-yaml-too-old"),
-        ("schema_version: 0\n", "problem=angzarr-yaml-too-old"),
+        ("schema_version: 0\n", "problem=angzarr-yaml-too-old problem.found=0 problem.oldest=1"),
         ("schema_version: one\n", "problem=angzarr-yaml-version-not-an-integer"),
     ] {
         let dirs = Dirs::new(None, Some(text));
@@ -290,12 +287,33 @@ fn test_a_file_that_is_not_taskloom_config_is_refused() {
     }
 }
 
+// The config-versioning rule (owner, 2026-10-31): a file with no stamp is
+// the oldest generation, and taskloom-config has no older one, so it
+// decodes as current. An empty or comment-only file is this case, a
+// document of nothing, not a corrupt one; Go's taskloom refuses all three.
+#[test]
+fn test_an_unstamped_empty_or_comment_only_file_loads_as_current() {
+    for text in ["homing: home\n", "", "\n", "# nothing here\n"] {
+        let dirs = Dirs::new(None, Some(text));
+        assert_eq!(moved(&dirs.config(&[]), &[]), Ok(()), "{text:?}");
+        assert_eq!(dirs.config(&[]).tag_schema(), Ok(Vec::new()), "{text:?}");
+    }
+    let dirs = Dirs::new(
+        None,
+        Some("tag_schema:\n  - 'tagma.arity:\"root:x\"=scalar'\n"),
+    );
+    assert_eq!(
+        dirs.config(&[]).tag_schema(),
+        Ok(strings(&[r#"tagma.arity:"root:x"=scalar"#])),
+        "decoded as written"
+    );
+}
+
 // Config files Go's taskloom wrote and reads (schemaver's `taskloom config`
 // kind, at 1) load through the reader as they are, and this repository's
 // own. Go's tag-permits file is the one Go's tests read
 // (internal/taskloom/config/testdata), this repository's before the
-// cutover, with its flow lists on one line each: angzarr-yaml reads a flow
-// collection only on one line, and refuses one that runs on (below).
+// cutover, two of its flow lists running on to a second line.
 #[test]
 fn test_go_written_config_files_load() {
     use angzarr_yaml::versioned::Fixture;
@@ -306,8 +324,8 @@ fn test_go_written_config_files_load() {
             expected: None,
         },
         Fixture {
-            name: "go/tag-permits-one-line.config.yaml",
-            input: include_str!("../testdata/go/tag-permits-one-line.config.yaml"),
+            name: "go/tag-permits.config.yaml",
+            input: include_str!("../testdata/go/tag-permits.config.yaml"),
             expected: None,
         },
         Fixture {
@@ -338,22 +356,6 @@ fn test_go_written_config_files_load() {
     let permits = dirs.config(&[]).tag_permits().unwrap().unwrap();
     assert_eq!(permits.namespaces.len(), 11, "{permits:?}");
     assert!(permits.flat.is_empty());
-}
-
-// A flow list that runs on to the next line, as Go's tag-permits file
-// writes two of them, is not in the subset angzarr-yaml reads: it is
-// refused, the line named, never misread.
-#[test]
-fn test_a_flow_list_running_on_is_refused() {
-    let text = include_str!("../testdata/go/tag-permits.config.yaml");
-    let dirs = Dirs::new(None, Some(text));
-    let error = moved(&dirs.config(&[]), &[]).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("problem=angzarr-yaml-expected-seq-separator problem.line=15"),
-        "{error}"
-    );
 }
 
 #[test]

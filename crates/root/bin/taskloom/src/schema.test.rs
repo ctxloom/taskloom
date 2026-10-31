@@ -290,6 +290,41 @@ fn test_import_config_moves_the_work_roots_permits_into_the_store_once() {
     assert_eq!(again.json()["changed"], false);
 }
 
+// Go's taskloom's own tag-permits file, as Go wrote it (tasks-config's
+// testdata), two of its flow lists running on to a second line: the
+// import reads it whole, the keys on the second lines among them, and
+// leaves the file its stamp and its comments.
+#[test]
+fn test_import_config_moves_go_s_tag_permits_file_into_the_store() {
+    let go = include_str!(
+        "../../../../adapters/driven/tasks-config/testdata/go/tag-permits.config.yaml"
+    );
+    let env = Env::new("calm-otter-fox");
+    env.seed("Ship it");
+    configure(env.project.path(), go);
+    let ran = env.run(&["schema", "import-config", "--json"]);
+    assert!(ran.ok, "{}", ran.stderr);
+    assert_eq!(ran.json()["changed"], true);
+    let lines = exported(&env);
+    for expected in [
+        r#"tagma.permit:"area:domain"=true"#,
+        r#"tagma.permit:"area:integration"=true"#,
+        r#"tagma.permit:"area:docs"=true"#,
+        r#"tagma.permit:"triage:silent-no-op"=true"#,
+        r#"tagma.permit:"triage:flaky"=true"#,
+        r#"tagma.permit:"landed:*"=true"#,
+    ] {
+        assert!(
+            lines.iter().any(|l| l == expected),
+            "{expected} in {lines:?}"
+        );
+    }
+    let file = disk::read_to_string(env.project.path().join(".taskloom/config.yaml")).unwrap();
+    assert!(!file.contains("tag_permits"), "{file}");
+    assert!(file.contains("schema_version: 1\n"), "{file}");
+    assert!(file.starts_with("# Taskloom's own config"), "{file}");
+}
+
 // ------------------------------------------------ permit and revoke
 
 #[test]

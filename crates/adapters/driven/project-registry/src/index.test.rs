@@ -13,7 +13,8 @@ use file_system::{Fs, Open, Perms, Rooted};
 use os::Mode;
 
 use super::{
-    from_lock, load, lock_within, path, save, write_atomically, Index, LOCK_WAIT, SCHEMA_VERSION,
+    from_lock, load, load_text, lock_within, path, save, write_atomically, Index, LOCK_WAIT,
+    SCHEMA_VERSION,
 };
 use crate::RegistryError;
 
@@ -130,17 +131,34 @@ fn test_a_key_this_version_does_not_know_is_refused() {
 
 // The schema version is checked on read, as Go's schemaver checks it (the
 // kind at 1, with no older version): a newer registry is refused, and so
-// is one with no stamp or one that is not a number.
+// is one stamped below 1 or one that is not a number.
 #[test]
 fn test_a_version_this_registry_does_not_read_is_refused() {
     let newer = GO_WRITTEN.replace("schema_version: 1", "schema_version: 2");
     assert!(
         refused(&newer).contains("problem=angzarr-yaml-too-new problem.found=2 problem.current=1")
     );
-    let unstamped = GO_WRITTEN.replace("schema_version: 1\n", "");
-    assert!(refused(&unstamped).contains("problem=angzarr-yaml-too-old problem.found=0"));
+    let older = GO_WRITTEN.replace("schema_version: 1", "schema_version: 0");
+    assert!(refused(&older).contains("problem=angzarr-yaml-too-old problem.found=0"));
     let word = GO_WRITTEN.replace("schema_version: 1", "schema_version: one");
     assert!(refused(&word).contains("problem=angzarr-yaml-version-not-an-integer"));
+}
+
+// The config-versioning rule (owner, 2026-10-31): a registry with no
+// stamp is the oldest generation, and project-registry has no older one,
+// so it reads as current, its entries as written; Go's schemaver refuses
+// it. Saved, it is stamped.
+#[test]
+fn test_a_registry_with_no_stamp_reads_as_current() {
+    let (fs, dir) = at();
+    let file = dir.join("index.yaml");
+    put(&fs, &file, &GO_WRITTEN.replace("schema_version: 1\n", ""));
+    let index = load(&fs, &file).unwrap();
+    assert_eq!(index.schema_version, SCHEMA_VERSION);
+    assert_eq!(index, load_text("x", GO_WRITTEN).unwrap(), "as if stamped");
+    save(&fs, &file, &index).unwrap();
+    let text = fs.read_to_string(&file).unwrap();
+    assert!(text.starts_with("schema_version: 1\n"), "{text}");
 }
 
 #[test]
