@@ -41,12 +41,13 @@ use crate::AppError;
 /// letter. The kernel's own backoff otherwise, unused.
 ///
 /// A command stamped with the head it loaded that loses the race at its
-/// write is run once only (`max_race_runs` 1; the kernel takes 0 as 1):
-/// the kernel does not re-run it on the new head (angzarr decision 14.46),
-/// taskloom's loop is the one that retries.
+/// write is run once only and handed back as the store's conflict
+/// (`max_race_runs` 0): the kernel neither re-runs it on the new head
+/// (angzarr decision 14.46) nor dead-letters it; taskloom's loop is the one
+/// that retries.
 pub const KERNEL_RETRY: OnRetryable = OnRetryable {
     max_retries: 0,
-    max_race_runs: 1,
+    max_race_runs: 0,
     initial_backoff: Duration::from_millis(100),
     multiplier: 2.0,
     max_backoff: Duration::from_secs(5),

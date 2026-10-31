@@ -335,9 +335,11 @@ fn test_a_purge_gives_up_once_its_attempts_are_spent() {
 #[test]
 fn test_the_application_has_the_kernel_retry_nothing() {
     assert_eq!(super::KERNEL_RETRY.max_retries, 0);
+    assert_eq!(super::KERNEL_RETRY.max_race_runs, 0);
     assert_eq!(
         angzarr_embedded::next::OnRetryable {
             max_retries: 0,
+            max_race_runs: 0,
             ..angzarr_embedded::next::OnRetryable::default()
         },
         super::KERNEL_RETRY,
