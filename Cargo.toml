@@ -22,10 +22,9 @@ angzarr-proto = { version = "0.1", git = "https://github.com/angzarr-io/angzarr"
 # commit, so a fresh clone builds with no sibling checkouts; bumps are
 # deliberate commits. To build against local checkouts while changing them
 # together, see "Co-developing angzarr-cli or tagma" in CLAUDE.md. At
-# poc/local-wiring's 33876a7, which still names angzarr-proto at
-# angzarr-project: the [patch] below bridges it to angzarr core's until
-# angzarr-cli's own move to core (its chore/core-pins) is pushed.
-angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "33876a76030dd89a988e29fd22128d19a44ac9ef" }
+# 1460489, on angzarr core's angzarr-proto and angzarr-embedded e2810b4, as
+# this workspace is.
+angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "1460489002fad87c76a6a20f744f8b1fa32dd650" }
 
 # angzarr-embedded, angzarr's in-app runtime, taskloom's
 # (taskloom-on-angzarr-embedded.plan.md). Pinned by rev on
@@ -118,14 +117,6 @@ expr-lang = { version = "=2.1.0", default-features = false }
 # Display-width columns in text output.
 unicode-width = "0.2"
 uuid = { version = "1", features = ["v5", "v7"] }
-
-# The lockstep bridge: cargo keys a crate by its source, so angzarr-proto
-# from angzarr-project (what angzarr-build at its rev names) and from angzarr
-# core would be two crates. Every angzarr-proto from angzarr-project is
-# angzarr core's at the rev above instead: one angzarr-proto in the graph.
-# Drop it when angzarr-build is bumped to a rev that names core's.
-[patch."https://github.com/angzarr-io/angzarr-project"]
-angzarr-proto = { git = "https://github.com/angzarr-io/angzarr", rev = "1cf00b71b094c185b0fd6964f646e48b4c39b8ab" }
 
 [workspace.lints.clippy]
 invisible_characters = "deny"
