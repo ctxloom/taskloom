@@ -104,6 +104,8 @@ pub fn path(home: &Path) -> PathBuf {
 }
 
 /// The stamp of a registry with none: this version.
+// Equivalent: `1`, its one mutant, is SCHEMA_VERSION, the only version.
+#[cfg_attr(test, mutants::skip)]
 fn current() -> u32 {
     SCHEMA_VERSION
 }
