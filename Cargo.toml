@@ -20,13 +20,11 @@ prost-types = "0.14"
 # commit, so a fresh clone builds with no sibling checkouts; bumps are
 # deliberate commits. To build against local checkouts while changing them
 # together, see "Co-developing angzarr-cli or tagma" in CLAUDE.md. At
-# 54dbc45, on angzarr core's angzarr-proto 1cf00b7 and angzarr-embedded
-# 7c85204: a build dependency only, so its older angzarr-proto and
-# angzarr-embedded-diagnostic sit in the lock beside this workspace's until
-# angzarr-cli moves to the revs below. Until then, code it generates may
-# still name `angzarr_embedded::next::`, which angzarr-embedded keeps as a
-# deprecated alias of its crate root.
-angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "54dbc459ed4b1ae8ed3cf5bea11902dbb7aea064" }
+# 24bdfbb, on angzarr core a75eb28, the rev the crates below pin, so the
+# graph holds one angzarr-proto and one angzarr-diagnostic even counting
+# build dependencies; the code it generates names the kernel's crate root
+# (no `next::`) and `::angzarr_embedded::angzarr_diagnostic`.
+angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "24bdfbba34509a8a584a19f47b21454f250e70b8" }
 
 # angzarr-embedded, angzarr's in-app runtime, taskloom's
 # (taskloom-on-angzarr-embedded.plan.md). Pinned by rev on

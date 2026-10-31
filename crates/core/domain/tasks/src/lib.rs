@@ -9,12 +9,6 @@
 //! payloads and the rules are this crate's, and [`TaskAggregate`] is the
 //! aggregate angzarr-embedded runs.
 
-// angzarr-build at 54dbc45 generates code that names the kernel's old paths:
-// `::angzarr_embedded::next`, which angzarr-embedded keeps as a deprecated
-// alias of its crate root, and `::angzarr_embedded_diagnostic`, the crate
-// angzarr core now ships as angzarr-diagnostic, named so here. Until
-// angzarr-cli re-pins and generates the new paths (architecture-fixes B4).
-extern crate angzarr_diagnostic as angzarr_embedded_diagnostic;
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/ctxloom.tasks.v1.domain.rs"));
 }
