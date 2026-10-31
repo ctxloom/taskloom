@@ -713,3 +713,165 @@ fn test_one_area_and_one_repo_a_task_hold_where_no_permit_is_declared() {
         )]
     );
 }
+
+// ------------------------------------------------------- import-config
+
+/// The work root's config file as the import reads it: its moved keys,
+/// and whether they were taken out of it.
+#[derive(Default)]
+struct OldConfig {
+    schema: Vec<String>,
+    permits: Option<ports::TagPermits>,
+    retired: usize,
+}
+
+impl ports::Configuration for OldConfig {
+    fn moved(&mut self) -> Result<(), Report> {
+        match self.schema.is_empty() && self.permits.is_none() {
+            true => Ok(()),
+            false => Err(Report::new("tasks-config-key-moved")),
+        }
+    }
+
+    fn tag_schema(&mut self) -> Result<Vec<String>, Report> {
+        Ok(self.schema.clone())
+    }
+
+    fn tag_permits(&mut self) -> Result<Option<ports::TagPermits>, Report> {
+        Ok(self.permits.clone())
+    }
+}
+
+impl ports::ConfigurationWriter for OldConfig {
+    fn write_tag_permits(&mut self, _: &ports::TagPermits) -> Result<(), Report> {
+        panic!("the import writes no permits to a file")
+    }
+
+    fn retire_moved(&mut self) -> Result<bool, Report> {
+        let held = !(self.schema.is_empty() && self.permits.is_none());
+        self.schema.clear();
+        self.permits = None;
+        self.retired += 1;
+        Ok(held)
+    }
+}
+
+type Importing = Service<FakeIdentity, FakeStores, FakeNames, FakeClock, FakeDelay, OldConfig>;
+
+fn importing(config: OldConfig) -> Importing {
+    Service::new(
+        FakeIdentity::default(),
+        FakeStores::default(),
+        FakeNames::of(&HARPS),
+        FakeClock::default(),
+        FakeDelay::default(),
+    )
+    .with_configuration(config)
+}
+
+// The old declarations become tagma's facets: an enum of `a,b` one tag a
+// value, a range of `lo,hi` as `lo..hi`, the formulas taskloom.*, any
+// other as written (for `schema check` to judge); then the keys are taken
+// out of the file, and every use case reads again.
+#[test]
+fn test_the_import_moves_the_old_declarations_into_tagmas_facets() {
+    let mut service = importing(OldConfig {
+        schema: [
+            r#"tagma.enum:"area:x"="a, b""#,
+            r#"tagma.range:"triage:level"="1,9""#,
+            r#"tagma.priority_fn:"triage:kind"="1""#,
+            r#"tagma.decay_fn:"triage:kind"="2""#,
+            r#"tagma.arity:"area:x"=scalar"#,
+        ]
+        .map(String::from)
+        .into(),
+        ..OldConfig::default()
+    });
+    let error = ready(service.list(crate::ListQuery::default())).unwrap_err();
+    assert_eq!(
+        error.code(),
+        "tasks-config-key-moved",
+        "refused before the import"
+    );
+    let imported = ready(service.import_config()).unwrap();
+    assert!(imported.changed);
+    for tag in [
+        r#"tagma.enum:"area:x"=a"#,
+        r#"tagma.enum:"area:x"=b"#,
+        r#"tagma.range:"triage:level"=1..9"#,
+        r#"taskloom.priority_fn:"triage:kind"="1""#,
+        r#"taskloom.decay_fn:"triage:kind"="2""#,
+        r#"tagma.arity:"area:x"=scalar"#,
+    ] {
+        assert!(
+            imported.tags.contains(&canonical(tag)),
+            "{tag}: {:?}",
+            imported.tags
+        );
+    }
+    assert!(
+        !imported.tags.iter().any(|t| t.starts_with("tagma.permit")),
+        "no tag_permits, no permit"
+    );
+    assert_eq!(service.configuration.retired, 1);
+    assert!(ready(service.list(crate::ListQuery::default())).is_ok());
+    let again = ready(service.import_config()).unwrap();
+    assert!(!again.changed, "nothing left to import");
+    assert_eq!(again.tags, imported.tags);
+}
+
+// The old permits become tagma.permit patterns, the world closed, and
+// every target the rules constrain (the imported ones among them) stays
+// permitted, as the old permits admitted a declared target without one.
+#[test]
+fn test_the_import_moves_the_old_permits_and_keeps_the_declared_targets() {
+    let mut permits = ports::TagPermits::default();
+    permits.namespaces.insert(
+        "area".to_string(),
+        ports::NamespacePermit::Closed(["cli".to_string()].into()),
+    );
+    permits
+        .namespaces
+        .insert("relates".to_string(), ports::NamespacePermit::Open);
+    permits.flat.insert("urgent".to_string());
+    let mut service = importing(OldConfig {
+        schema: vec![r#"tagma.enum:"lang:x"="en""#.to_string()],
+        permits: Some(permits),
+        ..OldConfig::default()
+    });
+    let imported = ready(service.import_config()).unwrap();
+    for tag in [
+        r#"tagma.permit:"*:*"=false"#,
+        r#"tagma.permit:"area:cli"=true"#,
+        r#"tagma.permit:"relates:*"=true"#,
+        "tagma.permit:urgent=true",
+        r#"tagma.permit:"lang:x"=true"#,
+        r#"tagma.permit:"triage:kind"=true"#,
+    ] {
+        assert!(
+            imported.tags.contains(&canonical(tag)),
+            "{tag}: {:?}",
+            imported.tags
+        );
+    }
+    assert!(add_to(&mut service, &["lang:x=en", "area:cli", "urgent"]).is_ok());
+    let error = add_to(&mut service, &["area:mcp"]).unwrap_err();
+    assert!(not_permitted(&error, "area:mcp"), "{error}");
+}
+
+// A declaration that is no tag at all is refused, and nothing is declared
+// or taken out of the file.
+#[test]
+fn test_the_import_refuses_a_declaration_that_is_no_tag() {
+    let mut service = importing(OldConfig {
+        schema: vec!["a b".to_string()],
+        ..OldConfig::default()
+    });
+    let error = ready(service.import_config()).unwrap_err();
+    assert_eq!(error.code(), "tasks-application-tag-unparseable");
+    assert_eq!(service.configuration.retired, 0);
+}
+
+fn add_to(service: &mut Importing, tags: &[&str]) -> Result<Written, AppError> {
+    ready(service.add(tagged(tags)))
+}
