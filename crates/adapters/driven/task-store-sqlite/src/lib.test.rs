@@ -844,29 +844,203 @@ fn test_reading_another_project_does_not_serve_the_held_one() {
     });
 }
 
+// ------------------------------------------ a store older than the build
+//
+// The owner ruled (2026-10-31) that both a read and a write migrate a store
+// on opening it. A store with migrations pending is first copied beside
+// itself (`state.db.pre-migrate-<UTC instant>`), byte for byte as it was,
+// then opened to write, which migrates it; a store newer than the build,
+// and one from before angzarr-embedded, are refused and left as they were.
+
+/// A store as the e996ea4 build of taskloom wrote one, on
+/// angzarr-store-sqlite 07154a2 (migrations 0001 to 0004, so 0005 is
+/// pending here): `taskloom add` twice in a project of its own, its two
+/// tasks on two `tasks` streams beside its schema stream, closed so the
+/// file holds everything (its log empty).
+const BEFORE_0005: &[u8] = include_bytes!("../testdata/before-0005.db");
+
+/// A store newer than this build: [`BEFORE_0005`] with a migration this
+/// build does not have (version 99) recorded as applied, added with
+/// Python's sqlite3 and closed (its log checkpointed and removed).
+const NEWER: &[u8] = include_bytes!("../testdata/newer.db");
+
+/// The backups beside the store at `path`, by name.
+fn backups(home: &Home, path: &Path) -> Vec<PathBuf> {
+    let dir = path.parent().unwrap();
+    home.rooted
+        .read_dir(dir)
+        .unwrap()
+        .into_iter()
+        .filter(|e| {
+            e.name
+                .to_string_lossy()
+                .starts_with("state.db.pre-migrate-")
+        })
+        .map(|e| dir.join(e.name))
+        .collect()
+}
+
+/// `path`'s write-ahead log.
+fn wal(path: &Path) -> PathBuf {
+    let mut wal = path.as_os_str().to_owned();
+    wal.push("-wal");
+    PathBuf::from(wal)
+}
+
+/// How many task streams `store` holds.
+async fn tasks(store: &SqliteStore) -> usize {
+    use angzarr_ports::ListStreams;
+    let covers = store.list_streams().await.unwrap();
+    covers.iter().filter(|c| c.domain == "tasks").count()
+}
+
 #[test]
-fn test_reading_a_database_not_yet_migrated_is_refused_and_leaves_it_unmigrated() {
-    // A read never migrates: only a write does. A file holding something
-    // committed is no file a writer is making, so it is refused at once.
+fn test_reading_a_store_with_a_migration_pending_migrates_it_and_reads_its_tasks() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    home.write(&path, BEFORE_0005);
+    let project = project("jolly-mute-magma", path.clone());
+    let mut stores = home.stores();
+    block_on(async {
+        let store = stores
+            .open_existing(&project)
+            .await
+            .expect("migrated, not refused")
+            .expect("found");
+        assert_eq!(tasks(store).await, 2, "both tasks read back");
+    });
+    let migrated = block_on(SqliteStore::open_existing(&home.real(&path))).map(|s| s.is_some());
+    assert_eq!(migrated, Ok(true), "every migration applied");
+}
+
+#[test]
+fn test_a_read_backs_a_pending_store_up_as_it_was_before_migrating_it() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    home.write(&path, BEFORE_0005);
+    let mut stores = home.stores();
+    block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
+        .expect("migrated")
+        .expect("found");
+    let backups = backups(&home, &path);
+    let [backup] = backups.as_slice() else {
+        panic!("one backup beside the store: {backups:?}");
+    };
+    // As it was before the migration ran: byte for byte, still pending.
+    assert_eq!(home.read(backup), BEFORE_0005, "the store before migrating");
+    let pending = block_on(SqliteStore::open_existing(&home.real(backup)))
+        .map(|s| s.is_some())
+        .unwrap_err();
+    assert_eq!(
+        keyed(&pending, "angzarr-store-sqlite-unmigrated"),
+        Some(vec![("pending", "1".to_string())]),
+        "{pending}"
+    );
+}
+
+#[test]
+fn test_a_write_backs_a_pending_store_up_before_migrating_it() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    home.write(&path, BEFORE_0005);
+    let mut stores = home.stores();
+    block_on(async {
+        let store = stores
+            .open(&project("jolly-mute-magma", path.clone()))
+            .await
+            .expect("migrated");
+        assert_eq!(tasks(store).await, 2);
+    });
+    let backups = backups(&home, &path);
+    let [backup] = backups.as_slice() else {
+        panic!("one backup beside the store: {backups:?}");
+    };
+    assert_eq!(home.read(backup), BEFORE_0005);
+}
+
+#[test]
+fn test_a_current_store_is_neither_backed_up_nor_migrated() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    written(&home, &path);
+    let project = project("jolly-mute-magma", path.clone());
+    let mut stores = home.stores();
+    block_on(stores.open_existing(&project))
+        .unwrap()
+        .expect("found");
+    assert!(!stores.held.as_ref().unwrap().writable, "opened read-only");
+    block_on(home.stores().open(&project)).unwrap();
+    assert_eq!(backups(&home, &path), Vec::<PathBuf>::new());
+}
+
+#[test]
+fn test_reading_a_database_older_than_every_migration_backs_it_up_and_migrates_it() {
+    // A file holding something committed but none of the migrations.
     let home = Home::new();
     let path = home.path().join("state.db");
     home.write(&path, OLDER);
     let mut stores = home.stores();
+    let found = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
+        .map(|found| found.is_some());
+    assert_eq!(found, Ok(true));
+    let backups = backups(&home, &path);
+    let [backup] = backups.as_slice() else {
+        panic!("one backup beside the store: {backups:?}");
+    };
+    assert_eq!(home.read(backup), OLDER);
+}
+
+#[test]
+fn test_a_store_newer_than_the_build_is_refused_and_left_as_it_was() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    home.write(&path, NEWER);
+    let mut stores = home.stores();
     let error = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
         .map(|found| found.is_some())
         .unwrap_err();
-    assert_eq!(
-        keyed(&error, "angzarr-store-sqlite-unmigrated"),
-        Some(vec![("pending", "5".to_string())]),
-        "{error}"
+    // The store's refusal: sqlx's migrator, which names the migration.
+    assert!(
+        matches!(&error, StoreError::Unavailable(_)) && error.to_string().contains("migration 99"),
+        "the store's refusal: {error}"
     );
     assert!(stores.held.is_none());
-    assert_eq!(home.read(&path), OLDER, "the file as it was");
-    assert!(
-        !home.exists(&home.path().join("state.db-wal")),
-        "not moved into WAL"
-    );
+    assert_eq!(home.read(&path), NEWER, "the file as it was");
+    assert_eq!(backups(&home, &path), Vec::<PathBuf>::new(), "no backup");
 }
+
+#[test]
+fn test_a_pending_store_whose_log_holds_frames_is_refused_not_copied() {
+    // A copy of the file alone would miss what the log holds, so the store
+    // is neither backed up nor migrated: refused naming the file and log.
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    home.write(&path, BEFORE_0005);
+    home.write(&wal(&path), b"not yet checkpointed");
+    let mut stores = home.stores();
+    let expected = Some(vec![
+        ("path", path.display().to_string()),
+        ("wal", wal(&path).display().to_string()),
+    ]);
+    let read = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
+        .map(|found| found.is_some())
+        .unwrap_err();
+    assert_eq!(keyed(&read, UNSAFE), expected, "to read: {read}");
+    let written = block_on(stores.open(&project("jolly-mute-magma", path.clone())))
+        .map(drop)
+        .unwrap_err();
+    assert_eq!(keyed(&written, UNSAFE), expected, "to write: {written}");
+    assert_eq!(home.read(&path), BEFORE_0005, "the file as it was");
+    assert_eq!(backups(&home, &path), Vec::<PathBuf>::new(), "no backup");
+}
+
+/// The key a store that cannot be copied safely is refused with.
+const UNSAFE: &str = "task-store-sqlite-backup-unsafe";
 
 #[test]
 fn test_a_database_that_cannot_be_read_fails_a_read() {
