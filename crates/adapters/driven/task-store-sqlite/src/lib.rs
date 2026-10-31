@@ -7,31 +7,27 @@
 //!   the seam says it is on disk ([`Fs::real_path`]), so a re-rooted
 //!   filesystem holds the database (and its write-ahead log) too.
 //! - [`SqliteStores::open`] opens it to write, creating its directory and
-//!   the file and migrating it ([`SqliteStore::open`]); `open_existing`
-//!   opens it read-only ([`SqliteStore::open_existing`]) and never
-//!   creates it, finding no store where there is no file. A file a writer
-//!   is still making is angzarr-store-sqlite's to wait for. Each holds the
-//!   store it opened, for its project, until another is asked for; a
-//!   store held to write serves a read.
-//! - Both migrate a store older than the build (the owner's ruling,
-//!   2026-10-31: both read and write migrate on startup): a read that
-//!   finds migrations pending opens the store to write instead, which
-//!   migrates it. Before either migrates an existing store, the file is
-//!   copied beside itself, byte for byte, through the [`Fs`]
-//!   (`state.db.pre-migrate-<UTC instant>`, [`backup_path`]): with no
-//!   connection of this process open on it, and only while its
-//!   write-ahead log (`state.db-wal`) is absent or empty, so the file
-//!   alone is the whole store. A log holding frames is refused, keyed
-//!   `task-store-sqlite-backup-unsafe`, the store neither copied nor
-//!   migrated. Its `-shm` file is the log's index, holds no rows, and is
-//!   not looked at. angzarr-store-sqlite has no backup of its own, and
-//!   ctxloom writes no SQL. A store newer than the build is refused, by
-//!   angzarr-store-sqlite, as it was.
-//! - A store written before angzarr-embedded (annals-store-sql's, holding
-//!   only its first migration) is refused by both, keyed
+//!   the file ([`SqliteStore::open`]); `open_existing` opens it read-only
+//!   ([`SqliteStore::open_existing`]) and never creates it, finding no
+//!   store where there is no file. Each holds the store it opened, for its
+//!   project, until another is asked for; a store held to write serves a
+//!   read.
+//! - Both migrate a store older than the build: angzarr-store-sqlite's
+//!   every open does (the owner's ruling, 2026-10-31: both read and write
+//!   migrate on startup), through angzarr-ports' `Migrations`, backing the
+//!   store up beside itself first through its `Backup`
+//!   (`state.db.pre-<applied level>-<UTC time>`), and refusing, untouched,
+//!   a store newer than the build or one a migration failed or changed in
+//!   (`angzarr-ports-store-newer-than-build`, `-migration-failed`,
+//!   `-migration-changed`). ctxloom writes no SQL, and takes no backup of
+//!   its own.
+//! - A store written before angzarr-embedded (annals-store-sql's, its
+//!   ledger only its first migration) is refused by both, keyed
 //!   `task-store-sqlite-predates-embedded` with its `path` and the
 //!   `backup` to move it to (`state.db.pre-embedded`), and left exactly
-//!   as it was: never migrated in place (the owner's ruling D2).
+//!   as it was: never migrated in place (the owner's ruling D2). Its
+//!   ledger is read before either open ([`SqliteStore::ledger_at`]), which
+//!   migrates nothing.
 //! - The stores take `&self` (angzarr-ports'), so the opener lends the
 //!   store shared: a purge is the store's own [`Purge`](angzarr_ports::Purge),
 //!   and a watch is its own [`Watch`] token, paired with which opening of
@@ -56,21 +52,13 @@ use std::sync::Arc;
 use angzarr_embedded_diagnostic::Report;
 use angzarr_ports::{StoreError, Watch};
 use angzarr_store_sqlite::{Integrity, SqlError, SqliteStore};
-use file_system::{Fs, Perms};
+use file_system::Fs;
 use os::Mode;
 use ports::{Checked, HeldToken, Project, StoreCheck, TaskStores, WatchedStores};
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{StoreOpenError, EN_US};
-
-/// How many of angzarr-store-sqlite's migrations a store from before
-/// angzarr-embedded lacks: annals-store-sql applied only the first, which
-/// angzarr-store-sqlite's first is blob-identical to, and the pinned
-/// angzarr-store-sqlite has five. A store read-only with exactly these
-/// pending is annals', not an older angzarr-embedded build's. A re-pin that
-/// adds a migration raises it (the D2 test fails until it does).
-const PENDING_SINCE_ANNALS: u64 = 4;
 
 /// The SQLite store of the project last asked for, held until another is.
 pub struct SqliteStores {
@@ -112,28 +100,18 @@ impl SqliteStores {
     }
 
     /// The store held for `project`, or the one at its path opened
-    /// read-only and held; `None` if there is none. One with migrations
-    /// pending is backed up, then opened to write (which migrates it), and
-    /// held so.
+    /// read-only (and migrated if need be) and held; `None` if there is
+    /// none.
     async fn hold_existing(&mut self, project: &Project) -> Result<Option<&mut Held>, StoreError> {
         let path = &project.store;
         if let Some(held) = self.held.take().filter(|h| &h.path == path) {
             return Ok(Some(self.held.insert(held)));
         }
         let real = real(&*self.fs, path).map_err(unavailable)?;
-        match SqliteStore::open_existing(&real).await {
-            Ok(Some(store)) => Ok(Some(self.hold(path, false, store))),
-            Ok(None) => Ok(None),
-            Err(error) => {
-                refuse_if_annals(&error, path)?;
-                if !pending(&error) {
-                    return Err(error);
-                }
-                back_up(&*self.fs, path)?;
-                let store = SqliteStore::open(&real).await?;
-                Ok(Some(self.hold(path, true, store)))
-            }
-        }
+        refuse_if_annals(&real, path).await?;
+        Ok(SqliteStore::open_existing(&real)
+            .await?
+            .map(|store| self.hold(path, false, store)))
     }
 }
 
@@ -141,8 +119,7 @@ impl TaskStores for SqliteStores {
     type Store = SqliteStore;
 
     /// The store at `project`'s path, opened to write: its directory and
-    /// file created and migrated if need be, an existing file backed up
-    /// before it is migrated. Held after.
+    /// file created and migrated if need be. Held after.
     async fn open(&mut self, project: &Project) -> Result<&SqliteStore, StoreError> {
         let path = &project.store;
         let held = self.held.take().filter(|h| &h.path == path && h.writable);
@@ -151,22 +128,14 @@ impl TaskStores for SqliteStores {
         }
         create_parent(&*self.fs, path).map_err(unavailable)?;
         let real = real(&*self.fs, path).map_err(unavailable)?;
-        // A read first: a store from before angzarr-embedded is refused,
-        // and one with migrations pending backed up, before the open to
-        // write would migrate it.
-        if let Err(error) = SqliteStore::open_existing(&real).await {
-            refuse_if_annals(&error, path)?;
-            if pending(&error) {
-                back_up(&*self.fs, path)?;
-            }
-        }
+        refuse_if_annals(&real, path).await?;
         let store = SqliteStore::open(&real).await?;
         Ok(&self.hold(path, true, store).store)
     }
 
     /// The store at `project`'s path, held or opened read-only; `None` if
     /// there is no file there, and nothing is made. One with migrations
-    /// pending is backed up and migrated (opened to write).
+    /// pending is backed up and migrated by the open.
     async fn open_existing(
         &mut self,
         project: &Project,
@@ -243,14 +212,14 @@ async fn check(path: &Path) -> Result<Checked, StoreError> {
     })
 }
 
-/// `error`, if it says the store at `path` is annals-store-sql's, refused
-/// as a store from before angzarr-embedded (ruling D2), naming its backup.
-fn refuse_if_annals(error: &StoreError, path: &Path) -> Result<(), StoreError> {
-    let annals = SqlError::Unmigrated {
-        pending: PENDING_SINCE_ANNALS as usize,
-    }
-    .cause();
-    if !matches!(error, StoreError::Unavailable(cause) if *cause == annals) {
+/// The store at `real` (`path` as the caller names it), refused if it is
+/// annals-store-sql's, a store from before angzarr-embedded (ruling D2),
+/// naming its backup: its ledger, read without opening it, holds only the
+/// first migration, which annals-store-sql's first is blob-identical to.
+async fn refuse_if_annals(real: &Path, path: &Path) -> Result<(), StoreError> {
+    let ledger = SqliteStore::ledger_at(real).await?;
+    let annals = ledger.is_some_and(|ledger| ledger.iter().map(|r| r.version).eq([1]));
+    if !annals {
         return Ok(());
     }
     let mut backup = path.as_os_str().to_owned();
@@ -259,69 +228,6 @@ fn refuse_if_annals(error: &StoreError, path: &Path) -> Result<(), StoreError> {
         path: path.display().to_string(),
         backup: PathBuf::from(backup).display().to_string(),
     }))
-}
-
-/// Whether `error` is a read-only open's refusal of a store with
-/// migrations pending: one an open to write migrates.
-fn pending(error: &StoreError) -> bool {
-    let unmigrated = SqlError::Unmigrated { pending: 0 }.code();
-    matches!(error, StoreError::Unavailable(cause) if cause.code == unmigrated)
-}
-
-/// Copy the store at `path` beside itself, byte for byte, before it is
-/// migrated: to [`backup_path`] at this instant, with the file's own mode.
-/// Refused while its write-ahead log holds frames, which the file alone
-/// lacks. The backup's path.
-fn back_up(fs: &dyn Fs, path: &Path) -> Result<PathBuf, StoreError> {
-    let mut wal = path.as_os_str().to_owned();
-    wal.push("-wal");
-    let wal = PathBuf::from(wal);
-    let backup = backup_path(path, time::OffsetDateTime::now_utc());
-    let failed = |e: std::io::Error| {
-        unavailable(StoreOpenError::BackupFailed {
-            path: path.display().to_string(),
-            backup: backup.display().to_string(),
-            detail: e.to_string(),
-        })
-    };
-    match fs.metadata(&wal) {
-        Ok(meta) if meta.len > 0 => {
-            return Err(unavailable(StoreOpenError::BackupUnsafe {
-                path: path.display().to_string(),
-                wal: wal.display().to_string(),
-            }))
-        }
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(failed(e)),
-        _ => {}
-    }
-    let mode = fs
-        .metadata(path)
-        .map_err(failed)?
-        .mode
-        .unwrap_or(Mode::FILE);
-    let bytes = fs.read(path).map_err(failed)?;
-    fs.write_atomic(&backup, &bytes, Perms::Exact(mode))
-        .map_err(failed)?;
-    Ok(backup)
-}
-
-/// Where the store at `path` is backed up to at `at`, before migrating:
-/// `<path>.pre-migrate-<UTC instant>`, the instant to the nanosecond and
-/// with no colon, so it is a file name on every host.
-fn backup_path(path: &Path, at: time::OffsetDateTime) -> PathBuf {
-    let at = at.to_offset(time::UtcOffset::UTC);
-    let mut backup = path.as_os_str().to_owned();
-    backup.push(format!(
-        ".pre-migrate-{:04}{:02}{:02}T{:02}{:02}{:02}.{:09}Z",
-        at.year(),
-        u8::from(at.month()),
-        at.day(),
-        at.hour(),
-        at.minute(),
-        at.second(),
-        at.nanosecond()
-    ));
-    PathBuf::from(backup)
 }
 
 /// `error` as angzarr-embedded's diagnostics report it: its code, and its

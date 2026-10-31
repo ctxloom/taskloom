@@ -134,10 +134,11 @@ angzarr-embedded repository), opened at
 angzarr-embedded (annals-store-sql's) is refused, naming its backup
 (`state.db.pre-embedded`), never migrated in place (the owner's ruling
 D2). Any other store older than the build is migrated when it is opened,
-by a read as by a write (the owner's ruling, 2026-10-31), after it is
-copied beside itself (`state.db.pre-migrate-<UTC instant>`); one whose
-`-wal` holds frames is refused rather than copied, and one newer than the
-build is refused untouched.
+by a read as by a write (the owner's ruling, 2026-10-31): angzarr-store-sqlite
+does it on every open, through angzarr-ports' `Migrations`, after backing
+the store up beside itself through its `Backup`
+(`state.db.pre-<applied level>-<UTC time>`); one newer than the build, or
+one a migration failed or changed in, is refused untouched.
 
 There is no unit of work: each handling step is one atomic write. The
 kernel owns retries (angzarr's owner ruling, 2026-10-31): a command that

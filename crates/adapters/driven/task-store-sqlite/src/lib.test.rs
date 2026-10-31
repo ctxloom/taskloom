@@ -661,8 +661,6 @@ enum Fault {
     /// It cannot say where anything is on disk, as a real path a Windows
     /// prefix leaves relative cannot be.
     Unplaceable,
-    /// It cannot say what is at a write-ahead log's path (`-wal`).
-    WalUnseen,
 }
 
 impl Fs for Faulty {
@@ -703,12 +701,6 @@ impl Fs for Faulty {
         self.0.read_dir(path)
     }
     fn metadata(&self, path: &Path) -> std::io::Result<file_system::Meta> {
-        if self.1 == Fault::WalUnseen && path.to_string_lossy().ends_with("-wal") {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "the log cannot be looked at",
-            ));
-        }
         self.0.metadata(path)
     }
     fn symlink_metadata(&self, path: &Path) -> std::io::Result<file_system::Meta> {
@@ -867,10 +859,10 @@ fn test_reading_another_project_does_not_serve_the_held_one() {
 // ------------------------------------------ a store older than the build
 //
 // The owner ruled (2026-10-31) that both a read and a write migrate a store
-// on opening it. A store with migrations pending is first copied beside
-// itself (`state.db.pre-migrate-<UTC instant>`), byte for byte as it was,
-// then opened to write, which migrates it; a store newer than the build,
-// and one from before angzarr-embedded, are refused and left as they were.
+// on opening it: angzarr-store-sqlite's every open does, backing the store
+// up beside itself first (`state.db.pre-<applied level>-<UTC time>`); a
+// store newer than the build, and one from before angzarr-embedded, are
+// refused and left as they were.
 
 /// A store as the e996ea4 build of taskloom wrote one, on
 /// angzarr-store-sqlite 07154a2 (migrations 0001 to 0004, so 0005 is
@@ -891,20 +883,9 @@ fn backups(home: &Home, path: &Path) -> Vec<PathBuf> {
         .read_dir(dir)
         .unwrap()
         .into_iter()
-        .filter(|e| {
-            e.name
-                .to_string_lossy()
-                .starts_with("state.db.pre-migrate-")
-        })
+        .filter(|e| e.name.to_string_lossy().starts_with("state.db.pre-"))
         .map(|e| dir.join(e.name))
         .collect()
-}
-
-/// `path`'s write-ahead log.
-fn wal(path: &Path) -> PathBuf {
-    let mut wal = path.as_os_str().to_owned();
-    wal.push("-wal");
-    PathBuf::from(wal)
 }
 
 /// How many task streams `store` holds.
@@ -912,6 +893,31 @@ async fn tasks(store: &SqliteStore) -> usize {
     use angzarr_ports::ListStreams;
     let covers = store.list_streams().await.unwrap();
     covers.iter().filter(|c| c.domain == "tasks").count()
+}
+
+/// The versions of the ledger of the store at `path` on disk, read
+/// without opening it.
+fn ledger(home: &Home, path: &Path) -> Vec<u64> {
+    block_on(SqliteStore::ledger_at(&home.real(path)))
+        .unwrap()
+        .expect("a store there")
+        .iter()
+        .map(|r| r.version)
+        .collect()
+}
+
+/// The one backup beside the store at `path`, named for `level`.
+fn the_backup(home: &Home, path: &Path, level: u64) -> PathBuf {
+    let backups = backups(home, path);
+    let [backup] = backups.as_slice() else {
+        panic!("one backup beside the store: {backups:?}");
+    };
+    let name = backup.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(
+        name.starts_with(&format!("state.db.pre-{level}-")),
+        "named for its level: {name}"
+    );
+    backup.clone()
 }
 
 #[test]
@@ -930,8 +936,12 @@ fn test_reading_a_store_with_a_migration_pending_migrates_it_and_reads_its_tasks
             .expect("found");
         assert_eq!(tasks(store).await, 2, "both tasks read back");
     });
-    let migrated = block_on(SqliteStore::open_existing(&home.real(&path))).map(|s| s.is_some());
-    assert_eq!(migrated, Ok(true), "every migration applied");
+    assert!(!stores.held.as_ref().unwrap().writable, "held read-only");
+    assert_eq!(
+        ledger(&home, &path),
+        [1, 2, 3, 4, 5],
+        "every migration applied"
+    );
 }
 
 #[test]
@@ -944,19 +954,11 @@ fn test_a_read_backs_a_pending_store_up_as_it_was_before_migrating_it() {
     block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
         .expect("migrated")
         .expect("found");
-    let backups = backups(&home, &path);
-    let [backup] = backups.as_slice() else {
-        panic!("one backup beside the store: {backups:?}");
-    };
-    // As it was before the migration ran: byte for byte, still pending.
-    assert_eq!(home.read(backup), BEFORE_0005, "the store before migrating");
-    let pending = block_on(SqliteStore::open_existing(&home.real(backup)))
-        .map(|s| s.is_some())
-        .unwrap_err();
+    let backup = the_backup(&home, &path, 4);
     assert_eq!(
-        keyed(&pending, "angzarr-store-sqlite-unmigrated"),
-        Some(vec![("pending", "1".to_string())]),
-        "{pending}"
+        ledger(&home, &backup),
+        [1, 2, 3, 4],
+        "the store before migrating"
     );
 }
 
@@ -974,11 +976,8 @@ fn test_a_write_backs_a_pending_store_up_before_migrating_it() {
             .expect("migrated");
         assert_eq!(tasks(store).await, 2);
     });
-    let backups = backups(&home, &path);
-    let [backup] = backups.as_slice() else {
-        panic!("one backup beside the store: {backups:?}");
-    };
-    assert_eq!(home.read(backup), BEFORE_0005);
+    let backup = the_backup(&home, &path, 4);
+    assert_eq!(ledger(&home, &backup), [1, 2, 3, 4]);
 }
 
 #[test]
@@ -1006,11 +1005,12 @@ fn test_reading_a_database_older_than_every_migration_backs_it_up_and_migrates_i
     let found = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
         .map(|found| found.is_some());
     assert_eq!(found, Ok(true));
-    let backups = backups(&home, &path);
-    let [backup] = backups.as_slice() else {
-        panic!("one backup beside the store: {backups:?}");
-    };
-    assert_eq!(home.read(backup), OLDER);
+    let backup = the_backup(&home, &path, 0);
+    assert_eq!(
+        ledger(&home, &backup),
+        Vec::<u64>::new(),
+        "as it was: no ledger"
+    );
 }
 
 #[test]
@@ -1020,92 +1020,19 @@ fn test_a_store_newer_than_the_build_is_refused_and_left_as_it_was() {
     home.mkdir(path.parent().unwrap());
     home.write(&path, NEWER);
     let mut stores = home.stores();
-    let error = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
-        .map(|found| found.is_some())
-        .unwrap_err();
-    // The store's refusal: sqlx's migrator, which names the migration.
-    assert!(
-        matches!(&error, StoreError::Unavailable(_)) && error.to_string().contains("migration 99"),
-        "the store's refusal: {error}"
-    );
+    let refusal = StoreError::NewerThanBuild {
+        applied: 99,
+        build: 5,
+    };
+    let read = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
+        .map(|found| found.is_some());
+    assert_eq!(read, Err(refusal.clone()), "to read");
+    let written = block_on(stores.open(&project("jolly-mute-magma", path.clone()))).map(drop);
+    assert_eq!(written, Err(refusal), "to write");
     assert!(stores.held.is_none());
     assert_eq!(home.read(&path), NEWER, "the file as it was");
     assert_eq!(backups(&home, &path), Vec::<PathBuf>::new(), "no backup");
 }
-
-#[test]
-fn test_a_pending_store_whose_log_holds_frames_is_refused_not_copied() {
-    // A copy of the file alone would miss what the log holds, so the store
-    // is neither backed up nor migrated: refused naming the file and log.
-    let home = Home::new();
-    let path = store_in(home.path(), "jolly-mute-magma");
-    home.mkdir(path.parent().unwrap());
-    home.write(&path, BEFORE_0005);
-    home.write(&wal(&path), b"not yet checkpointed");
-    let mut stores = home.stores();
-    let expected = Some(vec![
-        ("path", path.display().to_string()),
-        ("wal", wal(&path).display().to_string()),
-    ]);
-    let read = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
-        .map(|found| found.is_some())
-        .unwrap_err();
-    assert_eq!(keyed(&read, UNSAFE), expected, "to read: {read}");
-    let written = block_on(stores.open(&project("jolly-mute-magma", path.clone())))
-        .map(drop)
-        .unwrap_err();
-    assert_eq!(keyed(&written, UNSAFE), expected, "to write: {written}");
-    assert_eq!(home.read(&path), BEFORE_0005, "the file as it was");
-    assert_eq!(backups(&home, &path), Vec::<PathBuf>::new(), "no backup");
-}
-
-#[test]
-fn test_a_backup_is_named_by_its_utc_instant_to_the_nanosecond_with_no_colon() {
-    // 2026-03-04T05:06:07.000000089 at +02:00 is 03:06:07 UTC.
-    let at = time::OffsetDateTime::new_in_offset(
-        time::Date::from_calendar_date(2026, time::Month::March, 4).unwrap(),
-        time::Time::from_hms_nano(5, 6, 7, 89).unwrap(),
-        time::UtcOffset::from_hms(2, 0, 0).unwrap(),
-    );
-    assert_eq!(
-        super::backup_path(Path::new("/home/u/state.db"), at),
-        PathBuf::from("/home/u/state.db.pre-migrate-20260304T030607.000000089Z")
-    );
-}
-
-#[test]
-fn test_a_pending_store_whose_log_cannot_be_looked_at_is_refused_not_copied() {
-    let rooted = Rooted::temp().unwrap();
-    let path = PathBuf::from("/home/u/state.db");
-    rooted
-        .create_dir_all(Path::new("/home/u"), Mode::DIR)
-        .unwrap();
-    rooted
-        .write_atomic(&path, BEFORE_0005, Perms::Exact(Mode::FILE))
-        .unwrap();
-    let fs = Arc::new(Faulty(rooted, Fault::WalUnseen));
-    let mut stores = SqliteStores::new(Arc::clone(&fs) as Arc<dyn Fs>);
-    let error = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
-        .map(|found| found.is_some())
-        .unwrap_err();
-    let args = keyed(&error, "task-store-sqlite-backup-failed").expect("refused naming it");
-    assert_eq!(args[0], ("path", "/home/u/state.db".to_string()));
-    assert_eq!(
-        args[2],
-        ("ext_err_txt", "the log cannot be looked at".to_string())
-    );
-    assert_eq!(fs.0.read(&path).unwrap(), BEFORE_0005, "the file as it was");
-    let entries = fs.0.read_dir(Path::new("/home/u")).unwrap();
-    assert!(
-        !entries
-            .iter()
-            .any(|e| e.name.to_string_lossy().contains("pre-migrate")),
-        "no backup: {entries:?}"
-    );
-}
-
-/// The key a store that cannot be copied safely is refused with.
-const UNSAFE: &str = "task-store-sqlite-backup-unsafe";
 
 #[test]
 fn test_a_database_that_cannot_be_read_fails_a_read() {

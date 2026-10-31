@@ -349,12 +349,12 @@ Where the port differs from Go:
 - A read opens its store read-only (angzarr-store-sqlite's
   `open_existing`) and never creates one; `list` of a project with no
   store yet is empty, and `tag` resolves its project as a read does. A
-  file a writer has created but not yet migrated or moved into WAL is
-  waited for by angzarr-store-sqlite (up to its 5s busy timeout). One that
-  holds a database with migrations pending (or stays empty) is migrated
-  by the read, as a write would (the owner's ruling, 2026-10-31: both read
-  and write migrate on startup), after the file is copied beside itself
-  (`state.db.pre-migrate-<UTC instant>`).
+  store with migrations pending, one a writer is still making included, is
+  migrated by the read's own open, as a write's (the owner's ruling,
+  2026-10-31: both read and write migrate on startup), angzarr-store-sqlite
+  backing it up beside itself first
+  (`state.db.pre-<applied level>-<UTC time>`) and waiting on a writer's
+  lock (its 5s busy timeout).
 - Work roots and registry entries are compared canonical, as Go's
   `cleanPath` (symlinks resolved, else cleaned lexically), and the
   canonical path is registered.

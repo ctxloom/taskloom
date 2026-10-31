@@ -16,7 +16,7 @@ prost = "0.14"
 prost-types = "0.14"
 # angzarr core's crate (moved there from angzarr-project's rust/), at the
 # core rev angzarr-embedded pins: one angzarr-proto in the graph.
-angzarr-proto = { version = "0.1", git = "https://github.com/angzarr-io/angzarr", rev = "bfbe8d3e51bbc754ee80f955e9fbb64d83beabb7" }
+angzarr-proto = { version = "0.1", git = "https://github.com/angzarr-io/angzarr", rev = "dd0e55368d8f88ea24d3278fa135b2658c7cb26c" }
 
 # angzarr-build (angzarr-cli's markup domain layer) is pinned by full
 # commit, so a fresh clone builds with no sibling checkouts; bumps are
@@ -30,20 +30,21 @@ angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "54db
 
 # angzarr-embedded, angzarr's in-app runtime, taskloom's
 # (taskloom-on-angzarr-embedded.plan.md). Pinned by rev on
-# angzarr-embedded's main: 80efb1f (router 1008774, angzarr core bfbe8d3
-# for angzarr-proto and angzarr-ports, spec 7597d23): a domain's rules
+# angzarr-embedded's main: b66fc0d (router 3590276, angzarr core dd0e553
+# for angzarr-proto and angzarr-ports, spec ffbe00f): a domain's rules
 # version is its crate's build version, checked per answer; errors hold
 # their codes, nothing leaked; a waiting caller's command is never
 # dead-lettered at a cap; the SQLite outbox keyed per stream (0005), a
-# policy step's entries on its trigger's stream.
-angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "80efb1f37e98f62b5dfd831f51613ac3f3fa7db5" }
-angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "80efb1f37e98f62b5dfd831f51613ac3f3fa7db5" }
-angzarr-embedded-diagnostic = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "80efb1f37e98f62b5dfd831f51613ac3f3fa7db5" }
-angzarr-store-sqlite = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "80efb1f37e98f62b5dfd831f51613ac3f3fa7db5" }
+# policy step's entries on its trigger's stream; angzarr-ports' Migrations
+# and Backup, every open (to read or to write) migrating, backed up first.
+angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "b66fc0d2462460595bff8108883fd354b89f21a5" }
+angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "b66fc0d2462460595bff8108883fd354b89f21a5" }
+angzarr-embedded-diagnostic = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "b66fc0d2462460595bff8108883fd354b89f21a5" }
+angzarr-store-sqlite = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "b66fc0d2462460595bff8108883fd354b89f21a5" }
 # angzarr's storage contract, angzarr core's crate at the rev angzarr-embedded
-# pins (bfbe8d3), so the graph holds one spec, as angzarr-proto above does:
+# pins (dd0e553), so the graph holds one spec, as angzarr-proto above does:
 # the store ports, and their in-memory store for tests.
-angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "bfbe8d3e51bbc754ee80f955e9fbb64d83beabb7" }
+angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "dd0e55368d8f88ea24d3278fa135b2658c7cb26c" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
 plans-proto = { path = "crates/core/wire/plans-proto" }
 tasks = { path = "crates/core/domain/tasks" }

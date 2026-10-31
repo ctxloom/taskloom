@@ -16,8 +16,6 @@ angzarr-store-sqlite.workspace = true
 file-system.workspace = true
 os.workspace = true
 ports.workspace = true
-# The instant a store's backup is named by, before a migration.
-time.workspace = true
 # A runtime of the check's own: StoreCheck is synchronous, as the project
 # commands are, and its caller may be on a runtime already.
 tokio.workspace = true

@@ -1273,13 +1273,24 @@ fn test_a_read_of_a_store_an_older_build_wrote_migrates_it_and_lists_its_tasks()
         .into_iter()
         .filter(|p| {
             p.file_name()
-                .is_some_and(|n| n.to_string_lossy().starts_with("state.db.pre-migrate-"))
+                .is_some_and(|n| n.to_string_lossy().starts_with("state.db.pre-4-"))
         })
         .collect();
     let [backup] = backups.as_slice() else {
-        panic!("one backup: {backups:?}");
+        panic!("one backup, at the store's level before 0005: {backups:?}");
     };
-    assert_eq!(disk::read(backup).unwrap(), BEFORE_0005);
+    let ledger = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(angzarr_store_sqlite::SqliteStore::ledger_at(backup))
+        .unwrap()
+        .expect("a store there");
+    let versions: Vec<u64> = ledger.iter().map(|r| r.version).collect();
+    assert_eq!(
+        versions,
+        [1, 2, 3, 4],
+        "the store as it was before migrating"
+    );
 }
 
 #[path = "companion.test.rs"]
