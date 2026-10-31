@@ -647,9 +647,10 @@ fn test_a_relative_path_is_never_resolved_against_the_top_when_the_cwd_is_gone()
     );
     assert!(!added.ok, "{}", added.stdout);
     assert!(
-        added.stderr.contains(
-            "cannot create the store's directory taskloom-relative-home/.ctxloom/projects/jolly-mute-magma: file-system-no-cwd"
-        ),
+        added
+            .stderr
+            .contains("taskloom-relative-home/.ctxloom/projects/jolly-mute-magma")
+            && added.stderr.contains("file-system-no-cwd"),
         "{}",
         added.stderr
     );
@@ -1134,17 +1135,19 @@ fn test_in_json_each_read_writes_one_document_and_errors_an_envelope() {
     let linted = jq.ok(&["lint", "--json"]);
     assert_eq!(linted["violations"], serde_json::json!([]));
     assert!(linted["checked_targets"].as_u64() > Some(0), "{linted}");
-    let declared = r#"tag_schema=tagma.enum:"release"="beta""#;
-    let report = jq.ok(&["lint", "--config-set", declared, "--json"]);
-    assert_eq!(
-        report["violations"],
-        serde_json::json!([]),
-        "release has no value"
-    );
     let tagged = jq.ok(&["tag", harp, "--add", "area:x=c", "--json"]);
     assert_eq!(tagged["tags"].as_array().map(Vec::len), Some(2));
-    let declared = r#"tag_schema=tagma.enum:"area:x"="a,b""#;
-    let ran = jq.env.run(&["lint", "--config-set", declared, "--json"]);
+    let declared = jq.ok(&[
+        "schema",
+        "declare",
+        "--add",
+        r#"tagma.enum:"area:x"=a"#,
+        "--add",
+        r#"tagma.enum:"area:x"=b"#,
+        "--json",
+    ]);
+    assert_eq!(declared["changed"], true);
+    let ran = jq.env.run(&["lint", "--json"]);
     assert!(!ran.ok, "a violation exits 1");
     let report = one_document(&ran.stdout);
     assert_eq!(report["violations"][0]["harp_id"], harp);

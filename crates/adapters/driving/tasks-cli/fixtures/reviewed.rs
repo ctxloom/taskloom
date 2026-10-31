@@ -171,7 +171,9 @@ pub const LOADOUT: &[(&str, &str)] = &[
     // 11. The fragment: tags, read through the CLI (`schema`, `tags`,
     // `permits`), and tag permits, which only Rust has (the settled tag
     // vocabulary, session inept-sixth-stick, 2026-10-27); the owner's
-    // advisory on permitting (2026-10-30).
+    // advisory on permitting (2026-10-30), naming every command that
+    // changes the store's tag rules now that they exist
+    // (red/self-hosted-schema).
     (
         "        this paragraph is the reason.\n\
          \n",
@@ -185,10 +187,12 @@ pub const LOADOUT: &[(&str, &str)] = &[
          the same thing, or propose the one you need to the human. Never coin\n        \
          a near-twin that happens to pass.\n\
          \n        \
-         Agents must not run `taskloom permit`, `taskloom revoke` (or any\n        \
-         future schema-declaring command) without explicit permission from\n        \
-         the human for that specific change \u{2014} agents can widen the tag rules\n        \
-         and frequently will; ask first.\n\
+         Agents must not run `taskloom schema declare`, `taskloom permit`,\n        \
+         `taskloom revoke` or `taskloom schema import-config` without\n        \
+         explicit permission from the human for that specific change \u{2014} they\n        \
+         change the store's tag rules, agents can widen them and frequently\n        \
+         will; ask first. Reading the rules (`taskloom schema`, `taskloom\n        \
+         schema export`, `taskloom schema check`) needs no permission.\n\
          \n",
     ),
 ];

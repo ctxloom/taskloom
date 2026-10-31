@@ -296,7 +296,11 @@ fn test_without_apply_a_prune_reports_and_changes_nothing() {
     assert_eq!(pruning.statuses, ["Done"]);
     assert_eq!(pruning.project, Some(crate::fakes::project()));
     assert_eq!(listed(&mut service), before);
-    assert_eq!(service.stores.store.begun(), 4, "the adds' units alone");
+    assert_eq!(
+        service.stores.store.begun(),
+        1 + 4,
+        "the store's schema seeded, and the adds' units alone"
+    );
     assert!(
         service.stores.opened.len() == 4,
         "opened to write by the adds only"
@@ -314,7 +318,7 @@ fn test_a_prune_reports_each_task_with_when_its_status_last_changed() {
     assert_eq!(first.status_set_at, first.task.created_at, "the add set it");
     assert_eq!(
         pruning.before,
-        at(1_700_000_000 + 10 * DAY + 5 - 7 * DAY),
+        at(1_700_000_000 + 10 * DAY + 6 - 7 * DAY),
         "seven days before the prune's reading of the clock"
     );
 }
@@ -406,7 +410,11 @@ fn test_a_malformed_age_or_tag_query_is_refused_before_anything_is_read() {
     queried.tag_query = Some("and".to_string());
     let error = prune(&mut service, queried).unwrap_err();
     assert_eq!(error.code(), "tasks-application-tag-query");
-    assert_eq!(service.stores.store.begun(), 4, "nothing was run");
+    assert_eq!(
+        service.stores.store.begun(),
+        1 + 4,
+        "nothing was run: the seed and the adds"
+    );
 }
 
 #[test]
@@ -466,8 +474,8 @@ fn test_an_applied_prune_removes_and_purges_each_selected_task() {
     }
     assert_eq!(
         service.stores.store.begun(),
-        4 + 4,
-        "a removal and a purge, each its own unit, per task"
+        1 + 4 + 4,
+        "the seed, the adds, and a removal and a purge, each its own unit, per task"
     );
 }
 

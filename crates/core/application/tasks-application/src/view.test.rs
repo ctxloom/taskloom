@@ -87,11 +87,13 @@ fn test_tagma_tags_are_hidden_by_default_and_the_rest_shown() {
 
 #[test]
 fn test_the_schemas_hide_facts_decide_what_is_shown() {
-    let schema = crate::TagSchema::parse([
+    let schema: Vec<tasks::Tag> = [
         r#"tagma.hide:"triage:cwe"=true"#,
         r#"tagma.hide:"tagma:*"=false"#,
-    ])
-    .unwrap();
+    ]
+    .iter()
+    .map(|s| tagma_core::Tag::parse(s).unwrap().into())
+    .collect();
     let shown = super::Shown::of(&schema);
     let tags = [
         spelled("triage:cwe=79"),

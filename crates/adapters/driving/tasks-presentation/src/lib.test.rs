@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use presentation::write_json;
 use serde_json::json;
 use tasks_application::{
-    NamespacePermit, PermitList, Project, Reach, Row, Summary, TagCount, TagPermits, TagSchema,
-    Task, Timestamp,
+    PermitList, Project, Reach, Row, SchemaSummary, Summary, TagCount, TargetSummary, Task,
+    Timestamp,
 };
 
 use super::{
@@ -219,24 +219,25 @@ fn test_a_tag_in_use_is_spelled_canonically_with_its_counts() {
     );
 }
 
-// What a project permits, as a program reads it: each namespace in order,
-// open with no keys or closed to its sorted keys; the flat tags; the
-// schema's targets. A project declaring none says so, its targets still
-// listed.
+// What a store permits, as a program reads it, in the shape the old
+// tag_permits had: each namespace in order, open with no keys (a pattern
+// `ns:*`) or closed to its sorted keys (`ns:key`); the flat tags (and any
+// other pattern, as declared); the rules' targets. A store declaring none
+// says so, its targets still listed.
 #[test]
 fn test_the_permits_are_each_namespace_open_or_closed_the_flat_tags_and_the_targets() {
     let declared = PermitList {
-        permits: Some(TagPermits {
-            namespaces: [
-                (
-                    "area".to_string(),
-                    NamespacePermit::Closed(["mcp", "cli"].map(String::from).into()),
-                ),
-                ("relates".to_string(), NamespacePermit::Open),
-            ]
-            .into(),
-            flat: ["urgent".to_string(), "blocked".to_string()].into(),
-        }),
+        closed: true,
+        patterns: [
+            "area:cli",
+            "area:mcp",
+            "blocked",
+            "relates:*",
+            "urgent",
+            "*:secret",
+        ]
+        .map(String::from)
+        .into(),
         schema_targets: vec!["triage:kind".to_string()],
     };
     assert_eq!(
@@ -247,12 +248,13 @@ fn test_the_permits_are_each_namespace_open_or_closed_the_flat_tags_and_the_targ
                 {"namespace": "area", "open": false, "keys": ["cli", "mcp"]},
                 {"namespace": "relates", "open": true, "keys": []},
             ],
-            "tags": ["blocked", "urgent"],
+            "tags": ["blocked", "urgent", "*:secret"],
             "schema_targets": ["triage:kind"],
         })
     );
     let undeclared = PermitList {
-        permits: None,
+        closed: false,
+        patterns: vec![],
         schema_targets: vec!["triage:kind".to_string()],
     };
     assert_eq!(
@@ -262,26 +264,38 @@ fn test_the_permits_are_each_namespace_open_or_closed_the_flat_tags_and_the_targ
 }
 
 // The tag schema's document: one entry a target, by target, named, each
-// carrying every facet declared for it but `hide`; a target declared by
-// several facets is one entry.
+// carrying the facets the store's summary gives it; several ranges on one
+// target show their intersection, and an open side is left out.
 #[test]
 fn test_the_schema_is_one_named_entry_per_target_with_its_facets() {
-    let schema = TagSchema::parse([
-        r#"tagma.enum:"b:y"="p,q""#,
-        r#"tagma.arity:"b:y"=scalar"#,
-        r#"tagma.decay_fn:"b:y"="2""#,
-        r#"tagma.range:"a:x"="0.5,2""#,
-        r#"tagma.type:"a:x"=semver"#,
-        r#"tagma.priority_fn:"a:x"="1""#,
-        r#"tagma.hide:"c:z"=true"#,
-    ])
-    .unwrap();
+    let schema = SchemaSummary {
+        targets: vec![
+            TargetSummary {
+                target: "a:x".to_string(),
+                ranges: vec!["0.5..2".to_string()],
+                kind: "semver".to_string(),
+                priority_fn: "1".to_string(),
+                ..TargetSummary::default()
+            },
+            TargetSummary {
+                target: "b:y".to_string(),
+                scalar: true,
+                members: vec!["p".to_string(), "q".to_string()],
+                ranges: vec!["1..9".to_string(), "3..".to_string()],
+                decay_fn: "2".to_string(),
+                ..TargetSummary::default()
+            },
+        ],
+    };
     assert_eq!(
         SchemaJson::of(&schema).targets,
         [
             TargetJson {
                 target: "a:x".to_string(),
-                range: Some(RangeJson { min: 0.5, max: 2.0 }),
+                range: Some(RangeJson {
+                    min: Some(0.5),
+                    max: Some(2.0)
+                }),
                 kind: "semver".to_string(),
                 priority_fn: "1".to_string(),
                 ..TargetJson::default()
@@ -290,9 +304,24 @@ fn test_the_schema_is_one_named_entry_per_target_with_its_facets() {
                 target: "b:y".to_string(),
                 scalar: true,
                 members: vec!["p".to_string(), "q".to_string()],
+                range: Some(RangeJson {
+                    min: Some(3.0),
+                    max: Some(9.0)
+                }),
                 decay_fn: "2".to_string(),
                 ..TargetJson::default()
             },
         ]
+    );
+    let open = SchemaSummary {
+        targets: vec![TargetSummary {
+            target: "c:z".to_string(),
+            ranges: vec!["5..".to_string()],
+            ..TargetSummary::default()
+        }],
+    };
+    assert_eq!(
+        serde_json::to_value(SchemaJson::of(&open)).unwrap(),
+        json!({"targets": [{"target": "c:z", "range": {"min": 5}}]})
     );
 }

@@ -220,7 +220,7 @@ where
     async fn pruning(&mut self, request: PruneRequest) -> Result<Pruning, AppError> {
         let tag_query = given(request.tag_query.as_deref(), "tag_query")?;
         query::check(tag_query).map_err(|e| AppError::TagQuery(Report::of(&e)))?;
-        let schema = self.schema()?;
+        self.refuse_moved()?;
         let statuses = statuses(&request.statuses)?;
         let before = cut(&request.older_than, self.clock.now()).map_err(|e| refused(&e))?;
         let mut pruning = Pruning {
@@ -233,7 +233,7 @@ where
             events_removed: 0,
             tasks_remaining: 0,
             dangling: Vec::new(),
-            shown: Shown::of(&schema),
+            shown: Shown::default(),
             dead_letters: Vec::new(),
         };
         // A prune resolves its project as a read does: where there is none,
@@ -256,6 +256,8 @@ where
         {
             return Ok(pruning);
         }
+        let rules = self.rules_of(&project).await?;
+        pruning.shown = rules.shown();
         let store = if request.apply {
             self.stores.open(&project).await.map_err(failed)?
         } else {
@@ -271,14 +273,14 @@ where
             statuses: &pruning.statuses,
             before,
             tag_query,
-            schema: &schema,
+            rules: &rules,
         };
         let matched = query::select(
             tag_query,
             tasks
                 .iter()
                 .map(|t| (t.harp_id.as_str(), t.tags.as_slice())),
-            &schema,
+            &rules,
         )
         .map_err(|e| AppError::TagQuery(Report::of(&e)))?;
         // A task a prune removed but left unpurged was selected by that
@@ -407,7 +409,7 @@ struct Selection<'a> {
     statuses: &'a [String],
     before: Timestamp,
     tag_query: Option<&'a str>,
-    schema: &'a crate::TagSchema,
+    rules: &'a crate::store_schema::StoreRules,
 }
 
 impl Selection<'_> {
@@ -426,7 +428,7 @@ impl Selection<'_> {
             && query::select(
                 self.tag_query,
                 [(task.harp_id.as_str(), task.tags.as_slice())],
-                self.schema,
+                self.rules,
             )
             .is_ok_and(|matched| matched.contains(&task.harp_id))
     }

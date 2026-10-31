@@ -1,29 +1,26 @@
-//! Taskloom's configuration, layered, as far as the tag schema and the
-//! tag permits need it. Each layer beats the one before:
+//! Taskloom's configuration: its files, the environment and the
+//! `--config-set` overrides, as far as the use cases ask of them. Each
+//! layer is read:
 //!
 //! 1. `~/.taskloom/config.yaml`;
 //! 2. `<root>/.taskloom/config.yaml`, the work root's;
-//! 3. `TASKLOOM_CONFIG_<KEY>` environment variables (`TASKLOOM_CONFIG_TAG_SCHEMA`),
-//!    an empty one unset;
-//! 4. `--config-set <path>=<value>` overrides, in order.
+//! 3. `TASKLOOM_CONFIG_<KEY>` environment variables, an empty one unset;
+//! 4. `--config-set <path>=<value>` overrides.
 //!
-//! `tag_schema` is a list, and a layer that sets it replaces the whole list
-//! below it: lists are never merged. An environment variable or override
-//! gives the list comma-separated; a comma inside a double-quoted span does
-//! not split, so an enum declaration's members (`tagma.enum:"k:x"="a,b"`)
-//! stay one declaration. A blank item (`a,,b`, a trailing comma, or `''`
-//! in a file's list) is refused, never dropped; an empty value is an empty
-//! list. A missing file is no layer; a file that cannot be read, is not
-//! YAML, names a key taskloom does not know or is a newer `schema_version`
-//! is refused, as is an environment variable or override naming no key.
+//! The tag rules moved into the project's store (its schema stream,
+//! docs/plans/self-hosted-schema.md): a layer still setting `tag_schema` or
+//! `tag_permits` is refused ([`ConfigError::KeyMoved`], naming `taskloom
+//! schema import-config`), whatever it sets them to, and nothing reads
+//! them for a rule. The import alone reads the work root's file's
+//! ([`Configuration::tag_schema`], [`Configuration::tag_permits`]) and
+//! then takes them out of it ([`ConfigurationWriter::retire_moved`]), by
+//! the fewest edits, every other key and comment kept (the `edit` module).
+//!
+//! A missing file is no layer; a file that cannot be read, is not YAML,
+//! names a key taskloom does not know or is a newer `schema_version` is
+//! refused, as is an environment variable or override naming no key.
 //! Files are read through the [`Fs`] it is given. `homing` (repo homing is
 //! dropped) and `schema_version` are known and ignored.
-//!
-//! `tag_permits` is not layered: it is read from the work root's file
-//! alone, refused in the home's, and no variable or override sets it. It
-//! is the one key written ([`ConfigurationWriter`]), in place, by the
-//! fewest edits to the file as the person wrote it (the `edit` module).
-//! Nothing else is written: there is no older version to upgrade from.
 
 mod edit;
 mod error;
@@ -130,11 +127,21 @@ impl TaskloomConfig {
             .map(|dir| dir.join(DIR).join(FILE))
     }
 
-    fn resolve(&self) -> Result<Vec<String>, ConfigError> {
-        let mut tag_schema = Vec::new();
+    /// Refused where any layer sets a key that moved into the store, or
+    /// cannot be read: each file read (and held to being taskloom's), each
+    /// variable and override named.
+    fn moved_keys(&self) -> Result<(), ConfigError> {
         for path in self.files() {
-            if let Some(list) = read(&*self.fs, &path)?.tag_schema {
-                tag_schema = list;
+            let file = read(&*self.fs, &path)?;
+            let held = [
+                ("tag_schema", file.tag_schema.is_some()),
+                (permits::KEY, file.tag_permits.is_some()),
+            ];
+            if let Some((key, _)) = held.into_iter().find(|(_, set)| *set) {
+                return Err(ConfigError::KeyMoved {
+                    source: path.display().to_string(),
+                    key: key.to_string(),
+                });
             }
         }
         let flavor = self.fs.os().flavor();
@@ -145,35 +152,39 @@ impl TaskloomConfig {
                 continue;
             };
             // An empty variable is unset, as the environment's are
-            // everywhere: no layer, never an empty list. The prefix is
-            // matched as the host compares names (any case on Windows).
+            // everywhere: no layer. The prefix is matched as the host
+            // compares names (any case on Windows).
             let prefixed = flavor.env_has_prefix(name, ENV_PREFIX) && !value.is_empty();
             let Some(key) = name.get(ENV_PREFIX.len()..).filter(|_| prefixed) else {
                 continue;
             };
-            if let Some(list) = set(name, &key.to_ascii_lowercase(), value)? {
-                tag_schema = list;
-            }
+            known(name, &key.to_ascii_lowercase())?;
         }
         for entry in &self.overrides {
-            let (path, value) = entry
+            let (path, _) = entry
                 .split_once('=')
                 .filter(|(path, _)| !path.trim().is_empty())
                 .ok_or_else(|| ConfigError::NotAnOverride {
                     entry: entry.clone(),
                 })?;
-            let key = path.trim().to_ascii_lowercase();
-            if let Some(list) = set("--config-set", &key, value)? {
-                tag_schema = list;
-            }
+            known("--config-set", &path.trim().to_ascii_lowercase())?;
         }
-        Ok(tag_schema)
+        Ok(())
     }
 }
 
 impl Configuration for TaskloomConfig {
+    fn moved(&mut self) -> Result<(), Report> {
+        self.moved_keys().map_err(|e| Report::of(&e))
+    }
+
     fn tag_schema(&mut self) -> Result<Vec<String>, Report> {
-        self.resolve().map_err(|e| Report::of(&e))
+        let Some(root) = self.work_root() else {
+            return Ok(Vec::new());
+        };
+        let path = root.join(DIR).join(FILE);
+        let file = read(&*self.fs, &path).map_err(|e| Report::of(&e))?;
+        Ok(file.tag_schema.unwrap_or_default())
     }
 
     fn tag_permits(&mut self) -> Result<Option<TagPermits>, Report> {
@@ -185,6 +196,10 @@ impl ConfigurationWriter for TaskloomConfig {
     fn write_tag_permits(&mut self, permits: &TagPermits) -> Result<(), Report> {
         self.write_permits(permits).map_err(|e| Report::of(&e))
     }
+
+    fn retire_moved(&mut self) -> Result<bool, Report> {
+        self.retire().map_err(|e| Report::of(&e))
+    }
 }
 
 impl TaskloomConfig {
@@ -193,19 +208,9 @@ impl TaskloomConfig {
         (self.root.0)().filter(|dir| !dir.as_os_str().is_empty())
     }
 
-    /// The work root's `tag_permits`: refused in the home's config (a
-    /// project's vocabulary is its own), which is never merged or ignored.
+    /// The work root's `tag_permits`, as the import reads them.
     fn permits(&self) -> Result<Option<TagPermits>, ConfigError> {
-        let root = self.work_root().map(|dir| dir.join(DIR).join(FILE));
-        let home = self.home.as_ref().filter(|dir| !dir.as_os_str().is_empty());
-        if let Some(home) = home.map(|dir| dir.join(DIR).join(FILE)) {
-            if Some(&home) != root.as_ref() && read(&*self.fs, &home)?.tag_permits.is_some() {
-                return Err(ConfigError::PermitsOutsideProject {
-                    path: home.display().to_string(),
-                });
-            }
-        }
-        let Some(root) = root else {
+        let Some(root) = self.work_root().map(|dir| dir.join(DIR).join(FILE)) else {
             return Ok(None);
         };
         let shown = root.display().to_string();
@@ -297,13 +302,37 @@ fn parsed(path: &Path, text: &str) -> Result<File, ConfigError> {
     Ok(file)
 }
 
-/// What `source` setting `key` to `value` does to the tag schema: `Some`
-/// list when it sets it, `None` for another known key.
-fn set(source: &str, key: &str, value: &str) -> Result<Option<Vec<String>>, ConfigError> {
+impl TaskloomConfig {
+    /// The work root's config file with the moved keys taken out
+    /// ([`edit::retired`]): whether it held either. Nothing is written
+    /// where there is no work root, no file, or neither key in it.
+    fn retire(&self) -> Result<bool, ConfigError> {
+        let Some(dir) = self.work_root().map(|root| root.join(DIR)) else {
+            return Ok(false);
+        };
+        let path = dir.join(FILE);
+        let Some(source) = text_of(&*self.fs, &path)? else {
+            return Ok(false);
+        };
+        let shown = path.display().to_string();
+        let Some(edited) = edit::retired(&shown, &source)? else {
+            return Ok(false);
+        };
+        self.fs
+            .write_atomic(&path, edited.as_bytes(), Perms::KeepOr(Mode::FILE))
+            .map_err(|e| ConfigError::Unwritable {
+                path: shown,
+                detail: e.to_string(),
+            })?;
+        Ok(true)
+    }
+}
+
+/// Whether `source` may set `key`: a key it knows, and none that moved.
+fn known(source: &str, key: &str) -> Result<(), ConfigError> {
     match key {
-        "tag_schema" => split(source, value).map(Some),
-        "homing" | "schema_version" => Ok(None),
-        "tag_permits" => Err(ConfigError::FileOnly {
+        "homing" | "schema_version" => Ok(()),
+        "tag_schema" | permits::KEY => Err(ConfigError::KeyMoved {
             source: source.to_string(),
             key: key.to_string(),
         }),
@@ -312,45 +341,6 @@ fn set(source: &str, key: &str, value: &str) -> Result<Option<Vec<String>>, Conf
             key: key.to_string(),
         }),
     }
-}
-
-/// `value`'s comma-separated items, trimmed, as `source` gives them; a
-/// comma inside a double-quoted span (where `\` escapes the next
-/// character) does not split. A value of nothing but blanks is no items;
-/// otherwise a blank item is refused, never dropped, as is a quote never
-/// closed.
-fn split(source: &str, value: &str) -> Result<Vec<String>, ConfigError> {
-    let refused = |error: fn(String, String) -> ConfigError| {
-        Err(error(source.to_string(), value.to_string()))
-    };
-    if value.trim().is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut items = Vec::new();
-    let mut item = String::new();
-    let (mut quoted, mut escaped) = (false, false);
-    for c in value.chars() {
-        if escaped {
-            escaped = false;
-        } else if quoted && c == '\\' {
-            escaped = true;
-        } else if c == '"' {
-            quoted = !quoted;
-        } else if c == ',' && !quoted {
-            items.push(std::mem::take(&mut item));
-            continue;
-        }
-        item.push(c);
-    }
-    if quoted {
-        return refused(|source, value| ConfigError::Unterminated { source, value });
-    }
-    items.push(item);
-    let items: Vec<String> = items.into_iter().map(|i| i.trim().to_string()).collect();
-    if items.iter().any(String::is_empty) {
-        return refused(|source, value| ConfigError::BlankItem { source, value });
-    }
-    Ok(items)
 }
 
 #[cfg(test)]

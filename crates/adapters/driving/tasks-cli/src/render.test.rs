@@ -242,7 +242,8 @@ fn tag(key: &str) -> tasks_application::Tag {
 
 /// What `hide` facts show.
 fn hiding(facts: &[&str]) -> Shown {
-    Shown::of(&tasks_application::TagSchema::parse(facts).unwrap())
+    let facts: Vec<tasks_application::Tag> = facts.iter().map(|f| spelled_tag(f)).collect();
+    Shown::of(&facts)
 }
 
 fn spelled_tag(s: &str) -> tasks_application::Tag {

@@ -1,29 +1,32 @@
 //! Tags as the use cases take them: strings in tagma's grammar,
 //! `(namespace:)key(=value)`, parsed into [`Tag`]s at the edge of every
-//! write, and admitted only if they could be queried and the project's
-//! schema allows them: a write is refused at the first that is not, with
-//! the reason, and, where the project declares tag permits, only if they
-//! permit it ([`permitted`]). Only what a write adds is checked; a tag
-//! already held, or one being removed, never is.
+//! write, and admitted only if they could be queried and stay out of the
+//! config namespaces ([`schema_free`]): a write is refused at the first
+//! that is not, with the reason. What the store's rules say of a tag (its
+//! value, its arity, its namespace's keys, whether it is permitted) is
+//! tagma's to judge, over the tag set the write leaves
+//! (`crate::store_schema`), never this module's.
 //!
-//! One write gives a scalar target one value at most ([`check_scalars`]),
-//! and the value it gives displaces the one held before the retag is sent
-//! ([`collapse`]): decide never reads the schema.
+//! The value a scalar target is given displaces the one held before the
+//! retag is sent ([`collapse`]): decide never reads the schema.
 
 use std::collections::BTreeMap;
 use std::fmt;
 
 use angzarr_embedded_diagnostic::{Arg, Diagnostic};
-use ports::{NamespacePermit, TagPermits};
 
 pub use tasks::Tag;
 
-use crate::schema::{TagSchema, FACET_NAMESPACE, SEMVER};
-use crate::semver::Version;
+use crate::store_schema::{StoreRules, TAGMA_NAMESPACE, TASKLOOM_NAMESPACE};
 
 /// The words tagma's query grammar reads as operators, in any case: a tag
 /// spelled as one could never be matched.
 pub const OPERATOR_WORDS: [&str; 3] = ["and", "or", "not"];
+
+/// The namespaces no task's tag may be in, each with its dot-descendants:
+/// tagma's, where tagma reads a tag as its own config whatever item
+/// carries it, and taskloom's, the store's formulas.
+pub const RESERVED_NAMESPACES: [&str; 2] = [TAGMA_NAMESPACE, TASKLOOM_NAMESPACE];
 
 /// Why a tag given to a write was refused.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -34,49 +37,8 @@ pub enum TagRefusal {
     Unparseable { tag: String, detail: String },
     /// `and`, `or` or `not`, which a query always reads as an operator.
     OperatorWord { tag: String },
-    /// In the `tagma` namespace (or under it), which is the schema's.
+    /// In `tagma` or `taskloom` (or under one), which are the schema's.
     ReservedNamespace { tag: String, namespace: String },
-    /// A value outside its target's declared enum.
-    NotInEnum {
-        tag: String,
-        value: String,
-        target: String,
-        members: String,
-    },
-    /// A value that is not a finite number, where a range is declared.
-    NotANumber {
-        tag: String,
-        value: String,
-        target: String,
-        min: String,
-        max: String,
-    },
-    /// A number outside its target's declared range.
-    OutOfRange {
-        tag: String,
-        value: String,
-        target: String,
-        min: String,
-        max: String,
-    },
-    /// A value that is not a SemVer 2.0.0 version, where `type=semver` is
-    /// declared.
-    NotSemver {
-        tag: String,
-        value: String,
-        target: String,
-        detail: String,
-    },
-    /// Not permitted by the project's tag permits: `permit` is what
-    /// `taskloom permit` takes to permit it (its target, no value).
-    NotPermitted { tag: String, permit: String },
-    /// Two values for one scalar target in one write: `first` and
-    /// `second`, the first two given, neither more the one meant.
-    ScalarConflict {
-        target: String,
-        first: String,
-        second: String,
-    },
 }
 
 impl fmt::Display for TagRefusal {
@@ -92,12 +54,6 @@ impl Diagnostic for TagRefusal {
             TagRefusal::Unparseable { .. } => "tasks-application-tag-unparseable",
             TagRefusal::OperatorWord { .. } => "tasks-application-tag-operator-word",
             TagRefusal::ReservedNamespace { .. } => "tasks-application-tag-reserved-namespace",
-            TagRefusal::NotInEnum { .. } => "tasks-application-tag-not-in-enum",
-            TagRefusal::NotANumber { .. } => "tasks-application-tag-not-a-number",
-            TagRefusal::OutOfRange { .. } => "tasks-application-tag-out-of-range",
-            TagRefusal::NotSemver { .. } => "tasks-application-tag-not-semver",
-            TagRefusal::NotPermitted { .. } => "tasks-application-tag-not-permitted",
-            TagRefusal::ScalarConflict { .. } => "tasks-application-tag-scalar-conflict",
         }
     }
 
@@ -112,60 +68,6 @@ impl Diagnostic for TagRefusal {
             TagRefusal::ReservedNamespace { tag, namespace } => {
                 vec![("tag", s(tag)), ("namespace", s(namespace))]
             }
-            TagRefusal::NotInEnum {
-                tag,
-                value,
-                target,
-                members,
-            } => vec![
-                ("tag", s(tag)),
-                ("value", s(value)),
-                ("target", s(target)),
-                ("members", s(members)),
-            ],
-            TagRefusal::NotANumber {
-                tag,
-                value,
-                target,
-                min,
-                max,
-            }
-            | TagRefusal::OutOfRange {
-                tag,
-                value,
-                target,
-                min,
-                max,
-            } => vec![
-                ("tag", s(tag)),
-                ("value", s(value)),
-                ("target", s(target)),
-                ("min", s(min)),
-                ("max", s(max)),
-            ],
-            TagRefusal::NotSemver {
-                tag,
-                value,
-                target,
-                detail,
-            } => vec![
-                ("tag", s(tag)),
-                ("value", s(value)),
-                ("target", s(target)),
-                ("ext_err_txt", s(detail)),
-            ],
-            TagRefusal::NotPermitted { tag, permit } => {
-                vec![("tag", s(tag)), ("permit", s(permit))]
-            }
-            TagRefusal::ScalarConflict {
-                target,
-                first,
-                second,
-            } => vec![
-                ("target", s(target)),
-                ("first", s(first)),
-                ("second", s(second)),
-            ],
         }
     }
 }
@@ -199,10 +101,11 @@ pub fn parse_all(spelled: &[String]) -> Result<Vec<Tag>, TagRefusal> {
 }
 
 /// Whether `tag` passes what every task's tag must, whatever the
-/// project's schema: it could be queried (not a bare operator word), and
-/// it stays out of tagma's reserved namespaces (`tagma`, `tagma.*`), where
-/// tagma reads a tag as its own config, whatever item carries it. A write
-/// ([`admit`]) and an import both apply it.
+/// store's rules: it could be queried (not a bare operator word), and it
+/// stays out of the reserved namespaces ([`RESERVED_NAMESPACES`]). A write
+/// and an import both apply it; tagma's parser takes `and` as an ordinary
+/// key, and its rules exempt the `tagma` family, so neither check is
+/// tagma's.
 pub fn schema_free(tag: &Tag) -> Result<(), TagRefusal> {
     let bare = tag.namespace.is_none() && tag.value.is_none();
     if bare && OPERATOR_WORDS.contains(&tag.key.to_ascii_lowercase().as_str()) {
@@ -213,10 +116,7 @@ pub fn schema_free(tag: &Tag) -> Result<(), TagRefusal> {
     let Some(namespace) = &tag.namespace else {
         return Ok(());
     };
-    let under = namespace
-        .strip_prefix(FACET_NAMESPACE)
-        .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'));
-    if under {
+    if is_reserved(namespace) {
         return Err(TagRefusal::ReservedNamespace {
             tag: tag.to_string(),
             namespace: namespace.clone(),
@@ -225,143 +125,32 @@ pub fn schema_free(tag: &Tag) -> Result<(), TagRefusal> {
     Ok(())
 }
 
-/// Whether `tag` may be written under `schema`: it passes [`schema_free`],
-/// and its value is one its target's declared enum, range and type allow.
-pub fn admit(tag: &Tag, schema: &TagSchema) -> Result<(), TagRefusal> {
-    let spelled = || tag.to_string();
-    schema_free(tag)?;
-    let Some(value) = &tag.value else {
-        return Ok(());
-    };
-    let target = tag.target();
-    if let Some(members) = schema.enum_of(&target) {
-        if !members.contains(value) {
-            return Err(TagRefusal::NotInEnum {
-                tag: spelled(),
-                value: value.clone(),
-                target,
-                members: members.join(", "),
-            });
-        }
-    }
-    if let Some(range) = schema.range_of(&target) {
-        let (min, max) = (range.min.to_string(), range.max.to_string());
-        match value.parse::<f64>().ok().filter(|f| f.is_finite()) {
-            None => {
-                return Err(TagRefusal::NotANumber {
-                    tag: spelled(),
-                    value: value.clone(),
-                    target,
-                    min,
-                    max,
-                })
-            }
-            Some(n) if n < range.min || n > range.max => {
-                return Err(TagRefusal::OutOfRange {
-                    tag: spelled(),
-                    value: value.clone(),
-                    target,
-                    min,
-                    max,
-                })
-            }
-            Some(_) => {}
-        }
-    }
-    if schema.type_of(&target) == Some(SEMVER) {
-        if let Err(why) = Version::parse(value) {
-            return Err(TagRefusal::NotSemver {
-                tag: spelled(),
-                value: value.clone(),
-                target,
-                detail: why.to_string(),
-            });
-        }
-    }
-    Ok(())
-}
-
-/// Whether the project's tag `permits` permit `tag`: always where it
-/// declares none (`None`); else when `schema` declares its target (any
-/// facet), its namespace is permitted open, its key is among its closed
-/// namespace's keys, or, with no namespace, it is a permitted flat tag. A
-/// permit is of a target, never a value. Refused naming the target, the
-/// narrowest permit that admits it.
-pub fn permitted(
-    tag: &Tag,
-    permits: Option<&TagPermits>,
-    schema: &TagSchema,
-) -> Result<(), TagRefusal> {
-    let Some(permits) = permits else {
-        return Ok(());
-    };
-    let target = tag.target();
-    let admitted = schema.declares(&target)
-        || match &tag.namespace {
-            None => permits.flat.contains(&tag.key),
-            Some(namespace) => match permits.namespaces.get(namespace) {
-                Some(NamespacePermit::Open) => true,
-                Some(NamespacePermit::Closed(keys)) => keys.contains(&tag.key),
-                None => false,
-            },
-        };
-    if admitted {
-        return Ok(());
-    }
-    Err(TagRefusal::NotPermitted {
-        tag: tag.to_string(),
-        permit: target,
+/// Whether `namespace` is a reserved one or under one.
+pub(crate) fn is_reserved(namespace: &str) -> bool {
+    RESERVED_NAMESPACES.iter().any(|root| {
+        namespace
+            .strip_prefix(root)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
     })
 }
 
-/// Every tag `spelled` names, parsed and admitted under `schema`, in its
+/// Every tag `spelled` names, parsed and held to [`schema_free`], in its
 /// order; refused at the first that is not.
-pub fn admit_all(spelled: &[String], schema: &TagSchema) -> Result<Vec<Tag>, TagRefusal> {
+pub(crate) fn admit_all(spelled: &[String]) -> Result<Vec<Tag>, TagRefusal> {
     let tags = parse_all(spelled)?;
     for tag in &tags {
-        admit(tag, schema)?;
+        schema_free(tag)?;
     }
     Ok(tags)
 }
 
-/// Whether `add`, the tags one write gives, gives each scalar target of
-/// `schema` one value at most (the same value given twice, however spelled,
-/// is one); refused at the first target given a second.
-pub fn check_scalars(schema: &TagSchema, add: &[Tag]) -> Result<(), TagRefusal> {
-    let mut first: BTreeMap<String, &Tag> = BTreeMap::new();
-    for tag in add.iter().filter(|tag| tag.namespace.is_some()) {
-        let target = tag.target();
-        if !schema.is_scalar(&target) {
-            continue;
-        }
-        match first.get(&target) {
-            Some(held) if held.value != tag.value => {
-                return Err(TagRefusal::ScalarConflict {
-                    first: held.to_string(),
-                    second: tag.to_string(),
-                    target,
-                })
-            }
-            Some(_) => {}
-            None => {
-                first.insert(target, tag);
-            }
-        }
-    }
-    Ok(())
-}
-
 /// `add`, with every value of a scalar target but its last dropped, and the
 /// tags of `held` that a surviving scalar value displaces: a different
-/// value of the same target. A scalar target is always namespaced, so a
-/// tag with no namespace is never collapsed. A write refuses two
-/// different values first ([`check_scalars`]), so what it collapses is one
-/// value given more than once.
-pub fn collapse(schema: &TagSchema, held: &[Tag], add: Vec<Tag>) -> (Vec<Tag>, Vec<Tag>) {
-    let scalar = |tag: &Tag| {
-        let target = tag.target();
-        (tag.namespace.is_some() && schema.is_scalar(&target)).then_some(target)
-    };
+/// value of the same target. Which targets are scalar is the store's
+/// `tagma.arity` ([`StoreRules::is_scalar`]); tagma's validate collapses
+/// the same way (§8: last value wins, within a batch too).
+pub(crate) fn collapse(rules: &StoreRules, held: &[Tag], add: Vec<Tag>) -> (Vec<Tag>, Vec<Tag>) {
+    let scalar = |tag: &Tag| rules.is_scalar(tag).then(|| tag.target());
     let mut last: BTreeMap<String, usize> = BTreeMap::new();
     for (i, tag) in add.iter().enumerate() {
         if let Some(target) = scalar(tag) {
@@ -404,41 +193,6 @@ pub(crate) fn samples() -> Vec<TagRefusal> {
         TagRefusal::ReservedNamespace {
             tag: x(),
             namespace: x(),
-        },
-        TagRefusal::NotInEnum {
-            tag: x(),
-            value: x(),
-            target: x(),
-            members: x(),
-        },
-        TagRefusal::NotANumber {
-            tag: x(),
-            value: x(),
-            target: x(),
-            min: x(),
-            max: x(),
-        },
-        TagRefusal::OutOfRange {
-            tag: x(),
-            value: x(),
-            target: x(),
-            min: x(),
-            max: x(),
-        },
-        TagRefusal::NotSemver {
-            tag: x(),
-            value: x(),
-            target: x(),
-            detail: x(),
-        },
-        TagRefusal::NotPermitted {
-            tag: x(),
-            permit: x(),
-        },
-        TagRefusal::ScalarConflict {
-            target: x(),
-            first: x(),
-            second: x(),
         },
     ]
 }

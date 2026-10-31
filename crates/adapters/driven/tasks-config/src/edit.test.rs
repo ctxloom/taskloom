@@ -253,3 +253,36 @@ fn test_a_namespace_left_as_it_was_keeps_its_spelling() {
         "tag_permits:\n  namespaces:\n    area: 'open'\n    sig: [x, z]\n"
     );
 }
+
+// ------------------------------------------------------------ retiring
+//
+// `taskloom schema import-config` takes the moved keys out of the work
+// root's file once they are in the store: the rest of the file, its other
+// keys, comments and layout, as written.
+
+use super::retired;
+
+#[test]
+fn test_retiring_takes_out_the_moved_keys_and_keeps_the_rest() {
+    let source = "schema_version: 1\n# kept\ntag_permits:\n  namespaces:\n    area: [cli]\n    relates: open\n  tags: [urgent]\n";
+    assert_eq!(
+        retired(PATH, source).unwrap(),
+        Some("schema_version: 1\n# kept\n".to_string())
+    );
+    assert_eq!(
+        retired(PATH, BEFORE).unwrap(),
+        Some("# Ours.\nschema_version: 1\n".to_string())
+    );
+    let middle = "tag_schema:\n  - 'tagma.arity:\"a:x\"=scalar'\nhoming: home  # the repo\nschema_version: 1\n";
+    assert_eq!(
+        retired(PATH, middle).unwrap(),
+        Some("homing: home  # the repo\nschema_version: 1\n".to_string())
+    );
+}
+
+#[test]
+fn test_a_file_holding_neither_key_is_left_alone() {
+    for source in ["", "# nothing\n", "schema_version: 1\nhoming: home\n"] {
+        assert_eq!(retired(PATH, source).unwrap(), None, "{source:?}");
+    }
+}

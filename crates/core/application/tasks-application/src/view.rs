@@ -121,16 +121,18 @@ pub fn text_hash(text: &str) -> String {
 }
 
 /// Which of a task's tags a person is shown: tagma's display hiding
-/// (SPEC §7), from the tag schema's `hide` facts, with `tagma:*` hidden
-/// unless a fact says otherwise. Storage, matching and JSON are never
+/// (SPEC §7), from the store's `tagma.hide` tags, with `tagma:*` hidden
+/// unless one says otherwise. Storage, matching and JSON are never
 /// touched: only what a person reads.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Shown(tagma_core::HideConfig);
 
 impl Shown {
-    /// What `schema`'s hide facts show.
-    pub fn of(schema: &crate::TagSchema) -> Shown {
-        Shown(tagma_core::HideConfig::from_patterns(schema.hide_facts()))
+    /// What the hide tags among `tags` (the store's rules) show, as tagma
+    /// reads them.
+    pub fn of(tags: &[Tag]) -> Shown {
+        let tags: Vec<tagma_core::Tag> = tags.iter().map(Tag::to_core).collect();
+        Shown(tagma_core::HideConfig::from_tags(&tags))
     }
 
     /// Whether `tag` is shown.
@@ -147,7 +149,7 @@ impl Shown {
 /// What no hide fact shows: everything but `tagma:*`.
 impl Default for Shown {
     fn default() -> Self {
-        Shown::of(&crate::TagSchema::default())
+        Shown::of(&[])
     }
 }
 

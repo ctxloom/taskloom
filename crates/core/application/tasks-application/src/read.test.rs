@@ -336,24 +336,83 @@ fn test_every_project_is_ranked_in_its_own_section() {
     );
 }
 
-/// A configuration whose priority_fn is no formula.
-struct Malformed;
+/// `add` and `remove` declared on the store's schema stream.
+fn declare(service: &mut Fake, add: &[&str], remove: &[&str]) {
+    let strings = |s: &[&str]| s.iter().map(|t| t.to_string()).collect();
+    ready(crate::PermitService::declare(
+        service,
+        crate::Declaration {
+            add: strings(add),
+            remove: strings(remove),
+        },
+    ))
+    .unwrap();
+}
 
-impl ports::Configuration for Malformed {
-    fn tag_schema(&mut self) -> Result<Vec<String>, angzarr_embedded_diagnostic::Report> {
-        Ok(vec![r#"tagma.priority_fn:"triage:kind"="1 +""#.to_string()])
-    }
+/// The seeded `taskloom.priority_fn`.
+fn seeded_priority_fn() -> &'static str {
+    crate::SEEDED_SCHEMA
+        .iter()
+        .find(|t| t.starts_with("taskloom.priority_fn:"))
+        .expect("seeded")
 }
 
 #[test]
 fn test_a_formula_that_does_not_compile_refuses_the_sort() {
-    let mut service = with_levels().with_configuration(Malformed);
+    let mut service = with_levels();
+    declare(
+        &mut service,
+        &[r#"taskloom.priority_fn:"triage:kind"="1 +""#],
+        &[seeded_priority_fn()],
+    );
     let error = ready(service.list(by_priority())).unwrap_err();
     assert_eq!(error.code(), "task-priority-malformed");
     assert!(
         ready(service.list(ListQuery::default())).is_ok(),
         "only the sort reads it"
     );
+}
+
+// The owner's rule (2026-10-30): the formulas are taskloom's, stored as
+// `taskloom.*` tags on the schema stream and evaluated by taskloom's own
+// evaluator (task-priority), never by tagma. A formula declared in the
+// store is the one a sort ranks by: here effort alone, so the least
+// effort ranks highest whatever the level.
+#[test]
+fn test_a_sort_ranks_by_the_stores_taskloom_formula_through_taskloom_evaluator() {
+    let mut service = service(&["costly", "cheap"]);
+    tagged(
+        &mut service,
+        "costly",
+        "To Do",
+        &["triage:level=1", "triage:effort=4"],
+    );
+    tagged(
+        &mut service,
+        "cheap",
+        "To Do",
+        &["triage:level=5", "triage:effort=1"],
+    );
+    let ranked = |service: &mut Fake| -> Vec<String> {
+        ready(service.list(by_priority()))
+            .unwrap()
+            .ranked()
+            .map(|(row, _)| row.task.harp_id.clone())
+            .collect()
+    };
+    assert_eq!(
+        ranked(&mut service),
+        ["costly", "cheap"],
+        "the seeded formula"
+    );
+    declare(
+        &mut service,
+        &[r#"taskloom.priority_fn:"triage:kind"="10 - {{triage:effort}}""#],
+        &[seeded_priority_fn()],
+    );
+    assert_eq!(ranked(&mut service), ["cheap", "costly"], "the store's own");
+    let checked = ready(crate::SchemaService::schema_check(&mut service, None)).unwrap();
+    assert_eq!(checked, [], "tagma reads no taskloom.* tag as its own");
 }
 
 #[test]
@@ -819,23 +878,14 @@ fn test_a_tag_the_schema_hides_is_not_counted() {
     let query = ListQuery {
         ..ListQuery::default()
     };
-    let mut hiding = service.with_configuration(Hides);
-    let tags: Vec<String> = ready(hiding.tags(query))
+    declare(&mut service, &[r#"tagma.hide:"triage:*"=true"#], &[]);
+    let tags: Vec<String> = ready(service.tags(query))
         .unwrap()
         .tags
         .iter()
         .map(|c| c.tag.to_string())
         .collect();
     assert_eq!(tags, ["x"]);
-}
-
-/// A configuration hiding the triage namespace.
-struct Hides;
-
-impl ports::Configuration for Hides {
-    fn tag_schema(&mut self) -> Result<Vec<String>, angzarr_embedded_diagnostic::Report> {
-        Ok(vec![r#"tagma.hide:"triage:*"=true"#.to_string()])
-    }
 }
 
 #[test]
@@ -855,21 +905,16 @@ fn test_a_tags_read_refuses_a_malformed_query_or_class_before_reading() {
 
 // ------------------------------------------------------------ lint
 
-/// A configuration declaring `area:x` an enum of `a` and `b`.
-struct Enum;
-
-impl ports::Configuration for Enum {
-    fn tag_schema(&mut self) -> Result<Vec<String>, angzarr_embedded_diagnostic::Report> {
-        Ok(vec![r#"tagma.enum:"area:x"="a,b""#.to_string()])
-    }
-}
-
 #[test]
 fn test_lint_sweeps_every_task_the_read_reaches_under_the_schema_now() {
     let mut service = service(&["first", "second"]);
     tagged(&mut service, "a", "Done", &["area:x=c"]);
     tagged(&mut service, "b", "To Do", &["area:x=a"]);
-    let mut service = service.with_configuration(Enum);
+    declare(
+        &mut service,
+        &[r#"tagma.enum:"area:x"=a"#, r#"tagma.enum:"area:x"=b"#],
+        &[],
+    );
     let report = ready(service.lint(Scope::default())).unwrap();
     let found: Vec<(&str, &str)> = report
         .violations
@@ -879,7 +924,7 @@ fn test_lint_sweeps_every_task_the_read_reaches_under_the_schema_now() {
     assert_eq!(found, [("first", "jolly-mute-magma")]);
     assert!(
         report.checked_targets > 1,
-        "the default schema's, and area:x"
+        "the seeded schema's, and area:x"
     );
     assert_eq!(report.reach, Reach::Project(crate::fakes::project()));
 }

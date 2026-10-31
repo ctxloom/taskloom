@@ -1,7 +1,7 @@
 # Self-hosted tag schema: the rules travel with the data
 
-RED for the owner's review (2026-10-30). Tests are the proposal;
-new bodies are `todo!()`.
+Reviewed by the owner (2026-10-30) as red tests; implemented on
+`red/self-hosted-schema` (see "Implementation notes" at the end).
 
 **Boundary.** tagma (33d0478) interprets every rule: `Rules::from_tags`,
 `validate` (Finding + Origin), `check`, and the permit/enum/range/arity/
@@ -56,3 +56,34 @@ and `admit`'s value checks; `permit::Permit`; `lint::ONE_KEY`
 and `Finding::ManyKeys`; `Configuration::{tag_schema, tag_permits}`,
 `ConfigurationWriter`, `TagPermits`, `NamespacePermit`; tasks-config's
 `permits`, plus `edit` once the import is retired.
+
+## Implementation notes
+
+- **Kept, not deleted:** `ports::Configuration::{tag_schema, tag_permits}`,
+  `ConfigurationWriter::write_tag_permits`, `TagPermits` and
+  `NamespacePermit`. The reviewed `store_schema.test.rs` implements them in
+  its fixture (to show no use case reads them), and the import reads the
+  moved keys through them; they go with the import. `Configuration` gained
+  `moved()` (the `tasks-config-key-moved` refusal every use case but the
+  import asks first) and `ConfigurationWriter` `retire_moved()`.
+- **`tags::collapse` stays:** tagma applies its §8 collapse inside
+  `validate` but exposes no call answering it, so taskloom reads
+  `tagma.arity` for the one purpose of sending a retag already collapsed.
+- **A retag is judged per attempt**, against the task as that attempt
+  reads it and sent at that head, as the collapse is. An add is judged
+  against the rules read before anything is bound (a refused add creates
+  nothing) and again once its store is seeded.
+- **Seeding** is sent at the head read (empty), so two writers seed once.
+  A read never writes: a store with no schema stream reads as seeded; the
+  first write (and `schema export`) records the seed.
+- **First permit** permits every exact target (`arity`, `type`, `enum`,
+  `range`) the rules constrain; a `keys-per-item` namespace is not opened
+  by it (`schema check` then reports `rule-on-unpermitted` for one no
+  permit admits).
+- **`schema export`** prints tagma syntax in every format, as `loadout`
+  prints yaml.
+- **Lint** reports one violation a broken rule (tagma's code, the tags,
+  the args); a closed row's `not-permitted` and `too-many-keys` are left
+  alone, as permits and one-area were.
+- **Two values for one scalar target in one write** keep the last (tagma
+  §8), where `check_scalars` refused them.

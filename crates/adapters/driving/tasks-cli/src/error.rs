@@ -30,6 +30,8 @@ pub enum CliError {
     LintViolations { count: usize },
     /// A lint checked no target, so its finding nothing proves nothing.
     LintCheckedNothing,
+    /// `schema check` found something wrong with the store's tag rules.
+    SchemaFindings { count: usize },
     /// A status change given its status first and its harp id second (the
     /// harp id named no task, and the status named one): the command in
     /// the order it takes.
@@ -53,6 +55,7 @@ impl Diagnostic for CliError {
             CliError::LoadoutFormat { .. } => "tasks-cli-loadout-format",
             CliError::LintViolations { .. } => "tasks-cli-lint-violations",
             CliError::LintCheckedNothing => "tasks-cli-lint-checked-nothing",
+            CliError::SchemaFindings { .. } => "tasks-cli-schema-findings",
             CliError::StatusReversed { .. } => "tasks-cli-status-reversed",
         }
     }
@@ -68,7 +71,9 @@ impl Diagnostic for CliError {
             }
             CliError::Format(error) => error.args(),
             CliError::LoadoutFormat { format } => vec![("format", format.as_str().into())],
-            CliError::LintViolations { count } => vec![("count", (*count).into())],
+            CliError::LintViolations { count } | CliError::SchemaFindings { count } => {
+                vec![("count", (*count).into())]
+            }
             CliError::LintCheckedNothing => Vec::new(),
             CliError::StatusReversed { command } => vec![("command", command.as_str().into())],
         }
@@ -96,6 +101,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         }),
         Box::new(CliError::LintViolations { count: 2 }),
         Box::new(CliError::LintCheckedNothing),
+        Box::new(CliError::SchemaFindings { count: 1 }),
         Box::new(CliError::StatusReversed {
             command: "taskloom status swift-amber \"To Do\"".to_string(),
         }),

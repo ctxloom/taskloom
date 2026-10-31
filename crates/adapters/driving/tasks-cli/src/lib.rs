@@ -1,6 +1,7 @@
 //! The tasks command line: `add`, `status`, `edit`, `list`, `show`,
 //! `summary`, `statuses`, `tag`, `tags`, `lint`, `prune`, `permit`,
-//! `revoke`, `permits` and `schema`, translated
+//! `revoke`, `permits` and `schema` (`show`, `export`, `check`, `declare`,
+//! `import-config`), translated
 //! into the application's use cases and their answers rendered through
 //! presentation ([`Command`], [`run`]); `import`, a group of its own
 //! ([`ImportGroup`], [`run_import`]), so only it reaches the importer; and
@@ -27,7 +28,9 @@ use std::io::{self, Write};
 use angzarr_embedded_diagnostic::Diagnostic;
 use clap::{Args, Parser, Subcommand};
 use presentation::{Catalog, CatalogError, Format, Render, Source, UnknownFormat};
-use tasks_application::{DeadLetter, PermitService, PruneService, TaskService, Written};
+use tasks_application::{
+    DeadLetter, PermitService, PruneService, RuleWarning, SchemaService, TaskService, Written,
+};
 
 pub use companion::{Asked, LOADOUT};
 #[cfg(any(test, feature = "test-support"))]
@@ -81,10 +84,10 @@ pub struct Globals {
     /// Project id to act on (overrides CTXLOOM_PROJECT_ID and the working directory's).
     #[arg(long, global = true)]
     pub project: Option<String>,
-    /// Override a configuration key for this run: <path>=<value>, e.g.
-    /// tag_schema=<declaration>,... (repeatable; beats TASKLOOM_CONFIG_*
-    /// and every config.yaml). The task commands and watch take it;
-    /// import and project do not.
+    /// Override a configuration key for this run: <path>=<value>
+    /// (repeatable; beats TASKLOOM_CONFIG_* and every config.yaml). The
+    /// tag rules are no key: they live in the store (`taskloom schema`).
+    /// The task commands and watch take it; import and project do not.
     #[arg(long = "config-set", global = true, value_name = "PATH=VALUE")]
     pub config_set: Vec<String>,
 }
@@ -109,13 +112,13 @@ pub enum Command {
     /// every line of their text. Every id must be found, or nothing is
     /// shown. In JSON one id is an object, several an array.
     Show(commands::ShowArgs),
-    /// Check every task's tags, whatever its status, against the tag
-    /// schema: a value outside its enum or range, a scalar target with two
-    /// values, and a formula naming a value no enum declares; and every
-    /// open or Deferred task's against the project's tag permits (a tag
-    /// they do not permit) and for more than one area: or repo: key.
-    /// Advisory, never a write gate; it exits 1 on a violation, and when
-    /// the schema gave it no target to check.
+    /// Check every task's tags against the store's tag rules, as tagma
+    /// judges them: a value outside its enum, range or type, a scalar
+    /// target with two values, a formula naming a value no enum declares;
+    /// and, on an open or Deferred task, a tag no permit admits and a
+    /// namespace over its keys-per-item (one area:, one repo:). Advisory,
+    /// never a write gate; it exits 1 on a violation, and when the rules
+    /// gave it no target to check.
     Lint(commands::GlobalArgs),
     /// Count the tasks in each status, every task included whatever list
     /// would hide, and name those In Progress.
@@ -143,27 +146,29 @@ pub enum Command {
     /// could not purge is taken too, whatever the flags select. To keep a
     /// finished task, archive it and leave Archived out of --status.
     Prune(commands::PruneArgs),
-    /// Permit a tag in this project, in its .taskloom/config.yaml
-    /// (tag_permits): a namespace, open to any key (`area:`); a key of a
-    /// namespace, which closes it to its permitted keys (`area:cli`); or a
-    /// flat tag, a key with no namespace. Once a project permits anything, a write adding
-    /// a tag it does not permit is refused. A person's command: an agent
-    /// runs it only with the human's permission for that change.
+    /// Permit a tag in this project's store (a tagma.permit rule): a
+    /// namespace, any key (`area:`); a key of a namespace (`area:cli`); or
+    /// a flat tag, a key with no namespace. The first permit closes the
+    /// store to every tag no permit admits (the targets its rules
+    /// constrain stay permitted): a write adding one is refused. A
+    /// person's command: an agent runs it only with the human's permission
+    /// for that change.
     Permit(commands::PermitArgs),
     /// Revoke a tag permit, spelled as `permit` takes it; refused, naming
     /// them, while any task (whatever its status) still carries a tag it
-    /// permits.
+    /// permits. A person's command, as `permit` is.
     Revoke(commands::PermitArgs),
-    /// List what this project permits (its .taskloom/config.yaml's
-    /// tag_permits): each namespace, open to any key or closed to its keys;
-    /// the flat tags; and the targets the tag schema declares, which are
-    /// permitted without a permit. A project that declares none permits
-    /// every tag the schema admits. Read-only.
+    /// List what this project's store permits: each namespace, open to any
+    /// key or closed to its keys; the flat tags; and the targets the
+    /// store's rules constrain. A store that declares no permit permits
+    /// every tag its rules admit. Read-only.
     Permits,
-    /// Print the tag schema a write is held to, resolved (the defaults,
-    /// then the configuration): each declared target and its facets
-    /// (scalar, enum, range, type), and its priority_fn and decay_fn.
-    /// Read it before choosing a tag. `schema show` is the same.
+    /// Print the store's tag rules a write is held to: each declared
+    /// target and its facets (scalar, enum, range, type), and its
+    /// priority_fn and decay_fn. Read it before choosing a tag. `schema
+    /// show` is the same; `schema export` prints the rules as tagma tags,
+    /// `schema check` reports what is wrong with them; `schema declare`
+    /// and `schema import-config` change them, a person's commands.
     Schema(commands::SchemaArgs),
     /// Print the taskloom version.
     Version,
@@ -270,7 +275,7 @@ pub fn parse<P: Parser>(
 
 /// Run `command` under the global flags against `service`, writing to
 /// `out` and `err` with messages from `catalog`; the exit code.
-pub async fn run<S: TaskService + PruneService + PermitService>(
+pub async fn run<S: TaskService + PruneService + PermitService + SchemaService>(
     command: Command,
     globals: Globals,
     context: &Context,
@@ -375,6 +380,10 @@ pub(crate) fn dead_lettered(
 }
 
 /// Name the project on stderr, and any dead letter, then render the task.
+/// What the store's rules found already wrong with it (tagma's `Existing`
+/// findings, which never refuse a write) is said too: on stderr, one a
+/// line, as every notice is; and in JSON in the document as well, as
+/// `warnings`, tagma's §13 shape.
 pub(crate) fn wrote(
     written: &Written,
     view: &impl Render,
@@ -385,8 +394,31 @@ pub(crate) fn wrote(
 ) -> Result<(), CliError> {
     notify(&Notice::project(&written.project), catalog, err)
         .and_then(|()| dead_lettered(&written.dead_letters, catalog, err))
-        .and_then(|()| presentation::render(out, format, view))
+        .and_then(|()| {
+            written
+                .warnings()
+                .iter()
+                .try_for_each(|w| notify(&RuleWarning(w.clone()), catalog, err))
+        })
+        .and_then(|()| match (format, written.warnings().is_empty()) {
+            (Format::Json, false) => {
+                let doc = Warned {
+                    doc: view.json(),
+                    warnings: tasks_presentation::FindingJson::all(written.warnings()),
+                };
+                presentation::write_json(out, &doc)
+            }
+            _ => presentation::render(out, format, view),
+        })
         .map_err(output_failed)
+}
+
+/// A written task's document with the warnings beside its fields.
+#[derive(serde::Serialize)]
+struct Warned<T: serde::Serialize> {
+    #[serde(flatten)]
+    doc: T,
+    warnings: Vec<tasks_presentation::FindingJson>,
 }
 
 /// The version, as ctxloom's boot probe reads it.
