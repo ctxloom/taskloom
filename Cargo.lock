@@ -145,6 +145,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "angzarr-yaml"
+version = "0.1.0"
+source = "git+https://github.com/angzarr-io/angzarr?rev=d704afc21812225e7c536ef4055bf48a3ef821e9#d704afc21812225e7c536ef4055bf48a3ef821e9"
+dependencies = [
+ "angzarr-diagnostic",
+ "serde",
+]
+
+[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1609,7 +1618,7 @@ version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03da047801ff44bb6a4d407d4860c05fd70bb81714e6b2f3812603d5b145b042"
 dependencies = [
- "heck 0.5.0",
+ "heck 0.4.1",
  "itertools",
  "log",
  "multimap",
@@ -2505,6 +2514,7 @@ name = "tasks-config"
 version = "0.1.0"
 dependencies = [
  "angzarr-diagnostic",
+ "angzarr-yaml",
  "file-system",
  "fluent-bundle",
  "fluent-syntax",
@@ -2587,7 +2597,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -2952,7 +2962,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

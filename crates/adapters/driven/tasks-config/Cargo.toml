@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 angzarr-diagnostic.workspace = true
+angzarr-yaml.workspace = true
 file-system.workspace = true
 os.workspace = true
 ports.workspace = true

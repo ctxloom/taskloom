@@ -33,6 +33,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use angzarr_diagnostic::Report;
+use angzarr_yaml::versioned::{Loader, Migrations};
 use file_system::{Fs, Perms};
 use os::Mode;
 use ports::{Configuration, ConfigurationWriter, TagPermits};
@@ -48,6 +49,8 @@ pub const DIR: &str = ".taskloom";
 pub const FILE: &str = "config.yaml";
 /// What an environment variable's name starts with to override a key.
 pub const ENV_PREFIX: &str = "TASKLOOM_CONFIG_";
+/// The document kind config files are, as the reader names it.
+pub const KIND: &str = "taskloom-config";
 /// The newest `schema_version` this taskloom reads.
 pub const SCHEMA_VERSION: u64 = 1;
 /// The config keys taskloom knows.
@@ -246,6 +249,17 @@ impl TaskloomConfig {
             .write_atomic(&path, edited.as_bytes(), Perms::KeepOr(Mode::FILE))
             .map_err(unwritable)
     }
+}
+
+/// The reader of a config file: angzarr-yaml's versioned loader for the
+/// kind `taskloom-config`, stamped `schema_version`, at [`SCHEMA_VERSION`]
+/// with no older version to migrate.
+// Read through by the next commit; the red tests use it already.
+#[allow(dead_code)]
+pub(crate) fn loader() -> Loader {
+    Migrations::new(KIND, SCHEMA_VERSION as u32)
+        .build()
+        .expect("a kind with no steps is a whole chain")
 }
 
 /// The config file at `path` on `fs`; no keys when there is none.

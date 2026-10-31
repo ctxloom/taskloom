@@ -49,6 +49,12 @@ angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedde
 # re-export cannot turn on.
 angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "d704afc21812225e7c536ef4055bf48a3ef821e9" }
 angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "d704afc21812225e7c536ef4055bf48a3ef821e9" }
+# angzarr-yaml, the one reader for every Rust config (owner ruling,
+# 2026-10-31): versioned documents (`schema_version`, migrated on read,
+# a newer one refused), a strict serde decode with key paths, and edits in
+# place that keep comments. tasks-config and project-registry read through
+# it. Its only dependencies are angzarr-diagnostic and serde.
+angzarr-yaml = { git = "https://github.com/angzarr-io/angzarr", rev = "d704afc21812225e7c536ef4055bf48a3ef821e9" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
 plans-proto = { path = "crates/core/wire/plans-proto" }
 tasks = { path = "crates/core/domain/tasks" }

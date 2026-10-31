@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-crate::english_for!(&[crate::EN_US.1]);
+crate::english_for!(&[crate::EN_US.1, angzarr_yaml::EN_US.1]);
 
 use angzarr_diagnostic::Diagnostic;
 use file_system::{Fs, Perms, Rooted};
@@ -81,14 +81,17 @@ fn moved(config: &TaskloomConfig, overrides: &[&str]) -> Result<(), ConfigError>
     config.moved_keys()
 }
 
-const HOME: &str = "tag_schema:\n  - 'tagma.arity:\"home:x\"=scalar'\n";
+const HOME: &str = "schema_version: 1\ntag_schema:\n  - 'tagma.arity:\"home:x\"=scalar'\n";
 const ROOT: &str = "schema_version: 1\nhoming: home\ntag_schema:\n  - 'tagma.arity:\"root:x\"=scalar'\n  - 'tagma.enum:\"root:y\"=\"a,b\"'\n";
 
 // The tag rules moved into the store (docs/plans/self-hosted-schema.md):
 // nothing configured sets them, and that is no refusal.
 #[test]
 fn test_nothing_configured_moves_nothing() {
-    let dirs = Dirs::new(Some("homing: home\n"), Some("schema_version: 1\n"));
+    let dirs = Dirs::new(
+        Some("schema_version: 1\nhoming: home\n"),
+        Some("schema_version: 1\n"),
+    );
     assert_eq!(moved(&dirs.config(&[]), &[]), Ok(()));
     let nowhere = TaskloomConfig::new(Arc::clone(&dirs.fs), None, None, Vec::new(), Vec::new());
     assert_eq!(moved(&nowhere, &[]), Ok(()));
@@ -110,12 +113,12 @@ fn test_every_layer_setting_a_moved_key_is_refused_naming_it() {
         (None, Some(ROOT), "tag_schema", file("/tree")),
         (
             None,
-            Some("tag_permits:\n  tags: [urgent]\n"),
+            Some("schema_version: 1\ntag_permits:\n  tags: [urgent]\n"),
             "tag_permits",
             file("/tree"),
         ),
         (
-            Some("tag_permits:\n  tags: [urgent]\n"),
+            Some("schema_version: 1\ntag_permits:\n  tags: [urgent]\n"),
             None,
             "tag_permits",
             file("/home/u"),
@@ -211,7 +214,7 @@ fn test_the_import_reads_the_work_roots_tag_schema_alone() {
             r#"tagma.enum:"root:y"="a,b""#
         ]))
     );
-    let dirs = Dirs::new(Some(HOME), Some("homing: home\n"));
+    let dirs = Dirs::new(Some(HOME), Some("schema_version: 1\nhoming: home\n"));
     assert_eq!(
         dirs.config(&[]).tag_schema(),
         Ok(Vec::new()),
@@ -227,28 +230,130 @@ fn test_the_import_reads_the_work_roots_tag_schema_alone() {
     assert_eq!(rootless.clone().tag_schema(), Ok(Vec::new()));
 }
 
+// A config file is read through angzarr-yaml's versioned reader (kind
+// `taskloom-config`, stamped `schema_version`, at 1 with no older version)
+// and its strict decode (architecture-fixes B4; the owner's rulings of
+// 2026-10-31: one reader for every Rust config, Go's schemaver the
+// reference). A file it does not load is the reader's diagnostic, coded,
+// a key path where the decode failed; a newer one is taskloom's own
+// refusal; and one with no stamp, an empty or comment-only one included,
+// is older than taskloom reads, as Go's taskloom refuses it.
 #[test]
 fn test_a_file_that_is_not_taskloom_config_is_refused() {
-    for (text, code) in [
-        ("homeing: home\n", "tasks-config-malformed"),
-        ("tag_schema: not-a-list\n", "tasks-config-malformed"),
-        ("[unclosed\n", "tasks-config-malformed"),
-        ("schema_version: 2\n", "tasks-config-newer"),
+    for (text, shown_as) in [
+        (
+            "schema_version: 1\nhomeing: home\n",
+            "problem=angzarr-yaml-decode-unknown-key problem.key_path=\"\" problem.found=homeing",
+        ),
+        (
+            "schema_version: 1\ntag_schema: not-a-list\n",
+            "problem=angzarr-yaml-decode-type problem.key_path=tag_schema",
+        ),
+        (
+            "schema_version: 1\ntag_permits:\n  areas: {}\n",
+            "problem=angzarr-yaml-decode-unknown-key problem.key_path=tag_permits problem.found=areas",
+        ),
+        ("[unclosed\n", "problem=angzarr-yaml-"),
+        ("homing: home\n", "problem=angzarr-yaml-too-old problem.found=0 problem.oldest=1"),
+        ("", "problem=angzarr-yaml-too-old"),
+        ("# nothing here\n", "problem=angzarr-yaml-too-old"),
+        ("schema_version: 0\n", "problem=angzarr-yaml-too-old"),
+        ("schema_version: one\n", "problem=angzarr-yaml-version-not-an-integer"),
     ] {
         let dirs = Dirs::new(None, Some(text));
         let error = moved(&dirs.config(&[]), &[]).unwrap_err();
-        assert_eq!(error.code(), code, "{text}");
-        assert!(error.to_string().contains("config.yaml"), "{error}");
+        let display = error.to_string();
+        assert_eq!(error.code(), "angzarr-yaml-load-failed-at", "{text:?}: {display}");
+        assert!(
+            display.starts_with(&format!(
+                "angzarr-yaml-load-failed-at kind=taskloom-config source={}",
+                angzarr_diagnostic::quote(&shown("/tree/.taskloom/config.yaml"))
+            )),
+            "{text:?}: {display}"
+        );
+        assert!(display.contains(shown_as), "{text:?}: {display}");
+        assert!(error.english().contains("config.yaml"), "{error}");
     }
-    for fine in [
-        "",
-        "# nothing here\n",
-        "schema_version: 0\n",
-        "schema_version: 1\n",
-    ] {
+    let dirs = Dirs::new(None, Some("schema_version: 2\n"));
+    assert_eq!(
+        moved(&dirs.config(&[]), &[]),
+        Err(ConfigError::Newer {
+            path: shown("/tree/.taskloom/config.yaml"),
+            version: 2,
+            current: 1,
+        }),
+        "a newer file is taskloom's own refusal"
+    );
+    for fine in ["schema_version: 1\n", "schema_version: 1\nhoming: repo\n"] {
         let dirs = Dirs::new(Some(fine), None);
         assert_eq!(moved(&dirs.config(&[]), &[]), Ok(()), "{fine:?}");
     }
+}
+
+// Config files Go's taskloom wrote and reads (schemaver's `taskloom config`
+// kind, at 1) load through the reader as they are, and this repository's
+// own. Go's tag-permits file is the one Go's tests read
+// (internal/taskloom/config/testdata), this repository's before the
+// cutover, with its flow lists on one line each: angzarr-yaml reads a flow
+// collection only on one line, and refuses one that runs on (below).
+#[test]
+fn test_go_written_config_files_load() {
+    use angzarr_yaml::versioned::Fixture;
+    let fixtures = [
+        Fixture {
+            name: "go/homing.config.yaml",
+            input: include_str!("../testdata/go/homing.config.yaml"),
+            expected: None,
+        },
+        Fixture {
+            name: "go/tag-permits-one-line.config.yaml",
+            input: include_str!("../testdata/go/tag-permits-one-line.config.yaml"),
+            expected: None,
+        },
+        Fixture {
+            name: "taskloom-repo.config.yaml",
+            input: include_str!("../testdata/taskloom-repo.config.yaml"),
+            expected: None,
+        },
+    ];
+    crate::loader().assert_fixtures(&fixtures);
+    for (fixture, moved_key) in [
+        (fixtures[0], None),
+        (fixtures[1], Some("tag_permits")),
+        (fixtures[2], None),
+    ] {
+        let dirs = Dirs::new(None, Some(fixture.input));
+        let got = moved(&dirs.config(&[]), &[]);
+        match moved_key {
+            None => assert_eq!(got, Ok(()), "{}", fixture.name),
+            Some(key) => assert_eq!(
+                got.map_err(|e| e.code().to_string()),
+                Err("tasks-config-key-moved".to_string()),
+                "{}: {key}",
+                fixture.name
+            ),
+        }
+    }
+    let dirs = Dirs::new(None, Some(fixtures[1].input));
+    let permits = dirs.config(&[]).tag_permits().unwrap().unwrap();
+    assert_eq!(permits.namespaces.len(), 11, "{permits:?}");
+    assert!(permits.flat.is_empty());
+}
+
+// A flow list that runs on to the next line, as Go's tag-permits file
+// writes two of them, is not in the subset angzarr-yaml reads: it is
+// refused, the line named, never misread.
+#[test]
+fn test_a_flow_list_running_on_is_refused() {
+    let text = include_str!("../testdata/go/tag-permits.config.yaml");
+    let dirs = Dirs::new(None, Some(text));
+    let error = moved(&dirs.config(&[]), &[]).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("problem=angzarr-yaml-expected-seq-separator problem.line=15"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -319,12 +424,12 @@ fn test_an_empty_variable_is_no_layer() {
 #[test]
 fn test_a_blank_item_in_a_config_files_list_is_refused() {
     for item in ["''", "'  '"] {
-        let text = format!("tag_schema:\n  - 'a'\n  - {item}\n");
+        let text = format!("schema_version: 1\ntag_schema:\n  - 'a'\n  - {item}\n");
         let dirs = Dirs::new(None, Some(&text));
         let error = dirs.config(&[]).tag_schema().unwrap_err();
         assert_eq!(error.code(), "tasks-config-blank-item", "{item}");
     }
-    let dirs = Dirs::new(Some("tag_schema:\n  - ''\n"), None);
+    let dirs = Dirs::new(Some("schema_version: 1\ntag_schema:\n  - ''\n"), None);
     let error = moved(&dirs.config(&[]), &[]).unwrap_err();
     assert_eq!(
         error.english(),
@@ -422,6 +527,9 @@ mod permits {
 
     use super::*;
 
+    /// The stamp every file the tests write starts with.
+    const STAMP: &str = "schema_version: 1\n";
+
     const PERMITS: &str = "tag_permits:\n  namespaces:\n    area:\n      - cli\n      - mcp\n    relates: open\n  tags:\n    - urgent\n";
 
     fn usual() -> TagPermits {
@@ -446,7 +554,7 @@ mod permits {
 
     #[test]
     fn test_the_work_roots_tag_permits_are_read() {
-        let dirs = Dirs::new(None, Some(PERMITS));
+        let dirs = Dirs::new(None, Some(&format!("{STAMP}{PERMITS}")));
         assert_eq!(dirs.config(&[]).tag_permits(), Ok(Some(usual())));
     }
 
@@ -454,7 +562,7 @@ mod permits {
     // (tag-vocabulary.proposal.md, section 5) is written so.
     #[test]
     fn test_tag_permits_in_flow_style_are_read() {
-        let flow = "tag_permits:\n  namespaces:\n    area: [cli, mcp]\n    relates: open\n  tags: [urgent]\n";
+        let flow = "schema_version: 1\ntag_permits:\n  namespaces:\n    area: [cli, mcp]\n    relates: open\n  tags: [urgent]\n";
         let dirs = Dirs::new(None, Some(flow));
         assert_eq!(dirs.config(&[]).tag_permits(), Ok(Some(usual())));
     }
@@ -468,7 +576,7 @@ mod permits {
             let dirs = Dirs::new(None, text);
             assert_eq!(dirs.config(&[]).tag_permits(), Ok(None), "{text:?}");
         }
-        let dirs = Dirs::new(None, Some("tag_permits: {}\n"));
+        let dirs = Dirs::new(None, Some("schema_version: 1\ntag_permits: {}\n"));
         assert_eq!(
             dirs.config(&[]).tag_permits(),
             Ok(Some(TagPermits::default()))
@@ -480,17 +588,20 @@ mod permits {
         for (text, code) in [
             (
                 "tag_permits:\n  namespaces:\n    area: maybe\n",
-                "tasks-config-malformed",
+                "tasks-config-not-a-permit",
             ),
-            ("tag_permits:\n  areas: {}\n", "tasks-config-malformed"),
-            ("tag_permits:\n  tags: urgent\n", "tasks-config-malformed"),
+            ("tag_permits:\n  areas: {}\n", "angzarr-yaml-load-failed-at"),
+            (
+                "tag_permits:\n  tags: urgent\n",
+                "angzarr-yaml-load-failed-at",
+            ),
             (
                 "tag_permits:\n  namespaces:\n    area: ['cli', '']\n",
                 "tasks-config-blank-item",
             ),
             ("tag_permits:\n  tags: ['']\n", "tasks-config-blank-item"),
         ] {
-            let dirs = Dirs::new(None, Some(text));
+            let dirs = Dirs::new(None, Some(&format!("{STAMP}{text}")));
             let error = dirs.config(&[]).tag_permits().unwrap_err();
             assert_eq!(error.code(), code, "{text}");
         }
@@ -601,7 +712,7 @@ mod permits {
     fn test_a_flow_list_is_edited_in_its_own_style() {
         let dirs = Dirs::new(
             None,
-            Some("tag_permits:\n  namespaces:\n    area: [cli, mcp, store]  # ours\n"),
+            Some("schema_version: 1\ntag_permits:\n  namespaces:\n    area: [cli, mcp, store]  # ours\n"),
         );
         let permits = TagPermits {
             namespaces: BTreeMap::from([("area".to_string(), closed(&["cli", "config", "store"]))]),
@@ -610,7 +721,7 @@ mod permits {
         dirs.config(&[]).write_tag_permits(&permits).unwrap();
         assert_eq!(
             file(&dirs),
-            "tag_permits:\n  namespaces:\n    area: [cli, store, config]  # ours\n"
+            "schema_version: 1\ntag_permits:\n  namespaces:\n    area: [cli, store, config]  # ours\n"
         );
     }
 
@@ -626,17 +737,22 @@ mod permits {
 
     #[test]
     fn test_writing_tag_permits_appends_them_or_makes_the_file() {
-        let dirs = Dirs::new(None, Some("# mine\nhoming: home\n"));
+        let dirs = Dirs::new(None, Some("# mine\nschema_version: 1\nhoming: home\n"));
         dirs.config(&[]).write_tag_permits(&usual()).unwrap();
-        assert_eq!(file(&dirs), format!("# mine\nhoming: home\n{PERMITS}"));
+        assert_eq!(
+            file(&dirs),
+            format!("# mine\nschema_version: 1\nhoming: home\n{PERMITS}")
+        );
+        // A file made is stamped, so it reads back.
         let dirs = Dirs::new(None, None);
         dirs.config(&[]).write_tag_permits(&usual()).unwrap();
-        assert_eq!(file(&dirs), PERMITS);
+        assert_eq!(file(&dirs), format!("{STAMP}{PERMITS}"));
+        assert_eq!(dirs.config(&[]).tag_permits(), Ok(Some(usual())));
         let dirs = Dirs::new(None, None);
         dirs.config(&[])
             .write_tag_permits(&TagPermits::default())
             .unwrap();
-        assert_eq!(file(&dirs), "tag_permits: {}\n");
+        assert_eq!(file(&dirs), "schema_version: 1\ntag_permits: {}\n");
     }
 
     #[test]
