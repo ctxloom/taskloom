@@ -20,13 +20,15 @@
 //! Rust config (the owner's ruling, 2026-10-31): its versioned loader, the
 //! kind `taskloom-config` stamped `schema_version` at [`SCHEMA_VERSION`]
 //! with no older version, as Go's taskloom versions it, and its strict
-//! decode. A missing file is no layer. A file that cannot be read, is not
-//! the YAML the reader reads, has no stamp (an empty or comment-only file
-//! too, as Go's refuses it), an older or newer one, or names a key taskloom
-//! does not know, is refused, with the reader's diagnostic and the key
-//! path where the decode failed ([`ConfigError::Load`]), a newer file as
-//! taskloom's own [`ConfigError::Newer`]; so is an environment variable or
-//! override naming no key. Files are read through the [`Fs`] it is given.
+//! decode. A missing file is no layer. A file with no stamp, an empty or
+//! comment-only one too, is current: the config-versioning rule reads a
+//! kind with no older version so (Go's taskloom refuses it). A file that
+//! cannot be read, is not the YAML the reader reads, is stamped older or
+//! newer, or names a key taskloom does not know, is refused, with the
+//! reader's diagnostic and the key path where the decode failed
+//! ([`ConfigError::Load`]), a newer file as taskloom's own
+//! [`ConfigError::Newer`]; so is an environment variable or override
+//! naming no key. Files are read through the [`Fs`] it is given.
 //! `homing` (repo homing is dropped) and `schema_version` are known and
 //! ignored.
 

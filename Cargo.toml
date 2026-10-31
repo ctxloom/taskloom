@@ -30,7 +30,7 @@ angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "54db
 
 # angzarr-embedded, angzarr's in-app runtime, taskloom's
 # (taskloom-on-angzarr-embedded.plan.md). Pinned by rev on
-# angzarr-embedded's main: 60e4c8b (router 0af1943, angzarr core d704afc
+# angzarr-embedded's main: 77e6206 (router 6a736ae, angzarr core a75eb28
 # for angzarr-proto, angzarr-ports and angzarr-diagnostic): the kernel at
 # its crate root (`next` flattened, its codes `angzarr-embedded-*`), and
 # angzarr-proto, angzarr-ports, angzarr-diagnostic and, behind its
@@ -38,24 +38,24 @@ angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "54db
 # one of each. angzarr-proto and angzarr-store-sqlite are reached through
 # those re-exports (`angzarr_embedded::angzarr_proto`,
 # `angzarr_embedded::angzarr_store_sqlite`) and not pinned here.
-angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "60e4c8b36abf8476445dcc24aa13d34670be654a" }
-angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "60e4c8b36abf8476445dcc24aa13d34670be654a" }
+angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "77e62062765446d0a339f05bcb69a9593a30b94e" }
+angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "77e62062765446d0a339f05bcb69a9593a30b94e" }
 # angzarr core's shared crates, at the core rev angzarr-embedded pins
-# (d704afc), so the graph holds one of each. angzarr-diagnostic, the coded
+# (a75eb28), so the graph holds one of each. angzarr-diagnostic, the coded
 # error trait every error here implements, is pinned directly rather than
 # through angzarr-embedded's re-export so the crates that have no use for
 # the kernel (the platform crates, presentation) do not link it.
 # angzarr-ports, angzarr's storage contract, is pinned directly for its
 # `memory` feature (the in-memory store the tests run on), which the
 # re-export cannot turn on.
-angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "d704afc21812225e7c536ef4055bf48a3ef821e9" }
-angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "d704afc21812225e7c536ef4055bf48a3ef821e9" }
+angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "a75eb28f8416ca485aea2e28fe7b45924404d3fe" }
+angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "a75eb28f8416ca485aea2e28fe7b45924404d3fe" }
 # angzarr-yaml, the one reader for every Rust config (owner ruling,
 # 2026-10-31): versioned documents (`schema_version`, migrated on read,
 # a newer one refused), a strict serde decode with key paths, and edits in
 # place that keep comments. tasks-config and project-registry read through
 # it. Its only dependencies are angzarr-diagnostic and serde.
-angzarr-yaml = { git = "https://github.com/angzarr-io/angzarr", rev = "d704afc21812225e7c536ef4055bf48a3ef821e9" }
+angzarr-yaml = { git = "https://github.com/angzarr-io/angzarr", rev = "a75eb28f8416ca485aea2e28fe7b45924404d3fe" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
 plans-proto = { path = "crates/core/wire/plans-proto" }
 tasks = { path = "crates/core/domain/tasks" }

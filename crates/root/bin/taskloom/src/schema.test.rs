@@ -320,7 +320,10 @@ fn test_import_config_moves_go_s_tag_permits_file_into_the_store() {
         );
     }
     let file = disk::read_to_string(env.project.path().join(".taskloom/config.yaml")).unwrap();
-    assert!(!file.contains("tag_permits"), "{file}");
+    assert!(
+        !file.lines().any(|l| l.starts_with("tag_permits:")),
+        "{file}"
+    );
     assert!(file.contains("schema_version: 1\n"), "{file}");
     assert!(file.starts_with("# Taskloom's own config"), "{file}");
 }

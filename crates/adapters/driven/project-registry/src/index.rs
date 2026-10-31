@@ -3,7 +3,9 @@
 //! through angzarr-yaml, the one reader of every Rust config (the owner's
 //! ruling, 2026-10-31): its versioned loader, the kind `project-registry`
 //! stamped `schema_version` at [`SCHEMA_VERSION`] with no older version,
-//! as Go's schemaver versions it, and its strict decode. A file shared by
+//! as Go's schemaver versions it, and its strict decode. A registry with
+//! no stamp is current, as the config-versioning rule reads a kind with no
+//! older version (Go's schemaver refuses it). A file shared by
 //! Go's and Rust's binaries is strict for all (the same ruling): a key
 //! this version does not know, or a version it does not read, is refused,
 //! never kept, so the writers change the schema in lockstep. Changes are
@@ -50,6 +52,9 @@ pub struct Entry {
 #[derive(Clone, PartialEq, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Index {
+    /// The stamp; a registry with none is current (the config-versioning
+    /// rule: there is no older version for it to be).
+    #[serde(default = "current")]
     pub schema_version: u32,
     #[serde(default)]
     pub projects: Vec<Entry>,
@@ -96,6 +101,11 @@ impl Index {
 /// The registry file under `home`.
 pub fn path(home: &Path) -> PathBuf {
     home.join(".ctxloom").join("projects").join("index.yaml")
+}
+
+/// The stamp of a registry with none: this version.
+fn current() -> u32 {
+    SCHEMA_VERSION
 }
 
 /// The registry at `path` on `fs`; empty if there is none.
