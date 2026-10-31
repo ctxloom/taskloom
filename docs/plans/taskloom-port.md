@@ -346,12 +346,15 @@ Where the port differs from Go:
   `TaskStores::Store` provides: a domain's `covers` and every stream read
   after it are one moment, so a write or a purge by another process in
   between is not seen (tested by forcing one there).
-- A read opens its store read-only (annals-store-sql's `open_existing`)
-  and never creates, migrates or writes; `list` of a project with no store
-  yet is empty, and `tag` resolves its project as a read does. A file a
-  writer has created but not yet migrated or moved into WAL is waited for
-  by annals-store-sql (up to its 5s busy timeout); one that stays empty, or holds a database with
-  migrations pending, is refused as unmigrated until a write migrates it.
+- A read opens its store read-only (angzarr-store-sqlite's
+  `open_existing`) and never creates one; `list` of a project with no
+  store yet is empty, and `tag` resolves its project as a read does. A
+  file a writer has created but not yet migrated or moved into WAL is
+  waited for by angzarr-store-sqlite (up to its 5s busy timeout). One that
+  holds a database with migrations pending (or stays empty) is migrated
+  by the read, as a write would (the owner's ruling, 2026-10-31: both read
+  and write migrate on startup), after the file is copied beside itself
+  (`state.db.pre-migrate-<UTC instant>`).
 - Work roots and registry entries are compared canonical, as Go's
   `cleanPath` (symlinks resolved, else cleaned lexically), and the
   canonical path is registered.

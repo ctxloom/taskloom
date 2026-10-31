@@ -20,6 +20,17 @@ pub enum StoreOpenError {
     /// (the owner's ruling D2), but moved aside to `backup` and started
     /// afresh.
     PredatesEmbedded { path: String, backup: String },
+    /// The store at `path` has migrations pending, and its write-ahead log
+    /// `wal` holds frames not yet in the file, so a copy of the file alone
+    /// would not be the store: it is neither backed up nor migrated.
+    BackupUnsafe { path: String, wal: String },
+    /// The store at `path` has migrations pending, and could not be copied
+    /// to `backup` before migrating it.
+    BackupFailed {
+        path: String,
+        backup: String,
+        detail: String,
+    },
 }
 
 /// Its key, then each arg as ` name=value`, a value quoted where it would
@@ -39,6 +50,8 @@ impl StoreOpenError {
             StoreOpenError::Unplaced { .. } => "task-store-sqlite-unplaced",
             StoreOpenError::NoRuntime { .. } => "task-store-sqlite-no-runtime",
             StoreOpenError::PredatesEmbedded { .. } => "task-store-sqlite-predates-embedded",
+            StoreOpenError::BackupUnsafe { .. } => "task-store-sqlite-backup-unsafe",
+            StoreOpenError::BackupFailed { .. } => "task-store-sqlite-backup-failed",
         }
     }
 
@@ -54,6 +67,18 @@ impl StoreOpenError {
             StoreOpenError::PredatesEmbedded { path, backup } => vec![
                 ("path", path.as_str().into()),
                 ("backup", backup.as_str().into()),
+            ],
+            StoreOpenError::BackupUnsafe { path, wal } => {
+                vec![("path", path.as_str().into()), ("wal", wal.as_str().into())]
+            }
+            StoreOpenError::BackupFailed {
+                path,
+                backup,
+                detail,
+            } => vec![
+                ("path", path.as_str().into()),
+                ("backup", backup.as_str().into()),
+                ("ext_err_txt", detail.as_str().into()),
             ],
         }
     }
@@ -110,6 +135,15 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(StoreOpenError::PredatesEmbedded {
             path: format!("{}/state.db", path()),
             backup: format!("{}/state.db.pre-embedded", path()),
+        }),
+        Box::new(StoreOpenError::BackupUnsafe {
+            path: format!("{}/state.db", path()),
+            wal: format!("{}/state.db-wal", path()),
+        }),
+        Box::new(StoreOpenError::BackupFailed {
+            path: format!("{}/state.db", path()),
+            backup: format!("{}/state.db.pre-migrate-20261031T170042.272062642Z", path()),
+            detail: "no space left on device".to_string(),
         }),
     ]
 }

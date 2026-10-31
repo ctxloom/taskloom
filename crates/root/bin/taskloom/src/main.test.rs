@@ -1238,6 +1238,50 @@ fn test_in_json_each_project_command_writes_one_document_and_errors_an_envelope(
     );
 }
 
+/// A store as the e996ea4 build wrote one, migration 0005 pending (see
+/// task-store-sqlite's tests): two tasks.
+const BEFORE_0005: &[u8] =
+    include_bytes!("../../../../adapters/driven/task-store-sqlite/testdata/before-0005.db");
+
+/// The owner ruled 2026-10-31: both read and write migrate on startup. A
+/// listing of a project whose store an older build wrote migrates it,
+/// backed up beside it first, and lists its tasks.
+#[test]
+fn test_a_read_of_a_store_an_older_build_wrote_migrates_it_and_lists_its_tasks() {
+    let env = Env::new("before-0005-harp");
+    env.seed("replaced");
+    let stores = env.stores();
+    let [store] = stores.as_slice() else {
+        panic!("one store: {stores:?}");
+    };
+    for sibling in ["state.db-wal", "state.db-shm"] {
+        let sibling = store.with_file_name(sibling);
+        if disk::exists(&sibling) {
+            disk::remove_file(&sibling).unwrap();
+        }
+    }
+    disk::write(store, BEFORE_0005).unwrap();
+
+    let mut listed = texts(&env.list(), "text");
+    listed.sort();
+    assert_eq!(
+        listed,
+        ["a task from before 0005", "another task from before 0005"]
+    );
+    let backups: Vec<PathBuf> = disk::read_dir(store.parent().unwrap())
+        .unwrap()
+        .into_iter()
+        .filter(|p| {
+            p.file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with("state.db.pre-migrate-"))
+        })
+        .collect();
+    let [backup] = backups.as_slice() else {
+        panic!("one backup: {backups:?}");
+    };
+    assert_eq!(disk::read(backup).unwrap(), BEFORE_0005);
+}
+
 #[path = "companion.test.rs"]
 mod companion;
 

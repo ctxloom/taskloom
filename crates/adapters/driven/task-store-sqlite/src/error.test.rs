@@ -26,6 +26,11 @@ fn test_each_error_displays_its_code_and_args_never_english() {
             r#"task-store-sqlite-no-runtime ext_err_txt="too many open files""#,
             "task-store-sqlite-predates-embedded path=/home/u/.ctxloom/projects/jolly-mute-magma/state.db \
              backup=/home/u/.ctxloom/projects/jolly-mute-magma/state.db.pre-embedded",
+            "task-store-sqlite-backup-unsafe path=/home/u/.ctxloom/projects/jolly-mute-magma/state.db \
+             wal=/home/u/.ctxloom/projects/jolly-mute-magma/state.db-wal",
+            "task-store-sqlite-backup-failed path=/home/u/.ctxloom/projects/jolly-mute-magma/state.db \
+             backup=/home/u/.ctxloom/projects/jolly-mute-magma/state.db.pre-migrate-20261031T170042.272062642Z \
+             ext_err_txt=\"no space left on device\"",
         ]
     );
 }

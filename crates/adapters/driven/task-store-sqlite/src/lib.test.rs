@@ -652,12 +652,20 @@ fn test_no_database_is_absent_not_damage_and_creates_nothing() {
 
 // ------------------------------------------------------------ opening, failing
 
-/// A filesystem that cannot say where anything is on disk (as a real path
-/// a Windows prefix leaves relative cannot be), and is otherwise `Rooted`.
+/// A `Rooted` filesystem with one fault.
 #[derive(Debug)]
-struct Unplaceable(Rooted);
+struct Faulty(Rooted, Fault);
 
-impl Fs for Unplaceable {
+#[derive(Debug, PartialEq)]
+enum Fault {
+    /// It cannot say where anything is on disk, as a real path a Windows
+    /// prefix leaves relative cannot be.
+    Unplaceable,
+    /// It cannot say what is at a write-ahead log's path (`-wal`).
+    WalUnseen,
+}
+
+impl Fs for Faulty {
     fn cwd(&self) -> Result<&Path, file_system::CwdError> {
         self.0.cwd()
     }
@@ -695,6 +703,12 @@ impl Fs for Unplaceable {
         self.0.read_dir(path)
     }
     fn metadata(&self, path: &Path) -> std::io::Result<file_system::Meta> {
+        if self.1 == Fault::WalUnseen && path.to_string_lossy().ends_with("-wal") {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "the log cannot be looked at",
+            ));
+        }
         self.0.metadata(path)
     }
     fn symlink_metadata(&self, path: &Path) -> std::io::Result<file_system::Meta> {
@@ -715,11 +729,14 @@ impl Fs for Unplaceable {
     fn make_temp_dir(&self, parent: &Path, prefix: &str) -> std::io::Result<PathBuf> {
         self.0.make_temp_dir(parent, prefix)
     }
-    fn real_path(&self, _: &Path) -> std::io::Result<PathBuf> {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "no place on disk",
-        ))
+    fn real_path(&self, path: &Path) -> std::io::Result<PathBuf> {
+        if self.1 == Fault::Unplaceable {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "no place on disk",
+            ));
+        }
+        self.0.real_path(path)
     }
     fn same_file(&self, file: &std::fs::File, path: &Path) -> std::io::Result<bool> {
         self.0.same_file(file, path)
@@ -767,7 +784,10 @@ fn test_a_database_that_does_not_open_fails_with_the_stores_error() {
 
 #[test]
 fn test_a_store_the_filesystem_cannot_place_is_refused_naming_it() {
-    let mut stores = SqliteStores::new(Arc::new(Unplaceable(Rooted::temp().unwrap())));
+    let mut stores = SqliteStores::new(Arc::new(Faulty(
+        Rooted::temp().unwrap(),
+        Fault::Unplaceable,
+    )));
     let path = PathBuf::from("/home/u/state.db");
     let project = project("jolly-mute-magma", path.clone());
     let unplaced = |error: StoreError| {
@@ -1037,6 +1057,51 @@ fn test_a_pending_store_whose_log_holds_frames_is_refused_not_copied() {
     assert_eq!(keyed(&written, UNSAFE), expected, "to write: {written}");
     assert_eq!(home.read(&path), BEFORE_0005, "the file as it was");
     assert_eq!(backups(&home, &path), Vec::<PathBuf>::new(), "no backup");
+}
+
+#[test]
+fn test_a_backup_is_named_by_its_utc_instant_to_the_nanosecond_with_no_colon() {
+    // 2026-03-04T05:06:07.000000089 at +02:00 is 03:06:07 UTC.
+    let at = time::OffsetDateTime::new_in_offset(
+        time::Date::from_calendar_date(2026, time::Month::March, 4).unwrap(),
+        time::Time::from_hms_nano(5, 6, 7, 89).unwrap(),
+        time::UtcOffset::from_hms(2, 0, 0).unwrap(),
+    );
+    assert_eq!(
+        super::backup_path(Path::new("/home/u/state.db"), at),
+        PathBuf::from("/home/u/state.db.pre-migrate-20260304T030607.000000089Z")
+    );
+}
+
+#[test]
+fn test_a_pending_store_whose_log_cannot_be_looked_at_is_refused_not_copied() {
+    let rooted = Rooted::temp().unwrap();
+    let path = PathBuf::from("/home/u/state.db");
+    rooted
+        .create_dir_all(Path::new("/home/u"), Mode::DIR)
+        .unwrap();
+    rooted
+        .write_atomic(&path, BEFORE_0005, Perms::Exact(Mode::FILE))
+        .unwrap();
+    let fs = Arc::new(Faulty(rooted, Fault::WalUnseen));
+    let mut stores = SqliteStores::new(Arc::clone(&fs) as Arc<dyn Fs>);
+    let error = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
+        .map(|found| found.is_some())
+        .unwrap_err();
+    let args = keyed(&error, "task-store-sqlite-backup-failed").expect("refused naming it");
+    assert_eq!(args[0], ("path", "/home/u/state.db".to_string()));
+    assert_eq!(
+        args[2],
+        ("ext_err_txt", "the log cannot be looked at".to_string())
+    );
+    assert_eq!(fs.0.read(&path).unwrap(), BEFORE_0005, "the file as it was");
+    let entries = fs.0.read_dir(Path::new("/home/u")).unwrap();
+    assert!(
+        !entries
+            .iter()
+            .any(|e| e.name.to_string_lossy().contains("pre-migrate")),
+        "no backup: {entries:?}"
+    );
 }
 
 /// The key a store that cannot be copied safely is refused with.

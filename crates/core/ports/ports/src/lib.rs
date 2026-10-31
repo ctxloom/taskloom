@@ -86,7 +86,9 @@ pub trait TaskStores {
     ) -> impl Future<Output = Result<&Self::Store, StoreError>> + Send;
 
     /// The project's store, to read: `None` if it has none yet, and
-    /// nothing is created. A store already held for a write serves it too.
+    /// nothing is created. A store older than the build is migrated, as
+    /// [`TaskStores::open`] migrates one. A store already held for a write
+    /// serves it too.
     fn open_existing(
         &mut self,
         project: &Project,

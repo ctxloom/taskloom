@@ -8,11 +8,25 @@
 //!   filesystem holds the database (and its write-ahead log) too.
 //! - [`SqliteStores::open`] opens it to write, creating its directory and
 //!   the file and migrating it ([`SqliteStore::open`]); `open_existing`
-//!   opens it read-only and never creates, migrates or writes
-//!   ([`SqliteStore::open_existing`]), finding no store where there is no
-//!   file. A file a writer is still making is angzarr-store-sqlite's to
-//!   wait for. Each holds the store it opened, for its project, until
-//!   another is asked for; a store held to write serves a read.
+//!   opens it read-only ([`SqliteStore::open_existing`]) and never
+//!   creates it, finding no store where there is no file. A file a writer
+//!   is still making is angzarr-store-sqlite's to wait for. Each holds the
+//!   store it opened, for its project, until another is asked for; a
+//!   store held to write serves a read.
+//! - Both migrate a store older than the build (the owner's ruling,
+//!   2026-10-31: both read and write migrate on startup): a read that
+//!   finds migrations pending opens the store to write instead, which
+//!   migrates it. Before either migrates an existing store, the file is
+//!   copied beside itself, byte for byte, through the [`Fs`]
+//!   (`state.db.pre-migrate-<UTC instant>`, [`backup_path`]): with no
+//!   connection of this process open on it, and only while its
+//!   write-ahead log (`state.db-wal`) is absent or empty, so the file
+//!   alone is the whole store. A log holding frames is refused, keyed
+//!   `task-store-sqlite-backup-unsafe`, the store neither copied nor
+//!   migrated. Its `-shm` file is the log's index, holds no rows, and is
+//!   not looked at. angzarr-store-sqlite has no backup of its own, and
+//!   ctxloom writes no SQL. A store newer than the build is refused, by
+//!   angzarr-store-sqlite, as it was.
 //! - A store written before angzarr-embedded (annals-store-sql's, holding
 //!   only its first migration) is refused by both, keyed
 //!   `task-store-sqlite-predates-embedded` with its `path` and the
@@ -42,7 +56,7 @@ use std::sync::Arc;
 use angzarr_embedded_diagnostic::Report;
 use angzarr_ports::{StoreError, Watch};
 use angzarr_store_sqlite::{Integrity, SqlError, SqliteStore};
-use file_system::Fs;
+use file_system::{Fs, Perms};
 use os::Mode;
 use ports::{Checked, HeldToken, Project, StoreCheck, TaskStores, WatchedStores};
 
@@ -98,7 +112,9 @@ impl SqliteStores {
     }
 
     /// The store held for `project`, or the one at its path opened
-    /// read-only and held; `None` if there is none.
+    /// read-only and held; `None` if there is none. One with migrations
+    /// pending is backed up, then opened to write (which migrates it), and
+    /// held so.
     async fn hold_existing(&mut self, project: &Project) -> Result<Option<&mut Held>, StoreError> {
         let path = &project.store;
         if let Some(held) = self.held.take().filter(|h| &h.path == path) {
@@ -110,7 +126,12 @@ impl SqliteStores {
             Ok(None) => Ok(None),
             Err(error) => {
                 refuse_if_annals(&error, path)?;
-                Err(error)
+                if !pending(&error) {
+                    return Err(error);
+                }
+                back_up(&*self.fs, path)?;
+                let store = SqliteStore::open(&real).await?;
+                Ok(Some(self.hold(path, true, store)))
             }
         }
     }
@@ -120,7 +141,8 @@ impl TaskStores for SqliteStores {
     type Store = SqliteStore;
 
     /// The store at `project`'s path, opened to write: its directory and
-    /// file created and migrated if need be. Held after.
+    /// file created and migrated if need be, an existing file backed up
+    /// before it is migrated. Held after.
     async fn open(&mut self, project: &Project) -> Result<&SqliteStore, StoreError> {
         let path = &project.store;
         let held = self.held.take().filter(|h| &h.path == path && h.writable);
@@ -129,17 +151,22 @@ impl TaskStores for SqliteStores {
         }
         create_parent(&*self.fs, path).map_err(unavailable)?;
         let real = real(&*self.fs, path).map_err(unavailable)?;
-        // A read first: a store from before angzarr-embedded is refused
-        // before the open to write would migrate it.
+        // A read first: a store from before angzarr-embedded is refused,
+        // and one with migrations pending backed up, before the open to
+        // write would migrate it.
         if let Err(error) = SqliteStore::open_existing(&real).await {
             refuse_if_annals(&error, path)?;
+            if pending(&error) {
+                back_up(&*self.fs, path)?;
+            }
         }
         let store = SqliteStore::open(&real).await?;
         Ok(&self.hold(path, true, store).store)
     }
 
     /// The store at `project`'s path, held or opened read-only; `None` if
-    /// there is no file there, and nothing is made.
+    /// there is no file there, and nothing is made. One with migrations
+    /// pending is backed up and migrated (opened to write).
     async fn open_existing(
         &mut self,
         project: &Project,
@@ -232,6 +259,69 @@ fn refuse_if_annals(error: &StoreError, path: &Path) -> Result<(), StoreError> {
         path: path.display().to_string(),
         backup: PathBuf::from(backup).display().to_string(),
     }))
+}
+
+/// Whether `error` is a read-only open's refusal of a store with
+/// migrations pending: one an open to write migrates.
+fn pending(error: &StoreError) -> bool {
+    let unmigrated = SqlError::Unmigrated { pending: 0 }.code();
+    matches!(error, StoreError::Unavailable(cause) if cause.code == unmigrated)
+}
+
+/// Copy the store at `path` beside itself, byte for byte, before it is
+/// migrated: to [`backup_path`] at this instant, with the file's own mode.
+/// Refused while its write-ahead log holds frames, which the file alone
+/// lacks. The backup's path.
+fn back_up(fs: &dyn Fs, path: &Path) -> Result<PathBuf, StoreError> {
+    let mut wal = path.as_os_str().to_owned();
+    wal.push("-wal");
+    let wal = PathBuf::from(wal);
+    let backup = backup_path(path, time::OffsetDateTime::now_utc());
+    let failed = |e: std::io::Error| {
+        unavailable(StoreOpenError::BackupFailed {
+            path: path.display().to_string(),
+            backup: backup.display().to_string(),
+            detail: e.to_string(),
+        })
+    };
+    match fs.metadata(&wal) {
+        Ok(meta) if meta.len > 0 => {
+            return Err(unavailable(StoreOpenError::BackupUnsafe {
+                path: path.display().to_string(),
+                wal: wal.display().to_string(),
+            }))
+        }
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(failed(e)),
+        _ => {}
+    }
+    let mode = fs
+        .metadata(path)
+        .map_err(failed)?
+        .mode
+        .unwrap_or(Mode::FILE);
+    let bytes = fs.read(path).map_err(failed)?;
+    fs.write_atomic(&backup, &bytes, Perms::Exact(mode))
+        .map_err(failed)?;
+    Ok(backup)
+}
+
+/// Where the store at `path` is backed up to at `at`, before migrating:
+/// `<path>.pre-migrate-<UTC instant>`, the instant to the nanosecond and
+/// with no colon, so it is a file name on every host.
+fn backup_path(path: &Path, at: time::OffsetDateTime) -> PathBuf {
+    let at = at.to_offset(time::UtcOffset::UTC);
+    let mut backup = path.as_os_str().to_owned();
+    backup.push(format!(
+        ".pre-migrate-{:04}{:02}{:02}T{:02}{:02}{:02}.{:09}Z",
+        at.year(),
+        u8::from(at.month()),
+        at.day(),
+        at.hour(),
+        at.minute(),
+        at.second(),
+        at.nanosecond()
+    ));
+    PathBuf::from(backup)
 }
 
 /// `error` as angzarr-embedded's diagnostics report it: its code, and its
