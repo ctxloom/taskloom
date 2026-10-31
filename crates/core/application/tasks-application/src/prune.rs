@@ -26,8 +26,8 @@ use std::fmt;
 use std::future::Future;
 
 use crate::DeadLetter;
-use angzarr_embedded::next::{Purge, ReadStore, Registry, Store, StreamRef};
-use angzarr_embedded_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_embedded::{Purge, ReadStore, Registry, Store, StreamRef};
 use ports::{
     Clock, CommandIds, Configuration, Delay, Jitter, ProjectIdentity, TaskStores, Timestamp,
 };
@@ -146,7 +146,7 @@ pub enum PruneRefusal {
 
 impl fmt::Display for PruneRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_embedded_diagnostic::display(self, f)
+        angzarr_diagnostic::display(self, f)
     }
 }
 

@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_embedded_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_diagnostic::{Arg, Diagnostic, Report};
 
 /// Why a project use case did not complete. [`ProjectError::Port`] is the
 /// port's own diagnostic: its code, args and English.
@@ -21,7 +21,7 @@ pub enum ProjectError {
 
 impl fmt::Display for ProjectError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_embedded_diagnostic::display(self, f)
+        angzarr_diagnostic::display(self, f)
     }
 }
 

@@ -9,7 +9,7 @@ publish.workspace = true
 
 [dependencies]
 prost-types.workspace = true
-angzarr-embedded-diagnostic.workspace = true
+angzarr-diagnostic.workspace = true
 expr-lang.workspace = true
 tasks.workspace = true
 

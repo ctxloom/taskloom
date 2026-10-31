@@ -18,7 +18,7 @@
 //! - one `#[applies]` per event, assigning what the event carries;
 //! - no snapshot: a task's stream is short, and every load replays it.
 
-use angzarr_embedded::next::markup::{Context, Failed};
+use angzarr_embedded::markup::{Context, Failed};
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd};
 
 use crate::{

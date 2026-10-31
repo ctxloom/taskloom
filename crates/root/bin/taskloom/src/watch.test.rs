@@ -248,15 +248,15 @@ mod ticked {
     use std::sync::Arc;
     use std::task::Poll;
 
-    use angzarr_embedded::next::v1::event_meta::Causation;
-    use angzarr_embedded::next::v1::{
+    use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
+    use angzarr_embedded::v1::event_meta::Causation;
+    use angzarr_embedded::v1::{
         command_page, Command, CommandBook, CommandPage, Cover, EventMeta, EventPage, Uuid,
     };
-    use angzarr_embedded::next::{
+    use angzarr_embedded::{
         ids, Any, EventStore, Kernel, MemoryDeadLetters, Payload, Purge, Sampled, StreamRef,
         Timestamp, Write,
     };
-    use angzarr_store_sqlite::SqliteStore;
     use harp_names::HarpNames;
     use ports::{Project, ProjectIdentity};
     use system::System;
@@ -269,24 +269,19 @@ mod ticked {
     struct Here(Project);
 
     impl ProjectIdentity for Here {
-        fn for_write(
-            &mut self,
-            _: Option<&str>,
-        ) -> Result<Project, angzarr_embedded_diagnostic::Report> {
+        fn for_write(&mut self, _: Option<&str>) -> Result<Project, angzarr_diagnostic::Report> {
             Ok(self.0.clone())
         }
         fn for_read(
             &mut self,
             _: Option<&str>,
-        ) -> Result<Option<Project>, angzarr_embedded_diagnostic::Report> {
+        ) -> Result<Option<Project>, angzarr_diagnostic::Report> {
             Ok(Some(self.0.clone()))
         }
-        fn every_project(&mut self) -> Result<Vec<Project>, angzarr_embedded_diagnostic::Report> {
+        fn every_project(&mut self) -> Result<Vec<Project>, angzarr_diagnostic::Report> {
             Ok(vec![self.0.clone()])
         }
-        fn rootless_directory(
-            &mut self,
-        ) -> Result<Option<String>, angzarr_embedded_diagnostic::Report> {
+        fn rootless_directory(&mut self) -> Result<Option<String>, angzarr_diagnostic::Report> {
             Ok(None)
         }
     }

@@ -2,8 +2,8 @@
 //! the kernel as the binary runs them over SQLite.
 
 use crate::english::English;
-use angzarr_embedded::next::v1::event_meta::Causation;
-use angzarr_embedded_diagnostic::{Diagnostic, Report};
+use angzarr_diagnostic::{Diagnostic, Report};
+use angzarr_embedded::v1::event_meta::Causation;
 
 use crate::fakes::{
     project, ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores, Fault,
@@ -45,7 +45,7 @@ fn listed(service: &mut Fake, query: ListQuery) -> Vec<String> {
 }
 
 /// The command ids recorded on `harp`'s events.
-fn command_ids(service: &mut Fake, harp: &str) -> Vec<angzarr_embedded::next::v1::Uuid> {
+fn command_ids(service: &mut Fake, harp: &str) -> Vec<angzarr_embedded::v1::Uuid> {
     let slice = ready(service.stores.store.read_from(&cover(harp), 0))
         .unwrap()
         .expect("the stream");
@@ -715,7 +715,7 @@ fn add_unchecked(service: &mut Configured, tag: &str) {
         dead_letters: &service.dead_letters,
     };
     let book = crate::book("swift-amber", add.into());
-    let id = angzarr_embedded::next::v1::Uuid::from_bytes([7; 16]);
+    let id = angzarr_embedded::v1::Uuid::from_bytes([7; 16]);
     ready(runner.run(&service.stores.store, &book, &id)).unwrap();
 }
 
@@ -1371,7 +1371,7 @@ fn test_a_task_read_back_as_no_events_is_never_a_blank_task() {
 // routes, can be made to produce none. So each test writes one to the log
 // the kernel is handed, as the kernel would during the write.
 fn dead_letter(service: &Fake, line: &str) {
-    angzarr_embedded::next::DeadLetterLog::write(&service.dead_letters, line);
+    angzarr_embedded::DeadLetterLog::write(&service.dead_letters, line);
 }
 
 fn letters(lines: &[&str]) -> Vec<crate::DeadLetter> {
@@ -1745,9 +1745,9 @@ fn test_a_blank_request_id_is_refused_before_anything_is_read() {
 // ------------------------------------------------------- the seed's race
 
 /// Another process seeding `store`'s schema stream with `tag` alone.
-fn seeded_meanwhile(store: &angzarr_embedded::next::angzarr_ports::memory::MemoryStore, tag: &str) {
-    use angzarr_embedded::next::v1::{command_page, Command, CommandBook, CommandPage, Cover};
-    use angzarr_embedded::next::{Kernel, MemoryDeadLetters, Payload, Sampled};
+fn seeded_meanwhile(store: &angzarr_embedded::angzarr_ports::memory::MemoryStore, tag: &str) {
+    use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover};
+    use angzarr_embedded::{Kernel, MemoryDeadLetters, Payload, Sampled};
     let registry = crate::registry();
     let dead_letters = MemoryDeadLetters::new();
     let declare = tasks::schema::Declare {
@@ -1773,7 +1773,7 @@ fn seeded_meanwhile(store: &angzarr_embedded::next::angzarr_ports::memory::Memor
             seconds: 1_700_000_000,
             nanos: 0,
         },
-        command_id: angzarr_embedded::next::v1::Uuid::from_bytes([0xee; 16]),
+        command_id: angzarr_embedded::v1::Uuid::from_bytes([0xee; 16]),
     };
     ready(
         Kernel::new(&registry, &dead_letters)
@@ -1785,7 +1785,7 @@ fn seeded_meanwhile(store: &angzarr_embedded::next::angzarr_ports::memory::Memor
 
 /// The events on `service`'s store's schema stream.
 fn schema_events(service: &mut Fake) -> usize {
-    let cover = angzarr_embedded::next::v1::Cover {
+    let cover = angzarr_embedded::v1::Cover {
         domain: tasks::schema::SCHEMA_DOMAIN.to_string(),
         root: Some(tasks::schema::schema_root()),
         edition: None,

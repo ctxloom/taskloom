@@ -1,6 +1,6 @@
 //! The errors' keys and args, and the catalog.
 
-use angzarr_embedded_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{Arg, Diagnostic};
 
 use super::{diagnostic_samples, StoreOpenError};
 
@@ -9,7 +9,7 @@ fn arg_names(d: &dyn Diagnostic) -> Vec<&str> {
 }
 
 // RED, step 3c of taskloom-on-angzarr-embedded.plan.md: on
-// angzarr-embedded-diagnostic an error's `Display` is its key and its
+// angzarr-diagnostic an error's `Display` is its key and its
 // args, a text value quoted where it would not parse back, never English
 // (angzarr decision 14.37); a third party's text (the OS's, through std's
 // io::Error) is the arg `ext_err_txt`, as angzarr-store-sqlite carries
@@ -109,7 +109,7 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
         // Display is the key and args, never English (decision 14.37).
         assert_eq!(
             sample.to_string(),
-            angzarr_embedded_diagnostic::Report::of(&*sample).to_string(),
+            angzarr_diagnostic::Report::of(&*sample).to_string(),
             "{}",
             sample.code()
         );

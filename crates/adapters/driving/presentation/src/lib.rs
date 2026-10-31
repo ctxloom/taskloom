@@ -4,7 +4,7 @@
 //! [`Format::Text`] (UTF-8) for a person, and renders diagnostics from
 //! Fluent catalogs.
 //!
-//! It is domain-free (no ctxloom crate but `angzarr-embedded-diagnostic`; its tests
+//! It is domain-free (no ctxloom crate but `angzarr-diagnostic`; its tests
 //! hold it to that), so any binary reuses it. A domain's shapes and views
 //! live with that domain's driving adapter and implement [`Render`].
 //!

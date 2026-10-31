@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use angzarr_embedded_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_diagnostic::{Arg, Diagnostic, Report};
 use file_system::{Fs, Perms, Rooted};
 use os::Mode;
 use ports::PlanFiles;

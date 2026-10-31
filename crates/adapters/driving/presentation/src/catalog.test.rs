@@ -1,6 +1,6 @@
 //! Messages from catalogs, and the code and args when there is none.
 
-use angzarr_embedded_diagnostic::Report;
+use angzarr_diagnostic::Report;
 
 use super::Catalog;
 use crate::Unrendered;
@@ -32,7 +32,7 @@ fn test_a_message_is_the_catalogs_filled_from_the_args_without_isolation_marks()
 fn test_a_nested_cause_is_rendered_from_the_catalog_too() {
     let gave_up = Report::new("demo-gave-up")
         .arg("attempts", 10u32)
-        .arg("error", angzarr_embedded_diagnostic::Arg::nested(&busy()));
+        .arg("error", angzarr_diagnostic::Arg::nested(&busy()));
     assert_eq!(
         catalog().message(&gave_up),
         "gave up after 10 attempts: the store /db is busy"
@@ -41,7 +41,7 @@ fn test_a_nested_cause_is_rendered_from_the_catalog_too() {
 
 // RED, step 3c of taskloom-on-angzarr-embedded.plan.md: no English
 // crosses. A diagnostic no catalog has a message for is shown as its key
-// and args (angzarr decision 14.37, as angzarr-embedded-diagnostic's
+// and args (angzarr decision 14.37, as angzarr-diagnostic's
 // `display` writes it), never the English its `Display` carries today: a
 // text value is quoted where it would not parse back, a nested cause is
 // its code under the arg's name and its own args under `<name>.`.
@@ -50,7 +50,7 @@ fn test_a_nested_cause_is_rendered_from_the_catalog_too() {
 fn test_a_nested_cause_no_catalog_has_is_its_code_and_args() {
     let gave_up = Report::new("demo-gave-up").arg("attempts", 10u32).arg(
         "error",
-        angzarr_embedded_diagnostic::Arg::nested(
+        angzarr_diagnostic::Arg::nested(
             &Report::new("angzarr-store-sqlite-unavailable")
                 .arg("errno", 10u64)
                 .arg("ext_err_txt", "disk I/O error"),
@@ -85,7 +85,7 @@ fn test_an_unknown_codes_message_is_its_code_and_args_ambiguous_values_quoted() 
         .arg("empty", "")
         .arg("said", r#"a "b" \ c=d"#)
         .arg("n", -3i64)
-        .arg("cause", angzarr_embedded_diagnostic::Arg::nested(&inner));
+        .arg("cause", angzarr_diagnostic::Arg::nested(&inner));
     assert_eq!(
         catalog().message(&unknown),
         r#"demo-nothing path=/db empty="" said="a \"b\" \\ c=d" n=-3 cause=demo-inner cause.path="/a b""#
@@ -105,7 +105,7 @@ fn test_a_missing_arg_is_unformattable_and_its_message_is_its_code_and_args() {
     assert_eq!(catalog().message(&bare), "demo-busy");
 }
 
-fn events(n: impl Into<angzarr_embedded_diagnostic::Arg>) -> String {
+fn events(n: impl Into<angzarr_diagnostic::Arg>) -> String {
     let report = Report::new("demo-events").arg("n", n);
     catalog().render(&report).unwrap()
 }

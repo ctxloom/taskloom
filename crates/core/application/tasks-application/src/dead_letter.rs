@@ -10,8 +10,8 @@
 use std::fmt;
 use std::sync::{Mutex, PoisonError};
 
-use angzarr_embedded::next::DeadLetterLog;
-use angzarr_embedded_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded::DeadLetterLog;
 
 use crate::AppError;
 
@@ -24,7 +24,7 @@ pub struct DeadLetter {
 
 impl fmt::Display for DeadLetter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_embedded_diagnostic::display(self, f)
+        angzarr_diagnostic::display(self, f)
     }
 }
 

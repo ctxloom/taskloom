@@ -10,7 +10,7 @@ use std::task::{Context as TaskContext, Poll, Waker};
 
 crate::english_for!(&[crate::EN_US.1]);
 
-use angzarr_embedded_diagnostic::Report;
+use angzarr_diagnostic::Report;
 use tasks_application::{
     AppError, Details, Finding, Hidden, ImportReport, ImportRequest, ImportService, LintReport,
     ListQuery, Listing, NewTask, PermitChange, PermitList, PermitService, Permitted, PriorityNote,
@@ -1941,7 +1941,7 @@ fn test_import_that_left_records_behind_fails_after_saying_which() {
 #[test]
 fn test_import_that_stopped_in_a_project_fails() {
     let mut stopped = imported(0);
-    stopped.failed = Some(angzarr_embedded_diagnostic::Report::new("x-bad"));
+    stopped.failed = Some(angzarr_diagnostic::Report::new("x-bad"));
     let mut fake = FakeImporter {
         report: report(vec![stopped, imported(0)]),
         ..FakeImporter::default()
@@ -2236,9 +2236,8 @@ fn test_a_prune_where_there_is_no_project_says_so_on_stderr() {
 
 #[test]
 fn test_a_refused_prune_says_why_and_exits_1() {
-    let refusal =
-        angzarr_embedded_diagnostic::Report::new("tasks-application-prune-age-unreadable")
-            .arg("age", "soon");
+    let refusal = angzarr_diagnostic::Report::new("tasks-application-prune-age-unreadable")
+        .arg("age", "soon");
     let mut fake = Fake {
         pruning: Some(Err(AppError::Prune(refusal))),
         ..Fake::default()

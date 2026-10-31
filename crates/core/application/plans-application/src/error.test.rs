@@ -22,7 +22,7 @@ fn every_rejection_has_a_catalog_message_with_exactly_its_args() {
     for sample in samples {
         assert_eq!(
             sample.to_string(),
-            angzarr_embedded_diagnostic::Report::of(&*sample).to_string(),
+            angzarr_diagnostic::Report::of(&*sample).to_string(),
             "{}",
             sample.code()
         );
@@ -67,7 +67,7 @@ fn every_code_is_prefixed_with_the_crates_name() {
 
 #[test]
 fn a_wrapper_is_its_causes_diagnostic() {
-    use angzarr_embedded_diagnostic::Diagnostic;
+    use angzarr_diagnostic::Diagnostic;
 
     use crate::{PathError, PlanError, PlanRejection};
 
@@ -79,7 +79,7 @@ fn a_wrapper_is_its_causes_diagnostic() {
         path.to_string(),
         "plans-application-not-a-plan-file path=x.md"
     );
-    let report = angzarr_embedded_diagnostic::Report::new("x-busy");
+    let report = angzarr_diagnostic::Report::new("x-busy");
     for wrapper in [
         PlanError::NoWorkRoot(report.clone()),
         PlanError::Identity(report.clone()),

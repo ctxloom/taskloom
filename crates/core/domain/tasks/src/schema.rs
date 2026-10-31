@@ -19,10 +19,10 @@
 
 use std::fmt;
 
-use angzarr_embedded::next::markup::{Context, Failed};
-use angzarr_embedded::next::v1::Uuid;
-use angzarr_embedded::next::{ids, WireError};
-use angzarr_embedded_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded::markup::{Context, Failed};
+use angzarr_embedded::v1::Uuid;
+use angzarr_embedded::{ids, WireError};
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd};
 
 use crate::{normalized, Tag};
@@ -88,7 +88,7 @@ pub enum SchemaRejection {
 /// Its key and args, never English (angzarr decision 14.37).
 impl fmt::Display for SchemaRejection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_embedded_diagnostic::display(self, f)
+        angzarr_diagnostic::display(self, f)
     }
 }
 

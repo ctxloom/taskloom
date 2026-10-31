@@ -49,9 +49,9 @@ mod error;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use angzarr_embedded_diagnostic::Report;
+use angzarr_diagnostic::Report;
+use angzarr_embedded::angzarr_store_sqlite::{Integrity, SqlError, SqliteStore};
 use angzarr_ports::{StoreError, Watch};
-use angzarr_store_sqlite::{Integrity, SqlError, SqliteStore};
 use file_system::Fs;
 use os::Mode;
 use ports::{Checked, HeldToken, Project, StoreCheck, TaskStores, WatchedStores};
@@ -236,7 +236,7 @@ fn report(error: &StoreError) -> Report {
     ported(&angzarr_ports::Cause::new(error.code(), error.args()))
 }
 
-/// angzarr-ports' cause as angzarr-embedded-diagnostic's report.
+/// angzarr-ports' cause as angzarr-diagnostic's report.
 fn ported(cause: &angzarr_ports::Cause) -> Report {
     cause
         .args
@@ -244,10 +244,9 @@ fn ported(cause: &angzarr_ports::Cause) -> Report {
         .fold(Report::new(cause.code), |report, (name, arg)| match arg {
             angzarr_ports::Arg::Uint(n) => report.arg(*name, *n),
             angzarr_ports::Arg::Str(s) => report.arg(*name, s.as_str()),
-            angzarr_ports::Arg::Cause(c) => report.arg(
-                *name,
-                angzarr_embedded_diagnostic::Arg::Nested(Box::new(ported(c))),
-            ),
+            angzarr_ports::Arg::Cause(c) => {
+                report.arg(*name, angzarr_diagnostic::Arg::Nested(Box::new(ported(c))))
+            }
         })
 }
 

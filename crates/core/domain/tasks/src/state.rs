@@ -1,6 +1,6 @@
 //! The task, folded from its events, and its wire form.
 
-use angzarr_embedded::next::{Timestamp, WireError};
+use angzarr_embedded::{Timestamp, WireError};
 
 use crate::Tag;
 

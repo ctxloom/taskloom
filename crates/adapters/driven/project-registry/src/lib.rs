@@ -34,7 +34,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use angzarr_embedded_diagnostic::Report;
+use angzarr_diagnostic::Report;
 use file_system::Fs;
 use ports::{IdSource, Names, Project, ProjectIdentity};
 

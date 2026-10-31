@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use angzarr_embedded_diagnostic::Report;
+use angzarr_diagnostic::Report;
 
 /// Where a resolved project id came from, in the order resolution tries
 /// them.

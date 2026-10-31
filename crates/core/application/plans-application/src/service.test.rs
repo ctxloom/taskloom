@@ -7,9 +7,9 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
-use angzarr_embedded::next::angzarr_ports::memory::MemoryStore;
-use angzarr_embedded::next::{Kernel, MemoryDeadLetters, Payload, Sampled};
-use angzarr_embedded_diagnostic::{Diagnostic, Report};
+use angzarr_diagnostic::{Diagnostic, Report};
+use angzarr_embedded::angzarr_ports::memory::MemoryStore;
+use angzarr_embedded::{Kernel, MemoryDeadLetters, Payload, Sampled};
 use plans::{PlanCommand, PlanRejection};
 use ports::{Mint, PlanFiles, Tasks, Timestamp, Uuid};
 
@@ -134,8 +134,8 @@ fn other_process(store: &MemoryStore, harp: &str, command: PlanCommand) {
     };
     let head = {
         let cover = super::cover(harp);
-        let at = angzarr_embedded::next::StreamRef::try_from(&cover).unwrap();
-        ready(angzarr_embedded::next::EventStore::read(store, at, 0, None))
+        let at = angzarr_embedded::StreamRef::try_from(&cover).unwrap();
+        ready(angzarr_embedded::EventStore::read(store, at, 0, None))
             .unwrap()
             .next_sequence
     };
@@ -465,7 +465,7 @@ fn a_registered_plan_governs_by_its_command_and_its_event_names_it() {
     assert_eq!(sent.handling.unwrap().expected_sequence, Some(3));
     assert_eq!(sent.cover, Some(super::cover("plan-1")));
     let page = sent.page.unwrap();
-    let Some(angzarr_embedded::next::v1::command_page::Body::Command(body)) = page.body else {
+    let Some(angzarr_embedded::v1::command_page::Body::Command(body)) = page.body else {
         panic!("a command page");
     };
     assert_eq!(PlanCommand::from_any(&body.payload.unwrap()), Ok(command));

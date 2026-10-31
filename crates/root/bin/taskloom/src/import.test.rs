@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use angzarr_embedded::next::{EventStore, Stream, StreamRef, Timestamp};
+use angzarr_embedded::{EventStore, Stream, StreamRef, Timestamp};
 use ports::{Project, TaskStores};
 use serde_json::Value;
 use task_store_sqlite::SqliteStores;

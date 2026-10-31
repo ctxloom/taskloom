@@ -5,8 +5,8 @@ use crate::english::English;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use angzarr_embedded::next::Stream;
-use angzarr_embedded_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_embedded::Stream;
 use ports::Timestamp;
 use ports::{JsonlOp, JsonlRecord, JsonlTaskLogs};
 use tasks::{TaskAggregate, TaskState};
@@ -769,9 +769,9 @@ fn test_a_record_imports_under_the_command_id_its_line_derives() {
     let mut service = service(vec![add]);
     import(&mut service);
     let cover = cover(HARP);
-    let stream = angzarr_embedded::next::StreamRef::try_from(&cover).unwrap();
-    let id = angzarr_embedded::next::angzarr_ports::Uuid::try_from(&id).unwrap();
-    let found = ready(angzarr_embedded::next::EventStore::find_command(
+    let stream = angzarr_embedded::StreamRef::try_from(&cover).unwrap();
+    let id = angzarr_embedded::angzarr_ports::Uuid::try_from(&id).unwrap();
+    let found = ready(angzarr_embedded::EventStore::find_command(
         &service.stores.store.inner,
         stream,
         id,
@@ -786,7 +786,7 @@ fn test_a_command_id_is_the_lines_and_only_its() {
     assert_ne!(record_command_id("a"), record_command_id("b"));
     assert_ne!(
         record_command_id("a"),
-        angzarr_embedded::next::ids::fact_command_id("a"),
+        angzarr_embedded::ids::fact_command_id("a"),
         "prefixed, so no other fact's id"
     );
 }
@@ -795,7 +795,7 @@ fn test_a_command_id_is_the_lines_and_only_its() {
 fn test_a_command_id_keeps_the_prefix_imported_stores_already_hold() {
     assert_eq!(
         record_command_id("a"),
-        angzarr_embedded::next::ids::fact_command_id("ctxloom-go-task-log:a"),
+        angzarr_embedded::ids::fact_command_id("ctxloom-go-task-log:a"),
         "a store imported before the rename finds its records again"
     );
 }
@@ -1006,7 +1006,7 @@ fn spelled(tags: &[tasks::Tag]) -> Vec<String> {
 #[test]
 fn test_an_import_returns_the_dead_letters_written_while_it_ran() {
     let mut service = service(vec![add("swift-amber", "Ship it", 1)]);
-    angzarr_embedded::next::DeadLetterLog::write(&service.dead_letters, "DEAD LETTER: import");
+    angzarr_embedded::DeadLetterLog::write(&service.dead_letters, "DEAD LETTER: import");
     let report = import(&mut service);
     let line = "DEAD LETTER: import".to_string();
     assert_eq!(report.dead_letters, [crate::DeadLetter { line }]);

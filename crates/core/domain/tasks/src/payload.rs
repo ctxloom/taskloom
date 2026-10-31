@@ -1,8 +1,8 @@
 //! The task's and the schema's commands and events as payloads: packed as `Any` by their wire
 //! types' names, and read back.
 
-use angzarr_embedded::next::markup::DomainMessage;
-use angzarr_embedded::next::{decode_as, pack, type_name, Any, Payload, PayloadError, WireError};
+use angzarr_embedded::markup::DomainMessage;
+use angzarr_embedded::{decode_as, pack, type_name, Any, Payload, PayloadError, WireError};
 use prost::{Message, Name};
 
 use crate::{

@@ -12,8 +12,8 @@
 //! - one `#[applies]` per event, folding it with [`apply`](crate::apply);
 //! - no snapshot: a plan's stream is short, and every load replays it.
 
-use angzarr_embedded::next::ids;
-use angzarr_embedded::next::markup::{Context, Failed};
+use angzarr_embedded::ids;
+use angzarr_embedded::markup::{Context, Failed};
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd};
 
 use crate::generated::{

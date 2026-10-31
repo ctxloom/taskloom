@@ -13,13 +13,13 @@ use std::sync::Mutex;
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
-use angzarr_embedded::next::angzarr_ports::memory::MemoryStore;
-use angzarr_embedded::next::v1::{Cover, EventPage, Snapshot};
-use angzarr_embedded::next::{
+use angzarr_diagnostic::Report;
+use angzarr_embedded::angzarr_ports::memory::MemoryStore;
+use angzarr_embedded::v1::{Cover, EventPage, Snapshot};
+use angzarr_embedded::{
     ChangeToken, EventStore, PositionKey, PositionStore, Purge, ReadStore, Slice, SnapshotStore,
     StoreError, StreamRef, Watch, Write, Written,
 };
-use angzarr_embedded_diagnostic::Report;
 use ports::{
     Clock, CommandIds, Delay, Jitter, Mint, PlanFiles, Project, ProjectIdentity, TaskStores, Tasks,
     Timestamp, Uuid,
@@ -113,7 +113,7 @@ impl EventStore for Store {
             if *failing > 0 {
                 *failing -= 1;
                 return Err(StoreError::Unavailable(
-                    angzarr_embedded::next::angzarr_ports::Cause::new("fake-busy", []),
+                    angzarr_embedded::angzarr_ports::Cause::new("fake-busy", []),
                 ));
             }
         }
@@ -136,7 +136,7 @@ impl EventStore for Store {
     async fn find_command(
         &self,
         stream: StreamRef<'_>,
-        command_id: angzarr_embedded::next::angzarr_ports::Uuid,
+        command_id: angzarr_embedded::angzarr_ports::Uuid,
     ) -> Result<Vec<EventPage>, StoreError> {
         self.inner.find_command(stream, command_id).await
     }

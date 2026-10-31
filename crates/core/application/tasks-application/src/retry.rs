@@ -25,16 +25,16 @@
 
 use std::time::Duration;
 
-use angzarr_embedded::next::v1::{CommandBook, Cover, Handling, Uuid};
+use angzarr_embedded::v1::{CommandBook, Cover, Handling, Uuid};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Mutex, PoisonError};
 
-use angzarr_embedded::next::{
+use angzarr_diagnostic::Report;
+use angzarr_embedded::{
     DeadLetterLog, Domain, EventStore, Failure, Kernel, KernelError, OnRetryable, Purge, Recovery,
     Registry, Rejected, Sampled, Store, StoreError, Stream, StreamRef, Wait,
 };
-use angzarr_embedded_diagnostic::Report;
 use ports::{Clock, Delay, Jitter};
 use tasks::{TaskAggregate, TaskState};
 
@@ -167,7 +167,7 @@ pub(crate) enum Outcome {
 impl Outcome {
     /// Whether it was refused under `code`.
     pub(crate) fn refused_as(&self, code: &str) -> bool {
-        matches!(self, Outcome::Refused(report) if angzarr_embedded_diagnostic::Diagnostic::code(report) == code)
+        matches!(self, Outcome::Refused(report) if angzarr_diagnostic::Diagnostic::code(report) == code)
     }
 }
 

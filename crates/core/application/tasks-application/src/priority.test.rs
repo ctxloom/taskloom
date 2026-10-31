@@ -3,7 +3,7 @@
 //! and the warnings a ranking that means little earns.
 
 use crate::english::English;
-use angzarr_embedded_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{Arg, Diagnostic};
 use ports::Timestamp;
 use task_priority::{Diagnostics, Ranking, TargetCoverage, MAX};
 
@@ -335,7 +335,7 @@ fn test_each_warning_renders_go_s_english() {
         assert_eq!(warning.english(), english);
         assert_eq!(
             warning.to_string(),
-            angzarr_embedded_diagnostic::Report::of(&warning).to_string(),
+            angzarr_diagnostic::Report::of(&warning).to_string(),
             "its Display is its key and args"
         );
     }

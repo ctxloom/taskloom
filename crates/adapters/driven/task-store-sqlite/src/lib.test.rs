@@ -8,13 +8,13 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use angzarr_embedded_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
 use angzarr_ports::angzarr_proto::v1::event_meta::Causation;
 use angzarr_ports::angzarr_proto::v1::{EventMeta, EventPage, Uuid};
 use angzarr_ports::{
     EventStore, PositionKey, PositionStore, Purge, StoreError, StreamRef, Watch, Write,
 };
-use angzarr_store_sqlite::SqliteStore;
 use file_system::{Fs, Os, Perms, Rooted};
 use os::Mode;
 use ports::{Checked, Project, StoreCheck, TaskStores, WatchedStores};

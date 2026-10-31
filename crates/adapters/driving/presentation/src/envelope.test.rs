@@ -1,7 +1,7 @@
 //! A diagnostic's JSON.
 
 use crate::Catalog;
-use angzarr_embedded_diagnostic::{Arg, Report};
+use angzarr_diagnostic::{Arg, Report};
 
 const DEMO: crate::Source = (
     "demo",

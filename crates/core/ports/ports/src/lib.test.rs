@@ -1,6 +1,6 @@
 //! The little the ports hold besides traits.
 
-use angzarr_embedded_diagnostic::Report;
+use angzarr_diagnostic::Report;
 
 use crate::{Configuration, ConfigurationWriter, JsonlOp, Mint, PlanFiles, TagPermits, Tasks};
 

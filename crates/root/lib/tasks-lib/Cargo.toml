@@ -8,10 +8,9 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-angzarr-embedded-diagnostic.workspace = true
+angzarr-diagnostic.workspace = true
 # Their catalogs, in the wiring's (`catalog`).
-angzarr-embedded.workspace = true
-angzarr-store-sqlite.workspace = true
+angzarr-embedded = { workspace = true, features = ["sqlite"] }
 file-lock.workspace = true
 file-system.workspace = true
 harp-names.workspace = true
@@ -32,7 +31,6 @@ tasks-config.workspace = true
 fluent-bundle.workspace = true
 # The runtime's and its store's keys, for the catalog's test.
 angzarr-ports.workspace = true
-angzarr-store-sqlite.workspace = true
 fluent-syntax.workspace = true
 project-cli = { workspace = true, features = ["test-support"] }
 tokio.workspace = true

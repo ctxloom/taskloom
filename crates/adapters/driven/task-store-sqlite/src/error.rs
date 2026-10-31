@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use angzarr_embedded_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum StoreOpenError {
@@ -24,10 +24,10 @@ pub enum StoreOpenError {
 
 /// Its key, then each arg as ` name=value`, a value quoted where it would
 /// not parse back: never English (angzarr decision 14.37), as
-/// angzarr-embedded-diagnostic's errors display themselves.
+/// angzarr-diagnostic's errors display themselves.
 impl fmt::Display for StoreOpenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_embedded_diagnostic::display(self, f)
+        angzarr_diagnostic::display(self, f)
     }
 }
 

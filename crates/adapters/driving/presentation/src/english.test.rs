@@ -7,7 +7,7 @@
 
 #![allow(dead_code)]
 
-use angzarr_embedded_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{Arg, Diagnostic};
 use fluent_bundle::{FluentArgs, FluentBundle, FluentResource, FluentValue};
 
 /// `d`'s en-US message from `catalogs`.
@@ -52,7 +52,7 @@ macro_rules! english_for {
             fn english(&self) -> String;
         }
 
-        impl<D: angzarr_embedded_diagnostic::Diagnostic + ?Sized> English for D {
+        impl<D: angzarr_diagnostic::Diagnostic + ?Sized> English for D {
             fn english(&self) -> String {
                 $crate::english::english_in($catalogs, &Wrapped(self))
             }
@@ -62,29 +62,25 @@ macro_rules! english_for {
         #[allow(dead_code)]
         struct Wrapped<'d, D: ?Sized>(&'d D);
 
-        impl<D: angzarr_embedded_diagnostic::Diagnostic + ?Sized> std::fmt::Debug
-            for Wrapped<'_, D>
-        {
+        impl<D: angzarr_diagnostic::Diagnostic + ?Sized> std::fmt::Debug for Wrapped<'_, D> {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 std::fmt::Debug::fmt(self.0, f)
             }
         }
 
-        impl<D: angzarr_embedded_diagnostic::Diagnostic + ?Sized> std::fmt::Display
-            for Wrapped<'_, D>
-        {
+        impl<D: angzarr_diagnostic::Diagnostic + ?Sized> std::fmt::Display for Wrapped<'_, D> {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 std::fmt::Display::fmt(self.0, f)
             }
         }
 
-        impl<D: angzarr_embedded_diagnostic::Diagnostic + ?Sized>
-            angzarr_embedded_diagnostic::Diagnostic for Wrapped<'_, D>
+        impl<D: angzarr_diagnostic::Diagnostic + ?Sized> angzarr_diagnostic::Diagnostic
+            for Wrapped<'_, D>
         {
             fn code(&self) -> &str {
                 self.0.code()
             }
-            fn args(&self) -> Vec<(&str, angzarr_embedded_diagnostic::Arg)> {
+            fn args(&self) -> Vec<(&str, angzarr_diagnostic::Arg)> {
                 self.0.args()
             }
         }

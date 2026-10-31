@@ -11,7 +11,7 @@ use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
-use angzarr_embedded_diagnostic::Report;
+use angzarr_diagnostic::Report;
 use presentation::{Catalog, Format};
 use serde_json::Value;
 use tasks_application::{AppError, Project, Watch, WatchRequest, WatchService};

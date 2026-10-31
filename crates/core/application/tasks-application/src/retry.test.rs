@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use angzarr_embedded_diagnostic::Diagnostic;
+use angzarr_diagnostic::Diagnostic;
 
 use super::{Backoff, Outcome, Ported, Runner, DRAW_SCALE};
 use crate::fakes::{ready, FakeClock, FakeDelay, Fault, Flaky};
@@ -65,7 +65,7 @@ fn run_as(
 ) -> Result<Outcome, AppError> {
     let registry = registry();
     let mut clock = FakeClock::default();
-    let command_id = angzarr_embedded::next::v1::Uuid::from_bytes([id; 16]);
+    let command_id = angzarr_embedded::v1::Uuid::from_bytes([id; 16]);
     let add = AddTask {
         harp_id: "swift-amber".to_string(),
         text: "Ship it".to_string(),
@@ -86,7 +86,7 @@ fn run_as(
             cap: 30 * MS,
             attempts,
         },
-        dead_letters: &angzarr_embedded::next::MemoryDeadLetters::new(),
+        dead_letters: &angzarr_embedded::MemoryDeadLetters::new(),
     };
     ready(runner.run(store, &book, &command_id))
 }
@@ -224,7 +224,7 @@ fn test_a_rejection_is_answered_not_retried() {
 
 /// A runner over `registry`, `clock` and `delay`, 5 attempts.
 fn runner<'a>(
-    registry: &'a angzarr_embedded::next::Registry,
+    registry: &'a angzarr_embedded::Registry,
     clock: &'a mut FakeClock,
     delay: &'a mut FakeDelay,
 ) -> Runner<'a, FakeClock, FakeDelay> {
@@ -238,11 +238,11 @@ fn runner<'a>(
             attempts: 5,
         },
         // None is written here; leaked, so the runner may outlive this.
-        dead_letters: Box::leak(Box::new(angzarr_embedded::next::MemoryDeadLetters::new())),
+        dead_letters: Box::leak(Box::new(angzarr_embedded::MemoryDeadLetters::new())),
     }
 }
 
-fn removal() -> angzarr_embedded::next::v1::CommandBook {
+fn removal() -> angzarr_embedded::v1::CommandBook {
     let remove = tasks::RemoveTask {
         reason: tasks::RemovalReason::Pruned,
     };
@@ -256,7 +256,7 @@ fn test_a_command_whose_condition_fails_on_the_task_read_in_its_unit_is_not_sent
     run(&mut store, &mut delay, 3).unwrap();
     let registry = registry();
     let mut clock = FakeClock::default();
-    let command_id = angzarr_embedded::next::v1::Uuid::from_bytes([9; 16]);
+    let command_id = angzarr_embedded::v1::Uuid::from_bytes([9; 16]);
     let mut runner = runner(&registry, &mut clock, &mut delay);
     let other = |task: &tasks::TaskState| task.text == "Something else";
     let outcome = ready(runner.run_where(&store, &removal(), &command_id, Some(&other)));
@@ -277,7 +277,7 @@ fn test_a_condition_reads_through_a_unit_that_can_fail_and_be_retried() {
     store.fail([Fault::Unavailable]);
     let registry = registry();
     let mut clock = FakeClock::default();
-    let command_id = angzarr_embedded::next::v1::Uuid::from_bytes([9; 16]);
+    let command_id = angzarr_embedded::v1::Uuid::from_bytes([9; 16]);
     let mut runner = runner(&registry, &mut clock, &mut delay);
     let any = |_: &tasks::TaskState| true;
     let outcome = ready(runner.run_where(&store, &removal(), &command_id, Some(&any)));
@@ -296,7 +296,7 @@ fn test_a_purge_deletes_a_removed_tasks_stream_and_says_how_many_events() {
     run(&mut store, &mut delay, 3).unwrap();
     let registry = registry();
     let mut clock = FakeClock::default();
-    let command_id = angzarr_embedded::next::v1::Uuid::from_bytes([9; 16]);
+    let command_id = angzarr_embedded::v1::Uuid::from_bytes([9; 16]);
     let mut runner = runner(&registry, &mut clock, &mut delay);
     ready(runner.run(&store, &removal(), &command_id)).unwrap();
     let stream = crate::cover("swift-amber");
@@ -330,7 +330,7 @@ fn test_a_purge_gives_up_once_its_attempts_are_spent() {
     run(&mut store, &mut delay, 3).unwrap();
     let registry = registry();
     let mut clock = FakeClock::default();
-    let command_id = angzarr_embedded::next::v1::Uuid::from_bytes([9; 16]);
+    let command_id = angzarr_embedded::v1::Uuid::from_bytes([9; 16]);
     let mut runner = runner(&registry, &mut clock, &mut delay);
     ready(runner.run(&store, &removal(), &command_id)).unwrap();
     runner.delay.slept.clear();
@@ -351,12 +351,12 @@ fn test_a_purge_gives_up_once_its_attempts_are_spent() {
 fn test_the_kernel_retries_under_taskloom_s_default_backoff() {
     assert_eq!(
         super::KERNEL_RETRY.max_race_runs,
-        angzarr_embedded::next::DEFAULT_RACE_RUNS,
+        angzarr_embedded::DEFAULT_RACE_RUNS,
         "the kernel's default race re-run cap"
     );
     assert_eq!(
         super::KERNEL_RETRY,
-        angzarr_embedded::next::OnRetryable {
+        angzarr_embedded::OnRetryable {
             max_retries: 9,
             max_race_runs: 10,
             initial_backoff: 10 * MS,
@@ -379,7 +379,7 @@ fn test_the_kernel_retries_under_taskloom_s_default_backoff() {
 /// held to it.
 #[test]
 fn test_the_kernel_waits_and_draws_on_taskloom_s_ports() {
-    use angzarr_embedded::next::Wait;
+    use angzarr_embedded::Wait;
     let mut delay = FakeDelay {
         permille: 250,
         ..FakeDelay::default()
@@ -437,7 +437,7 @@ fn test_a_store_that_never_answers_is_given_up_at_the_kernels_cap_under_its_key(
         initial: tasks::TO_DO.to_string(),
     };
     let book = book("swift-amber", add.into());
-    let id = angzarr_embedded::next::v1::Uuid::from_bytes([1; 16]);
+    let id = angzarr_embedded::v1::Uuid::from_bytes([1; 16]);
     let Err(AppError::GaveUp { attempts, error }) = ready(runner.run(&store, &book, &id)) else {
         panic!("gave up");
     };
@@ -450,7 +450,7 @@ fn test_a_store_that_never_answers_is_given_up_at_the_kernels_cap_under_its_key(
 
 #[test]
 fn test_an_outcome_is_refused_as_only_its_own_key() {
-    let refused = Outcome::Refused(angzarr_embedded_diagnostic::Report::new("tasks-removed"));
+    let refused = Outcome::Refused(angzarr_diagnostic::Report::new("tasks-removed"));
     assert!(refused.refused_as("tasks-removed"));
     assert!(!refused.refused_as("tasks-no-task"));
     assert!(!Outcome::Committed.refused_as("tasks-removed"));

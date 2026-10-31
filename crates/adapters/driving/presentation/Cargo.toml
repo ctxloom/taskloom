@@ -7,10 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
-# Domain-free: no ctxloom crate but angzarr-embedded-diagnostic, the trait
+# Domain-free: no ctxloom crate but angzarr-diagnostic, the trait
 # it renders, which lib.test.rs checks.
 [dependencies]
-angzarr-embedded-diagnostic.workspace = true
+angzarr-diagnostic.workspace = true
 fluent-bundle.workspace = true
 serde.workspace = true
 serde_json.workspace = true

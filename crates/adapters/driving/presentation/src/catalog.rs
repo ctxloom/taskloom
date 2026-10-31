@@ -3,7 +3,7 @@
 
 use std::fmt::Display;
 
-use angzarr_embedded_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{Arg, Diagnostic};
 use fluent_bundle::concurrent::FluentBundle;
 use fluent_bundle::{FluentArgs, FluentResource, FluentValue};
 use unic_langid::LanguageIdentifier;
@@ -100,7 +100,7 @@ impl Catalog {
 }
 
 /// `d` as its key and args (angzarr decision 14.37, as
-/// angzarr-embedded-diagnostic's `display` writes it): its code, then
+/// angzarr-diagnostic's `display` writes it): its code, then
 /// ` name=value` for each arg in order, a text value quoted where it would
 /// not parse back, a nested cause as its code under the arg's name and each
 /// of its own args under `<name>.`.
@@ -115,7 +115,7 @@ fn write_args(out: &mut String, d: &dyn Diagnostic, prefix: &str) {
         let value = match arg {
             Arg::Int(n) => n.to_string(),
             Arg::Uint(n) => n.to_string(),
-            Arg::Str(s) => angzarr_embedded_diagnostic::quote(&s).into_owned(),
+            Arg::Str(s) => angzarr_diagnostic::quote(&s).into_owned(),
             Arg::Nested(cause) => {
                 out.push_str(&format!(" {prefix}{name}={}", cause.code()));
                 write_args(out, &*cause, &format!("{prefix}{name}."));

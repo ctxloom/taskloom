@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 crate::english_for!(&[crate::EN_US.1]);
 
-use angzarr_embedded_diagnostic::Diagnostic;
+use angzarr_diagnostic::Diagnostic;
 use file_system::{Fs, Perms, Rooted};
 use os::Mode;
 use ports::{JsonlOp, JsonlRecord, JsonlTaskLogs};
@@ -318,7 +318,7 @@ fn test_without_a_home_every_read_says_so() {
 /// The variable a no-home error names, as its `var` arg.
 fn named_var(error: &dyn Diagnostic) -> String {
     match &error.args()[..] {
-        [("var", angzarr_embedded_diagnostic::Arg::Str(var))] => var.clone(),
+        [("var", angzarr_diagnostic::Arg::Str(var))] => var.clone(),
         other => panic!("no var: {other:?}"),
     }
 }

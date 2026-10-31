@@ -1,8 +1,8 @@
 //! The plan list as angzarr-embedded projects it: live, from each
 //! committed event, and caught up from a store.
 
-use angzarr_embedded::next::v1::Cover;
-use angzarr_embedded::next::{
+use angzarr_embedded::v1::Cover;
+use angzarr_embedded::{
     projection, Committed, KernelError, Payload, Projection, ReadStore, ReadUnit, Registry,
     StoreError, Stream, StreamRef,
 };

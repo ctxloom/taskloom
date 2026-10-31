@@ -11,14 +11,14 @@ use std::sync::Mutex;
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
-use angzarr_embedded::next::angzarr_ports::memory::MemoryStore;
-use angzarr_embedded::next::v1::{Cover, EventPage, Snapshot, Uuid};
-use angzarr_embedded::next::{
+use angzarr_diagnostic::Report;
+use angzarr_embedded::angzarr_ports::memory::MemoryStore;
+use angzarr_embedded::v1::{Cover, EventPage, Snapshot, Uuid};
+use angzarr_embedded::{
     ChangeToken, EventStore, Kernel, MemoryDeadLetters, PositionKey, PositionStore, Purge,
     ReadStore, ReadUnit, Sampled, Slice, SnapshotStore, StoreError, StreamRef, Watch, Write,
     Written,
 };
-use angzarr_embedded_diagnostic::Report;
 use angzarr_ports::Cause;
 use ports::{
     Clock, CommandIds, Delay, HeldToken, Jitter, Names, Project, ProjectIdentity, TaskStores,

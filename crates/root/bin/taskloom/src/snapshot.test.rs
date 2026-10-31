@@ -5,12 +5,12 @@
 
 use std::sync::Mutex;
 
+use angzarr_embedded::angzarr_store_sqlite::{SqliteRead, SqliteStore};
 use angzarr_ports::angzarr_proto::v1::{Cover, EventPage, Snapshot};
 use angzarr_ports::{
     ChangeToken, EventStore, PositionKey, PositionStore, Purge, ReadStore, ReadUnit, Slice,
     SnapshotStore, StoreError, StreamRef, Watch, Write, Written,
 };
-use angzarr_store_sqlite::{SqliteRead, SqliteStore};
 use harp_names::HarpNames;
 use ports::{Project, TaskStores};
 use project_registry::{Environment, ProjectRegistry};

@@ -8,7 +8,7 @@
 //! intersection, introduced/existing) works through taskloom because
 //! tagma's does; no file layer is read for them.
 
-use angzarr_embedded_diagnostic::{Diagnostic, Report};
+use angzarr_diagnostic::{Diagnostic, Report};
 use ports::TagPermits;
 
 use crate::fakes::{ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores};

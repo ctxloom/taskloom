@@ -3,7 +3,7 @@
 use std::fmt;
 use std::path::Path;
 
-use angzarr_embedded_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_diagnostic::{Arg, Diagnostic, Report};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum RegistryError {
@@ -58,7 +58,7 @@ impl RegistryError {
 
 impl fmt::Display for RegistryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_embedded_diagnostic::display(self, f)
+        angzarr_diagnostic::display(self, f)
     }
 }
 

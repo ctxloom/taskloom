@@ -16,7 +16,7 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use angzarr_embedded_diagnostic::Report;
+use angzarr_diagnostic::Report;
 pub use angzarr_ports::angzarr_proto::v1::Uuid;
 use angzarr_ports::{ChangeToken, Purge, ReadStore, Store, StoreError, Watch};
 /// An instant: prost's `Timestamp`, as every recorded event carries one.

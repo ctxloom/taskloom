@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use angzarr_embedded_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_diagnostic::{Arg, Diagnostic, Report};
 use ports::Timestamp;
 use task_priority::{Candidate, Diagnostics, Formulas};
 
@@ -161,7 +161,7 @@ pub(crate) fn warnings(diagnostics: &Diagnostics) -> Vec<PriorityWarning> {
 
 impl fmt::Display for PriorityWarning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_embedded_diagnostic::display(self, f)
+        angzarr_diagnostic::display(self, f)
     }
 }
 
@@ -201,7 +201,7 @@ impl Diagnostic for PriorityWarning {
 /// listing over every project says whose it is.
 impl fmt::Display for PriorityNote {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_embedded_diagnostic::display(self, f)
+        angzarr_diagnostic::display(self, f)
     }
 }
 

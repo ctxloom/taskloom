@@ -3,7 +3,7 @@
 
 use std::io::{self, Write};
 
-use angzarr_embedded_diagnostic::Diagnostic;
+use angzarr_diagnostic::Diagnostic;
 use clap::Args;
 use presentation::{Catalog, Format};
 use tasks_application::{

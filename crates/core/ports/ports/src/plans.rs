@@ -8,7 +8,7 @@
 
 use std::future::Future;
 
-use angzarr_embedded_diagnostic::Report;
+use angzarr_diagnostic::Report;
 
 /// The work tree's files, as the file-system seam reaches them. A path is
 /// work-root-relative and `/`-separated, unless it is absolute (a plan

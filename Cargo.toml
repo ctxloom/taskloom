@@ -14,9 +14,6 @@ publish = false
 # messages and angzarr's are built by one prost.
 prost = "0.14"
 prost-types = "0.14"
-# angzarr core's crate (moved there from angzarr-project's rust/), at the
-# core rev angzarr-embedded pins: one angzarr-proto in the graph.
-angzarr-proto = { version = "0.1", git = "https://github.com/angzarr-io/angzarr", rev = "dd0e55368d8f88ea24d3278fa135b2658c7cb26c" }
 
 # angzarr-build (angzarr-cli's markup domain layer) is pinned by full
 # commit, so a fresh clone builds with no sibling checkouts; bumps are
@@ -25,26 +22,33 @@ angzarr-proto = { version = "0.1", git = "https://github.com/angzarr-io/angzarr"
 # 54dbc45, on angzarr core's angzarr-proto 1cf00b7 and angzarr-embedded
 # 7c85204: a build dependency only, so its older angzarr-proto and
 # angzarr-embedded-diagnostic sit in the lock beside this workspace's until
-# angzarr-cli moves to the revs below.
+# angzarr-cli moves to the revs below. Until then, code it generates may
+# still name `angzarr_embedded::next::`, which angzarr-embedded keeps as a
+# deprecated alias of its crate root.
 angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "54dbc459ed4b1ae8ed3cf5bea11902dbb7aea064" }
 
 # angzarr-embedded, angzarr's in-app runtime, taskloom's
 # (taskloom-on-angzarr-embedded.plan.md). Pinned by rev on
-# angzarr-embedded's main: b66fc0d (router 3590276, angzarr core dd0e553
-# for angzarr-proto and angzarr-ports, spec ffbe00f): a domain's rules
-# version is its crate's build version, checked per answer; errors hold
-# their codes, nothing leaked; a waiting caller's command is never
-# dead-lettered at a cap; the SQLite outbox keyed per stream (0005), a
-# policy step's entries on its trigger's stream; angzarr-ports' Migrations
-# and Backup, every open (to read or to write) migrating, backed up first.
-angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "b66fc0d2462460595bff8108883fd354b89f21a5" }
-angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "b66fc0d2462460595bff8108883fd354b89f21a5" }
-angzarr-embedded-diagnostic = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "b66fc0d2462460595bff8108883fd354b89f21a5" }
-angzarr-store-sqlite = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "b66fc0d2462460595bff8108883fd354b89f21a5" }
-# angzarr's storage contract, angzarr core's crate at the rev angzarr-embedded
-# pins (dd0e553), so the graph holds one spec, as angzarr-proto above does:
-# the store ports, and their in-memory store for tests.
-angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "dd0e55368d8f88ea24d3278fa135b2658c7cb26c" }
+# angzarr-embedded's main: 60e4c8b (router 0af1943, angzarr core d704afc
+# for angzarr-proto, angzarr-ports and angzarr-diagnostic): the kernel at
+# its crate root (`next` flattened, its codes `angzarr-embedded-*`), and
+# angzarr-proto, angzarr-ports, angzarr-diagnostic and, behind its
+# `sqlite` feature, angzarr-store-sqlite re-exported, so the graph holds
+# one of each. angzarr-proto and angzarr-store-sqlite are reached through
+# those re-exports (`angzarr_embedded::angzarr_proto`,
+# `angzarr_embedded::angzarr_store_sqlite`) and not pinned here.
+angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "60e4c8b36abf8476445dcc24aa13d34670be654a" }
+angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "60e4c8b36abf8476445dcc24aa13d34670be654a" }
+# angzarr core's shared crates, at the core rev angzarr-embedded pins
+# (d704afc), so the graph holds one of each. angzarr-diagnostic, the coded
+# error trait every error here implements, is pinned directly rather than
+# through angzarr-embedded's re-export so the crates that have no use for
+# the kernel (the platform crates, presentation) do not link it.
+# angzarr-ports, angzarr's storage contract, is pinned directly for its
+# `memory` feature (the in-memory store the tests run on), which the
+# re-export cannot turn on.
+angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "d704afc21812225e7c536ef4055bf48a3ef821e9" }
+angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "d704afc21812225e7c536ef4055bf48a3ef821e9" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
 plans-proto = { path = "crates/core/wire/plans-proto" }
 tasks = { path = "crates/core/domain/tasks" }

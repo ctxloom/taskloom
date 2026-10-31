@@ -14,7 +14,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use angzarr_embedded_diagnostic::Report;
+use angzarr_diagnostic::Report;
 use file_system::{Fs, Kind};
 use ports::{JsonlOp, JsonlRecord, JsonlTaskLogs};
 use prost_types::Timestamp;

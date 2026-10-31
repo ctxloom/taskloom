@@ -5,7 +5,7 @@
 //! a command it has already applied DUPLICATE: the retry applies nothing,
 //! and answers with the task as it stands.
 
-use angzarr_embedded::next::v1::Uuid;
+use angzarr_embedded::v1::Uuid;
 
 /// The namespace of request-derived command ids: UUIDv5 of the URL
 /// `https://github.com/ctxloom/taskloom/request-id` in RFC 9562's URL

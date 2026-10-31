@@ -31,12 +31,12 @@ mod watch;
 
 use std::future::Future;
 
-use angzarr_embedded::next::v1::event_meta::Causation;
-use angzarr_embedded::next::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
-use angzarr_embedded::next::{
+use angzarr_diagnostic::{Diagnostic, Report};
+use angzarr_embedded::v1::event_meta::Causation;
+use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
+use angzarr_embedded::{
     ids, KernelError, Payload, ReadStore, ReadUnit, Registry, StoreError, Stream, StreamRef,
 };
-use angzarr_embedded_diagnostic::{Diagnostic, Report};
 use dead_letter::DeadLetters;
 use ports::{Clock, CommandIds, Configuration, Delay, Jitter, Names, ProjectIdentity, TaskStores};
 use std::sync::Mutex;
@@ -755,7 +755,7 @@ fn cover(harp_id: &str) -> Cover {
 }
 
 /// `command` for the task `harp_id`. Its command id is left for the
-/// kernel to take from the [`Sampled`](angzarr_embedded::next::Sampled) the runner
+/// kernel to take from the [`Sampled`](angzarr_embedded::Sampled) the runner
 /// gives it, the same on every attempt.
 fn book(harp_id: &str, command: TaskCommand) -> CommandBook {
     CommandBook {

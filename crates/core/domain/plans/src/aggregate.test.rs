@@ -8,13 +8,13 @@
 
 use std::future::Future;
 
-use angzarr_embedded::next::angzarr_ports::memory::MemoryStore;
-use angzarr_embedded::next::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
-use angzarr_embedded::next::{
+use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded::angzarr_ports::memory::MemoryStore;
+use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
+use angzarr_embedded::{
     ids, Domain, EventStore, Failure, Handled, Kernel, MemoryDeadLetters, OnRetryable, Payload,
     Registry, Rejected, Sampled, Stream, StreamRef, Timestamp,
 };
-use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 
 use crate::{
     AddPlan, PlanAggregate, PlanCommand, PlanEvent, PlanRejection, PlanState, PlanStatus,
@@ -101,7 +101,7 @@ impl Plans {
         .map_err(Box::new)
     }
 
-    fn pages(&self, harp: &str) -> Vec<angzarr_embedded::next::v1::EventPage> {
+    fn pages(&self, harp: &str) -> Vec<angzarr_embedded::v1::EventPage> {
         let cover = cover(harp);
         let stream = StreamRef::try_from(&cover).unwrap();
         ready(self.store.read(stream, 0, None)).unwrap().pages
@@ -126,7 +126,7 @@ fn cover(harp: &str) -> Cover {
 }
 
 /// A client's command to `harp`'s stream, with no ids of its own.
-fn book(harp: &str, payload: angzarr_embedded::next::Any) -> CommandBook {
+fn book(harp: &str, payload: angzarr_embedded::Any) -> CommandBook {
     CommandBook {
         cover: Some(cover(harp)),
         page: Some(CommandPage {
@@ -316,23 +316,23 @@ fn every_command_and_event_round_trips_through_its_payload() {
 
 #[test]
 fn a_payload_of_another_type_is_unknown() {
-    let other = angzarr_embedded::next::pack(&plans_proto::v1::PlanState::default());
+    let other = angzarr_embedded::pack(&plans_proto::v1::PlanState::default());
     assert!(matches!(
         PlanEvent::from_any(&other),
-        Err(angzarr_embedded::next::PayloadError::UnknownType { .. })
+        Err(angzarr_embedded::PayloadError::UnknownType { .. })
     ));
     assert!(matches!(
         PlanCommand::from_any(&other),
-        Err(angzarr_embedded::next::PayloadError::UnknownType { .. })
+        Err(angzarr_embedded::PayloadError::UnknownType { .. })
     ));
 }
 
 #[test]
 fn a_status_left_unspecified_on_the_wire_is_an_invalid_payload() {
-    let unspecified = angzarr_embedded::next::pack(&plans_proto::v1::SetPlanStatus { status: 0 });
+    let unspecified = angzarr_embedded::pack(&plans_proto::v1::SetPlanStatus { status: 0 });
     assert!(matches!(
         PlanCommand::from_any(&unspecified),
-        Err(angzarr_embedded::next::PayloadError::Invalid { .. })
+        Err(angzarr_embedded::PayloadError::Invalid { .. })
     ));
 }
 

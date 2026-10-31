@@ -4,7 +4,7 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use angzarr_embedded_diagnostic::Report;
+use angzarr_diagnostic::Report;
 use clap::Parser;
 use presentation::{Catalog, Format};
 use project_application::{

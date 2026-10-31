@@ -23,14 +23,14 @@
 
 use std::sync::{Mutex, PoisonError};
 
-use angzarr_embedded::next::v1::{
+use angzarr_diagnostic::Report;
+use angzarr_embedded::v1::{
     command_page, Command, CommandBook, CommandPage, Cover, Handling, Uuid,
 };
-use angzarr_embedded::next::{
+use angzarr_embedded::{
     ids, DeadLetterLog, EventStore, Failure, Kernel, KernelError, Payload, Recovery, Registry,
     Sampled, Store, StoreError, Stream, StreamRef,
 };
-use angzarr_embedded_diagnostic::Report;
 use plan_lists::{PlanList, PlanRow};
 use plans::{decide, AddPlan, PlanAggregate, PlanCommand, PlanRejection, PlanState, PLAN_DOMAIN};
 use ports::{

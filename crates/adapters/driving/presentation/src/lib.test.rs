@@ -84,17 +84,17 @@ fn dependencies(manifest: &str) -> Vec<&str> {
     names
 }
 
-// The diagnostics are angzarr-embedded-diagnostic's, whose `Display` is a
+// The diagnostics are angzarr-diagnostic's, whose `Display` is a
 // key and its args, never English. Presentation renders that trait alone;
 // annals and its diagnostics are no longer in the workspace.
 #[test]
-fn test_it_depends_on_no_crate_of_this_workspace_but_angzarr_embedded_diagnostic() {
+fn test_it_depends_on_no_crate_of_this_workspace_but_angzarr_diagnostic() {
     let workspace = include_str!("../../../../../Cargo.toml");
     let ours: Vec<&str> = workspace
         .lines()
         // annals, angzarr-embedded and angzarr-build are pinned by git
         // rather than path, but are still not presentation's to depend on
-        // (only angzarr-embedded-diagnostic is).
+        // (only angzarr-diagnostic is).
         .filter(|line| {
             line.contains("path = \"")
                 || line.contains("/benjaminabbitt/annals\"")
@@ -102,13 +102,13 @@ fn test_it_depends_on_no_crate_of_this_workspace_but_angzarr_embedded_diagnostic
                 || line.contains("/angzarr-io/angzarr-cli\"")
         })
         .filter_map(|line| line.split([' ', '=']).next())
-        .filter(|name| *name != "angzarr-embedded-diagnostic")
+        .filter(|name| *name != "angzarr-diagnostic")
         .collect();
     assert!(ours.contains(&"tasks"), "the workspace's crates: {ours:?}");
     assert!(ours.contains(&"angzarr-embedded"), "{ours:?}");
     assert!(ours.contains(&"angzarr-build"), "{ours:?}");
     let mine = dependencies(include_str!("../Cargo.toml"));
-    assert!(mine.contains(&"angzarr-embedded-diagnostic"), "{mine:?}");
+    assert!(mine.contains(&"angzarr-diagnostic"), "{mine:?}");
     let domain: Vec<&&str> = mine
         .iter()
         .filter(|name| ours.contains(name) || name.starts_with("annals"))
@@ -116,6 +116,6 @@ fn test_it_depends_on_no_crate_of_this_workspace_but_angzarr_embedded_diagnostic
     assert!(
         domain.is_empty(),
         "presentation is reused by every binary, so it is domain-free, and renders \
-         angzarr-embedded-diagnostic's diagnostics alone: {domain:?}"
+         angzarr-diagnostic's diagnostics alone: {domain:?}"
     );
 }

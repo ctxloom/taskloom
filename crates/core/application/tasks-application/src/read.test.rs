@@ -5,7 +5,7 @@ use crate::english::English;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use angzarr_embedded_diagnostic::Diagnostic;
+use angzarr_diagnostic::Diagnostic;
 
 use crate::fakes::{ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores, Flaky};
 use crate::{
@@ -593,7 +593,7 @@ fn test_a_project_found_is_read_alone_rootless_or_not() {
 #[test]
 fn test_a_global_read_whose_projects_cannot_be_named_fails_with_why() {
     let mut service = service(&[]);
-    service.identity.fails = Some(angzarr_embedded_diagnostic::Report::new("x-registry"));
+    service.identity.fails = Some(angzarr_diagnostic::Report::new("x-registry"));
     let query = ListQuery {
         global: true,
         ..ListQuery::default()
@@ -637,14 +637,12 @@ fn test_show_answers_with_each_task_asked_for_in_the_order_asked_whatever_its_st
 
 /// Run `command` on plan `plan`'s stream in `store`, as `plan link` would.
 fn plan_does(
-    store: &angzarr_embedded::next::angzarr_ports::memory::MemoryStore,
+    store: &angzarr_embedded::angzarr_ports::memory::MemoryStore,
     plan: &str,
     command: plans::PlanCommand,
 ) {
-    use angzarr_embedded::next::v1::{
-        command_page, Command, CommandBook, CommandPage, Cover, Uuid,
-    };
-    use angzarr_embedded::next::{ids, Kernel, MemoryDeadLetters, Payload, Registry, Sampled};
+    use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
+    use angzarr_embedded::{ids, Kernel, MemoryDeadLetters, Payload, Registry, Sampled};
     let mut registry = Registry::new();
     registry.aggregate::<plans::PlanAggregate>(plans::PlanAggregate::default);
     let book = CommandBook {

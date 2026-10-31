@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use angzarr_embedded_diagnostic::Report;
+use angzarr_diagnostic::Report;
 use presentation::Catalog;
 use project_application::{Change, IdSource, Plan, Problem, Shown, Survey};
 

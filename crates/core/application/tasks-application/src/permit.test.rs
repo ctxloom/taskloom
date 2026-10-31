@@ -10,7 +10,7 @@
 //! rather than ignored, one area a task as `tagma.keys-per-item`) is said
 //! where it changed.
 
-use angzarr_embedded_diagnostic::{Diagnostic, Report};
+use angzarr_diagnostic::{Diagnostic, Report};
 
 use crate::fakes::{ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores};
 use crate::{

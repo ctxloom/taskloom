@@ -22,7 +22,7 @@ fn every_rejection_has_a_catalog_message_with_exactly_its_args() {
     for sample in samples {
         assert_eq!(
             sample.to_string(),
-            angzarr_embedded_diagnostic::Report::of(&*sample).to_string(),
+            angzarr_diagnostic::Report::of(&*sample).to_string(),
             "{}",
             sample.code()
         );

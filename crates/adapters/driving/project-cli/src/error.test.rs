@@ -1,6 +1,6 @@
 //! The errors' English, the wrapper's delegation, and the catalog.
 
-use angzarr_embedded_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{Arg, Diagnostic};
 use project_application::ProjectError;
 
 crate::english_for!(&[crate::EN_US.1]);
@@ -68,7 +68,7 @@ fn test_each_diagnostic_renders_its_catalog_message_and_displays_as_its_key() {
         // Display is the key and args, never English (decision 14.37).
         assert_eq!(
             sample.to_string(),
-            angzarr_embedded_diagnostic::Report::of(&*sample).to_string(),
+            angzarr_diagnostic::Report::of(&*sample).to_string(),
             "{}",
             sample.code()
         );

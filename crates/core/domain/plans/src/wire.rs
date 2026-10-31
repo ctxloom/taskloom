@@ -2,8 +2,8 @@
 //! types converted to and from the generated domain layer, and packed as
 //! `Any` by their wire types' names.
 
-use angzarr_embedded::next::markup::DomainMessage;
-use angzarr_embedded::next::{decode_as, pack, type_name, Any, Payload, PayloadError, WireError};
+use angzarr_embedded::markup::DomainMessage;
+use angzarr_embedded::{decode_as, pack, type_name, Any, Payload, PayloadError, WireError};
 use prost::{Message, Name};
 
 use crate::generated as g;

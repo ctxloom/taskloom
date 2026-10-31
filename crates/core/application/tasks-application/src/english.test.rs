@@ -3,7 +3,7 @@
 //! hold the English to Go's. A code no catalog has is its key and args, as
 //! an edge shows it.
 
-use angzarr_embedded_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{Arg, Diagnostic};
 use fluent_bundle::{FluentArgs, FluentBundle, FluentResource, FluentValue};
 
 /// `d`'s en-US message.

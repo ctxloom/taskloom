@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
-use angzarr_embedded_diagnostic::Report;
+use angzarr_diagnostic::Report;
 
 use super::*;
 use crate::fakes::Service;

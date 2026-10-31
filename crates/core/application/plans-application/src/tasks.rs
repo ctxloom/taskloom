@@ -2,7 +2,7 @@
 //! [`Tasks`] port over a [`TaskService`], so the plans use cases read and
 //! retag tasks only as any frontend does.
 
-use angzarr_embedded_diagnostic::Report;
+use angzarr_diagnostic::Report;
 use ports::Tasks;
 use tasks_application::{AppError, ListQuery, ShowQuery, Tag, TagChange, TaskService};
 

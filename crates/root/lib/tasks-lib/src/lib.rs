@@ -89,8 +89,8 @@ pub fn catalog(
     let mut sources = vec![
         EN_US,
         angzarr_embedded::EN_US,
-        angzarr_embedded::ANGZARR_PORTS_EN_US,
-        angzarr_store_sqlite::EN_US,
+        angzarr_embedded::angzarr_ports::EN_US,
+        angzarr_embedded::angzarr_store_sqlite::EN_US,
     ];
     sources.extend(tasks_application::CATALOGS);
     sources.extend(plans_application::CATALOGS);
@@ -186,7 +186,7 @@ impl Taskloom {
         let files = FsPlanFiles::finding_root(Arc::clone(&self.fs), move || {
             finder
                 .work_root()
-                .map_err(|e| angzarr_embedded_diagnostic::Report::of(&e))
+                .map_err(|e| angzarr_diagnostic::Report::of(&e))
         });
         PlanService::new(
             self.registry(HarpNames),

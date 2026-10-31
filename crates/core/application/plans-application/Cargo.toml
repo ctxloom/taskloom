@@ -9,7 +9,7 @@ publish.workspace = true
 
 [dependencies]
 angzarr-embedded.workspace = true
-angzarr-embedded-diagnostic.workspace = true
+angzarr-diagnostic.workspace = true
 plan-lists.workspace = true
 plans.workspace = true
 ports.workspace = true

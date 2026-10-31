@@ -717,7 +717,7 @@ fn test_a_read_spans_every_project_when_asked_or_outside_any_work_root() {
 #[test]
 fn test_every_diagnostic_of_every_crate_renders_from_the_binarys_catalog() {
     let catalog = super::catalog().expect("every catalog loads, no message twice");
-    let samples: Vec<Box<dyn angzarr_embedded_diagnostic::Diagnostic>> = [
+    let samples: Vec<Box<dyn angzarr_diagnostic::Diagnostic>> = [
         angzarr_embedded::diagnostic_samples(),
         tasks::diagnostic_samples(),
         tasks_application::diagnostic_samples(),
@@ -751,12 +751,12 @@ fn test_every_diagnostic_of_every_crate_renders_from_the_binarys_catalog() {
     }
 }
 
-// The diagnostics are angzarr-embedded-diagnostic's, and annals has left the
+// The diagnostics are angzarr-diagnostic's, and annals has left the
 // workspace (step 4 of taskloom-on-angzarr-embedded.plan.md).
 
 /// Every crate of this workspace's diagnostic samples (not the runtime's,
 /// angzarr-embedded's, which are its own).
-fn ours() -> Vec<Box<dyn angzarr_embedded_diagnostic::Diagnostic>> {
+fn ours() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
     [
         tasks::diagnostic_samples(),
         tasks_application::diagnostic_samples(),
@@ -783,12 +783,12 @@ fn ours() -> Vec<Box<dyn angzarr_embedded_diagnostic::Diagnostic>> {
 }
 
 /// The names of `d`'s args, and of every nested cause's, as `code.name`.
-fn arg_names(d: &dyn angzarr_embedded_diagnostic::Diagnostic) -> Vec<String> {
+fn arg_names(d: &dyn angzarr_diagnostic::Diagnostic) -> Vec<String> {
     d.args()
         .into_iter()
         .flat_map(|(name, arg)| {
             let mut names = vec![format!("{}.{name}", d.code())];
-            if let angzarr_embedded_diagnostic::Arg::Nested(cause) = arg {
+            if let angzarr_diagnostic::Arg::Nested(cause) = arg {
                 names.extend(arg_names(&*cause));
             }
             names
@@ -1282,7 +1282,7 @@ fn test_a_read_of_a_store_an_older_build_wrote_migrates_it_and_lists_its_tasks()
     let ledger = tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap()
-        .block_on(angzarr_store_sqlite::SqliteStore::ledger_at(backup))
+        .block_on(angzarr_embedded::angzarr_store_sqlite::SqliteStore::ledger_at(backup))
         .unwrap()
         .expect("a store there");
     let versions: Vec<u64> = ledger.iter().map(|r| r.version).collect();

@@ -4,7 +4,7 @@
 //! no membership metadata on the streams), holding every live task.
 //!
 //! - [`TaskList`] is a [`Projection`] of [`TaskAggregate`]: the kernel hands
-//!   it each committed event live ([`ProjectionRoute`](angzarr_embedded::next::ProjectionRoute)),
+//!   it each committed event live ([`ProjectionRoute`](angzarr_embedded::ProjectionRoute)),
 //!   and [`TaskList::catch_up`] reads every task stream the store holds in
 //!   one read-only unit ([`ReadStore`]: its `covers` lists them, its reads
 //!   read them, all at one moment), as a process that did not run the
@@ -24,8 +24,8 @@ pub mod schema;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use angzarr_embedded::next::v1::{Cover, Uuid};
-use angzarr_embedded::next::{
+use angzarr_embedded::v1::{Cover, Uuid};
+use angzarr_embedded::{
     ids, projection, Committed, KernelError, Payload, Projection, ReadStore, ReadUnit, Registry,
     StoreError, Stream, StreamRef, Timestamp,
 };

@@ -9,7 +9,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use angzarr_embedded_diagnostic::Report;
+use angzarr_diagnostic::Report;
 use ports::{Clock, Configuration, ProjectIdentity, TaskStores};
 
 use crate::lint::{self, LintReport};
@@ -486,7 +486,7 @@ where
     /// The plans governing each of `rows`' tasks, by harp id: each
     /// project's plan list caught up once, from the store its tasks are in.
     async fn governing(&mut self, rows: &[Row]) -> Result<Vec<Vec<String>>, AppError> {
-        let mut registry = angzarr_embedded::next::Registry::new();
+        let mut registry = angzarr_embedded::Registry::new();
         registry.aggregate::<plans::PlanAggregate>(plans::PlanAggregate::default);
         let mut lists: BTreeMap<String, plan_lists::PlanList> = BTreeMap::new();
         let mut governing = Vec::new();
@@ -603,9 +603,9 @@ where
 }
 
 /// The live tasks of `project`'s `store` in the order they were added.
-async fn rows_in<St: angzarr_embedded::next::ReadStore>(
+async fn rows_in<St: angzarr_embedded::ReadStore>(
     store: &St,
-    registry: &angzarr_embedded::next::Registry,
+    registry: &angzarr_embedded::Registry,
     project: &Project,
 ) -> Result<Vec<Row>, AppError> {
     let mut list = task_lists::TaskList::new();

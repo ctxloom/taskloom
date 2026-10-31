@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 crate::english_for!(&[crate::EN_US.1]);
 
-use angzarr_embedded_diagnostic::Diagnostic;
+use angzarr_diagnostic::Diagnostic;
 use file_system::{Fs, Perms, Rooted};
 use os::Mode;
 use ports::Configuration;

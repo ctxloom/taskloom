@@ -31,9 +31,9 @@ use std::fmt;
 use std::future::Future;
 use std::sync::Arc;
 
-use angzarr_embedded::next::v1::{command_page, Command, CommandBook, CommandPage, Cover};
-use angzarr_embedded::next::{Payload, ReadStore, ReadUnit, Registry, Stream, StreamRef};
-use angzarr_embedded_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover};
+use angzarr_embedded::{Payload, ReadStore, ReadUnit, Registry, Stream, StreamRef};
 use ports::{Clock, CommandIds, Configuration, Delay, Jitter, ProjectIdentity, TaskStores};
 use tasks::schema::{
     schema_root, Declare, SchemaAggregate, SchemaCommand, SchemaState, SCHEMA_DOMAIN,
@@ -394,7 +394,7 @@ pub struct RulesRefusal {
 
 impl fmt::Display for RulesRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_embedded_diagnostic::display(self, f)
+        angzarr_diagnostic::display(self, f)
     }
 }
 
@@ -414,7 +414,7 @@ pub struct RuleWarning(pub Finding);
 
 impl fmt::Display for RuleWarning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_embedded_diagnostic::display(self, f)
+        angzarr_diagnostic::display(self, f)
     }
 }
 
@@ -522,7 +522,7 @@ pub(crate) async fn seed_in<St, C, D>(
     store: &St,
 ) -> Result<StoreRules, AppError>
 where
-    St: angzarr_embedded::next::Store + ReadStore,
+    St: angzarr_embedded::Store + ReadStore,
     C: Clock + CommandIds,
     D: Delay + Jitter + Send,
 {

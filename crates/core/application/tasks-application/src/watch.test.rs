@@ -2,8 +2,8 @@
 //! the last, and reads no stream; a watch binds no project and waits for a
 //! store to appear.
 
-use angzarr_embedded::next::angzarr_ports::memory::MemoryStore;
-use angzarr_embedded_diagnostic::Diagnostic;
+use angzarr_diagnostic::Diagnostic;
+use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use tasks::{AddTask, RemovalReason, RemoveTask, TaskCommand};
 
 use super::{Watch, WatchRequest, WatchService};
@@ -132,7 +132,7 @@ fn test_a_pinned_project_is_watched_and_a_store_that_fails_is_an_error() {
 #[test]
 fn test_a_watch_whose_project_does_not_resolve_says_why() {
     let mut service = service(&[]);
-    let why = angzarr_embedded_diagnostic::Report::of(&AppError::NoProject);
+    let why = angzarr_diagnostic::Report::of(&AppError::NoProject);
     service.identity.fails = Some(why);
     let failed = ready(service.watch(WatchRequest::default()))
         .err()

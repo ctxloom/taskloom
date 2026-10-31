@@ -44,9 +44,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::future::Future;
 
-use angzarr_embedded::next::v1::Uuid;
-use angzarr_embedded::next::{ids, EventStore, Registry, StreamRef};
-use angzarr_embedded_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_embedded::v1::Uuid;
+use angzarr_embedded::{ids, EventStore, Registry, StreamRef};
 use ports::{
     Clock, Delay, Jitter, JsonlOp, JsonlRecord, JsonlTaskLogs, ProjectIdentity, TaskStores,
     Timestamp,
@@ -150,7 +150,7 @@ pub enum Why {
 
 impl fmt::Display for Why {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_embedded_diagnostic::display(self, f)
+        angzarr_diagnostic::display(self, f)
     }
 }
 
@@ -183,7 +183,7 @@ pub struct NoJsonlLog {
 
 impl fmt::Display for NoJsonlLog {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_embedded_diagnostic::display(self, f)
+        angzarr_diagnostic::display(self, f)
     }
 }
 
@@ -317,7 +317,7 @@ where
             let cover = cover(&record.task);
             let command_id = record_command_id(&record.raw);
             let stream = StreamRef::try_from(&cover).map_err(store_report)?;
-            let id = angzarr_embedded::next::angzarr_ports::Uuid::try_from(&command_id)
+            let id = angzarr_embedded::angzarr_ports::Uuid::try_from(&command_id)
                 .expect("a derived command id is 16 bytes");
             let found = store.find_command(stream, id).await.map_err(store_report)?;
             if !found.is_empty() {

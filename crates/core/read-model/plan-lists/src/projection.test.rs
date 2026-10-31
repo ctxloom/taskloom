@@ -6,9 +6,9 @@
 use std::future::Future;
 use std::marker::PhantomData;
 
-use angzarr_embedded::next::angzarr_ports::memory::MemoryStore;
-use angzarr_embedded::next::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
-use angzarr_embedded::next::{
+use angzarr_embedded::angzarr_ports::memory::MemoryStore;
+use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
+use angzarr_embedded::{
     ids, Kernel, MemoryDeadLetters, OnRetryable, Payload, ProjectionRoute, Registry, Sampled,
     Timestamp,
 };
@@ -85,7 +85,7 @@ impl Project {
     }
 }
 
-fn book(harp: &str, payload: angzarr_embedded::next::Any) -> CommandBook {
+fn book(harp: &str, payload: angzarr_embedded::Any) -> CommandBook {
     CommandBook {
         cover: Some(Cover {
             domain: PLAN_DOMAIN.to_string(),

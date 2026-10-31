@@ -86,7 +86,7 @@ fn untag_of_a_task_the_project_does_not_hold_is_the_tasks_refusal() {
     let mut tasks = tasks(&[("swift-amber", &[])]);
     let refused = ready(tasks.untag("calm-otter", "doc:link", "a")).unwrap_err();
     assert!(
-        angzarr_embedded_diagnostic::Diagnostic::code(&refused).starts_with("tasks"),
+        angzarr_diagnostic::Diagnostic::code(&refused).starts_with("tasks"),
         "{refused}"
     );
 }

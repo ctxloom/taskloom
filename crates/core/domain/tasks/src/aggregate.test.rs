@@ -15,14 +15,14 @@
 use std::collections::BTreeMap;
 use std::future::Future;
 
-use angzarr_embedded::next::angzarr_ports::memory::MemoryStore;
-use angzarr_embedded::next::angzarr_router::error::RouterReason;
-use angzarr_embedded::next::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
-use angzarr_embedded::next::{
+use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_embedded::angzarr_ports::memory::MemoryStore;
+use angzarr_embedded::angzarr_router::error::RouterReason;
+use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
+use angzarr_embedded::{
     ids, pack, Any, Domain, EventStore, Failure, Handled, Kernel, KernelError, MemoryDeadLetters,
     OnRetryable, Payload, Recovery, Registry, Rejected, Sampled, Stream, StreamRef, Timestamp,
 };
-use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 
 use crate::{
     check, AddTask, EditText, RemovalReason, RemoveTask, Retag, Retagged, SetStatus, StatusChanged,
@@ -157,7 +157,7 @@ impl Task {
     }
 
     /// The task's stored pages, oldest first.
-    fn pages(&self) -> Vec<angzarr_embedded::next::v1::EventPage> {
+    fn pages(&self) -> Vec<angzarr_embedded::v1::EventPage> {
         let cover = cover();
         let stream = StreamRef::try_from(&cover).unwrap();
         ready(self.store.read(stream, 0, None)).unwrap().pages
@@ -174,7 +174,7 @@ impl Task {
 }
 
 /// The task events `books` hold, in order.
-fn events(books: &[angzarr_embedded::next::v1::EventBook]) -> Vec<TaskEvent> {
+fn events(books: &[angzarr_embedded::v1::EventBook]) -> Vec<TaskEvent> {
     books
         .iter()
         .flat_map(|book| &book.pages)

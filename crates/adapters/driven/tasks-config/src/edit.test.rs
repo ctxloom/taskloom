@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 crate::english_for!(&[crate::EN_US.1]);
 
-use angzarr_embedded_diagnostic::Diagnostic;
+use angzarr_diagnostic::Diagnostic;
 use ports::{NamespacePermit, TagPermits};
 
 use super::verified;

@@ -2,8 +2,8 @@
 //! payloads on the wire; the catalog. The rules a stream decides are
 //! `aggregate.test.rs`'s, through angzarr-embedded's kernel.
 
-use angzarr_embedded::next::{ids, Payload, PayloadError, Timestamp};
-use angzarr_embedded_diagnostic::Diagnostic;
+use angzarr_diagnostic::Diagnostic;
+use angzarr_embedded::{ids, Payload, PayloadError, Timestamp};
 
 use crate::{
     check, AddTask, EditText, RemovalReason, RemoveTask, Retag, SetStatus, StatusChanged, Tag,
@@ -140,7 +140,7 @@ fn test_every_rejection_has_a_catalog_message_with_exactly_its_args() {
         // Display is the key and args, never English (decision 14.37).
         assert_eq!(
             sample.to_string(),
-            angzarr_embedded_diagnostic::Report::of(&*sample).to_string(),
+            angzarr_diagnostic::Report::of(&*sample).to_string(),
             "{}",
             sample.code()
         );
@@ -183,16 +183,16 @@ fn test_a_tags_target_is_its_namespace_and_key() {
 
 #[test]
 fn test_a_removal_without_a_reason_is_an_invalid_payload() {
-    let unspecified = angzarr_embedded::next::pack(&tasks_proto::v1::RemoveTask { reason: 0 });
+    let unspecified = angzarr_embedded::pack(&tasks_proto::v1::RemoveTask { reason: 0 });
     let Err(PayloadError::Invalid { reason, .. }) = TaskCommand::from_any(&unspecified) else {
         panic!("an unspecified reason is no domain value");
     };
-    assert_eq!(reason.code(), "angzarr-embedded-next-wire-unknown-enum");
+    assert_eq!(reason.code(), "angzarr-embedded-wire-unknown-enum");
 }
 
 #[test]
 fn test_a_payload_of_another_type_is_unknown() {
-    let other = angzarr_embedded::next::pack(&tasks_proto::v1::TaskState::default());
+    let other = angzarr_embedded::pack(&tasks_proto::v1::TaskState::default());
     assert_eq!(
         TaskCommand::from_any(&other),
         Err(PayloadError::UnknownType {
@@ -275,7 +275,7 @@ fn test_a_task_state_round_trips_through_its_wire_form() {
     };
     assert_eq!(
         crate::TaskState::try_from(missing),
-        Err(angzarr_embedded::next::WireError::Missing {
+        Err(angzarr_embedded::WireError::Missing {
             message: "ctxloom.tasks.v1.TaskState",
             field: "created_at"
         })

@@ -88,7 +88,7 @@ Dependencies point inward; a review refuses a change that breaks these:
 - The core depends on nothing outside it. A domain or read model links only
   angzarr-embedded (the in-app runtime: `TaskAggregate` is its aggregate,
   the task list its projection), angzarr-embedded-macros (the aggregate's
-  markup), angzarr-embedded-diagnostic, prost, its wire crate (generated
+  markup), angzarr-diagnostic, prost, its wire crate (generated
   over angzarr-proto), and tagma's tagma-core (the tag grammar and query
   engine) and tagma-proto (its `Tag` message): no I/O, async runtime or
   clock in decide, apply or a projection. The ports link angzarr-ports,
@@ -164,9 +164,9 @@ committing, and land the change by pushing the sibling and bumping its rev.
 
 ## Errors are localizable: a code, args, and an en-US message
 
-Every error and rejection implements `angzarr_embedded_diagnostic::Diagnostic`.
+Every error and rejection implements `angzarr_diagnostic::Diagnostic`.
 No English crosses (angzarr decision 14.37): an error's `Display` is its
-code and args (`angzarr_embedded_diagnostic::display`: ` name=value`, a
+code and args (`angzarr_diagnostic::display`: ` name=value`, a
 text value quoted where it would not parse back), a third party's text
 (the OS's, a parser's, clap's, Fluent's) is the arg `ext_err_txt`, and
 presentation shows a diagnostic no catalog knows as its code and args.

@@ -286,7 +286,7 @@ fn test_a_lock_file_that_is_not_a_file_is_the_locks_failure_naming_it() {
     assert_eq!(
         refused,
         Err(RegistryError::LockFailed {
-            cause: angzarr_embedded_diagnostic::Report::new("file-lock-not-regular")
+            cause: angzarr_diagnostic::Report::new("file-lock-not-regular")
                 .arg("path", lock_path.display().to_string()),
         })
     );

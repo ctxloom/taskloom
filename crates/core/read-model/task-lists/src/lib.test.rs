@@ -7,9 +7,9 @@
 use std::future::Future;
 use std::marker::PhantomData;
 
-use angzarr_embedded::next::angzarr_ports::memory::MemoryStore;
-use angzarr_embedded::next::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
-use angzarr_embedded::next::{
+use angzarr_embedded::angzarr_ports::memory::MemoryStore;
+use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
+use angzarr_embedded::{
     ids, Any, EventStore, Kernel, MemoryDeadLetters, OnRetryable, Payload, ProjectionRoute, Purge,
     ReadStore, ReadUnit, Registry, Sampled, Slice, StoreError, StreamRef, Timestamp,
 };
@@ -406,7 +406,7 @@ impl ReadUnit for HollowRead<'_> {
     async fn read_snapshot(
         &mut self,
         _: StreamRef<'_>,
-    ) -> Result<Option<angzarr_embedded::next::v1::Snapshot>, StoreError> {
+    ) -> Result<Option<angzarr_embedded::v1::Snapshot>, StoreError> {
         Ok(None)
     }
 }
