@@ -3,19 +3,50 @@
 //! its markdown text and that text's content hash, and its typed links,
 //! `governs` (plan to task, many) and `supersedes` (plan to plan).
 //!
-//! RED STUB (docs/plans/plans-aggregate.md): the interface proposed for
-//! review, every body `todo!()`. Implemented, the commands, events and
-//! state move into `proto/ctxloom/plans/v1/plans.proto` (angzarr-build's
-//! markup layer) and [`decide`] and [`apply`] become a `PlanAggregate` on
-//! angzarr-embedded, as `TaskAggregate` is; the rejection gets codes, args
-//! and an en-US catalog. The rules are the same pure functions either way.
+//! The rules are pure functions, [`decide`] and [`apply`], over this
+//! crate's own types; [`PlanAggregate`] is the aggregate angzarr-embedded
+//! runs, its commands and events the messages of
+//! `proto/ctxloom/plans/v1/plans.proto` (angzarr-build's markup layer),
+//! converted to these at its handlers. A refusal is a [`PlanRejection`]: a
+//! code and its args, its English in the en-US catalog ([`EN_US`]).
 //!
 //! What one stream cannot see is not decided here: whether a linked task or
 //! plan exists, and whether a supersede closes a cycle, are the
 //! application's checks (it reads those streams first), because a domain
 //! reads no other stream and no projection.
 
+mod generated {
+    // The generated layer's command and event sets (`PlanCommand`,
+    // `PlanEvent`) are not this crate's public ones: those are the
+    // hand-written types below, converted to and from these messages
+    // (`wire.rs`).
+    #![allow(dead_code, unused_imports)]
+    include!(concat!(env!("OUT_DIR"), "/ctxloom.plans.v1.domain.rs"));
+}
+mod aggregate;
+mod rejection;
+mod wire;
+
 use std::collections::BTreeSet;
+
+pub use aggregate::PlanAggregate;
+#[cfg(any(test, feature = "test-support"))]
+pub use rejection::diagnostic_samples;
+pub use rejection::{PlanRejection, EN_US};
+
+/// The plans domain's name: every plan stream's `Cover.domain`.
+pub const PLAN_DOMAIN: &str = "plans";
+
+/// The task tag plans replace: `ctxloom:plan="<path>"`, which `plan import`
+/// turns into plans and their governs links. Retired: a write adding it is
+/// refused ([`tag_is_retired`]).
+pub const RETIRED_TAG: &str = "ctxloom:plan";
+
+/// Whether a task tag keyed `key` (`namespace:key`) is retired, so a write
+/// adding it is refused: `ctxloom:plan`, whose work plans now do.
+pub fn tag_is_retired(key: &str) -> bool {
+    key == RETIRED_TAG
+}
 
 /// A plan's status. A new plan is [`PlanStatus::Draft`] unless the add says
 /// [`PlanStatus::Active`].
@@ -89,8 +120,8 @@ pub struct PlanState {
     pub harp_id: String,
     pub title: String,
     pub status: PlanStatus,
-    /// The text's path, relative to the work root (`/`-separated), or, for
-    /// a file `plan import` registered from outside it, absolute.
+    /// The text's path, relative to the work root (`/`-separated): a plan
+    /// `plan import` found outside it is copied in, and this is the copy's.
     pub path: String,
     /// The text's sha-256, lowercase hex, as last recorded.
     pub content_hash: String,
@@ -125,7 +156,8 @@ pub enum PlanCommand {
     /// On the superseded plan, after a [`PlanCommand::Unsupersede`]: it is
     /// Active again.
     Reinstate,
-    /// `plan check --accept`: the text's hash as it now is.
+    /// The text's hash as it now is, recorded when a read finds the file
+    /// changed.
     Rehash(String),
 }
 
@@ -153,37 +185,6 @@ pub enum PlanEvent {
     MarkedSuperseded { by: String, from: PlanStatus },
     Reinstated,
     Rehashed(String),
-}
-
-/// Why a plan refused a command.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub enum PlanRejection {
-    /// An add to a stream that already holds a plan.
-    AlreadyAdded,
-    /// Anything but an add to an empty stream.
-    NoSuchPlan,
-    EmptyTitle,
-    /// An add whose status is not Draft or Active.
-    InitialStatus(PlanStatus),
-    /// The status it already has.
-    StatusUnchanged(PlanStatus),
-    /// A move [`PlanStatus::may_become`] refuses.
-    Transition {
-        from: PlanStatus,
-        to: PlanStatus,
-    },
-    /// `plan status superseded`: only a supersede link sets it.
-    SupersededBySupersedeOnly,
-    AlreadyGoverns(String),
-    NotGoverned(String),
-    /// A plan naming itself in `supersedes`.
-    SupersedesItself,
-    AlreadySupersedes(String),
-    NotSuperseded(String),
-    /// A rehash to the hash already recorded.
-    HashUnchanged,
-    /// A hash that is not 64 lowercase hex digits.
-    BadHash(String),
 }
 
 /// What `command` to the plan `state` records, or why it is refused.

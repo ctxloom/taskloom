@@ -1,11 +1,33 @@
 [package]
 name = "plans"
 version = "0.1.0"
-description = "The plans domain: one plan per aggregate, its status and its typed links (RED STUB: docs/plans/plans-aggregate.md)"
+description = "The plans domain: one plan per aggregate, its status and its typed links, decided and folded on angzarr-embedded (PlanAggregate)"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+
+[dependencies]
+# The plan aggregate on angzarr-embedded's markup (`PlanAggregate`).
+angzarr-embedded.workspace = true
+angzarr-embedded-diagnostic.workspace = true
+angzarr-embedded-macros.workspace = true
+# The generated domain layer names prost::Name and the wire types.
+prost.workspace = true
+plans-proto.workspace = true
+
+[build-dependencies]
+angzarr-build.workspace = true
+
+[dev-dependencies]
+# The in-memory store the aggregate's tests run the kernel over.
+angzarr-ports = { workspace = true, features = ["memory"] }
+fluent-syntax.workspace = true
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests: their
+# dev-dependency turns it on, and no build of a binary does.
+test-support = []
 
 [lints]
 workspace = true

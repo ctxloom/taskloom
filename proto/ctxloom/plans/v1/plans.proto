@@ -1,0 +1,219 @@
+syntax = "proto3";
+
+// One plan is one aggregate: its stream's root is derived from its harp id
+// (`ids::compute_root("plans", harp_id)`), in its project's store, beside
+// the project's task streams. The plan's text is a markdown file in the
+// work tree; the stream holds its path and the hash of its content.
+//
+// What one stream cannot see (whether a linked task or plan exists, whether
+// a supersede closes a cycle) is the application's to check: decide reads
+// no other stream. A supersede is two writes, one on each plan's stream,
+// and no order crosses streams.
+package ctxloom.plans.v1;
+
+import "io/angzarr/v1/options.proto";
+
+// The plan, folded from its events.
+message PlanState {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_AGGREGATE
+    domain: "plans"
+    name: "Plan"
+  };
+
+  string harp_id = 1;
+  string title = 2;
+  PlanStatus status = 3;
+  // The text's path, relative to the work root, `/`-separated.
+  string path = 4;
+  // The text's sha-256, 64 lowercase hex digits, as last recorded.
+  string content_hash = 5;
+  // The session the plan was added in, or empty.
+  string origin_session = 6;
+  // The tasks it governs, by harp id, sorted.
+  repeated string governs = 7;
+  // The plans it supersedes, by harp id, sorted.
+  repeated string supersedes = 8;
+  // The plan superseding this one, while it is superseded; else empty.
+  string superseded_by = 9;
+}
+
+enum PlanStatus {
+  PLAN_STATUS_UNSPECIFIED = 0;
+  // Being written.
+  PLAN_STATUS_DRAFT = 1;
+  // The plan in force.
+  PLAN_STATUS_ACTIVE = 2;
+  // Replaced by the plan that supersedes it: set and left only by a
+  // supersede link.
+  PLAN_STATUS_SUPERSEDED = 3;
+  // Carried out.
+  PLAN_STATUS_DONE = 4;
+  // Dropped without being carried out.
+  PLAN_STATUS_ABANDONED = 5;
+}
+
+// region commands
+
+// Create the plan. The harp id is minted by the caller, the path resolved
+// and the hash taken; a stream that already holds a plan refuses it, and
+// the caller mints another. Draft or Active only.
+message AddPlan {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.plans.v1.PlanState"
+    emits: ["ctxloom.plans.v1.PlanAdded"]
+  };
+
+  string harp_id = 1;
+  string title = 2;
+  PlanStatus status = 3;
+  string path = 4;
+  string content_hash = 5;
+  string origin_session = 6;
+}
+
+// `plan status`: any status but superseded, as the transition table allows.
+message SetPlanStatus {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.plans.v1.PlanState"
+    emits: ["ctxloom.plans.v1.PlanStatusChanged"]
+  };
+
+  PlanStatus status = 1;
+}
+
+// Govern a task the application has seen exists.
+message Govern {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.plans.v1.PlanState"
+    emits: ["ctxloom.plans.v1.Governed"]
+  };
+
+  string task = 1;
+}
+
+message Ungovern {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.plans.v1.PlanState"
+    emits: ["ctxloom.plans.v1.Ungoverned"]
+  };
+
+  string task = 1;
+}
+
+// On the superseding plan: supersede a plan the application has seen
+// exists, closing no cycle.
+message Supersede {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.plans.v1.PlanState"
+    emits: ["ctxloom.plans.v1.Superseded"]
+  };
+
+  string plan = 1;
+}
+
+message Unsupersede {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.plans.v1.PlanState"
+    emits: ["ctxloom.plans.v1.Unsuperseded"]
+  };
+
+  string plan = 1;
+}
+
+// On the superseded plan, after a Supersede: superseded by `by`.
+message MarkSuperseded {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.plans.v1.PlanState"
+    emits: ["ctxloom.plans.v1.MarkedSuperseded"]
+  };
+
+  string by = 1;
+}
+
+// On the superseded plan, after an Unsupersede: active again.
+message Reinstate {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.plans.v1.PlanState"
+    emits: ["ctxloom.plans.v1.Reinstated"]
+  };
+}
+
+// The text's hash as it now is, recorded when the file changed.
+message Rehash {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.plans.v1.PlanState"
+    emits: ["ctxloom.plans.v1.Rehashed"]
+  };
+
+  string content_hash = 1;
+}
+
+// endregion commands
+
+// region events
+
+message PlanAdded {
+  option (io.angzarr.v1.event) = {component: "ctxloom.plans.v1.PlanState"};
+
+  string harp_id = 1;
+  string title = 2;
+  PlanStatus status = 3;
+  string path = 4;
+  string content_hash = 5;
+  string origin_session = 6;
+}
+
+message PlanStatusChanged {
+  option (io.angzarr.v1.event) = {component: "ctxloom.plans.v1.PlanState"};
+
+  // `from` and `to`, spelled so prost's enum getters do not shadow
+  // `From::from`.
+  PlanStatus from_status = 1;
+  PlanStatus to_status = 2;
+}
+
+message Governed {
+  option (io.angzarr.v1.event) = {component: "ctxloom.plans.v1.PlanState"};
+
+  string task = 1;
+}
+
+message Ungoverned {
+  option (io.angzarr.v1.event) = {component: "ctxloom.plans.v1.PlanState"};
+
+  string task = 1;
+}
+
+message Superseded {
+  option (io.angzarr.v1.event) = {component: "ctxloom.plans.v1.PlanState"};
+
+  string plan = 1;
+}
+
+message Unsuperseded {
+  option (io.angzarr.v1.event) = {component: "ctxloom.plans.v1.PlanState"};
+
+  string plan = 1;
+}
+
+// The plan is superseded by `by`; `from_status` is the status it held.
+message MarkedSuperseded {
+  option (io.angzarr.v1.event) = {component: "ctxloom.plans.v1.PlanState"};
+
+  string by = 1;
+  PlanStatus from_status = 2;
+}
+
+// The plan is active again, its supersede link removed.
+message Reinstated {
+  option (io.angzarr.v1.event) = {component: "ctxloom.plans.v1.PlanState"};
+}
+
+message Rehashed {
+  option (io.angzarr.v1.event) = {component: "ctxloom.plans.v1.PlanState"};
+
+  string content_hash = 1;
+}
+
+// endregion events

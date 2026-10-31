@@ -35,6 +35,7 @@ angzarr-store-sqlite = { git = "https://github.com/angzarr-io/angzarr-embedded",
 # store ports, and their in-memory store for tests.
 angzarr-ports = { git = "https://github.com/angzarr-io/angzarr-project", rev = "b0a680fd1d8cdfaef9baace879b6b6adbeeca22a" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
+plans-proto = { path = "crates/core/wire/plans-proto" }
 tasks = { path = "crates/core/domain/tasks" }
 task-lists = { path = "crates/core/read-model/task-lists" }
 task-priority = { path = "crates/core/read-model/task-priority" }

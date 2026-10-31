@@ -1414,6 +1414,16 @@ dependencies = [
 [[package]]
 name = "plans"
 version = "0.1.0"
+dependencies = [
+ "angzarr-build",
+ "angzarr-embedded",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=3edfe314b468bf75e4f35d05a3b079d8d97ab46f)",
+ "angzarr-embedded-macros",
+ "angzarr-ports",
+ "fluent-syntax",
+ "plans-proto",
+ "prost",
+]
 
 [[package]]
 name = "plans-application"
@@ -1432,6 +1442,16 @@ dependencies = [
  "plans-application",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "plans-proto"
+version = "0.1.0"
+dependencies = [
+ "angzarr-build",
+ "angzarr-proto 0.1.0 (git+https://github.com/angzarr-io/angzarr-project?rev=b0a680fd1d8cdfaef9baace879b6b6adbeeca22a)",
+ "prost",
+ "prost-types",
 ]
 
 [[package]]

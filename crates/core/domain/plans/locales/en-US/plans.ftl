@@ -1,0 +1,16 @@
+plans-already-added = this plan already exists
+plans-no-such-plan = there is no such plan
+plans-empty-title = a plan needs a title
+plans-initial-status = a plan starts draft or active, not { $status }
+plans-status-unchanged = the plan is already { $status }
+plans-transition = a plan cannot go from { $from } to { $to }
+plans-superseded-by-supersede-only = a plan is superseded only by another plan's supersede link (`taskloom plan link <plan> --supersedes <this one>`)
+plans-already-governs = the plan already governs task { $task }
+plans-not-governed = the plan does not govern task { $task }
+plans-supersedes-itself = a plan cannot supersede itself
+plans-already-supersedes = the plan already supersedes plan { $plan }
+plans-not-superseded = the plan does not supersede plan { $plan }
+plans-hash-unchanged = the plan's text has not changed
+plans-bad-hash = { $hash } is not a sha-256: 64 lowercase hex digits
+plans-not-its-stream = plan { $harp_id } does not belong in this stream
+plans-no-root = plan { $harp_id } has no stream to belong in: its root cannot be derived ({ $cause })
