@@ -190,7 +190,7 @@ where
     I: ProjectIdentity,
     S: TaskStores,
     C: Clock + CommandIds,
-    D: ports::Delay + ports::Jitter,
+    D: ports::Delay + ports::Jitter + Send,
     G: Configuration + ConfigurationWriter,
 {
     /// [`PermitService::import_config`]. The moved keys are not refused

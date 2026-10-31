@@ -66,7 +66,7 @@ where
     T: Tasks,
     M: Mint,
     C: Clock + CommandIds,
-    D: Delay + Jitter,
+    D: Delay + Jitter + Send,
 {
     pub(crate) async fn importing(&mut self, dry_run: bool) -> Result<ImportReport, PlanError> {
         let root = self.work_root()?;

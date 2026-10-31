@@ -524,7 +524,7 @@ pub(crate) async fn seed_in<St, C, D>(
 where
     St: angzarr_embedded::next::Store + ReadStore,
     C: Clock + CommandIds,
-    D: Delay + Jitter,
+    D: Delay + Jitter + Send,
 {
     let held = schema_in(store, runner.registry).await?;
     if held.declared {
@@ -585,7 +585,7 @@ where
     I: ProjectIdentity,
     S: TaskStores,
     C: Clock + CommandIds,
-    D: Delay + Jitter,
+    D: Delay + Jitter + Send,
 {
     /// `project`'s store's rules after seeding its schema stream, where it
     /// has no history ([`seed_in`]).
@@ -655,7 +655,7 @@ where
     I: ProjectIdentity,
     S: TaskStores,
     C: Clock + CommandIds,
-    D: Delay + Jitter,
+    D: Delay + Jitter + Send,
     G: Configuration,
 {
     /// The rules of the store `pinned` (or the work root) names, refused

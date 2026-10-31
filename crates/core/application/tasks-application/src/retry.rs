@@ -1,31 +1,38 @@
-//! Running one command through angzarr-embedded's kernel, and running it
-//! again when the kernel says a retry may mend it.
+//! Running one command through angzarr-embedded's kernel, which retries it
+//! (angzarr's owner ruling, 2026-10-31: the kernel owns race re-runs).
 //!
-//! **One retry loop, taskloom's.** The kernel's own capped retry is on by
-//! default; the application turns it off ([`KERNEL_RETRY`]), so every
-//! retryable failure (a lost race: a conflict at the write, a stale
-//! command; a store that could not say) comes straight back here, and one
-//! failure is one attempt: never the kernel's retries times these, and
-//! nothing a person's command could not do is dead-lettered behind them.
-//! A retry is safe because it re-runs the SAME command id: if the first
-//! attempt landed after all, the kernel answers it DUPLICATE. The waits
-//! between attempts are capped exponential backoff with full jitter (each
-//! wait drawn from zero to its ceiling), over the [`Delay`] and [`Jitter`]
-//! ports, so many contending processes spread out instead of colliding
-//! again in lockstep.
+//! **The kernel retries what it runs.** A command that loses the race at
+//! its write is re-run on the new head, and a store that could not say is
+//! tried again, both by the kernel, under taskloom's [`Backoff`]
+//! ([`Backoff::on_retryable`]; [`KERNEL_RETRY`] the default), its waits
+//! over taskloom's [`Delay`] and [`Jitter`] ports ([`Ported`]), so a test's
+//! are exact. A retry is safe because it re-runs the SAME command id: if
+//! the first attempt landed after all, the kernel answers it DUPLICATE. The
+//! waits are capped exponential backoff with full jitter (each wait drawn
+//! from zero to its ceiling), so many contending processes spread out
+//! instead of colliding again in lockstep. A retryable failure the kernel
+//! hands back has had its retries: taskloom gives up on it at once
+//! ([`AppError::GaveUp`]), never retrying it again.
 //!
-//! There is no unit of work: a command that depends on the task as it is
-//! (a scalar tag displacing the one held, a removal only of a task that
-//! still qualifies) is shaped from a read of its stream and sent at the
-//! head it read (`Handling.expected_sequence`, STRICT), so a write landing
-//! between is the kernel's conflict, and the retry reads and shapes again.
+//! **taskloom re-reads what it shaped.** A command that depends on the task
+//! as it is (a scalar tag displacing the one held, a removal only of a task
+//! that still qualifies) is shaped from a read of its stream and sent at
+//! the head it read (`Handling.expected_sequence`, STRICT), so a write
+//! landing between is the kernel's stale answer (ABORTED: re-read and
+//! decide again, the caller's, angzarr decision 14.37), and taskloom reads
+//! and shapes again. So it does for what the kernel never runs: a read of
+//! the stream, and a purge at the head read.
 
 use std::time::Duration;
 
 use angzarr_embedded::next::v1::{CommandBook, Cover, Handling, Uuid};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::{Mutex, PoisonError};
+
 use angzarr_embedded::next::{
     DeadLetterLog, Domain, EventStore, Failure, Kernel, KernelError, OnRetryable, Purge, Recovery,
-    Registry, Sampled, Store, StoreError, Stream, StreamRef,
+    Registry, Rejected, Sampled, Store, StoreError, Stream, StreamRef, Wait,
 };
 use angzarr_embedded_diagnostic::Report;
 use ports::{Clock, Delay, Jitter};
@@ -33,26 +40,72 @@ use tasks::{TaskAggregate, TaskState};
 
 use crate::AppError;
 
-/// How the application has the kernel retry: not at all. taskloom's loop
-/// ([`Backoff`]) is the one that retries, so a failure is never retried
-/// twice over (the kernel's three retries of each of taskloom's ten
-/// attempts), its waits are the ports' (so a test's are exact), and a
-/// person's command that cannot land comes back to them, not to a dead
-/// letter. The kernel's own backoff otherwise, unused.
-///
-/// A command stamped with the head it loaded that loses the race at its
-/// write is run once only and handed back as the store's conflict
-/// (`max_race_runs` 0): the kernel neither re-runs it on the new head
-/// (angzarr decision 14.46) nor dead-letters it; taskloom's loop is the one
-/// that retries.
-pub const KERNEL_RETRY: OnRetryable = OnRetryable {
-    max_retries: 0,
-    max_race_runs: 0,
-    initial_backoff: Duration::from_millis(100),
-    multiplier: 2.0,
-    max_backoff: Duration::from_secs(5),
-    jitter: 0.2,
-};
+/// How the application has the kernel retry: [`Backoff::DEFAULT`], as
+/// [`Backoff::on_retryable`] makes it. A command stamped with the head it
+/// loaded that loses the race at its write is re-run on the new head up to
+/// the kernel's default race re-run cap, 10 runs (angzarr decision 14.46),
+/// and a store that could not say is tried up to 10 times; at either cap
+/// the kernel dead-letters it, into the use case's log.
+pub const KERNEL_RETRY: OnRetryable = Backoff::DEFAULT.on_retryable();
+
+/// The kernel's [`Wait`] over taskloom's [`Delay`] and [`Jitter`] ports:
+/// each backoff waited out by [`Delay::sleep`], each jitter drawn by
+/// [`Jitter::up_to`] as a fraction of [`DRAW_SCALE`], so a test's waits and
+/// draws are its fakes'.
+pub struct Ported<'d, D>(Mutex<Option<&'d mut D>>);
+
+/// What [`Ported`] asks [`Jitter::up_to`] for: a draw is the fraction of it
+/// drawn, at most all of it. A power of two seconds, so a fake's even
+/// fraction of it divides back exactly.
+pub const DRAW_SCALE: Duration = Duration::from_secs(1024);
+
+impl<'d, D> Ported<'d, D> {
+    pub fn new(delay: &'d mut D) -> Self {
+        Ported(Mutex::new(Some(delay)))
+    }
+}
+
+impl<D: Delay + Jitter + Send> Wait for Ported<'_, D> {
+    /// Sleeps `backoff` on the port. The kernel waits one backoff at a
+    /// time; a second wait begun during the first waits not at all.
+    fn wait(&self, backoff: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(async move {
+            let taken = self.0.lock().unwrap_or_else(PoisonError::into_inner).take();
+            if let Some(delay) = taken {
+                delay.sleep(backoff).await;
+                *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(delay);
+            }
+        })
+    }
+
+    /// The kernel takes `jitter * draw` of each wait off (with
+    /// [`Backoff::on_retryable`]'s jitter of 1, `draw` of it), and the port
+    /// draws the wait to keep, so the draw is what the port did not keep:
+    /// `1 - up_to(DRAW_SCALE) / DRAW_SCALE`, a draw past the scale held to
+    /// it.
+    fn draw(&self) -> f64 {
+        let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let kept = held
+            .as_mut()
+            .map_or(DRAW_SCALE, |delay| delay.up_to(DRAW_SCALE))
+            .min(DRAW_SCALE);
+        1.0 - kept.as_secs_f64() / DRAW_SCALE.as_secs_f64()
+    }
+}
+
+/// Whether `failure` is the kernel's answer to re-read and decide again
+/// (ABORTED: a command sent at a head the stream has passed, an overlap, an
+/// unresolved window), which the kernel never retries for its caller.
+pub fn to_redecide(failure: &Failure<Rejected>) -> bool {
+    matches!(
+        failure,
+        Failure::Kernel(
+            KernelError::Stale { .. }
+                | KernelError::Overlap { .. }
+                | KernelError::Unresolved { .. }
+        )
+    )
+}
 
 /// How long to wait between attempts, and how many to make.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -66,6 +119,22 @@ pub struct Backoff {
 }
 
 impl Backoff {
+    /// The kernel's retry of a command, as this backoff says: `attempts`
+    /// tries of a store that could not say (the first included) and
+    /// `attempts` runs of one that keeps losing its race, each wait's
+    /// ceiling [`Backoff::ceiling`]'s, drawn by full jitter (from zero to
+    /// the ceiling).
+    pub const fn on_retryable(&self) -> OnRetryable {
+        OnRetryable {
+            max_retries: self.attempts.saturating_sub(1),
+            max_race_runs: self.attempts,
+            initial_backoff: self.base,
+            multiplier: 2.0,
+            max_backoff: self.cap,
+            jitter: 1.0,
+        }
+    }
+
     /// 10ms doubling to a 1s cap, 10 attempts: the waits' ceilings sum to
     /// about 3.3s, on top of the store's own lock wait per attempt.
     pub const DEFAULT: Backoff = Backoff {
@@ -111,10 +180,10 @@ pub(crate) struct Runner<'a, C, D> {
     pub dead_letters: &'a dyn DeadLetterLog,
 }
 
-impl<C: Clock, D: Delay + Jitter> Runner<'_, C, D> {
-    /// Run `book` under `command_id` on `store` until it commits, is
-    /// refused, fails in a way a retry will not mend, or the attempts run
-    /// out.
+impl<C: Clock, D: Delay + Jitter + Send> Runner<'_, C, D> {
+    /// Run `book` under `command_id` on `store`, the kernel retrying it,
+    /// until it commits, is refused, or fails: in a way a retry will not
+    /// mend, or with its retries spent.
     pub async fn run<S: Store>(
         &mut self,
         store: &S,
@@ -183,21 +252,40 @@ impl<C: Clock, D: Delay + Jitter> Runner<'_, C, D> {
             let (failure, recovery) =
                 match shaped::<A, _, _>(self.registry, store, book, shape).await {
                     Ok(None) => return Ok(None),
-                    Ok(Some(book)) => match Kernel::new(self.registry, self.dead_letters)
-                        .on_retryable(KERNEL_RETRY)
-                        .handle::<A, _, _>(store, book, &sampled, &mut ())
-                        .await
-                    {
-                        Ok(_) => return Ok(Some(Outcome::Committed)),
-                        Err(Failure::Rejected(rejection)) => {
-                            return Ok(Some(Outcome::Refused(rejection.report().clone())))
+                    Ok(Some(book)) => {
+                        let waits = Ported::new(&mut *self.delay);
+                        let handled = Kernel::new(self.registry, self.dead_letters)
+                            .on_retryable(self.backoff.on_retryable())
+                            .wait_with(&waits)
+                            .handle::<A, _, _>(store, book, &sampled, &mut ())
+                            .await;
+                        match handled {
+                            Ok(_) => return Ok(Some(Outcome::Committed)),
+                            Err(Failure::Rejected(rejection)) => {
+                                return Ok(Some(Outcome::Refused(rejection.report().clone())))
+                            }
+                            Err(failure) => self.retried(failure)?,
                         }
-                        Err(failure) => (Report::of(&failure), failure.recovery()),
-                    },
+                    }
                     Err(failed) => failed,
                 };
             self.again(&mut failed, failure, recovery).await?;
         }
+    }
+
+    /// What the kernel handed back, `failure`, as a failure to re-read
+    /// after: the kernel's answer to decide again ([`to_redecide`]), or one
+    /// no retry mends. A retryable one it did not ask to be re-read has
+    /// had the kernel's retries, and is given up on at once.
+    fn retried(&self, failure: Failure<Rejected>) -> Result<(Report, Recovery), AppError> {
+        let recovery = failure.recovery();
+        if recovery == Recovery::Retry && !to_redecide(&failure) {
+            return Err(AppError::GaveUp {
+                attempts: self.backoff.attempts,
+                error: Report::of(&failure),
+            });
+        }
+        Ok((Report::of(&failure), recovery))
     }
 
     /// Purge the stream of the task `stream` names, if it holds a removed
@@ -220,8 +308,10 @@ impl<C: Clock, D: Delay + Jitter> Runner<'_, C, D> {
         }
     }
 
-    /// After the `failed`th failure, wait to try again; or the error to
-    /// end with, when a retry will not mend it or the attempts are spent.
+    /// After the `failed`th failure of what taskloom re-reads (a read, a
+    /// shaped command answered stale, a purge), wait to try again; or the
+    /// error to end with, when a retry will not mend it or the attempts
+    /// are spent.
     async fn again(
         &mut self,
         failed: &mut u32,

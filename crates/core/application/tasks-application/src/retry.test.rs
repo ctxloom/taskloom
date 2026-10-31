@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use angzarr_embedded_diagnostic::Diagnostic;
 
-use super::{Backoff, Outcome, Runner};
+use super::{Backoff, Outcome, Ported, Runner, DRAW_SCALE};
 use crate::fakes::{ready, FakeClock, FakeDelay, Fault, Flaky};
 use crate::{book, registry, AppError};
 use tasks::AddTask;
@@ -109,6 +109,12 @@ fn test_a_command_that_commits_at_once_waits_for_nothing() {
     assert_eq!(events(&mut store), 1);
 }
 
+/// The kernel runs the command again (angzarr's owner ruling, 2026-10-31:
+/// the kernel owns race re-runs), its waits on taskloom's ports: each a
+/// draw of the Jitter port (asked for a fraction of [`DRAW_SCALE`]) taken
+/// to the Delay port. It counts a store's failures and lost races apart,
+/// each from the base: the failures wait 10ms then 20ms, the race between
+/// them 10ms.
 #[test]
 fn test_a_retryable_failure_is_run_again_after_a_growing_capped_wait() {
     let mut store = Flaky::failing(&[Fault::Unavailable, Fault::Conflict, Fault::Unavailable]);
@@ -116,9 +122,18 @@ fn test_a_retryable_failure_is_run_again_after_a_growing_capped_wait() {
     let outcome = run(&mut store, &mut delay, 5).unwrap();
     assert!(matches!(outcome, Outcome::Committed));
     assert_eq!(store.begun(), 4, "three failures, then the commit");
-    assert_eq!(delay.ceilings, [10 * MS, 20 * MS, 30 * MS]);
-    assert_eq!(delay.slept, [10 * MS, 20 * MS, 30 * MS]);
+    assert_eq!(delay.ceilings, [DRAW_SCALE; 3], "one draw a wait");
+    assert_eq!(delay.slept, [10 * MS, 10 * MS, 20 * MS]);
     assert_eq!(events(&mut store), 1, "landed once");
+}
+
+/// A store's failures past the cap wait at most the cap.
+#[test]
+fn test_no_wait_exceeds_the_cap() {
+    let mut store = Flaky::failing(&[Fault::Unavailable; 3]);
+    let mut delay = FakeDelay::default();
+    run(&mut store, &mut delay, 5).unwrap();
+    assert_eq!(delay.slept, [10 * MS, 20 * MS, 30 * MS]);
 }
 
 #[test]
@@ -136,7 +151,7 @@ fn test_each_wait_is_the_jitter_drawn_under_its_ceiling() {
 fn test_a_jitter_past_its_ceiling_is_held_to_it() {
     let mut store = Flaky::failing(&[Fault::Unavailable]);
     let mut delay = FakeDelay {
-        over: Some(Duration::from_secs(9)),
+        over: Some(DRAW_SCALE * 9),
         ..FakeDelay::default()
     };
     run(&mut store, &mut delay, 5).unwrap();
@@ -333,24 +348,66 @@ fn test_a_purge_gives_up_once_its_attempts_are_spent() {
 // ------------------------------------------------------------ one retry loop
 
 #[test]
-fn test_the_application_has_the_kernel_retry_nothing() {
-    assert_eq!(super::KERNEL_RETRY.max_retries, 0);
-    assert_eq!(super::KERNEL_RETRY.max_race_runs, 0);
+fn test_the_kernel_retries_under_taskloom_s_default_backoff() {
     assert_eq!(
-        angzarr_embedded::next::OnRetryable {
-            max_retries: 0,
-            max_race_runs: 0,
-            ..angzarr_embedded::next::OnRetryable::default()
-        },
-        super::KERNEL_RETRY,
-        "the kernel's own backoff otherwise, unused"
+        super::KERNEL_RETRY.max_race_runs,
+        angzarr_embedded::next::DEFAULT_RACE_RUNS,
+        "the kernel's default race re-run cap"
     );
+    assert_eq!(
+        super::KERNEL_RETRY,
+        angzarr_embedded::next::OnRetryable {
+            max_retries: 9,
+            max_race_runs: 10,
+            initial_backoff: 10 * MS,
+            multiplier: 2.0,
+            max_backoff: Duration::from_secs(1),
+            jitter: 1.0,
+        },
+        "Backoff::DEFAULT's attempts, base and cap, with full jitter"
+    );
+    assert_eq!(Backoff::DEFAULT.on_retryable(), super::KERNEL_RETRY);
+    let none = Backoff {
+        attempts: 0,
+        ..Backoff::DEFAULT
+    };
+    assert_eq!(none.on_retryable().max_retries, 0, "no attempts, no retry");
+}
+
+/// The kernel's waits are the ports': a backoff slept on the Delay port, a
+/// draw what the Jitter port did not keep of [`DRAW_SCALE`], a draw past it
+/// held to it.
+#[test]
+fn test_the_kernel_waits_and_draws_on_taskloom_s_ports() {
+    use angzarr_embedded::next::Wait;
+    let mut delay = FakeDelay {
+        permille: 250,
+        ..FakeDelay::default()
+    };
+    {
+        let ported = Ported::new(&mut delay);
+        assert_eq!(ported.draw(), 0.75);
+        ready(ported.wait(7 * MS));
+        ready(ported.wait(9 * MS));
+    }
+    assert_eq!(
+        delay.slept,
+        [7 * MS, 9 * MS],
+        "each wait, slept on the port"
+    );
+    assert_eq!(delay.ceilings, [DRAW_SCALE]);
+    let mut over = FakeDelay {
+        over: Some(DRAW_SCALE * 9),
+        ..FakeDelay::default()
+    };
+    assert_eq!(Ported::new(&mut over).draw(), 0.0, "held to the scale");
 }
 
 #[test]
-fn test_a_store_that_never_answers_is_given_up_after_taskloom_s_attempts_alone() {
-    // One failure is one attempt: never the kernel's retries times these,
-    // and nothing is dead-lettered behind the person.
+fn test_a_store_that_never_answers_is_given_up_at_the_kernels_cap_under_its_key() {
+    // The kernel's tries are taskloom's attempts, never its retries times
+    // taskloom's; at its cap it dead-letters the command under the spec's
+    // key (angzarr decision 14.51), and taskloom does not try it again.
     let store = Flaky::failing(&[Fault::Unavailable; 4]);
     let mut delay = FakeDelay::default();
     let dead_letters = crate::dead_letter::DeadLetters::default();
@@ -384,8 +441,15 @@ fn test_a_store_that_never_answers_is_given_up_after_taskloom_s_attempts_alone()
     };
     assert_eq!(attempts, 4);
     assert_eq!(error.code(), "angzarr-ports-store-unavailable");
-    assert_eq!(store.begun(), 4, "taskloom's attempts, the kernel's none");
-    assert!(dead_letters.take().is_empty(), "nothing dead-lettered");
+    assert_eq!(store.begun(), 4, "the kernel's tries, taskloom's none");
+    let letters = dead_letters.take();
+    assert_eq!(letters.len(), 1, "{letters:?}");
+    assert!(
+        letters[0]
+            .line
+            .contains("COORDINATOR_REASON_STORE_UNAVAILABLE cause=fake-busy retry_count=3"),
+        "{letters:?}"
+    );
 }
 
 #[test]

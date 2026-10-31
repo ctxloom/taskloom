@@ -135,11 +135,14 @@ angzarr-embedded (annals-store-sql's) is refused, naming its backup
 (`state.db.pre-embedded`), never migrated in place (the owner's ruling
 D2).
 
-There is no unit of work: each handling step is one atomic write, and a
-command that depends on the task as it is is sent at the head it read, so
-a write landing between is a conflict the retry loop runs again. The
-kernel's own retry is off (`KERNEL_RETRY`); taskloom's `Backoff` loop is
-the one that retries. Domain, projector and use-case tests run through
+There is no unit of work: each handling step is one atomic write. The
+kernel owns retries (angzarr's owner ruling, 2026-10-31): a command that
+loses the race at its write is re-run on the new head, and a store that
+could not say is tried again, under taskloom's `Backoff` (`KERNEL_RETRY`,
+`Backoff::on_retryable`), its waits on taskloom's `Delay` and `Jitter`
+ports (`Ported`), so tests stay exact. A command that depends on the task
+as it is is sent at the head it read, so a write landing between is the
+kernel's stale answer, and taskloom reads and shapes it again. Domain, projector and use-case tests run through
 angzarr-embedded's kernel over angzarr-ports' `MemoryStore`, as the binary
 runs over SQLite.
 

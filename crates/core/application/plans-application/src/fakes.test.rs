@@ -84,12 +84,19 @@ pub struct Store {
     pub inner: MemoryStore,
     meanwhile: Mutex<Option<Meanwhile>>,
     writes: Mutex<u32>,
+    /// Writes still to fail, the store unable to say.
+    failing: Mutex<u32>,
 }
 
 impl Store {
     /// Run `meanwhile` just before the next write lands.
     pub fn before_next_write(&self, meanwhile: Meanwhile) {
         *self.meanwhile.lock().unwrap() = Some(meanwhile);
+    }
+
+    /// Fail the next `writes` writes, the store unable to say.
+    pub fn fail_writes(&self, writes: u32) {
+        *self.failing.lock().unwrap() = writes;
     }
 
     /// Writes tried.
@@ -101,6 +108,15 @@ impl Store {
 impl EventStore for Store {
     async fn write(&self, write: Write<'_>) -> Result<Written, StoreError> {
         *self.writes.lock().unwrap() += 1;
+        {
+            let mut failing = self.failing.lock().unwrap();
+            if *failing > 0 {
+                *failing -= 1;
+                return Err(StoreError::Unavailable(
+                    angzarr_embedded::next::angzarr_ports::Cause::new("fake-busy", []),
+                ));
+            }
+        }
         let meanwhile = self.meanwhile.lock().unwrap().take();
         if let Some(meanwhile) = meanwhile {
             meanwhile(&self.inner);
