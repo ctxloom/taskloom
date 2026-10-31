@@ -4,6 +4,7 @@ use std::fmt;
 use std::path::Path;
 
 use angzarr_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_yaml::versioned::LoadError;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum RegistryError {
@@ -19,8 +20,12 @@ pub enum RegistryError {
         origin: String,
         reason: String,
     },
-    /// The registry is not the YAML it should be.
-    Unreadable { path: String, detail: String },
+    /// The registry does not load through the reader (angzarr-yaml's,
+    /// kind `project-registry`): not the YAML it reads, a version it does
+    /// not read, a key this version does not know or a value of the wrong
+    /// shape. Its code and args are the reader's: the file, and the
+    /// problem, with the key path where the decode failed.
+    Load(LoadError),
     /// Every freshly minted project id was already registered.
     Exhausted { attempts: u32 },
     /// The working directory, needed to find the work root, cannot be read
@@ -68,7 +73,7 @@ impl Diagnostic for RegistryError {
             RegistryError::NoHome { .. } => "project-registry-no-home",
             RegistryError::Io { .. } => "project-registry-io",
             RegistryError::InvalidId { .. } => "project-registry-invalid-id",
-            RegistryError::Unreadable { .. } => "project-registry-unreadable",
+            RegistryError::Load(e) => e.code(),
             RegistryError::Exhausted { .. } => "project-registry-exhausted",
             RegistryError::NoWorkingDirectory { .. } => "project-registry-no-cwd",
             RegistryError::RelativePath { .. } => "project-registry-relative-path",
@@ -85,7 +90,8 @@ impl Diagnostic for RegistryError {
         match self {
             RegistryError::NoHome { flavor } => vec![("var", flavor.home_var().into())],
             RegistryError::Changed => Vec::new(),
-            RegistryError::Io { path, detail } | RegistryError::Unreadable { path, detail } => {
+            RegistryError::Load(e) => e.args(),
+            RegistryError::Io { path, detail } => {
                 vec![
                     ("path", path.as_str().into()),
                     ("ext_err_txt", detail.as_str().into()),
@@ -145,10 +151,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             origin: "--project".to_string(),
             reason: "it contains '/'".to_string(),
         }),
-        Box::new(RegistryError::Unreadable {
-            path: path(),
-            detail: detail(),
-        }),
+        Box::new(RegistryError::Load(
+            crate::index::load_text(&path(), "schema_version: 2\n")
+                .expect_err("a newer registry is refused"),
+        )),
         Box::new(RegistryError::Exhausted { attempts: 100 }),
         Box::new(RegistryError::NoWorkingDirectory {
             detail: "No such file or directory (os error 2)".to_string(),

@@ -253,7 +253,6 @@ fn test_the_text_written_is_what_gos_yaml_v3_reads() {
         path: "/work/tree".to_string(),
         created_at: "2026-06-10T02:35:20.837009562Z".to_string(),
         last_seen_at: "2026-06-10T02:35:20.837009562Z".to_string(),
-        other: Default::default(),
     });
     save(&fs, &file, &index).unwrap();
     assert_eq!(

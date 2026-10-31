@@ -2,7 +2,7 @@
 
 use angzarr_diagnostic::{Arg, Diagnostic};
 
-crate::english_for!(&[crate::EN_US.1, file_lock::EN_US.1]);
+crate::english_for!(&[crate::EN_US.1, file_lock::EN_US.1, angzarr_yaml::EN_US.1]);
 
 use super::{diagnostic_samples, RegistryError};
 
@@ -19,7 +19,7 @@ fn test_each_error_renders_its_english_fallback() {
             "no home directory: set HOME",
             "/home/u/.ctxloom/projects/index.yaml: permission denied",
             "the project id ../x from --project is not a valid id: it contains '/'",
-            "the project registry /home/u/.ctxloom/projects/index.yaml cannot be read: permission denied",
+            "project-registry document /home/u/.ctxloom/projects/index.yaml: version 2 was written by a newer build; this build reads up to version 1",
             "no free project id after 100 tries",
             "the working directory cannot be read: No such file or directory (os error 2)",
             "index.yaml is not an absolute path: nothing is written relative to the working directory",
@@ -116,7 +116,11 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
 
     let ftl = crate::EN_US.1;
     let resource = fluent_syntax::parser::parse(ftl).expect("the catalog parses");
-    let samples = diagnostic_samples();
+    // This crate's own codes: the reader's are in its catalog.
+    let samples: Vec<_> = diagnostic_samples()
+        .into_iter()
+        .filter(|s| s.code().starts_with("project-registry-"))
+        .collect();
     let mut catalog: Vec<&str> = resource
         .body
         .iter()

@@ -1,50 +1,58 @@
 //! The home registry, `~/.ctxloom/projects/index.yaml`: every project id
-//! and the path it was registered for, in schema version 1. Fields this
-//! version does not know are kept as read, so every binary of the family
-//! can share the file. Changes are made under an exclusive lock on
+//! and the path it was registered for, in schema version 1. It is read
+//! through angzarr-yaml, the one reader of every Rust config (the owner's
+//! ruling, 2026-10-31): its versioned loader, the kind `project-registry`
+//! stamped `schema_version` at [`SCHEMA_VERSION`] with no older version,
+//! as Go's schemaver versions it, and its strict decode. A file shared by
+//! Go's and Rust's binaries is strict for all (the same ruling): a key
+//! this version does not know, or a version it does not read, is refused,
+//! never kept, so the writers change the schema in lockstep. Changes are
+//! made under an exclusive lock on
 //! `index.yaml.lock`, the registry's lock file (taken through file-lock,
 //! as every ctxloom lock is), and written by rename, so a reader never
 //! sees half a file.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use file_system::{Fs, Perms};
 
+use angzarr_yaml::versioned::{LoadError, Loader, Migrations};
+use angzarr_yaml::Value;
 use os::Mode;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use crate::path::{canonical, same};
 use crate::RegistryError;
 
-/// The schema version this registry writes.
+/// The schema version this registry reads and writes, and the only one:
+/// there is no older version to migrate.
 pub const SCHEMA_VERSION: u32 = 1;
 
+/// The document kind the registry is, as the reader names it.
+pub const KIND: &str = "project-registry";
+
 /// One project: its id and the path it was registered for.
-#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Entry {
     pub project_id: String,
     pub path: String,
     /// RFC 3339, as written.
     pub created_at: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
+    /// RFC 3339, as written; empty when it was not.
+    #[serde(default)]
     pub last_seen_at: String,
-    /// Fields this version does not know, kept as read.
-    #[serde(flatten)]
-    pub other: BTreeMap<String, serde_norway::Value>,
 }
 
-#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Index {
-    #[serde(default)]
     pub schema_version: u32,
     #[serde(default)]
     pub projects: Vec<Entry>,
-    #[serde(flatten)]
-    pub other: BTreeMap<String, serde_norway::Value>,
 }
 
 impl Index {
@@ -81,7 +89,6 @@ impl Index {
             path: path.to_string(),
             created_at: now.clone(),
             last_seen_at: now,
-            other: BTreeMap::new(),
         });
     }
 }
@@ -101,10 +108,20 @@ pub fn load(fs: &dyn Fs, path: &Path) -> Result<Index, RegistryError> {
     if text.trim().is_empty() {
         return Ok(Index::default());
     }
-    serde_norway::from_str(&text).map_err(|e| RegistryError::Unreadable {
-        path: path.display().to_string(),
-        detail: e.to_string(),
-    })
+    load_text(&path.display().to_string(), &text).map_err(RegistryError::Load)
+}
+
+/// `text`, the registry at `source`, as the reader reads it.
+pub(crate) fn load_text(source: &str, text: &str) -> Result<Index, LoadError> {
+    loader().load_into(Some(source), text)
+}
+
+/// The registry's reader: angzarr-yaml's versioned loader for [`KIND`],
+/// at [`SCHEMA_VERSION`] with no older version to migrate.
+fn loader() -> Loader {
+    Migrations::new(KIND, SCHEMA_VERSION)
+        .build()
+        .expect("a kind with no steps is a whole chain")
 }
 
 /// Write `index` to `path` on `fs`, whole, by rename.
@@ -113,8 +130,43 @@ pub fn save(fs: &dyn Fs, path: &Path, index: &Index) -> Result<(), RegistryError
     if index.schema_version == 0 {
         index.schema_version = SCHEMA_VERSION;
     }
-    let text = serde_norway::to_string(&index).map_err(|e| RegistryError::io(path, e))?;
+    let text = angzarr_yaml::write(&value(&index), usize::MAX);
     write_atomically(fs, path, text.as_bytes())
+}
+
+/// `index` as the document written: every field in block style, an entry's
+/// `last_seen_at` left out when it is empty.
+fn value(index: &Index) -> Value {
+    let entry = |e: &Entry| {
+        let mut fields = vec![
+            (
+                "project_id".to_string(),
+                Value::scalar(e.project_id.as_str()),
+            ),
+            ("path".to_string(), Value::scalar(e.path.as_str())),
+            (
+                "created_at".to_string(),
+                Value::scalar(e.created_at.as_str()),
+            ),
+        ];
+        if !e.last_seen_at.is_empty() {
+            fields.push((
+                "last_seen_at".to_string(),
+                Value::scalar(e.last_seen_at.as_str()),
+            ));
+        }
+        Value::Map(fields)
+    };
+    Value::Map(vec![
+        (
+            "schema_version".to_string(),
+            Value::scalar(index.schema_version.to_string()),
+        ),
+        (
+            "projects".to_string(),
+            Value::Seq(index.projects.iter().map(entry).collect()),
+        ),
+    ])
 }
 
 /// `path`, refused if it is relative: nothing here is written or locked
