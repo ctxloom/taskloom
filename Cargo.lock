@@ -50,9 +50,9 @@ dependencies = [
 [[package]]
 name = "angzarr-embedded"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd#07154a2e3a952c0cfd9d614177b75aa68faa4dfd"
+source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9#abb10bef79199e58893b80e48738a35af5b463e9"
 dependencies = [
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "angzarr-ports",
  "angzarr-proto 0.1.0 (git+https://github.com/angzarr-io/angzarr?rev=bfbe8d3e51bbc754ee80f955e9fbb64d83beabb7)",
  "angzarr-router",
@@ -63,17 +63,17 @@ dependencies = [
 [[package]]
 name = "angzarr-embedded-diagnostic"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd#07154a2e3a952c0cfd9d614177b75aa68faa4dfd"
+source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=7c8520470fa0fd9435020d7c30ade79dd2808ae7#7c8520470fa0fd9435020d7c30ade79dd2808ae7"
 
 [[package]]
 name = "angzarr-embedded-diagnostic"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=7c8520470fa0fd9435020d7c30ade79dd2808ae7#7c8520470fa0fd9435020d7c30ade79dd2808ae7"
+source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9#abb10bef79199e58893b80e48738a35af5b463e9"
 
 [[package]]
 name = "angzarr-embedded-macros"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd#07154a2e3a952c0cfd9d614177b75aa68faa4dfd"
+source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9#abb10bef79199e58893b80e48738a35af5b463e9"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -130,7 +130,7 @@ dependencies = [
 [[package]]
 name = "angzarr-store-sqlite"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd#07154a2e3a952c0cfd9d614177b75aa68faa4dfd"
+source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9#abb10bef79199e58893b80e48738a35af5b463e9"
 dependencies = [
  "angzarr-ports",
  "prost",
@@ -534,7 +534,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 name = "file-lock"
 version = "0.1.0"
 dependencies = [
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "file-system",
  "fluent-bundle",
  "fluent-syntax",
@@ -546,7 +546,7 @@ dependencies = [
 name = "file-system"
 version = "0.1.0"
 dependencies = [
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "fluent-bundle",
  "fluent-syntax",
  "mutants",
@@ -1045,7 +1045,7 @@ dependencies = [
 name = "jsonl-task-log"
 version = "0.1.0"
 dependencies = [
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "file-system",
  "fluent-bundle",
  "fluent-syntax",
@@ -1406,7 +1406,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 name = "plan-files"
 version = "0.1.0"
 dependencies = [
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "file-system",
  "fluent-syntax",
  "os",
@@ -1428,7 +1428,7 @@ version = "0.1.0"
 dependencies = [
  "angzarr-build",
  "angzarr-embedded",
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "angzarr-embedded-macros",
  "angzarr-ports",
  "fluent-syntax",
@@ -1441,7 +1441,7 @@ name = "plans-application"
 version = "0.1.0"
 dependencies = [
  "angzarr-embedded",
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "angzarr-ports",
  "fluent-syntax",
  "plan-lists",
@@ -1455,7 +1455,7 @@ dependencies = [
 name = "plans-cli"
 version = "0.1.0"
 dependencies = [
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "clap",
  "fluent-syntax",
  "plans-application",
@@ -1478,7 +1478,7 @@ dependencies = [
 name = "ports"
 version = "0.1.0"
 dependencies = [
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "angzarr-ports",
  "prost-types",
 ]
@@ -1511,7 +1511,7 @@ dependencies = [
 name = "presentation"
 version = "0.1.0"
 dependencies = [
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "fluent-bundle",
  "fluent-syntax",
  "serde",
@@ -1553,7 +1553,7 @@ dependencies = [
 name = "project-application"
 version = "0.1.0"
 dependencies = [
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "fluent-bundle",
  "fluent-syntax",
  "ports",
@@ -1563,7 +1563,7 @@ dependencies = [
 name = "project-cli"
 version = "0.1.0"
 dependencies = [
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "clap",
  "fluent-bundle",
  "fluent-syntax",
@@ -1577,7 +1577,7 @@ dependencies = [
 name = "project-registry"
 version = "0.1.0"
 dependencies = [
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "file-lock",
  "file-system",
  "fluent-bundle",
@@ -2381,7 +2381,7 @@ dependencies = [
 name = "task-priority"
 version = "0.1.0"
 dependencies = [
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "expr-lang",
  "fluent-bundle",
  "fluent-syntax",
@@ -2395,7 +2395,7 @@ dependencies = [
 name = "task-store-sqlite"
 version = "0.1.0"
 dependencies = [
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "angzarr-ports",
  "angzarr-store-sqlite",
  "file-system",
@@ -2411,7 +2411,7 @@ name = "taskloom"
 version = "0.1.0"
 dependencies = [
  "angzarr-embedded",
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "angzarr-ports",
  "angzarr-store-sqlite",
  "clap",
@@ -2452,7 +2452,7 @@ version = "0.1.0"
 dependencies = [
  "angzarr-build",
  "angzarr-embedded",
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "angzarr-embedded-macros",
  "angzarr-ports",
  "fluent-syntax",
@@ -2468,7 +2468,7 @@ name = "tasks-application"
 version = "0.1.0"
 dependencies = [
  "angzarr-embedded",
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "angzarr-ports",
  "fluent-bundle",
  "fluent-syntax",
@@ -2488,7 +2488,7 @@ dependencies = [
 name = "tasks-cli"
 version = "0.1.0"
 dependencies = [
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "clap",
  "fluent-bundle",
  "fluent-syntax",
@@ -2503,7 +2503,7 @@ dependencies = [
 name = "tasks-config"
 version = "0.1.0"
 dependencies = [
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "file-system",
  "fluent-bundle",
  "fluent-syntax",
@@ -2519,7 +2519,7 @@ name = "tasks-lib"
 version = "0.1.0"
 dependencies = [
  "angzarr-embedded",
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "angzarr-ports",
  "angzarr-store-sqlite",
  "file-lock",
@@ -2569,7 +2569,7 @@ dependencies = [
 name = "tasks-watch"
 version = "0.1.0"
 dependencies = [
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=07154a2e3a952c0cfd9d614177b75aa68faa4dfd)",
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=abb10bef79199e58893b80e48738a35af5b463e9)",
  "clap",
  "fluent-bundle",
  "fluent-syntax",

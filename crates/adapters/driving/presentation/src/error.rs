@@ -60,21 +60,21 @@ impl std::error::Error for CatalogError {}
 impl std::error::Error for Unrendered {}
 
 impl Diagnostic for UnknownFormat {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         "presentation-unknown-format"
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         vec![("value", self.value.as_str().into())]
     }
 }
 
 impl Diagnostic for CatalogError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         "presentation-catalog-invalid"
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         vec![
             ("source", self.source.as_str().into()),
             ("ext_err_txt", self.detail.as_str().into()),
@@ -83,14 +83,14 @@ impl Diagnostic for CatalogError {
 }
 
 impl Diagnostic for Unrendered {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             Unrendered::Unknown { .. } => "presentation-unknown-code",
             Unrendered::Unformattable { .. } => "presentation-unformattable",
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             Unrendered::Unknown { code } => vec![("code", code.as_str().into())],
             Unrendered::Unformattable { code, detail } => vec![

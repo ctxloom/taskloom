@@ -151,7 +151,7 @@ impl fmt::Display for PruneRefusal {
 }
 
 impl Diagnostic for PruneRefusal {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             PruneRefusal::NoStatus => "tasks-application-prune-no-status",
             PruneRefusal::AgeRequired => "tasks-application-prune-age-required",
@@ -160,7 +160,7 @@ impl Diagnostic for PruneRefusal {
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             PruneRefusal::AgeNotPositive { age } | PruneRefusal::AgeUnreadable { age } => {
                 vec![("age", age.as_str().into())]

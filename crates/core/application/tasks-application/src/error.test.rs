@@ -9,7 +9,7 @@ fn cause() -> Report {
     Report::new("tasks-text-required").arg("field", "text")
 }
 
-fn arg_names(d: &dyn Diagnostic) -> Vec<&'static str> {
+fn arg_names(d: &dyn Diagnostic) -> Vec<&str> {
     d.args().into_iter().map(|(name, _)| name).collect()
 }
 
@@ -69,8 +69,8 @@ fn test_each_error_gives_its_args_values() {
     assert!(matches!(exhausted[0], ("attempts", Arg::Uint(100))));
     let vanished = AppError::Vanished {
         harp_id: "calm-otter".to_string(),
-    }
-    .args();
+    };
+    let vanished = vanished.args();
     assert!(matches!(&vanished[0], ("harp_id", Arg::Str(s)) if s == "calm-otter"));
     assert!(AppError::NoProject.args().is_empty());
 }

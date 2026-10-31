@@ -30,13 +30,15 @@ angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "54db
 
 # angzarr-embedded, angzarr's in-app runtime, taskloom's
 # (taskloom-on-angzarr-embedded.plan.md). Pinned by rev on
-# angzarr-embedded's main: 07154a2 (router 1008774, angzarr core bfbe8d3
-# for angzarr-proto and angzarr-ports, spec 7597d23): the kernel owns race
-# re-runs and retries, its waits injectable (`Kernel::wait_with`).
-angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "07154a2e3a952c0cfd9d614177b75aa68faa4dfd" }
-angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "07154a2e3a952c0cfd9d614177b75aa68faa4dfd" }
-angzarr-embedded-diagnostic = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "07154a2e3a952c0cfd9d614177b75aa68faa4dfd" }
-angzarr-store-sqlite = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "07154a2e3a952c0cfd9d614177b75aa68faa4dfd" }
+# angzarr-embedded's main: abb10be (router 1008774, angzarr core bfbe8d3
+# for angzarr-proto and angzarr-ports, spec 7597d23): a domain's rules
+# version is its crate's build version, checked per answer; errors hold
+# their codes, nothing leaked; a waiting caller's command is never
+# dead-lettered at a cap; the SQLite outbox keyed per stream (0005).
+angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "abb10bef79199e58893b80e48738a35af5b463e9" }
+angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "abb10bef79199e58893b80e48738a35af5b463e9" }
+angzarr-embedded-diagnostic = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "abb10bef79199e58893b80e48738a35af5b463e9" }
+angzarr-store-sqlite = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "abb10bef79199e58893b80e48738a35af5b463e9" }
 # angzarr's storage contract, angzarr core's crate at the rev angzarr-embedded
 # pins (bfbe8d3), so the graph holds one spec, as angzarr-proto above does:
 # the store ports, and their in-memory store for tests.

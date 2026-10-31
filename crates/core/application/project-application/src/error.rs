@@ -26,7 +26,7 @@ impl fmt::Display for ProjectError {
 }
 
 impl Diagnostic for ProjectError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             ProjectError::Port(cause) => cause.code(),
             ProjectError::UnknownProject { .. } => "project-application-unknown-project",
@@ -35,7 +35,7 @@ impl Diagnostic for ProjectError {
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             ProjectError::Port(cause) => cause.args(),
             ProjectError::UnknownProject { id } | ProjectError::NotOrphan { id } => {

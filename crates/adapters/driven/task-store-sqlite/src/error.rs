@@ -31,8 +31,9 @@ impl fmt::Display for StoreOpenError {
     }
 }
 
-impl Diagnostic for StoreOpenError {
-    fn code(&self) -> &'static str {
+impl StoreOpenError {
+    /// Its key: a literal, so angzarr-ports' cause can hold it.
+    fn key(&self) -> &'static str {
         match self {
             StoreOpenError::CreateDir { .. } => "task-store-sqlite-create-dir",
             StoreOpenError::Unplaced { .. } => "task-store-sqlite-unplaced",
@@ -41,7 +42,8 @@ impl Diagnostic for StoreOpenError {
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    /// Its args, named by literals, so angzarr-ports' cause can hold them.
+    fn named(&self) -> Vec<(&'static str, Arg)> {
         match self {
             StoreOpenError::CreateDir { path, detail }
             | StoreOpenError::Unplaced { path, detail } => vec![
@@ -57,15 +59,28 @@ impl Diagnostic for StoreOpenError {
     }
 }
 
+impl Diagnostic for StoreOpenError {
+    fn code(&self) -> &str {
+        self.key()
+    }
+
+    fn args(&self) -> Vec<(&str, Arg)> {
+        self.named()
+    }
+}
+
 impl StoreOpenError {
     /// The error as angzarr-ports' cause, its code and args: how the
     /// angzarr-embedded store carries it in a `StoreError`.
     pub fn cause(&self) -> angzarr_ports::Cause {
-        let args = self.args().into_iter().filter_map(|(name, arg)| match arg {
-            Arg::Str(text) => Some((name, angzarr_ports::Arg::Str(text))),
-            _ => None,
-        });
-        angzarr_ports::Cause::new(self.code(), args)
+        let args = self
+            .named()
+            .into_iter()
+            .filter_map(|(name, arg)| match arg {
+                Arg::Str(text) => Some((name, angzarr_ports::Arg::Str(text))),
+                _ => None,
+            });
+        angzarr_ports::Cause::new(self.key(), args)
     }
 }
 

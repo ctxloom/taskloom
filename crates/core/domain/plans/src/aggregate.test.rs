@@ -58,6 +58,9 @@ impl Plans {
 
     /// Run `command` on `harp`'s stream: the events it committed, or its
     /// refusal.
+    // The kernel's own Rejected, as its callers receive it, holding the
+    // handler's code as owned text.
+    #[allow(clippy::result_large_err)]
     fn run(&mut self, harp: &str, command: PlanCommand) -> Result<Vec<PlanEvent>, Rejected> {
         match self.try_run(book(harp, command.to_any())) {
             Ok(Handled::Applied(recorded)) => Ok(recorded

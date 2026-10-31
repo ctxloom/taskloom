@@ -29,11 +29,11 @@ impl fmt::Display for DeadLetter {
 }
 
 impl Diagnostic for DeadLetter {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         "tasks-application-dead-letter"
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         vec![("line", Arg::from(self.line.as_str()))]
     }
 }

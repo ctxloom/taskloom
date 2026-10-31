@@ -51,7 +51,7 @@ impl fmt::Display for TaskRejection {
 }
 
 impl Diagnostic for TaskRejection {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             TaskRejection::HarpIdRequired => "tasks-harp-id-required",
             TaskRejection::NotItsStream { .. } => "tasks-not-its-stream",
@@ -70,7 +70,7 @@ impl Diagnostic for TaskRejection {
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             TaskRejection::NotItsStream { harp_id }
             | TaskRejection::TaskExists { harp_id }

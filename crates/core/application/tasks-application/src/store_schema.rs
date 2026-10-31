@@ -399,11 +399,11 @@ impl fmt::Display for RulesRefusal {
 }
 
 impl Diagnostic for RulesRefusal {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         "tasks-application-tag-rules"
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         vec![("findings", self.findings.as_str().into())]
     }
 }
@@ -419,11 +419,11 @@ impl fmt::Display for RuleWarning {
 }
 
 impl Diagnostic for RuleWarning {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         "tasks-application-tag-rule-warning"
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         vec![
             ("rule", self.0.code.as_str().into()),
             ("tag", self.0.tag.to_string().into()),

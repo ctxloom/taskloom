@@ -53,7 +53,7 @@ impl fmt::Display for PriorityError {
 }
 
 impl Diagnostic for PriorityError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             PriorityError::Malformed { .. } => "task-priority-malformed",
             PriorityError::UnknownBuiltin { .. } => "task-priority-unknown-builtin",
@@ -65,7 +65,7 @@ impl Diagnostic for PriorityError {
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         let s = |s: &str| Arg::from(s);
         match self {
             PriorityError::Malformed {

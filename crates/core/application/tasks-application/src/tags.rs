@@ -51,7 +51,7 @@ impl fmt::Display for TagRefusal {
 }
 
 impl Diagnostic for TagRefusal {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             TagRefusal::Blank => "tasks-application-tag-blank",
             TagRefusal::Unparseable { .. } => "tasks-application-tag-unparseable",
@@ -61,7 +61,7 @@ impl Diagnostic for TagRefusal {
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         let s = |v: &String| Arg::from(v.as_str());
         match self {
             TagRefusal::Blank => Vec::new(),

@@ -223,7 +223,7 @@ mod on_the_kernel {
             }
         }
 
-        fn run(&mut self, declare: Declare) -> Result<Vec<SchemaEvent>, &'static str> {
+        fn run(&mut self, declare: Declare) -> Result<Vec<SchemaEvent>, String> {
             self.id += 1;
             let book = CommandBook {
                 cover: Some(cover()),
@@ -260,7 +260,7 @@ mod on_the_kernel {
                     .collect()),
                 Ok(Handled::Duplicate(_)) => panic!("a fresh command id"),
                 Ok(Handled::Parked) => panic!("only a fact is parked, and this is a command"),
-                Err(Failure::Rejected(rejected)) => Err(rejected.code()),
+                Err(Failure::Rejected(rejected)) => Err(rejected.code().to_string()),
                 Err(other) => panic!("not a rejection: {other:?}"),
             }
         }
@@ -313,14 +313,14 @@ mod on_the_kernel {
         let mut schema = Schema::new();
         assert_eq!(
             schema.run(Declare::default()),
-            Err("tasks-schema-tag-required")
+            Err("tasks-schema-tag-required".to_string())
         );
         assert_eq!(
             schema.run(Declare {
                 add: tags(&["area:cli"]),
                 remove: vec![],
             }),
-            Err("tasks-schema-not-config")
+            Err("tasks-schema-not-config".to_string())
         );
         assert!(!schema.state().declared, "nothing recorded");
     }
@@ -333,7 +333,7 @@ mod on_the_kernel {
                 add: vec![],
                 remove: tags(&["area:cli"]),
             }),
-            Err("tasks-schema-not-config")
+            Err("tasks-schema-not-config".to_string())
         );
     }
 

@@ -31,7 +31,7 @@ impl fmt::Display for LogError {
 }
 
 impl Diagnostic for LogError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             LogError::NoHome { .. } => "jsonl-task-log-no-home",
             LogError::Unreadable { .. } => "jsonl-task-log-unreadable",
@@ -41,7 +41,7 @@ impl Diagnostic for LogError {
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             LogError::NoHome { flavor } => vec![("var", flavor.home_var().into())],
             LogError::Unreadable { path, detail } => vec![

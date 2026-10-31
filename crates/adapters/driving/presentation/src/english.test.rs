@@ -81,10 +81,10 @@ macro_rules! english_for {
         impl<D: angzarr_embedded_diagnostic::Diagnostic + ?Sized>
             angzarr_embedded_diagnostic::Diagnostic for Wrapped<'_, D>
         {
-            fn code(&self) -> &'static str {
+            fn code(&self) -> &str {
                 self.0.code()
             }
-            fn args(&self) -> Vec<(&'static str, angzarr_embedded_diagnostic::Arg)> {
+            fn args(&self) -> Vec<(&str, angzarr_embedded_diagnostic::Arg)> {
                 self.0.args()
             }
         }

@@ -75,7 +75,7 @@ impl fmt::Display for PathError {
 }
 
 impl Diagnostic for PathError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             PathError::OutsideWorkRoot(_) => "plans-application-outside-work-root",
             PathError::NotAPlanFile(_) => "plans-application-not-a-plan-file",
@@ -83,7 +83,7 @@ impl Diagnostic for PathError {
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             PathError::OutsideWorkRoot(path) | PathError::NotAPlanFile(path) => {
                 vec![("path", path.as_str().into())]
@@ -117,7 +117,7 @@ impl PlanError {
 }
 
 impl Diagnostic for PlanError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         if let Some(wrapped) = self.wrapped() {
             return wrapped.code();
         }
@@ -135,7 +135,7 @@ impl Diagnostic for PlanError {
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         if let Some(wrapped) = self.wrapped() {
             return wrapped.args();
         }

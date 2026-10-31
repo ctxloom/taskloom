@@ -104,8 +104,8 @@ fn canonical(spelled: &str) -> String {
 }
 
 /// The refusal's code and its display (the key, then its args).
-fn refusal(error: &AppError) -> (&'static str, String) {
-    (error.code(), error.to_string())
+fn refusal(error: &AppError) -> (String, String) {
+    (error.code().to_string(), error.to_string())
 }
 
 /// An old store: a task written straight through the kernel, as a

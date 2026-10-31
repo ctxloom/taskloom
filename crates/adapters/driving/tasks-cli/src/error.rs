@@ -45,7 +45,7 @@ impl fmt::Display for CliError {
 }
 
 impl Diagnostic for CliError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             CliError::App(error) => error.code(),
             CliError::Output { .. } => "tasks-cli-output",
@@ -60,7 +60,7 @@ impl Diagnostic for CliError {
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             CliError::App(error) => error.args(),
             CliError::Output { detail } | CliError::Usage { detail } => {

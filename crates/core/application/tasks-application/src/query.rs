@@ -50,11 +50,11 @@ impl fmt::Display for QueryError {
 }
 
 impl Diagnostic for QueryError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         "tasks-application-tag-query"
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         vec![
             ("query", self.query.as_str().into()),
             ("postfix", self.postfix.as_str().into()),

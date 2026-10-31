@@ -44,8 +44,10 @@ use crate::AppError;
 /// [`Backoff::on_retryable`] makes it. A command stamped with the head it
 /// loaded that loses the race at its write is re-run on the new head up to
 /// the kernel's default race re-run cap, 10 runs (angzarr decision 14.46),
-/// and a store that could not say is tried up to 10 times; at either cap
-/// the kernel dead-letters it, into the use case's log.
+/// and a store that could not say is tried up to 10 times. At either cap
+/// the kernel gives it up and answers taskloom, its waiting caller, with no
+/// dead letter (angzarr's owner ruling, 2026-10-31: only work with no
+/// caller left is dead-lettered); taskloom then gives up ([`AppError::GaveUp`]).
 pub const KERNEL_RETRY: OnRetryable = Backoff::DEFAULT.on_retryable();
 
 /// The kernel's [`Wait`] over taskloom's [`Delay`] and [`Jitter`] ports:

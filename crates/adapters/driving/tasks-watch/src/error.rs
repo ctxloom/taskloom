@@ -26,7 +26,7 @@ impl fmt::Display for WatchError {
 impl std::error::Error for WatchError {}
 
 impl Diagnostic for WatchError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             WatchError::App(error) => error.code(),
             WatchError::NoProject => "tasks-watch-no-project",
@@ -34,7 +34,7 @@ impl Diagnostic for WatchError {
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             WatchError::App(error) => error.args(),
             WatchError::NoProject => Vec::new(),

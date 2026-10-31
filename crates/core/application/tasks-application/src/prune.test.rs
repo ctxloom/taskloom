@@ -195,10 +195,10 @@ fn test_each_refusal_renders_its_english_and_names_its_age() {
         PruneRefusal::NoStatus.english(),
         "a prune needs at least one status to select by: an empty status set is never read as every status"
     );
-    let args = PruneRefusal::AgeUnreadable {
+    let unreadable = PruneRefusal::AgeUnreadable {
         age: "soon".to_string(),
-    }
-    .args();
+    };
+    let args = unreadable.args();
     assert_eq!(args.len(), 1);
     assert_eq!(args[0].0, "age");
     assert!(PruneRefusal::NoStatus.args().is_empty());

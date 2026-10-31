@@ -45,13 +45,13 @@ impl fmt::Display for PlanFilesError {
 }
 
 impl Diagnostic for PlanFilesError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             PlanFilesError::Create { .. } => "plan-files-create",
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             PlanFilesError::Create { path, detail } => vec![
                 ("path", path.as_str().into()),

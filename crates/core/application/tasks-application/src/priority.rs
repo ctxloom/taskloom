@@ -166,7 +166,7 @@ impl fmt::Display for PriorityWarning {
 }
 
 impl Diagnostic for PriorityWarning {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             PriorityWarning::NoPriorityFn => "tasks-application-priority-no-priority-fn",
             PriorityWarning::AllTied { .. } => "tasks-application-priority-all-tied",
@@ -175,7 +175,7 @@ impl Diagnostic for PriorityWarning {
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             PriorityWarning::NoPriorityFn => Vec::new(),
             PriorityWarning::AllTied { scored, live } => {
@@ -206,14 +206,14 @@ impl fmt::Display for PriorityNote {
 }
 
 impl Diagnostic for PriorityNote {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self.project {
             Some(_) => "tasks-application-priority-in-project",
             None => self.warning.code(),
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         match &self.project {
             Some(project) => vec![
                 ("project", project.as_str().into()),

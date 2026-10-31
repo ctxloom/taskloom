@@ -155,7 +155,7 @@ impl fmt::Display for Why {
 }
 
 impl Diagnostic for Why {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             Why::Displaced => "tasks-application-import-displaced",
             Why::Refused(rejection) => rejection.code(),
@@ -165,7 +165,7 @@ impl Diagnostic for Why {
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             Why::Refused(rejection) => rejection.args(),
             Why::Tag(refusal) => refusal.args(),
@@ -188,11 +188,11 @@ impl fmt::Display for NoJsonlLog {
 }
 
 impl Diagnostic for NoJsonlLog {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         "tasks-application-no-jsonl-log"
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         vec![("project", self.project.as_str().into())]
     }
 }

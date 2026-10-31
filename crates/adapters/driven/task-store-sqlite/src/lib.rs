@@ -53,10 +53,10 @@ pub use error::{StoreOpenError, EN_US};
 /// How many of angzarr-store-sqlite's migrations a store from before
 /// angzarr-embedded lacks: annals-store-sql applied only the first, which
 /// angzarr-store-sqlite's first is blob-identical to, and the pinned
-/// angzarr-store-sqlite has four. A store read-only with exactly these
+/// angzarr-store-sqlite has five. A store read-only with exactly these
 /// pending is annals', not an older angzarr-embedded build's. A re-pin that
 /// adds a migration raises it (the D2 test fails until it does).
-const PENDING_SINCE_ANNALS: u64 = 3;
+const PENDING_SINCE_ANNALS: u64 = 4;
 
 /// The SQLite store of the project last asked for, held until another is.
 pub struct SqliteStores {
@@ -246,10 +246,10 @@ fn ported(cause: &angzarr_ports::Cause) -> Report {
         .args
         .iter()
         .fold(Report::new(cause.code), |report, (name, arg)| match arg {
-            angzarr_ports::Arg::Uint(n) => report.arg(name, *n),
-            angzarr_ports::Arg::Str(s) => report.arg(name, s.as_str()),
+            angzarr_ports::Arg::Uint(n) => report.arg(*name, *n),
+            angzarr_ports::Arg::Str(s) => report.arg(*name, s.as_str()),
             angzarr_ports::Arg::Cause(c) => report.arg(
-                name,
+                *name,
                 angzarr_embedded_diagnostic::Arg::Nested(Box::new(ported(c))),
             ),
         })

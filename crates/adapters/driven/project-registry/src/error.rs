@@ -63,7 +63,7 @@ impl fmt::Display for RegistryError {
 }
 
 impl Diagnostic for RegistryError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             RegistryError::NoHome { .. } => "project-registry-no-home",
             RegistryError::Io { .. } => "project-registry-io",
@@ -81,7 +81,7 @@ impl Diagnostic for RegistryError {
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             RegistryError::NoHome { flavor } => vec![("var", flavor.home_var().into())],
             RegistryError::Changed => Vec::new(),

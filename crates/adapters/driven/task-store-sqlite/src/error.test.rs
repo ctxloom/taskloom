@@ -4,7 +4,7 @@ use angzarr_embedded_diagnostic::{Arg, Diagnostic};
 
 use super::{diagnostic_samples, StoreOpenError};
 
-fn arg_names(d: &dyn Diagnostic) -> Vec<&'static str> {
+fn arg_names(d: &dyn Diagnostic) -> Vec<&str> {
     d.args().into_iter().map(|(name, _)| name).collect()
 }
 

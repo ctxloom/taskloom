@@ -52,7 +52,7 @@ impl fmt::Display for ConfigError {
 }
 
 impl Diagnostic for ConfigError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             ConfigError::Unreadable { .. } => "tasks-config-unreadable",
             ConfigError::Unwritable { .. } => "tasks-config-unwritable",
@@ -67,7 +67,7 @@ impl Diagnostic for ConfigError {
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         let s = |v: &String| Arg::from(v.as_str());
         match self {
             ConfigError::Unreadable { path, detail }

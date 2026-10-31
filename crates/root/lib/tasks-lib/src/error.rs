@@ -20,13 +20,13 @@ impl fmt::Display for BuildError {
 impl std::error::Error for BuildError {}
 
 impl Diagnostic for BuildError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             BuildError::RelativeCwd { .. } => "tasks-lib-relative-cwd",
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             BuildError::RelativeCwd { cwd } => vec![("cwd", cwd.as_str().into())],
         }

@@ -93,14 +93,14 @@ impl fmt::Display for SchemaRejection {
 }
 
 impl Diagnostic for SchemaRejection {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             SchemaRejection::TagRequired => "tasks-schema-tag-required",
             SchemaRejection::NotConfig { .. } => "tasks-schema-not-config",
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             SchemaRejection::TagRequired => Vec::new(),
             SchemaRejection::NotConfig { tag } => vec![("tag", tag.as_str().into())],

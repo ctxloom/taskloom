@@ -54,7 +54,7 @@ impl fmt::Display for Notice {
 }
 
 impl Diagnostic for Notice {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             Notice::Project { .. } => "tasks-cli-project",
             Notice::UnrootedProject { .. } => "tasks-cli-unrooted-project",
@@ -67,7 +67,7 @@ impl Diagnostic for Notice {
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             Notice::Project { root, id } => {
                 vec![("root", root.as_str().into()), ("id", id.as_str().into())]

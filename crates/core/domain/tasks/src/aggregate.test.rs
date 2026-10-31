@@ -35,7 +35,7 @@ const HARP: &str = "swift-amber";
 /// What a diagnostic says: its key and its args, each as text, by name
 /// (decision 14.37: a key and a map, never English). Args by name, as the
 /// router carries them.
-type Said = (&'static str, BTreeMap<&'static str, String>);
+type Said = (String, BTreeMap<String, String>);
 
 fn said(diagnostic: &dyn Diagnostic) -> Said {
     let args = diagnostic
@@ -48,10 +48,10 @@ fn said(diagnostic: &dyn Diagnostic) -> Said {
                 Arg::Str(s) => s,
                 Arg::Nested(cause) => cause.code().to_string(),
             };
-            (name, text)
+            (name.to_string(), text)
         })
         .collect();
-    (diagnostic.code(), args)
+    (diagnostic.code().to_string(), args)
 }
 
 /// `rejection` as a command's refusal: what [`Task::run`] answers.

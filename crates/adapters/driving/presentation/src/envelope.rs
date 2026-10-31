@@ -18,13 +18,13 @@ use crate::Catalog;
 /// nested cause is an envelope.
 #[derive(Serialize, Debug)]
 pub struct Envelope {
-    code: &'static str,
+    code: String,
     args: Args,
     message: String,
 }
 
 #[derive(Debug)]
-struct Args(Vec<(&'static str, Value)>);
+struct Args(Vec<(String, Value)>);
 
 #[derive(Serialize, Debug)]
 #[serde(untagged)]
@@ -47,11 +47,11 @@ impl Envelope {
                     Arg::Str(s) => Value::Str(s),
                     Arg::Nested(cause) => Value::Nested(Box::new(Envelope::of(catalog, &*cause))),
                 };
-                (name, value)
+                (name.to_string(), value)
             })
             .collect();
         Envelope {
-            code: d.code(),
+            code: d.code().to_string(),
             args: Args(args),
             message: catalog.message(d),
         }

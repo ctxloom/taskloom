@@ -406,8 +406,10 @@ fn test_the_kernel_waits_and_draws_on_taskloom_s_ports() {
 #[test]
 fn test_a_store_that_never_answers_is_given_up_at_the_kernels_cap_under_its_key() {
     // The kernel's tries are taskloom's attempts, never its retries times
-    // taskloom's; at its cap it dead-letters the command under the spec's
-    // key (angzarr decision 14.51), and taskloom does not try it again.
+    // taskloom's; at its cap it answers under the spec's key (angzarr
+    // decision 14.51), dead-lettering nothing, since taskloom is waiting
+    // (angzarr's owner ruling, 2026-10-31), and taskloom does not try it
+    // again.
     let store = Flaky::failing(&[Fault::Unavailable; 4]);
     let mut delay = FakeDelay::default();
     let dead_letters = crate::dead_letter::DeadLetters::default();
@@ -443,13 +445,7 @@ fn test_a_store_that_never_answers_is_given_up_at_the_kernels_cap_under_its_key(
     assert_eq!(error.code(), "angzarr-ports-store-unavailable");
     assert_eq!(store.begun(), 4, "the kernel's tries, taskloom's none");
     let letters = dead_letters.take();
-    assert_eq!(letters.len(), 1, "{letters:?}");
-    assert!(
-        letters[0]
-            .line
-            .contains("COORDINATOR_REASON_STORE_UNAVAILABLE cause=fake-busy retry_count=3"),
-        "{letters:?}"
-    );
+    assert!(letters.is_empty(), "{letters:?}");
 }
 
 #[test]

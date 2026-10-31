@@ -185,7 +185,7 @@ fn text(arg: &Arg) -> String {
 }
 
 /// A diagnostic's args, each as text, by name, in its order.
-fn args(diagnostic: &dyn Diagnostic) -> Vec<(&'static str, String)> {
+fn args(diagnostic: &dyn Diagnostic) -> Vec<(&str, String)> {
     diagnostic
         .args()
         .iter()
@@ -857,7 +857,7 @@ fn test_reading_a_database_not_yet_migrated_is_refused_and_leaves_it_unmigrated(
         .unwrap_err();
     assert_eq!(
         keyed(&error, "angzarr-store-sqlite-unmigrated"),
-        Some(vec![("pending", "4".to_string())]),
+        Some(vec![("pending", "5".to_string())]),
         "{error}"
     );
     assert!(stores.held.is_none());

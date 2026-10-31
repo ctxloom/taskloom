@@ -53,7 +53,7 @@ impl fmt::Display for PlanRejection {
 }
 
 impl Diagnostic for PlanRejection {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             PlanRejection::AlreadyAdded => "plans-already-added",
             PlanRejection::NoSuchPlan => "plans-no-such-plan",
@@ -74,7 +74,7 @@ impl Diagnostic for PlanRejection {
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         let status = |s: &PlanStatus| Arg::from(s.name());
         match self {
             PlanRejection::InitialStatus(s) | PlanRejection::StatusUnchanged(s) => {

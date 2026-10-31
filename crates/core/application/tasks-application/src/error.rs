@@ -129,7 +129,7 @@ impl fmt::Display for AppError {
 }
 
 impl Diagnostic for AppError {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             AppError::Rejected(cause)
             | AppError::TagRefused(cause)
@@ -157,7 +157,7 @@ impl Diagnostic for AppError {
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             AppError::Rejected(cause)
             | AppError::TagRefused(cause)

@@ -61,14 +61,14 @@ impl fmt::Display for Finding {
 }
 
 impl Diagnostic for Finding {
-    fn code(&self) -> &'static str {
+    fn code(&self) -> &str {
         match self {
             Finding::Rule { .. } => "tasks-application-lint-rule",
             Finding::FormulaEnum { .. } => "tasks-application-lint-formula-enum",
         }
     }
 
-    fn args(&self) -> Vec<(&'static str, Arg)> {
+    fn args(&self) -> Vec<(&str, Arg)> {
         let s = |v: &String| Arg::from(v.as_str());
         match self {
             Finding::Rule { rule, tags, args } => {

@@ -6,7 +6,7 @@ crate::english_for!(&[crate::EN_US.1]);
 
 use super::diagnostic_samples;
 
-fn arg_names(d: &dyn Diagnostic) -> Vec<&'static str> {
+fn arg_names(d: &dyn Diagnostic) -> Vec<&str> {
     d.args().into_iter().map(|(name, _)| name).collect()
 }
 
@@ -33,7 +33,8 @@ fn test_each_error_renders_its_english_fallback() {
 
 #[test]
 fn test_each_error_has_its_own_code() {
-    let mut codes: Vec<&str> = diagnostic_samples().iter().map(|d| d.code()).collect();
+    let samples = diagnostic_samples();
+    let mut codes: Vec<&str> = samples.iter().map(|d| d.code()).collect();
     let all = codes.len();
     codes.sort_unstable();
     codes.dedup();
