@@ -135,11 +135,14 @@ angzarr-embedded (annals-store-sql's) is refused, naming its backup
 (`state.db.pre-embedded`), never migrated in place (the owner's ruling
 D2).
 
-There is no unit of work: each handling step is one atomic write, and a
-command that depends on the task as it is is sent at the head it read, so
-a write landing between is a conflict the retry loop runs again. The
-kernel's own retry is off (`KERNEL_RETRY`); taskloom's `Backoff` loop is
-the one that retries. Domain, projector and use-case tests run through
+There is no unit of work: each handling step is one atomic write. The
+kernel owns retries (angzarr's owner ruling, 2026-10-31): a command that
+loses the race at its write is re-run on the new head, and a store that
+could not say is tried again, under taskloom's `Backoff` (`KERNEL_RETRY`,
+`Backoff::on_retryable`), its waits on taskloom's `Delay` and `Jitter`
+ports (`Ported`), so tests stay exact. A command that depends on the task
+as it is is sent at the head it read, so a write landing between is the
+kernel's stale answer, and taskloom reads and shapes it again. Domain, projector and use-case tests run through
 angzarr-embedded's kernel over angzarr-ports' `MemoryStore`, as the binary
 runs over SQLite.
 
@@ -208,10 +211,11 @@ or tagma, whether pinned or patched onto local checkouts.
 
 ## This repository's tasks are in the Rust taskloom
 
-`just install` puts it in `~/.local/share/taskloom-rs/bin`, on no PATH;
-`.envrc` (direnv, `direnv allow` once per checkout) puts that first, so a
-session started here runs it as its CLI (it serves no MCP). Run `taskloom` and
-not `~/go/bin/taskloom`, which writes a log the Rust store never reads.
+The Rust taskloom is the global taskloom (the owner's switch,
+2026-10-31): `just install` puts it in `~/.local/share/taskloom-rs/bin`,
+which must come first on PATH, as `~/.zshrc` puts it; `.envrc` (direnv)
+puts it first here too. It serves no MCP. Run `taskloom` and not
+`~/go/bin/taskloom`, which writes a log the Rust store never reads.
 
 ## The git-hook gates are in gates/; the justfile gives their parameters
 

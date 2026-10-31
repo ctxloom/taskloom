@@ -6,8 +6,8 @@
 //! [`PlanService`] resolves the project through [`ProjectIdentity`], opens
 //! its store through [`TaskStores`] (a project's plans live in the store its
 //! tasks do), and runs each command through angzarr-embedded's kernel, at
-//! the head it read and under the tasks' [`Backoff`] loop
-//! ([`KERNEL_RETRY`]: the kernel retries nothing); a list is the plan-list
+//! the head it read, the kernel retrying it under the tasks' [`Backoff`]
+//! ([`KERNEL_RETRY`]); a list is the plan-list
 //! projector caught up from the store. The ports are the only way out: this
 //! crate does no I/O, keeps no clock and starts no runtime.
 //!
@@ -27,7 +27,7 @@ mod tasks;
 
 pub use plans::{tag_is_retired, PlanRejection, PlanStatus, RETIRED_TAG};
 pub use ports::{Mint, PlanFiles, Tasks};
-pub use tasks_application::{Backoff, DeadLetter, KERNEL_RETRY};
+pub use tasks_application::{to_redecide, Backoff, DeadLetter, Ported, KERNEL_RETRY};
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;

@@ -5,11 +5,13 @@
 //! read and replayed, the command decided against it (so a refusal comes
 //! back typed, before anything is sent), and sent with that head as its
 //! expected sequence (STRICT): a write landing between is the kernel's
-//! conflict, and the retry reads and decides again. A retry re-sends the
-//! same command id, so an attempt that landed after all is answered
-//! DUPLICATE. The waits between attempts are the tasks' [`Backoff`], over
-//! the [`Delay`] and [`Jitter`] ports, and the kernel retries nothing
-//! ([`KERNEL_RETRY`]).
+//! stale answer (ABORTED: re-read and decide again, the caller's), and the
+//! service reads and decides again. A store that could not say is the
+//! kernel's to retry ([`Backoff::on_retryable`]), its waits the tasks'
+//! [`Backoff`] over the [`Delay`] and [`Jitter`] ports ([`Ported`]); one
+//! it hands back has had its retries, and is given up on. A retry re-sends
+//! the same command id, so an attempt that landed after all is answered
+//! DUPLICATE.
 //!
 //! **A supersede is two writes**, one on each plan's stream: `Supersede` on
 //! the superseding plan, then `MarkSuperseded` on its target (an unlink,
@@ -37,9 +39,9 @@ use ports::{
 
 use crate::rules::{joined, locate, new_plan_text, Located};
 use crate::{
-    content_hash, default_path, frontmatter, plan_name, resolve_path, Backoff, CheckReport,
-    DeadLetter, Finding, ImportReport, Link, NewPlan, PlanError, PlanQuery, PlanStatus, PlanText,
-    PlanView, Plans, KERNEL_RETRY, PLANS_DIR,
+    content_hash, default_path, frontmatter, plan_name, resolve_path, to_redecide, Backoff,
+    CheckReport, DeadLetter, Finding, ImportReport, Link, NewPlan, PlanError, PlanQuery,
+    PlanStatus, PlanText, PlanView, Plans, Ported, PLANS_DIR,
 };
 
 /// How many plan ids an add mints before giving up, each refused because a
@@ -181,7 +183,7 @@ struct Runner<'a, C, D> {
     backoff: Backoff,
 }
 
-impl<C: Clock + CommandIds, D: Delay + Jitter> Runner<'_, C, D> {
+impl<C: Clock + CommandIds, D: Delay + Jitter + Send> Runner<'_, C, D> {
     /// Run `command` on the plan `harp_id` in `store` until it commits, is
     /// refused, fails in a way a retry will not mend, or the attempts run
     /// out: decided against the stream as each attempt reads it, sent at
@@ -212,8 +214,10 @@ impl<C: Clock + CommandIds, D: Delay + Jitter> Runner<'_, C, D> {
                 now: self.clock.now(),
                 command_id: command_id.clone(),
             };
+            let waits = Ported::new(&mut *self.delay);
             let handled = Kernel::new(self.registry, self.dead_letters)
-                .on_retryable(KERNEL_RETRY)
+                .on_retryable(self.backoff.on_retryable())
+                .wait_with(&waits)
                 .handle::<PlanAggregate, _, _>(
                     store,
                     book(harp_id, command, head),
@@ -229,6 +233,13 @@ impl<C: Clock + CommandIds, D: Delay + Jitter> Runner<'_, C, D> {
                         // Decided here at the head the kernel refused at:
                         // the two disagreeing is a bug.
                         Ok(_) => PlanError::Failed(rejected.report().clone()),
+                    });
+                }
+                Err(failure) if failure.recovery() == Recovery::Retry && !to_redecide(&failure) => {
+                    // The kernel's retries are spent.
+                    return Err(PlanError::GaveUp {
+                        attempts: self.backoff.attempts,
+                        error: Report::of(&failure),
                     });
                 }
                 Err(failure) => (Report::of(&failure), failure.recovery()),
@@ -306,7 +317,7 @@ where
     T: Tasks,
     M: Mint,
     C: Clock + CommandIds,
-    D: Delay + Jitter,
+    D: Delay + Jitter + Send,
 {
     /// The project a write goes to: pinned, bound, or minted and bound.
     pub(crate) fn for_write(&mut self) -> Result<Project, PlanError> {
@@ -686,7 +697,7 @@ where
     T: Tasks,
     M: Mint,
     C: Clock + CommandIds,
-    D: Delay + Jitter,
+    D: Delay + Jitter + Send,
 {
     async fn add(&mut self, new: NewPlan) -> Result<PlanView, PlanError> {
         self.adding(new).await

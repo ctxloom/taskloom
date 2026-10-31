@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use angzarr_embedded::next::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::next::{Kernel, MemoryDeadLetters, Payload, Sampled};
-use angzarr_embedded_diagnostic::Report;
+use angzarr_embedded_diagnostic::{Diagnostic, Report};
 use plans::{PlanCommand, PlanRejection};
 use ports::{Mint, PlanFiles, Tasks, Timestamp, Uuid};
 
@@ -172,6 +172,43 @@ fn a_write_landing_between_the_read_and_the_write_is_decided_again_and_both_land
     assert_eq!(plan.governs, vec!["task-a", "task-b"]);
     let service = service.0.borrow();
     assert_eq!(service.delay.slept.len(), 1, "one conflict, one wait");
+}
+
+/// A store that cannot say is the kernel's to retry, under the service's
+/// backoff and on its delay port: the kernel's tries are the attempts,
+/// never its retries times the service's; once they are spent the service
+/// gives up at once, and a store that answers again within them lands the
+/// change.
+#[test]
+fn a_store_that_cannot_say_is_retried_by_the_kernel_alone() {
+    let tasks = FakeTasks::with(&[("task-a", &[])]);
+    let (files, mint) = (Files::default(), Counter::default());
+    let mut service = Service::new(&files, &tasks, &mint);
+    service.add(new("One")).unwrap();
+    service.0.get_mut().backoff.attempts = 3;
+    let before = service.0.borrow().stores.store.writes();
+    service.0.borrow().stores.store.fail_writes(3);
+    let error = service
+        .link("plan-1", Link::Governs("task-a".into()))
+        .unwrap_err();
+    assert!(
+        matches!(&error, PlanError::GaveUp { attempts: 3, error } if error.code() == "angzarr-ports-store-unavailable"),
+        "{error:?}"
+    );
+    {
+        let service = service.0.borrow();
+        assert_eq!(
+            service.stores.store.writes() - before,
+            3,
+            "the kernel's tries alone"
+        );
+        assert_eq!(service.delay.slept.len(), 2, "a wait between tries");
+    }
+    service.0.borrow().stores.store.fail_writes(2);
+    let plan = service
+        .link("plan-1", Link::Governs("task-a".into()))
+        .unwrap();
+    assert_eq!(plan.governs, vec!["task-a"]);
 }
 
 #[test]

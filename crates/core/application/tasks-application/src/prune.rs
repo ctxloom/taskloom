@@ -214,7 +214,7 @@ where
     I: ProjectIdentity,
     S: TaskStores,
     C: Clock + CommandIds,
-    D: Delay + Jitter,
+    D: Delay + Jitter + Send,
     G: Configuration,
 {
     async fn pruning(&mut self, request: PruneRequest) -> Result<Pruning, AppError> {
@@ -360,7 +360,7 @@ fn added(task: &TaskState) -> (i64, i32, &str) {
 /// The events deleted, or `None` when the task was not taken after all:
 /// it no longer qualifies, or another removed or purged it since it was
 /// selected.
-async fn take<S: Store + Purge, C: Clock + CommandIds, D: Delay + Jitter>(
+async fn take<S: Store + Purge, C: Clock + CommandIds, D: Delay + Jitter + Send>(
     runner: &mut Runner<'_, C, D>,
     store: &S,
     task: &TaskState,

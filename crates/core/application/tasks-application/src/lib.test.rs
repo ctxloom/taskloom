@@ -826,9 +826,25 @@ fn test_a_tag_that_gives_up_says_so() {
         .store
         .fail([Fault::Unavailable, Fault::Unavailable]);
     let error = ready(service.tag(change("swift-amber", &["x"], &[]))).unwrap_err();
+    // The kernel's retries spent, it dead-lettered the tag under the
+    // spec's key (angzarr decision 14.51).
+    let AppError::DeadLettered {
+        error,
+        dead_letters,
+    } = error
+    else {
+        panic!("dead-lettered: {error:?}");
+    };
     assert!(
-        matches!(error, AppError::GaveUp { attempts: 2, .. }),
+        matches!(*error, AppError::GaveUp { attempts: 2, .. }),
         "{error:?}"
+    );
+    assert_eq!(dead_letters.len(), 1, "{dead_letters:?}");
+    assert!(
+        dead_letters[0]
+            .line
+            .contains("COORDINATOR_REASON_STORE_UNAVAILABLE"),
+        "{dead_letters:?}"
     );
 }
 

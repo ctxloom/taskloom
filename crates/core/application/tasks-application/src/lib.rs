@@ -7,8 +7,8 @@
 //!
 //! Each resolves its project through [`ProjectIdentity`], opens the
 //! project's store through [`TaskStores`], and runs its command through
-//! angzarr-embedded's kernel ([`KERNEL_RETRY`]: taskloom's loop is the one
-//! that retries); a list is the task-list projector caught up from the
+//! angzarr-embedded's kernel, which retries it ([`KERNEL_RETRY`]: the
+//! kernel owns race re-runs, its waits taskloom's ports); a list is the task-list projector caught up from the
 //! store. The ports are the only way out: this crate does no I/O, keeps no
 //! clock and starts no runtime.
 
@@ -63,7 +63,7 @@ pub use prune::{
 };
 pub use read::{Details, Hidden, Listing, Reach, Statuses, Summary, TagCount, Vocabulary};
 pub use request::{request_command_id, REQUEST_NAMESPACE};
-pub use retry::{Backoff, KERNEL_RETRY};
+pub use retry::{to_redecide, Backoff, Ported, DRAW_SCALE, KERNEL_RETRY};
 pub use semver::{Semver, Version, SEMVER};
 pub use store_schema::{
     Code as RuleCode, Declaration, Declared, Finding as RuleFinding, Origin, RuleWarning,
@@ -359,7 +359,7 @@ where
     I: ProjectIdentity,
     S: TaskStores,
     C: Clock + CommandIds,
-    D: Delay + Jitter,
+    D: Delay + Jitter + Send,
 {
     /// The project of a change to an existing task, resolved as a read
     /// resolves it: where there is none, or no store yet, there is no task
@@ -387,7 +387,7 @@ where
     }
 
     /// Run `command` on the task `harp_id` in `project`'s store, under
-    /// `command_id`, retried as taskloom's loop says; the task after it. A command
+    /// `command_id`, retried by the kernel ([`retry::Runner`]); the task after it. A command
     /// already applied under `command_id` is answered DUPLICATE and
     /// applies nothing: the task is answered as it stands.
     async fn commit(
@@ -446,7 +446,7 @@ where
     S: TaskStores,
     N: Names,
     C: Clock + CommandIds,
-    D: Delay + Jitter,
+    D: Delay + Jitter + Send,
     G: Configuration,
 {
     async fn adding(&mut self, task: NewTask) -> Result<Written, AppError> {
