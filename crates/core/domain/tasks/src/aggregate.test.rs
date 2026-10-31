@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use std::future::Future;
 
 use angzarr_embedded::next::angzarr_ports::memory::MemoryStore;
-use angzarr_embedded::next::angzarr_router::error::codes;
+use angzarr_embedded::next::angzarr_router::error::RouterReason;
 use angzarr_embedded::next::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::next::{
     ids, pack, Any, Domain, EventStore, Failure, Handled, Kernel, KernelError, MemoryDeadLetters,
@@ -104,6 +104,7 @@ impl Task {
         match self.try_run(book(command.into().to_any())) {
             Ok(Handled::Applied(recorded)) => Ok(events(recorded.books())),
             Ok(Handled::Duplicate(_)) => panic!("a fresh command id is never a duplicate"),
+            Ok(Handled::Parked) => panic!("only a fact is parked, and these are commands"),
             Err(failure) => match *failure {
                 Failure::Rejected(rejected) => Err(said(&rejected)),
                 other => panic!("not a rejection: {other:?}"),
@@ -937,7 +938,7 @@ fn test_a_removal_without_a_reason_is_undecodable_a_bug_not_a_refusal() {
     let Failure::Kernel(KernelError::Router(error)) = failure else {
         panic!("the router's: {failure:?}");
     };
-    assert_eq!(error.code, codes::ANY_DECODE_FAILED);
+    assert_eq!(error.code, RouterReason::AnyDecodeFailed.as_str_name());
     assert!(!task.state().removed);
 }
 

@@ -14,26 +14,31 @@ publish = false
 # messages and angzarr's are built by one prost.
 prost = "0.14"
 prost-types = "0.14"
-angzarr-proto = { version = "0.1", git = "https://github.com/angzarr-io/angzarr-project", rev = "b0a680fd1d8cdfaef9baace879b6b6adbeeca22a" }
+# angzarr core's crate (moved there from angzarr-project's rust/), at the
+# core rev angzarr-embedded pins: one angzarr-proto in the graph.
+angzarr-proto = { version = "0.1", git = "https://github.com/angzarr-io/angzarr", rev = "1cf00b71b094c185b0fd6964f646e48b4c39b8ab" }
 
 # angzarr-build (angzarr-cli's markup domain layer) is pinned by full
 # commit, so a fresh clone builds with no sibling checkouts; bumps are
 # deliberate commits. To build against local checkouts while changing them
-# together, see "Co-developing angzarr-cli or tagma" in CLAUDE.md.
-angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "4ba037650bbaffd1e158f37af0486e47b217bd9f" }
+# together, see "Co-developing angzarr-cli or tagma" in CLAUDE.md. At
+# poc/local-wiring's 33876a7, which still names angzarr-proto at
+# angzarr-project: the [patch] below bridges it to angzarr core's until
+# angzarr-cli's own move to core (its chore/core-pins) is pushed.
+angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "33876a76030dd89a988e29fd22128d19a44ac9ef" }
 
 # angzarr-embedded, angzarr's in-app runtime, taskloom's
 # (taskloom-on-angzarr-embedded.plan.md). Pinned by rev on
-# angzarr-embedded's main: 3edfe31 (router 8fc078f, spec b0a680f: Purge takes
-# the head the caller read, spec 14.43).
-angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "3edfe314b468bf75e4f35d05a3b079d8d97ab46f" }
-angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "3edfe314b468bf75e4f35d05a3b079d8d97ab46f" }
-angzarr-embedded-diagnostic = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "3edfe314b468bf75e4f35d05a3b079d8d97ab46f" }
-angzarr-store-sqlite = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "3edfe314b468bf75e4f35d05a3b079d8d97ab46f" }
-# angzarr's storage contract, at the spec rev angzarr-embedded pins
-# (b0a680f), so the graph holds one spec, as angzarr-proto above does: the
-# store ports, and their in-memory store for tests.
-angzarr-ports = { git = "https://github.com/angzarr-io/angzarr-project", rev = "b0a680fd1d8cdfaef9baace879b6b6adbeeca22a" }
+# angzarr-embedded's chore/core-pins: e2810b4 (router d83c854, angzarr core
+# 1cf00b7 for angzarr-proto and angzarr-ports, spec ef975bc).
+angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "e2810b47fcfce7ad97f063f33252d1d44a53d263" }
+angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "e2810b47fcfce7ad97f063f33252d1d44a53d263" }
+angzarr-embedded-diagnostic = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "e2810b47fcfce7ad97f063f33252d1d44a53d263" }
+angzarr-store-sqlite = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "e2810b47fcfce7ad97f063f33252d1d44a53d263" }
+# angzarr's storage contract, angzarr core's crate at the rev angzarr-embedded
+# pins (1cf00b7), so the graph holds one spec, as angzarr-proto above does:
+# the store ports, and their in-memory store for tests.
+angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "1cf00b71b094c185b0fd6964f646e48b4c39b8ab" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
 tasks = { path = "crates/core/domain/tasks" }
 task-lists = { path = "crates/core/read-model/task-lists" }
@@ -113,6 +118,14 @@ expr-lang = { version = "=2.1.0", default-features = false }
 # Display-width columns in text output.
 unicode-width = "0.2"
 uuid = { version = "1", features = ["v5", "v7"] }
+
+# The lockstep bridge: cargo keys a crate by its source, so angzarr-proto
+# from angzarr-project (what angzarr-build at its rev names) and from angzarr
+# core would be two crates. Every angzarr-proto from angzarr-project is
+# angzarr core's at the rev above instead: one angzarr-proto in the graph.
+# Drop it when angzarr-build is bumped to a rev that names core's.
+[patch."https://github.com/angzarr-io/angzarr-project"]
+angzarr-proto = { git = "https://github.com/angzarr-io/angzarr", rev = "1cf00b71b094c185b0fd6964f646e48b4c39b8ab" }
 
 [workspace.lints.clippy]
 invisible_characters = "deny"

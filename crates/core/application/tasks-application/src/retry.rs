@@ -25,7 +25,7 @@ use std::time::Duration;
 use angzarr_embedded::next::v1::{CommandBook, Cover, Handling, Uuid};
 use angzarr_embedded::next::{
     DeadLetterLog, EventStore, Failure, Kernel, KernelError, OnRetryable, Purge, Recovery,
-    Registry, Sampled, Store, StoreError, Stream, StreamRef,
+    Registry, Sampled, Store, StoreError, Stream, StreamRef, DEFAULT_RACE_RUNS,
 };
 use angzarr_embedded_diagnostic::Report;
 use ports::{Clock, Delay, Jitter};
@@ -39,8 +39,18 @@ use crate::AppError;
 /// attempts), its waits are the ports' (so a test's are exact), and a
 /// person's command that cannot land comes back to them, not to a dead
 /// letter. The kernel's own backoff otherwise, unused.
+///
+/// One exception the kernel keeps (angzarr decision 14.46): a command
+/// stamped with the head it loaded (no expected sequence) that loses the
+/// race at its write is re-run by the kernel on the new head, up to the
+/// race re-run cap, never handed back. Its cap is the kernel's default
+/// ([`DEFAULT_RACE_RUNS`], ten runs, as many as [`Backoff::DEFAULT`]'s
+/// attempts), so such a command lands under the contention it did before;
+/// one that loses ten races in a row is dead-lettered
+/// (`COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`).
 pub const KERNEL_RETRY: OnRetryable = OnRetryable {
     max_retries: 0,
+    max_race_runs: DEFAULT_RACE_RUNS,
     initial_backoff: Duration::from_millis(100),
     multiplier: 2.0,
     max_backoff: Duration::from_secs(5),
