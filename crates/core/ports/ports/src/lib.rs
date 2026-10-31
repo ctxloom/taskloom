@@ -128,9 +128,10 @@ pub trait Names {
     fn task_id(&mut self) -> String;
 
     /// The task harp id at `position` of the order `request_id` derives:
-    /// two words, as [`Names::task_id`]'s. An add under the key probes
-    /// positions 0, 1, and so on, past harps other requests' tasks hold, so
-    /// a retry walks the same order to the task it added.
+    /// two words, as [`Names::task_id`]'s. An add under the key looks for
+    /// its own add on each of the key's first `KEYED_PROBES` positions, then
+    /// adds on the first free one, so a retry finds the task it added
+    /// wherever in that order it landed.
     ///
     /// Compatibility promise: a key's order is the same every time, in
     /// every process and release. In harp-names it is harp's seeded index

@@ -1621,6 +1621,25 @@ fn test_a_keyed_add_retried_after_a_probe_answers_with_the_task_it_added() {
     );
 }
 
+// The task that held the key's first harp is purged after the add probed
+// past it: the retry still finds its own add on the next harp, every probed
+// position checked for it before anything is added, and adds nothing on the
+// freed one.
+#[test]
+fn test_a_keyed_add_retried_after_a_passed_harp_is_purged_answers_with_its_task() {
+    let mut service = service(&["swift-amber"]);
+    add(&mut service, new_task("Theirs")).unwrap();
+    service.names.seed("r-1", &["swift-amber", "calm-otter"]);
+    let first = add(&mut service, keyed("r-1", "Mine")).unwrap();
+    assert_eq!(first.task.harp_id, "calm-otter");
+    crate::fakes::purge(&service.stores.store.inner, "swift-amber");
+    assert_eq!(held(&mut service).len(), 1, "theirs purged");
+    let again = add(&mut service, keyed("r-1", "Mine")).unwrap();
+    assert_eq!(again.task, first.task);
+    let harps: Vec<String> = held(&mut service).into_iter().map(|(h, _)| h).collect();
+    assert_eq!(harps, ["calm-otter"], "nothing added on the freed harp");
+}
+
 // Every probed harp held by another request's task: refused, nothing added.
 #[test]
 fn test_a_keyed_add_whose_every_probed_harp_is_held_is_refused() {

@@ -31,6 +31,7 @@ mod watch;
 
 use std::future::Future;
 
+use angzarr_embedded::next::v1::event_meta::Causation;
 use angzarr_embedded::next::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::next::{
     ids, KernelError, Payload, ReadStore, ReadUnit, Registry, StoreError, Stream, StreamRef,
@@ -85,7 +86,9 @@ pub(crate) const HARP_ATTEMPTS: u32 = 100;
 /// How many positions of its key's order ([`Names::task_id_for`]) an add
 /// under a request id probes, from position 0, before refusing
 /// ([`AppError::AddRequestIdCollides`]): a position another request's task
-/// holds is passed, its own is answered DUPLICATE, a free one is added on.
+/// holds is passed and a free one is added on, but only once every one of
+/// the positions has been checked for this request's own add, which is
+/// answered DUPLICATE wherever it is: a position passed may since be free.
 ///
 /// Compatibility promise: the key's harps are fixed by the seed (FNV-1a 64
 /// of the key, in harp-names), harp's seeded index (scheme v1), and this
@@ -112,10 +115,10 @@ pub struct NewTask {
     pub origin_session: Option<String>,
     /// The request's key, as [`TagChange::request_id`]'s. An add's stream
     /// is its harp's and the kernel deduplicates within a stream, so the
-    /// key pins the harp too ([`Names::task_id_for`]): the add probes the
-    /// key's order past harps other requests' tasks hold ([`KEYED_PROBES`]),
-    /// so a retry walks to the stream the first landed on and is answered
-    /// DUPLICATE, answering with the task it added. Every probed harp held,
+    /// key pins the harp too ([`Names::task_id_for`]): the add looks for its
+    /// own add on each of the key's [`KEYED_PROBES`] harps and answers with
+    /// the task there if one holds it (DUPLICATE); else it is added on the
+    /// first harp no task holds. Every one held by another request's task,
     /// it is refused ([`AppError::AddRequestIdCollides`]).
     pub request_id: Option<String>,
 }
@@ -489,16 +492,36 @@ where
         let (tags, _) = tags::collapse(&rules, &[], tags);
         let warnings = judged(rules.validate(&[], &tags, &[]))?;
         let template = AddTask { tags, ..template };
-        let attempts = match request_id {
+        // A keyed add's harps, each checked for this request's own add
+        // before any is added on: a harp the add probed past may since have
+        // been freed (its task removed and purged), and a retry adding there
+        // would add the task again.
+        let keyed = match request_id.as_deref() {
+            Some(key) => {
+                let harps: Vec<String> = (0..KEYED_PROBES)
+                    .map(|position| self.names.task_id_for(key, u64::from(position)))
+                    .collect();
+                let command_id = request_command_id("add", key);
+                if let Some(task) = own_add(store, &self.registry, &harps, &command_id).await? {
+                    return Ok(Written {
+                        project,
+                        task,
+                        shown: rules.shown(),
+                        dead_letters: self.dead_letters.take(),
+                        warnings,
+                    });
+                }
+                Some((harps, command_id))
+            }
+            None => None,
+        };
+        let attempts = match keyed {
             Some(_) => KEYED_PROBES,
             None => HARP_ATTEMPTS,
         };
         for position in 0..attempts {
-            let (harp_id, command_id) = match request_id.as_deref() {
-                Some(key) => (
-                    self.names.task_id_for(key, u64::from(position)),
-                    request_command_id("add", key),
-                ),
+            let (harp_id, command_id) = match &keyed {
+                Some((harps, command_id)) => (harps[position as usize].clone(), command_id.clone()),
                 None => (self.names.task_id(), runner.clock.command_id()),
             };
             let add = AddTask {
@@ -523,9 +546,9 @@ where
                         warnings,
                     });
                 }
-                // Another task holds the harp (this request's own would
-                // have been answered DUPLICATE): never merged into its
-                // stream, the next harp is tried, the key's next given one.
+                // Another task holds the harp (this request's own was
+                // looked for first, and would be answered DUPLICATE): never
+                // merged into its stream, the next harp is tried.
                 refused if refused.refused_as("tasks-task-exists") => continue,
                 retry::Outcome::Refused(rejection) => return Err(rejected(&rejection)),
             }
@@ -745,6 +768,45 @@ fn book(harp_id: &str, command: TaskCommand) -> CommandBook {
         }),
         handling: None,
     }
+}
+
+/// The task on the first of `harps` whose stream holds the add
+/// `command_id` sent (a keyed add's, answered DUPLICATE wherever it landed);
+/// `None` when none does.
+async fn own_add<S: ReadStore>(
+    store: &S,
+    registry: &Registry,
+    harps: &[String],
+    command_id: &Uuid,
+) -> Result<Option<Task>, AppError> {
+    for harp_id in harps {
+        if caused(store, harp_id, command_id).await? {
+            let task = read(store, registry, harp_id).await?;
+            return task.map(Some).ok_or_else(|| AppError::Vanished {
+                harp_id: harp_id.clone(),
+            });
+        }
+    }
+    Ok(None)
+}
+
+/// Whether the stream of the task `harp_id` names holds an event
+/// `command_id` caused, read in a read-only unit.
+async fn caused<S: ReadStore>(
+    store: &S,
+    harp_id: &str,
+    command_id: &Uuid,
+) -> Result<bool, AppError> {
+    let cover = cover(harp_id);
+    let stream = StreamRef::try_from(&cover).map_err(failed)?;
+    let mut reads = store.begin_read().await.map_err(failed)?;
+    let slice = reads.read(stream, 0, None).await.map_err(failed)?;
+    Ok(slice.pages.iter().any(|page| {
+        matches!(
+            page.meta.as_ref().and_then(|meta| meta.causation.as_ref()),
+            Some(Causation::CommandId(id)) if id == command_id
+        )
+    }))
 }
 
 /// The task `harp_id` names, as the store holds it now, read in a

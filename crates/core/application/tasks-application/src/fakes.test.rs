@@ -455,8 +455,9 @@ impl TaskStores for FakeStores {
 }
 
 /// Task ids in the order given; project ids are never asked for here. A
-/// key's task id at a position is `seeded`'s for it, or else the next in
-/// order, kept for the key and position from then on.
+/// key's task id at a position is `seeded`'s for it; else, at position 0,
+/// the next in order, kept for the key from then on, and past it one of its
+/// own (`spare<position>-<key>`).
 #[derive(Default)]
 pub struct FakeNames {
     pub task_ids: VecDeque<String>,
@@ -499,6 +500,9 @@ impl Names for FakeNames {
         self.probed.push(at.clone());
         if let Some(id) = self.seeded.get(&at) {
             return id.clone();
+        }
+        if position > 0 {
+            return format!("spare{position}-{request_id}");
         }
         let id = self
             .task_ids
