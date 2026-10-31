@@ -37,3 +37,11 @@ fn test_names_are_drawn_at_random() {
     let drawn: std::collections::BTreeSet<String> = (0..20).map(|_| HarpNames.task_id()).collect();
     assert!(drawn.len() > 1, "{drawn:?}");
 }
+
+#[test]
+fn test_a_plan_id_is_an_adjective_and_a_noun_as_a_tasks() {
+    use ports::Mint;
+    for _ in 0..50 {
+        assert_words(&HarpNames.mint(), 1);
+    }
+}

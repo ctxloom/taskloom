@@ -1405,6 +1405,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
+name = "plan-files"
+version = "0.1.0"
+dependencies = [
+ "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=3edfe314b468bf75e4f35d05a3b079d8d97ab46f)",
+ "file-system",
+ "fluent-syntax",
+ "os",
+ "ports",
+]
+
+[[package]]
 name = "plan-lists"
 version = "0.1.0"
 dependencies = [

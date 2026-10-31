@@ -50,6 +50,7 @@ harp-names = { path = "crates/adapters/driven/harp-names" }
 task-store-sqlite = { path = "crates/adapters/driven/task-store-sqlite" }
 jsonl-task-log = { path = "crates/adapters/driven/jsonl-task-log" }
 tasks-config = { path = "crates/adapters/driven/tasks-config" }
+plan-files = { path = "crates/adapters/driven/plan-files" }
 file-system = { path = "crates/adapters/platform/file-system" }
 file-lock = { path = "crates/adapters/platform/file-lock" }
 os = { path = "crates/adapters/platform/os" }

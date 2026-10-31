@@ -3,7 +3,7 @@
 //! task id is a short harp name.
 
 use harp_core::{generate_name_with_options, NameOptions};
-use ports::Names;
+use ports::{Mint, Names};
 
 /// [`Names`] drawn at random from harp-core's word lists.
 #[derive(Clone, Copy, Debug, Default)]
@@ -27,6 +27,13 @@ impl Names for HarpNames {
     /// Adjective-adjective-noun ("jolly-mute-magma").
     fn project_id(&mut self) -> String {
         name(3)
+    }
+}
+
+impl Mint for HarpNames {
+    /// A plan's harp id: adjective-noun, as a task's ("brisk-otter").
+    fn mint(&self) -> String {
+        name(2)
     }
 }
 
