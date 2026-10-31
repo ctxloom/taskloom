@@ -1,8 +1,12 @@
-//! The registry file: its schema read and written, unknown fields kept.
+//! The registry file: its schema read and written, strictly: a key this
+//! version does not know is refused, and so is a version it does not read
+//! (architecture-fixes B4; the owner's rulings of 2026-10-31: one reader,
+//! angzarr-yaml, for every Rust config, strict for all files with more than
+//! one writer).
 
 use std::path::{Path, PathBuf};
 
-crate::english_for!(&[crate::EN_US.1, file_lock::EN_US.1]);
+crate::english_for!(&[crate::EN_US.1, file_lock::EN_US.1, angzarr_yaml::EN_US.1]);
 
 use file_system::{Fs, Open, Perms, Rooted};
 
@@ -44,19 +48,38 @@ fn put(fs: &dyn Fs, path: &Path, text: &str) {
         .unwrap();
 }
 
+/// A registry as Go's yaml.v3 writes it (its sequence items not indented),
+/// one entry seen and one not.
 const GO_WRITTEN: &str = "\
 schema_version: 1
 projects:
-  - project_id: jolly-mute-magma
-    path: /tmp/ctxloom-smoke
-    created_at: 2026-06-10T02:35:20.837009562Z
-    last_seen_at: 2026-06-10T02:35:20.837009562Z
-    note: kept
-  - project_id: high-tight-gulf
-    path: /work/main
-    created_at: 2026-06-10T02:42:33.650686047Z
-later: field
+- project_id: jolly-mute-magma
+  path: /tmp/ctxloom-smoke
+  created_at: 2026-06-10T02:35:20.837009562Z
+  last_seen_at: 2026-06-10T02:35:20.837009562Z
+- project_id: high-tight-gulf
+  path: /work/main
+  created_at: 2026-06-10T02:42:33.650686047Z
 ";
+
+/// What `load` of `text` is refused with, as displayed: the reader's code
+/// and args.
+fn refused(text: &str) -> String {
+    let (fs, dir) = at();
+    let file = dir.join("index.yaml");
+    put(&fs, &file, text);
+    let error = load(&fs, &file).unwrap_err();
+    let shown = error.to_string();
+    assert!(
+        shown.starts_with(&format!(
+            "angzarr-yaml-load-failed-at kind=project-registry source={}",
+            angzarr_diagnostic::quote(&file.display().to_string())
+        )),
+        "{shown}"
+    );
+    assert!(error.english().contains("index.yaml"), "{error}");
+    shown
+}
 
 #[test]
 fn test_the_registry_is_under_the_homes_ctxloom_projects() {
@@ -87,8 +110,41 @@ fn test_a_registry_go_wrote_is_read_with_each_entry() {
     assert_eq!(index.projects[1].last_seen_at, "", "absent: empty");
 }
 
+// Strict for all (the owner's ruling, 2026-10-31): a key this version does
+// not know, in an entry or at the root, is refused with its key path, not
+// kept; Go's and Rust's writers change the schema in lockstep.
 #[test]
-fn test_saving_keeps_what_was_read_and_what_this_version_does_not_know() {
+fn test_a_key_this_version_does_not_know_is_refused() {
+    let entry = GO_WRITTEN.replace("  path: /work/main\n", "  path: /work/main\n  note: kept\n");
+    assert!(
+        refused(&entry)
+            .contains("problem=angzarr-yaml-decode-unknown-key problem.key_path=projects[1].note"),
+        "{entry}"
+    );
+    let root = format!("{GO_WRITTEN}later: field\n");
+    assert!(
+        refused(&root).contains("problem=angzarr-yaml-decode-unknown-key problem.key_path=later"),
+        "{root}"
+    );
+}
+
+// The schema version is checked on read, as Go's schemaver checks it (the
+// kind at 1, with no older version): a newer registry is refused, and so
+// is one with no stamp or one that is not a number.
+#[test]
+fn test_a_version_this_registry_does_not_read_is_refused() {
+    let newer = GO_WRITTEN.replace("schema_version: 1", "schema_version: 2");
+    assert!(
+        refused(&newer).contains("problem=angzarr-yaml-too-new problem.found=2 problem.current=1")
+    );
+    let unstamped = GO_WRITTEN.replace("schema_version: 1\n", "");
+    assert!(refused(&unstamped).contains("problem=angzarr-yaml-too-old problem.found=0"));
+    let word = GO_WRITTEN.replace("schema_version: 1", "schema_version: one");
+    assert!(refused(&word).contains("problem=angzarr-yaml-version-not-an-integer"));
+}
+
+#[test]
+fn test_saving_keeps_what_was_read() {
     let (fs, dir) = at();
     let file = dir.join("index.yaml");
     put(&fs, &file, GO_WRITTEN);
@@ -96,9 +152,8 @@ fn test_saving_keeps_what_was_read_and_what_this_version_does_not_know() {
     index.register("calm-otter-fox", "/new");
     save(&fs, &file, &index).unwrap();
     let again = load(&fs, &file).unwrap();
-    assert_eq!(again.projects[..2], index.projects[..2]);
-    assert_eq!(again.projects[0].other["note"], "kept");
-    assert_eq!(again.other["later"], "field");
+    assert_eq!(again, index);
+    assert_eq!(again.projects.len(), 3);
     let text = fs.read_to_string(&file).unwrap();
     assert!(
         !text.contains("last_seen_at: ''"),
@@ -141,13 +196,10 @@ fn test_a_missing_or_blank_registry_is_empty() {
 
 #[test]
 fn test_a_registry_that_is_not_yaml_is_refused() {
-    let (fs, dir) = at();
-    let file = dir.join("index.yaml");
-    put(&fs, &file, "projects: [unterminated");
-    assert!(matches!(
-        load(&fs, &file),
-        Err(RegistryError::Unreadable { .. })
-    ));
+    assert!(
+        refused("schema_version: 1\nprojects: [unterminated").contains("problem=angzarr-yaml-"),
+        "the reader's parse failure"
+    );
 }
 
 #[test]
@@ -190,7 +242,9 @@ fn test_an_entry_matches_its_path_cleaned() {
 #[test]
 fn test_the_text_written_is_what_gos_yaml_v3_reads() {
     // yaml.v3 decodes `created_at` into a time.Time from an unquoted
-    // RFC 3339 scalar; quoted, it is a string and the decode fails.
+    // RFC 3339 scalar; quoted, it is a string and the decode fails. The
+    // sequence's items are indented, as the reader's writer lays them out;
+    // yaml.v3 reads either.
     let (fs, dir) = at();
     let file = dir.join("index.yaml");
     let mut index = Index::default();
@@ -207,10 +261,10 @@ fn test_the_text_written_is_what_gos_yaml_v3_reads() {
         "\
 schema_version: 1
 projects:
-- project_id: jolly-mute-magma
-  path: /work/tree
-  created_at: 2026-06-10T02:35:20.837009562Z
-  last_seen_at: 2026-06-10T02:35:20.837009562Z
+  - project_id: jolly-mute-magma
+    path: /work/tree
+    created_at: 2026-06-10T02:35:20.837009562Z
+    last_seen_at: 2026-06-10T02:35:20.837009562Z
 "
     );
 }

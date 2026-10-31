@@ -537,9 +537,9 @@ fn test_a_mint_registers_the_canonical_path() {
 fn test_an_unreadable_registry_fails_a_read() {
     let world = World::new();
     let path = index::path(&world.home());
-    world.write(&path, "projects: [");
+    world.write(&path, "schema_version: 1\nprojects: [");
     let error = world.registry(&[]).for_read(None).unwrap_err();
-    assert_eq!(error.code(), "project-registry-unreadable");
+    assert_eq!(error.code(), "angzarr-yaml-load-failed-at");
 }
 
 // ------------------------------------------------------------ minting

@@ -1589,6 +1589,7 @@ name = "project-registry"
 version = "0.1.0"
 dependencies = [
  "angzarr-diagnostic",
+ "angzarr-yaml",
  "file-lock",
  "file-system",
  "fluent-bundle",
