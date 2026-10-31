@@ -98,11 +98,12 @@ pub struct NewTask {
     pub tags: Vec<String>,
     /// The session adding it, if one is.
     pub origin_session: Option<String>,
-    /// The request's key: refused, given at all, until fix O pins the
-    /// harp an add mints by it ([`AppError::AddRequestIdNotYet`]). An
-    /// add's stream is its minted harp's, and the kernel deduplicates within a
-    /// stream, so a retried add would mint another harp and add the task
-    /// twice: the key would promise what it cannot keep.
+    /// The request's key, as [`TagChange::request_id`]'s. An add's stream
+    /// is its harp's and the kernel deduplicates within a stream, so the
+    /// key pins the harp too ([`Names::task_id_for`]): a retry lands on the
+    /// stream the first landed on and is answered DUPLICATE, answering with
+    /// the task it added. A task another request added on that harp is a
+    /// collision, refused ([`AppError::AddRequestIdCollides`]).
     pub request_id: Option<String>,
 }
 
@@ -433,14 +434,13 @@ where
     G: Configuration,
 {
     async fn adding(&mut self, task: NewTask) -> Result<Written, AppError> {
-        if task.request_id.is_some() {
-            return Err(AppError::AddRequestIdNotYet);
-        }
+        let request_id = given(task.request_id, "request_id")?;
         let status = given(task.status, "status")?;
         let trigger = given(task.trigger, "trigger")?;
         let origin_session = given(task.origin_session, "origin_session")?;
         let tags = tags::admit_all(&task.tags).map_err(|r| refused(&r))?;
-        // Each attempt mints its own harp; everything else is this, held to
+        // Each attempt mints its own harp (the key's, given one); everything
+        // else is this, held to
         // the domain's rules now, before a project is bound or a store
         // created for an add they refuse.
         let template = AddTask {
@@ -477,8 +477,10 @@ where
         let warnings = judged(rules.validate(&[], &tags, &[]))?;
         let template = AddTask { tags, ..template };
         for _ in 0..HARP_ATTEMPTS {
-            let harp_id = self.names.task_id();
-            let command_id = runner.clock.command_id();
+            let (harp_id, command_id) = match request_id.as_deref() {
+                Some(key) => (self.names.task_id_for(key), request_command_id("add", key)),
+                None => (self.names.task_id(), runner.clock.command_id()),
+            };
             let add = AddTask {
                 harp_id: harp_id.clone(),
                 ..template.clone()
@@ -501,7 +503,18 @@ where
                         warnings,
                     });
                 }
-                refused if refused.refused_as("tasks-task-exists") => continue,
+                // Another request's task: the key's harp is the key's only
+                // one, so a collision is refused, never merged into that
+                // task's stream nor moved where a retry would not look.
+                refused if refused.refused_as("tasks-task-exists") => match &request_id {
+                    Some(request_id) => {
+                        return Err(AppError::AddRequestIdCollides {
+                            request_id: request_id.clone(),
+                            harp_id,
+                        })
+                    }
+                    None => continue,
+                },
                 retry::Outcome::Refused(rejection) => return Err(rejected(&rejection)),
             }
         }

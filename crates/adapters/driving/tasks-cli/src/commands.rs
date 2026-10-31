@@ -55,8 +55,9 @@ pub struct AddArgs {
     /// Tag to set at creation (repeatable).
     #[arg(long = "tag")]
     tags: Vec<String>,
-    /// Not yet: refused until fix O, which pins the harp an add mints by
-    /// its request id; without it a retried add would add the task again.
+    /// An id you choose for this request; resend the same one when retrying
+    /// it, and a request already applied is not applied again: the task's
+    /// id derives from it, so a retry finds the task it added.
     #[arg(long)]
     request_id: Option<String>,
 }

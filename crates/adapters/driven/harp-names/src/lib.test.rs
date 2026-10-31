@@ -45,3 +45,32 @@ fn test_a_plan_id_is_an_adjective_and_a_noun_as_a_tasks() {
         assert_words(&HarpNames.mint(), 1);
     }
 }
+
+#[test]
+fn test_a_keys_task_id_is_an_adjective_and_a_noun() {
+    for key in ["r-1", "", "a much longer request id, with spaces"] {
+        assert_words(&HarpNames.task_id_for(key), 1);
+    }
+}
+
+#[test]
+fn test_a_key_derives_the_same_task_id_every_time() {
+    assert_eq!(HarpNames.task_id_for("r-1"), HarpNames.task_id_for("r-1"));
+}
+
+// Fixed vectors: the derivation is what a retry relies on, across processes
+// and releases. A change to the seed or harp's scheme fails them.
+#[test]
+fn test_a_keys_task_id_is_fixed() {
+    assert_eq!(super::seed(""), 0xcbf2_9ce4_8422_2325);
+    assert_eq!(super::seed("a"), 0xaf63_dc4c_8601_ec8c);
+    assert_eq!(HarpNames.task_id_for("r-1"), "uncertain-marrow");
+}
+
+#[test]
+fn test_keys_derive_task_ids_spread_over_the_space() {
+    let derived: std::collections::BTreeSet<String> = (0..50)
+        .map(|n| HarpNames.task_id_for(&format!("r-{n}")))
+        .collect();
+    assert!(derived.len() > 45, "{derived:?}");
+}

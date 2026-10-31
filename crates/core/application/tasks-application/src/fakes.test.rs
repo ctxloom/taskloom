@@ -2,7 +2,7 @@
 //! tests. Every future they return is ready at once, so [`ready`] runs a use
 //! case to its end without a runtime.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::pin;
@@ -454,10 +454,13 @@ impl TaskStores for FakeStores {
     }
 }
 
-/// Task ids in the order given; project ids are never asked for here.
+/// Task ids in the order given; project ids are never asked for here. A
+/// key's task id is `seeded`'s for it, or else the next in order, kept for
+/// the key from then on.
 #[derive(Default)]
 pub struct FakeNames {
     pub task_ids: VecDeque<String>,
+    pub seeded: BTreeMap<String, String>,
     /// Given forever once `task_ids` runs out, if set.
     pub then: Option<String>,
     pub minted: u32,
@@ -479,6 +482,19 @@ impl Names for FakeNames {
             .pop_front()
             .or_else(|| self.then.clone())
             .expect("a task id scripted")
+    }
+
+    fn task_id_for(&mut self, request_id: &str) -> String {
+        if let Some(id) = self.seeded.get(request_id) {
+            return id.clone();
+        }
+        let id = self
+            .task_ids
+            .pop_front()
+            .or_else(|| self.then.clone())
+            .expect("a task id scripted");
+        self.seeded.insert(request_id.to_string(), id.clone());
+        id
     }
 
     fn project_id(&mut self) -> String {

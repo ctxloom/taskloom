@@ -1039,7 +1039,8 @@ fn test_in_json_each_change_writes_one_document_and_errors_an_envelope() {
 
 // A write retried under its request id applies once: the retry answers
 // with the task as it stands, a later change by another request kept. An
-// add's request id is refused until fix O, and nothing is added for it.
+// add retried under its request id answers with the task it added, and
+// adds no other.
 #[test]
 fn test_a_write_retried_under_its_request_id_applies_once() {
     let jq = Jq::new("jq-request-harp");
@@ -1068,12 +1069,11 @@ fn test_a_write_retried_under_its_request_id_applies_once() {
         &["status", harp, "Done", "--request-id", " ", "--json"],
         "tasks-application-blank",
     );
-    jq.refused(
-        &["add", "Again", "--request-id", "r-2", "--json"],
-        "tasks-application-add-request-id-not-yet",
-    );
+    let adding = ["add", "Again", "--request-id", "r-2", "--json"];
+    let added = jq.ok(&adding);
+    assert_eq!(jq.ok(&adding)["harp_id"], added["harp_id"]);
     let listed = jq.ok(&["list", "--all", "--json"]);
-    assert_eq!(listed.as_array().map(Vec::len), Some(1), "{listed}");
+    assert_eq!(listed.as_array().map(Vec::len), Some(2), "{listed}");
 }
 
 #[test]

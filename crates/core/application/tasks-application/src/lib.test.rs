@@ -1532,35 +1532,86 @@ fn test_a_tag_change_retried_under_its_request_id_derives_its_command_id() {
     );
 }
 
-// Until O, an add's request id is refused, given at all and before
-// anything is read or written: an add's stream is its minted harp's, and
-// the kernel deduplicates within a stream, so a retried add would mint another
-// harp and add the task twice. The refusal says so, rather than the key
-// promising what it cannot keep.
+// An add's stream is its harp's, and the kernel deduplicates within a
+// stream, so the key pins the harp: the names port derives it from the key
+// (harp's seeded index), and the add's command id derives from it as every
+// other request's does.
 #[test]
-fn test_an_add_given_a_request_id_is_refused_until_o() {
-    let mut service = configured(&["unreadable"]);
-    for key in ["r-1", ""] {
-        let task = NewTask {
-            request_id: Some(key.to_string()),
-            ..new_task("Ship it")
-        };
-        let error = ready(service.add(task)).unwrap_err();
-        assert_eq!(error, AppError::AddRequestIdNotYet, "{key:?}");
-        assert_eq!(error.code(), "tasks-application-add-request-id-not-yet");
+fn test_an_add_under_a_request_id_takes_the_keys_harp_and_command_id() {
+    let mut service = service(&["calm-otter"]);
+    service
+        .names
+        .seeded
+        .insert("r-1".to_string(), "swift-amber".to_string());
+    let task = NewTask {
+        request_id: Some("r-1".to_string()),
+        ..new_task("Ship it")
+    };
+    let written = add(&mut service, task).unwrap();
+    assert_eq!(written.task.harp_id, "swift-amber");
+    assert_eq!(service.names.minted, 0, "no random harp minted");
+    assert_eq!(
+        command_ids(&mut service, "swift-amber"),
+        [crate::request_command_id("add", "r-1")]
+    );
+}
+
+// Another request's task on the key's harp is a collision, refused: never
+// merged into that task's stream, and never moved to another harp, which a
+// retry under the same key could not find again.
+#[test]
+fn test_an_add_whose_keys_harp_holds_another_requests_task_is_refused() {
+    let mut service = service(&["swift-amber"]);
+    add(&mut service, new_task("Theirs")).unwrap();
+    for key in ["r-2", "r-3"] {
+        service
+            .names
+            .seeded
+            .insert(key.to_string(), "swift-amber".to_string());
+    }
+    let first = NewTask {
+        request_id: Some("r-2".to_string()),
+        ..new_task("Mine")
+    };
+    for task in [
+        first.clone(),
+        first,
+        NewTask {
+            request_id: Some("r-3".to_string()),
+            ..new_task("Mine")
+        },
+    ] {
+        let key = task.request_id.clone().unwrap();
+        let error = add(&mut service, task).unwrap_err();
+        assert_eq!(
+            error,
+            AppError::AddRequestIdCollides {
+                request_id: key.clone(),
+                harp_id: "swift-amber".to_string(),
+            }
+        );
+        assert_eq!(error.code(), "tasks-application-add-request-id-collides");
         assert_eq!(
             error.english(),
-            "not yet: an add's request id needs fix O (the harp position pinned by the key)"
+            format!(
+                "request id {key} derives task id swift-amber, which another request's task holds: give this add a new request id"
+            )
         );
     }
-    assert!(service.configuration.asked == 0, "no configuration read");
-    assert!(service.identity.pins.is_empty(), "no project resolved");
+    assert_eq!(listed(&mut service, ListQuery::default()), ["swift-amber"]);
+    assert_eq!(
+        command_ids(&mut service, "swift-amber").len(),
+        1,
+        "theirs alone"
+    );
+    let listing = ready(service.list(ListQuery::default())).unwrap();
+    let texts: Vec<&str> = listing.tasks().map(|t| t.text.as_str()).collect();
+    assert_eq!(texts, ["Theirs"], "theirs untouched");
 }
 
 // O's starting point: once the key pins the harp an add mints, a retried
 // add finds its first on that harp's stream and answers with it.
 #[test]
-#[ignore = "fix O: the harp position pinned by the request's key; until then an add's request id is refused"]
 fn test_an_add_retried_under_its_request_id_answers_with_the_first_task() {
     let mut service = service(&["swift-amber", "calm-otter"]);
     let task = NewTask {
@@ -1604,10 +1655,15 @@ fn test_a_blank_request_id_is_refused_before_anything_is_read() {
         };
         assert_eq!(ready(service.tag(tagging)).unwrap_err(), blank);
         let editing = TextEdit {
-            request_id: key,
+            request_id: key.clone(),
             ..edited("swift-amber", "New")
         };
         assert_eq!(ready(service.edit(editing)).unwrap_err(), blank);
+        let adding = NewTask {
+            request_id: key,
+            ..new_task("Ship it")
+        };
+        assert_eq!(ready(service.add(adding)).unwrap_err(), blank);
     }
     assert!(service.configuration.asked == 0, "no configuration read");
     assert!(service.identity.pins.is_empty(), "no project resolved");

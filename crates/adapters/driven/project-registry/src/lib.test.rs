@@ -25,6 +25,10 @@ impl Names for Scripted {
         unreachable!("no task ids here")
     }
 
+    fn task_id_for(&mut self, _request_id: &str) -> String {
+        unreachable!("no task ids here")
+    }
+
     fn project_id(&mut self) -> String {
         self.minted += 1;
         self.ids.pop_front().unwrap_or_else(|| self.then.clone())

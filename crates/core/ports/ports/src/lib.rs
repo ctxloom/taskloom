@@ -121,10 +121,17 @@ pub trait CommandIds {
     fn command_id(&mut self) -> Uuid;
 }
 
-/// Fresh, random names. Uniqueness is not promised: a caller checks.
+/// Fresh, random names, and names derived from a request's key.
+/// Uniqueness is not promised: a caller checks.
 pub trait Names {
     /// A task's harp id: two words ("swift-amber").
     fn task_id(&mut self) -> String;
+
+    /// The task harp id `request_id` derives: two words, as
+    /// [`Names::task_id`]'s, the same for the same key every time and in
+    /// every process, so an add retried under its key lands on the stream
+    /// it landed on first. Another key may derive the same one.
+    fn task_id_for(&mut self, request_id: &str) -> String;
 
     /// A project's id: three words ("jolly-mute-magma").
     fn project_id(&mut self) -> String;

@@ -2770,8 +2770,7 @@ fn test_a_writes_warnings_are_on_stderr_in_text_and_in_the_json_document() {
 }
 
 // `--request-id <id>` on every write names the request's key, passed on
-// as given (a blank one, and any on an add until fix O, for the use case
-// to refuse); left out, none. Nothing on the command line mints one.
+// as given (a blank one for the use case to refuse); left out, none. Nothing on the command line mints one.
 #[test]
 fn test_a_write_passes_its_request_id_on_as_given() {
     let mut fake = Fake {
@@ -2805,11 +2804,10 @@ fn test_a_write_passes_its_request_id_on_as_given() {
     assert_eq!(edited, [Some(""), None]);
 }
 
-// The help says what a request id does, and that an add's is refused
-// until fix O.
+// The help says what a request id does, on every write, an add's too.
 #[test]
-fn test_the_help_says_what_a_request_id_does_and_that_an_adds_is_not_yet() {
-    for write in ["status", "tag", "edit"] {
+fn test_the_help_says_what_a_request_id_does() {
+    for write in ["add", "status", "tag", "edit"] {
         let help = run_on(&mut Fake::default(), true, &[write, "--help"]);
         assert!(
             help.out
@@ -2820,10 +2818,11 @@ fn test_the_help_says_what_a_request_id_does_and_that_an_adds_is_not_yet() {
     }
     let help = run_on(&mut Fake::default(), true, &["add", "--help"]);
     assert!(
-        help.out.contains("Not yet: refused until fix O"),
+        help.out.contains("the task's id derives from it"),
         "{}",
         help.out
     );
+    assert!(!help.out.contains("Not yet"), "{}", help.out);
 }
 
 // No help teaches a retired tag (the human's ruling of 2026-10-27): urgent

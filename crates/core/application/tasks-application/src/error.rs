@@ -49,9 +49,10 @@ pub enum AppError {
     Blank { field: &'static str },
     /// A status change giving a trigger and clearing the trigger at once.
     TriggerAndClear,
-    /// An add given a request id, refused until fix O pins the harp an add
-    /// mints by its key: without it, a retried add adds the task again.
-    AddRequestIdNotYet,
+    /// An add given a request id whose derived harp (`harp_id`) holds a task
+    /// another request added: refused, never merged into that task's stream
+    /// nor moved to another harp, which a retry under the key could not find.
+    AddRequestIdCollides { request_id: String, harp_id: String },
     /// Priority could not be derived (`task_priority::PriorityError`): a
     /// formula that does not compile, or a task it cannot score.
     Priority(Report),
@@ -147,7 +148,7 @@ impl Diagnostic for AppError {
             AppError::UnknownSort { .. } => "tasks-application-unknown-sort",
             AppError::Blank { .. } => "tasks-application-blank",
             AppError::TriggerAndClear => "tasks-application-trigger-and-clear",
-            AppError::AddRequestIdNotYet => "tasks-application-add-request-id-not-yet",
+            AppError::AddRequestIdCollides { .. } => "tasks-application-add-request-id-collides",
             AppError::NotFound { .. } => "tasks-application-not-found",
             AppError::Ambiguous { .. } => "tasks-application-ambiguous",
             AppError::PermitMalformed { .. } => "tasks-application-permit-malformed",
@@ -173,9 +174,14 @@ impl Diagnostic for AppError {
             ],
             AppError::HarpsExhausted { attempts } => vec![("attempts", (*attempts).into())],
             AppError::Vanished { harp_id } => vec![("harp_id", harp_id.as_str().into())],
-            AppError::NoProject | AppError::TriggerAndClear | AppError::AddRequestIdNotYet => {
-                Vec::new()
-            }
+            AppError::NoProject | AppError::TriggerAndClear => Vec::new(),
+            AppError::AddRequestIdCollides {
+                request_id,
+                harp_id,
+            } => vec![
+                ("request_id", request_id.as_str().into()),
+                ("harp_id", harp_id.as_str().into()),
+            ],
             AppError::UnknownStatusClass { status } => vec![
                 ("status", status.as_str().into()),
                 ("classes", crate::read::classes().into()),
@@ -242,7 +248,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         }),
         Box::new(AppError::Blank { field: "trigger" }),
         Box::new(AppError::TriggerAndClear),
-        Box::new(AppError::AddRequestIdNotYet),
+        Box::new(AppError::AddRequestIdCollides {
+            request_id: "r-1".to_string(),
+            harp_id: "swift-amber".to_string(),
+        }),
         Box::new(AppError::NotFound {
             harp_ids: vec!["swift-amber".to_string(), "calm-otter".to_string()],
         }),

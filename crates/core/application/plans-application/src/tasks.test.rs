@@ -14,6 +14,9 @@ impl Names for Scripted {
     fn task_id(&mut self) -> String {
         self.0.remove(0).to_string()
     }
+    fn task_id_for(&mut self, _request_id: &str) -> String {
+        unreachable!("no add here is given a request id")
+    }
     fn project_id(&mut self) -> String {
         unreachable!("no project is minted here")
     }
