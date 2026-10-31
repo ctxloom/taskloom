@@ -64,6 +64,9 @@ fn project() -> Project {
 /// Answers scripted per use case; requests recorded.
 #[derive(Default)]
 struct Fake {
+    /// RED (red/self-hosted-schema): every schema declaration sent, and the answer.
+    declares: Vec<tasks_application::Declaration>,
+    declared: Option<Result<tasks_application::Declared, AppError>>,
     added: Vec<NewTask>,
     tagged: Vec<TagChange>,
     moved: Vec<StatusChange>,
@@ -185,6 +188,14 @@ impl PermitService for Fake {
     async fn revoke(&mut self, change: PermitChange) -> Result<Permitted, AppError> {
         self.revokes.push(change);
         self.permitted.clone().expect("a revoke answer scripted")
+    }
+
+    async fn declare(
+        &mut self,
+        declaration: tasks_application::Declaration,
+    ) -> Result<tasks_application::Declared, AppError> {
+        self.declares.push(declaration);
+        self.declared.clone().expect("a declare answer scripted")
     }
 }
 
@@ -2660,4 +2671,70 @@ fn test_no_help_teaches_the_retired_urgent_tag() {
         assert!(!help.out.is_empty(), "{command:?}");
         assert!(!help.out.contains("urgent"), "{command:?}: {}", help.out);
     }
+}
+
+// ---------------------------------------------- RED: self-hosted schema
+//
+// red/self-hosted-schema, for the owner's review
+// (docs/plans/self-hosted-schema.md): `taskloom schema declare` edits the
+// store's schema stream; the loadout tells agents never to run it unasked.
+
+fn schema_declared(
+    tags: &[&str],
+    changed: bool,
+) -> Option<Result<tasks_application::Declared, AppError>> {
+    Some(Ok(tasks_application::Declared {
+        tags: tags.iter().map(|t| t.to_string()).collect(),
+        changed,
+    }))
+}
+
+#[test]
+fn test_schema_declare_sends_its_adds_and_removes_as_one_declaration() {
+    let mut fake = Fake {
+        declared: schema_declared(&["tagma.keys-per-item:lang=1"], true),
+        ..Fake::default()
+    };
+    let ran = run_on(
+        &mut fake,
+        false,
+        &[
+            "schema",
+            "declare",
+            "--add",
+            "tagma.keys-per-item:lang=1",
+            "--remove",
+            "tagma.keys-per-item:area=1",
+        ],
+    );
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(
+        fake.declares,
+        [tasks_application::Declaration {
+            add: vec!["tagma.keys-per-item:lang=1".to_string()],
+            remove: vec!["tagma.keys-per-item:area=1".to_string()],
+        }]
+    );
+    let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({"tags": ["tagma.keys-per-item:lang=1"], "changed": true})
+    );
+}
+
+#[test]
+fn test_the_loadout_forbids_agents_every_schema_changing_command_unasked() {
+    let loadout = crate::companion::LOADOUT;
+    for command in [
+        "`taskloom schema declare`",
+        "`taskloom permit`",
+        "`taskloom revoke`",
+    ] {
+        assert!(loadout.contains(command), "{command} not named");
+    }
+    assert!(
+        !loadout.contains("future schema-declaring command"),
+        "the command exists now: the loadout names it"
+    );
+    assert!(loadout.contains("taskloom schema check"));
 }

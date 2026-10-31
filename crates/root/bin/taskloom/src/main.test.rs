@@ -1236,6 +1236,9 @@ mod project;
 #[path = "tags.test.rs"]
 mod tags;
 
+#[path = "schema.test.rs"]
+mod schema;
+
 #[path = "prune.test.rs"]
 mod prune;
 

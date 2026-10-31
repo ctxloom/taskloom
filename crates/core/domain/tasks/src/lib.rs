@@ -15,6 +15,7 @@ mod generated {
 mod aggregate;
 mod payload;
 mod rejection;
+pub mod schema;
 mod state;
 
 use std::collections::BTreeMap;

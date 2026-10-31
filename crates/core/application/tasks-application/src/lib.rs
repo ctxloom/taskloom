@@ -25,6 +25,7 @@ mod request;
 mod retry;
 mod schema;
 mod semver;
+mod store_schema;
 mod tags;
 mod view;
 mod watch;
@@ -62,6 +63,10 @@ pub use request::{request_command_id, REQUEST_NAMESPACE};
 pub use retry::{Backoff, KERNEL_RETRY};
 pub use schema::{Range, TagSchema};
 pub use semver::{Semver, Version};
+pub use store_schema::{
+    Declaration, Declared, Finding as RuleFinding, Origin, SchemaService, SEEDED_SCHEMA,
+    TASKLOOM_NAMESPACE,
+};
 pub use tags::{parse as parse_tag, schema_free as schema_free_tag, Tag};
 pub use view::{text_hash, Row, Shown, StatusInfo, Task};
 

@@ -80,6 +80,17 @@ pub trait PermitService {
         &mut self,
         change: PermitChange,
     ) -> impl Future<Output = Result<Permitted, AppError>> + Send;
+
+    /// RED STUB (red/self-hosted-schema): add and remove the store's schema
+    /// tags (`taskloom schema declare`), recorded on its schema stream.
+    /// A person's: the loadout tells agents never to run it unasked. Under
+    /// the new rules `permit` and `revoke` are declares too: `permit X`
+    /// adds `tagma.permit:"X"=true` (the first one also `"*:*"=false`), and
+    /// `revoke X` removes it, refused while a task carries a tag it admits.
+    fn declare(
+        &mut self,
+        declaration: crate::Declaration,
+    ) -> impl Future<Output = Result<crate::Declared, AppError>> + Send;
 }
 
 impl<I, S, N, C, D, G> PermitService for Service<I, S, N, C, D, G>
@@ -134,6 +145,14 @@ where
             permit: permit.to_string(),
             changed: true,
         })
+    }
+
+    async fn declare(
+        &mut self,
+        declaration: crate::Declaration,
+    ) -> Result<crate::Declared, AppError> {
+        let _ = declaration;
+        todo!("red: a Declare on the store's schema stream")
     }
 }
 
