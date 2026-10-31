@@ -1,14 +1,19 @@
 [package]
 name = "plan-lists"
 version = "0.1.0"
-description = "Plan lists: the read model a projector folds from a project's plan streams, links both ways (RED STUB)"
+description = "Plan lists: the read model a projector folds from a project's plan streams, links both ways"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
+angzarr-embedded.workspace = true
 plans.workspace = true
+
+[dev-dependencies]
+# The in-memory store the list's tests run the kernel over.
+angzarr-ports = { workspace = true, features = ["memory"] }
 
 [lints]
 workspace = true
