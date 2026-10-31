@@ -228,15 +228,15 @@ fn test_a_config_file_setting_tag_schema_or_tag_permits_is_refused_naming_the_im
     for (dir, yaml) in [
         (
             env.project.path(),
-            "tag_schema:\n  - 'tagma.enum:\"area:x\"=\"a,b\"'\n",
+            "schema_version: 1\ntag_schema:\n  - 'tagma.enum:\"area:x\"=\"a,b\"'\n",
         ),
         (
             env.project.path(),
-            "tag_permits:\n  namespaces:\n    area: open\n",
+            "schema_version: 1\ntag_permits:\n  namespaces:\n    area: open\n",
         ),
         (
             env.home.path(),
-            "tag_schema:\n  - 'tagma.enum:\"area:x\"=\"a,b\"'\n",
+            "schema_version: 1\ntag_schema:\n  - 'tagma.enum:\"area:x\"=\"a,b\"'\n",
         ),
     ] {
         configure(dir, yaml);

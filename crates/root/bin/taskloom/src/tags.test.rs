@@ -71,7 +71,7 @@ fn test_a_malformed_configuration_refuses_the_command_and_says_where() {
     let checked = env.run(&["schema", "check", "--json"]);
     assert!(!checked.ok);
     assert_eq!(checked.json()[0]["code"], "unknown-facet");
-    configure(env.project.path(), "homeing: home\n");
+    configure(env.project.path(), "schema_version: 1\nhomeing: home\n");
     let ran = env.run(&["add", "Ship it"]);
     assert!(!ran.ok);
     // The envelope's message (stderr is JSON, a `\` in it escaped) names
@@ -85,7 +85,7 @@ fn test_a_malformed_configuration_refuses_the_command_and_says_where() {
         "{}",
         ran.stderr
     );
-    configure(env.project.path(), "homing: home\n");
+    configure(env.project.path(), "schema_version: 1\nhoming: home\n");
     let ran = env.run(&["add", "Ship it", "--json", "--config-set", "nonsense"]);
     assert_eq!(code(&ran.stderr), "tasks-config-not-an-override");
 }

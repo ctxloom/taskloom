@@ -2532,6 +2532,7 @@ dependencies = [
  "angzarr-diagnostic",
  "angzarr-embedded",
  "angzarr-ports",
+ "angzarr-yaml",
  "file-lock",
  "file-system",
  "fluent-bundle",

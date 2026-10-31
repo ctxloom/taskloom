@@ -1,4 +1,4 @@
-//! The `tag_permits` block: its shape as serde_norway reads it, and its
+//! The `tag_permits` block: its shape as the reader decodes it, and its
 //! spelling as a permit writes it.
 //!
 //! ```yaml
@@ -60,11 +60,10 @@ impl Raw {
             let permit = match raw {
                 RawNamespace::Word(word) if word == OPEN => NamespacePermit::Open,
                 RawNamespace::Word(word) => {
-                    return Err(ConfigError::Malformed {
+                    return Err(ConfigError::NotAPermit {
                         path: path.to_string(),
-                        detail: format!(
-                            "{KEY}: namespaces: {namespace} is {word}, which is neither {OPEN} nor a list of keys"
-                        ),
+                        namespace,
+                        value: word,
                     })
                 }
                 RawNamespace::Keys(keys) => NamespacePermit::Closed(keyed(keys).ok_or_else(blank)?),

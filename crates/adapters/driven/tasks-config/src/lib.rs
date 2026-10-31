@@ -16,11 +16,19 @@
 //! then takes them out of it ([`ConfigurationWriter::retire_moved`]), by
 //! the fewest edits, every other key and comment kept (the `edit` module).
 //!
-//! A missing file is no layer; a file that cannot be read, is not YAML,
-//! names a key taskloom does not know or is a newer `schema_version` is
-//! refused, as is an environment variable or override naming no key.
-//! Files are read through the [`Fs`] it is given. `homing` (repo homing is
-//! dropped) and `schema_version` are known and ignored.
+//! A config file is read through angzarr-yaml, the one reader of every
+//! Rust config (the owner's ruling, 2026-10-31): its versioned loader, the
+//! kind `taskloom-config` stamped `schema_version` at [`SCHEMA_VERSION`]
+//! with no older version, as Go's taskloom versions it, and its strict
+//! decode. A missing file is no layer. A file that cannot be read, is not
+//! the YAML the reader reads, has no stamp (an empty or comment-only file
+//! too, as Go's refuses it), an older or newer one, or names a key taskloom
+//! does not know, is refused, with the reader's diagnostic and the key
+//! path where the decode failed ([`ConfigError::Load`]), a newer file as
+//! taskloom's own [`ConfigError::Newer`]; so is an environment variable or
+//! override naming no key. Files are read through the [`Fs`] it is given.
+//! `homing` (repo homing is dropped) and `schema_version` are known and
+//! ignored.
 
 mod edit;
 mod error;
@@ -33,7 +41,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use angzarr_diagnostic::Report;
-use angzarr_yaml::versioned::{Loader, Migrations};
+use angzarr_yaml::versioned::{LoadProblem, Loader, Migrations};
 use file_system::{Fs, Perms};
 use os::Mode;
 use ports::{Configuration, ConfigurationWriter, TagPermits};
@@ -51,16 +59,19 @@ pub const FILE: &str = "config.yaml";
 pub const ENV_PREFIX: &str = "TASKLOOM_CONFIG_";
 /// The document kind config files are, as the reader names it.
 pub const KIND: &str = "taskloom-config";
-/// The newest `schema_version` this taskloom reads.
-pub const SCHEMA_VERSION: u64 = 1;
+/// The `schema_version` this taskloom reads, and the only one: there is
+/// no older version to migrate.
+pub const SCHEMA_VERSION: u32 = 1;
 /// The config keys taskloom knows.
 pub const KEYS: [&str; 4] = ["homing", "schema_version", "tag_permits", "tag_schema"];
 
 /// One config file's keys.
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
-struct File {
-    schema_version: Option<u64>,
+pub(crate) struct File {
+    /// The stamp, read by the loader before the decode.
+    #[allow(dead_code)]
+    schema_version: Option<u32>,
     #[allow(dead_code)]
     homing: Option<String>,
     tag_schema: Option<Vec<String>>,
@@ -231,7 +242,13 @@ impl TaskloomConfig {
         let dir = self.work_root().ok_or(ConfigError::NoWorkRoot)?.join(DIR);
         let path = dir.join(FILE);
         let shown = path.display().to_string();
-        let source = text_of(&*self.fs, &path)?.unwrap_or_default();
+        // A file made is stamped, so it reads back.
+        let source = text_of(&*self.fs, &path)?.unwrap_or_else(|| {
+            format!(
+                "{}: {SCHEMA_VERSION}\n",
+                angzarr_yaml::versioned::DEFAULT_KEY
+            )
+        });
         // The file must read as taskloom's before it is edited.
         parsed(&path, &source)?;
         let edited = edit::edited(&shown, &source, permits)?;
@@ -254,10 +271,8 @@ impl TaskloomConfig {
 /// The reader of a config file: angzarr-yaml's versioned loader for the
 /// kind `taskloom-config`, stamped `schema_version`, at [`SCHEMA_VERSION`]
 /// with no older version to migrate.
-// Read through by the next commit; the red tests use it already.
-#[allow(dead_code)]
 pub(crate) fn loader() -> Loader {
-    Migrations::new(KIND, SCHEMA_VERSION as u32)
+    Migrations::new(KIND, SCHEMA_VERSION)
         .build()
         .expect("a kind with no steps is a whole chain")
 }
@@ -286,19 +301,16 @@ fn text_of(fs: &dyn Fs, path: &Path) -> Result<Option<String>, ConfigError> {
 /// `text`, the config file at `path`, as taskloom reads it.
 fn parsed(path: &Path, text: &str) -> Result<File, ConfigError> {
     let shown = || path.display().to_string();
-    // An empty file, or one of comments, is a document of nothing.
-    let file: Option<File> = serde_norway::from_str(text).map_err(|e| ConfigError::Malformed {
-        path: shown(),
-        detail: e.to_string(),
-    })?;
-    let file = file.unwrap_or_default();
-    if let Some(version) = file.schema_version.filter(|v| *v > SCHEMA_VERSION) {
-        return Err(ConfigError::Newer {
-            path: shown(),
-            version,
-            current: SCHEMA_VERSION,
-        });
-    }
+    let file: File = loader()
+        .load_into(Some(&shown()), text)
+        .map_err(|e| match e.problem {
+            LoadProblem::TooNew { found, current } => ConfigError::Newer {
+                path: shown(),
+                version: found.into(),
+                current: current.into(),
+            },
+            _ => ConfigError::Load(e),
+        })?;
     // A blank item is refused, never dropped, as a comma-separated list's
     // is.
     let blank = |list: &Vec<String>| list.iter().any(|item| item.trim().is_empty());

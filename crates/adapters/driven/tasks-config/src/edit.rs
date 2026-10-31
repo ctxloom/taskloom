@@ -49,7 +49,7 @@ pub(crate) fn edited(
     source: &str,
     permits: &TagPermits,
 ) -> Result<String, ConfigError> {
-    let (_, held) = read_back(path, source).map_err(|detail| ConfigError::Malformed {
+    let (_, held) = read_back(path, source).map_err(|detail| ConfigError::EditRefused {
         path: path.to_string(),
         detail,
     })?;
@@ -81,7 +81,7 @@ pub(crate) fn retired(path: &str, source: &str) -> Result<Option<String>, Config
             _ => serde_norway::Mapping::new(),
         })
     };
-    let mut rest = mapping(source).map_err(|detail| ConfigError::Malformed {
+    let mut rest = mapping(source).map_err(|detail| ConfigError::EditRefused {
         path: path.to_string(),
         detail,
     })?;

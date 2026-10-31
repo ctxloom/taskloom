@@ -591,7 +591,7 @@ fn test_a_root_given_is_the_work_root_the_configuration_reads() {
     let dirs = Dirs::new();
     dirs.write(
         "/project/.taskloom/config.yaml",
-        b"tag_schema:\n  - 'tagma.range:\"triage:level\"=\"1,9\"'\n",
+        b"schema_version: 1\ntag_schema:\n  - 'tagma.range:\"triage:level\"=\"1,9\"'\n",
         Mode::FILE,
     );
     dirs.owner

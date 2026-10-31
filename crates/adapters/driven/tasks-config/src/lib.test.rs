@@ -243,7 +243,7 @@ fn test_a_file_that_is_not_taskloom_config_is_refused() {
     for (text, shown_as) in [
         (
             "schema_version: 1\nhomeing: home\n",
-            "problem=angzarr-yaml-decode-unknown-key problem.key_path=\"\" problem.found=homeing",
+            "problem=angzarr-yaml-decode-unknown-key problem.key_path=homeing problem.expected=schema_version,homing,tag_schema,tag_permits problem.found=homeing",
         ),
         (
             "schema_version: 1\ntag_schema: not-a-list\n",
@@ -251,7 +251,7 @@ fn test_a_file_that_is_not_taskloom_config_is_refused() {
         ),
         (
             "schema_version: 1\ntag_permits:\n  areas: {}\n",
-            "problem=angzarr-yaml-decode-unknown-key problem.key_path=tag_permits problem.found=areas",
+            "problem=angzarr-yaml-decode-unknown-key problem.key_path=tag_permits.areas",
         ),
         ("[unclosed\n", "problem=angzarr-yaml-"),
         ("homing: home\n", "problem=angzarr-yaml-too-old problem.found=0 problem.oldest=1"),

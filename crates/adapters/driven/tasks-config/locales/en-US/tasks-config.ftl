@@ -1,6 +1,6 @@
 tasks-config-unreadable = cannot read { $path }: { $ext_err_txt }
 tasks-config-unwritable = cannot write { $path }: { $ext_err_txt }
-tasks-config-malformed = { $path } is not taskloom's config: { $ext_err_txt }
+tasks-config-not-a-permit = { $path }: tag_permits: namespaces: { $namespace } is { $value }, which is neither open nor a list of keys
 tasks-config-newer = { $path } is schema_version { $version }, newer than the { $current } this taskloom reads
 tasks-config-unknown-key = { $source } sets { $key }, which is no config key taskloom knows (known: { $known })
 tasks-config-not-an-override = --config-set { $entry }: expected <path>=<value>

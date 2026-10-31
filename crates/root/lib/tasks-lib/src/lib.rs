@@ -91,6 +91,7 @@ pub fn catalog(
         angzarr_embedded::EN_US,
         angzarr_embedded::angzarr_ports::EN_US,
         angzarr_embedded::angzarr_store_sqlite::EN_US,
+        angzarr_yaml::EN_US,
     ];
     sources.extend(tasks_application::CATALOGS);
     sources.extend(plans_application::CATALOGS);

@@ -2,7 +2,7 @@
 
 use angzarr_diagnostic::Diagnostic;
 
-crate::english_for!(&[crate::EN_US.1]);
+crate::english_for!(&[crate::EN_US.1, angzarr_yaml::EN_US.1]);
 
 use super::diagnostic_samples;
 
@@ -18,7 +18,8 @@ fn test_each_error_renders_its_english_fallback() {
         english,
         [
             format!("cannot read {path}: permission denied"),
-            format!("{path} is not taskloom's config: unknown field `homeing`"),
+            format!("taskloom-config document {path}: `homeing`: unknown key \"homeing\" (the keys are: schema_version,homing,tag_schema,tag_permits)"),
+            format!("{path}: tag_permits: namespaces: area is maybe, which is neither open nor a list of keys"),
             format!("{path} is schema_version 2, newer than the 1 this taskloom reads"),
             "TASKLOOM_CONFIG_TAGS sets tags, which is no config key taskloom knows (known: homing, schema_version, tag_permits, tag_schema)".to_string(),
             "--config-set tag_schema: expected <path>=<value>".to_string(),
@@ -39,7 +40,13 @@ fn test_each_error_has_its_own_code() {
     codes.sort_unstable();
     codes.dedup();
     assert_eq!(codes.len(), all);
-    assert!(codes.iter().all(|c| c.starts_with("tasks-config-")));
+    // taskloom's own, or the reader's for a file it does not load.
+    assert!(
+        codes
+            .iter()
+            .all(|c| c.starts_with("tasks-config-") || *c == "angzarr-yaml-load-failed-at"),
+        "{codes:?}"
+    );
 }
 
 #[test]
@@ -48,7 +55,11 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
 
     let ftl = crate::EN_US.1;
     let resource = fluent_syntax::parser::parse(ftl).expect("the catalog parses");
-    let samples = diagnostic_samples();
+    // This crate's own codes: the reader's are in its catalog.
+    let samples: Vec<_> = diagnostic_samples()
+        .into_iter()
+        .filter(|s| s.code().starts_with("tasks-config-"))
+        .collect();
     let mut catalog: Vec<&str> = resource
         .body
         .iter()

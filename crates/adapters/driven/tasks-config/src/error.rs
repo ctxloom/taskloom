@@ -3,6 +3,7 @@
 use std::fmt;
 
 use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_yaml::versioned::LoadError;
 
 use crate::KEYS;
 
@@ -13,9 +14,19 @@ pub enum ConfigError {
     /// The work root's config file (or its directory) could not be
     /// written.
     Unwritable { path: String, detail: String },
-    /// A config file that is not taskloom's: not YAML, a key it does not
-    /// know, or a value of the wrong shape.
-    Malformed { path: String, detail: String },
+    /// A config file the reader (angzarr-yaml's, kind `taskloom-config`)
+    /// does not load: not the YAML it reads, a stamp older than taskloom
+    /// reads or none, a key taskloom does not know or a value of the wrong
+    /// shape. Its code and args are the reader's: the file, and the
+    /// problem, with the key path where the decode failed.
+    Load(LoadError),
+    /// A `tag_permits` namespace in the config file at `path` whose value
+    /// is neither `open` nor a list of keys.
+    NotAPermit {
+        path: String,
+        namespace: String,
+        value: String,
+    },
     /// A config file written for a newer taskloom.
     Newer {
         path: String,
@@ -56,7 +67,8 @@ impl Diagnostic for ConfigError {
         match self {
             ConfigError::Unreadable { .. } => "tasks-config-unreadable",
             ConfigError::Unwritable { .. } => "tasks-config-unwritable",
-            ConfigError::Malformed { .. } => "tasks-config-malformed",
+            ConfigError::Load(e) => e.code(),
+            ConfigError::NotAPermit { .. } => "tasks-config-not-a-permit",
             ConfigError::Newer { .. } => "tasks-config-newer",
             ConfigError::UnknownKey { .. } => "tasks-config-unknown-key",
             ConfigError::NotAnOverride { .. } => "tasks-config-not-an-override",
@@ -72,10 +84,19 @@ impl Diagnostic for ConfigError {
         match self {
             ConfigError::Unreadable { path, detail }
             | ConfigError::Unwritable { path, detail }
-            | ConfigError::Malformed { path, detail }
             | ConfigError::EditRefused { path, detail } => {
                 vec![("path", s(path)), ("ext_err_txt", s(detail))]
             }
+            ConfigError::Load(e) => e.args(),
+            ConfigError::NotAPermit {
+                path,
+                namespace,
+                value,
+            } => vec![
+                ("path", s(path)),
+                ("namespace", s(namespace)),
+                ("value", s(value)),
+            ],
             ConfigError::Newer {
                 path,
                 version,
@@ -116,9 +137,15 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             path: path(),
             detail: "permission denied".to_string(),
         }),
-        Box::new(ConfigError::Malformed {
+        Box::new(ConfigError::Load(
+            crate::loader()
+                .load_into::<crate::File>(Some(&path()), "schema_version: 1\nhomeing: home\n")
+                .expect_err("an unknown key is refused"),
+        )),
+        Box::new(ConfigError::NotAPermit {
             path: path(),
-            detail: "unknown field `homeing`".to_string(),
+            namespace: "area".to_string(),
+            value: "maybe".to_string(),
         }),
         Box::new(ConfigError::Newer {
             path: path(),

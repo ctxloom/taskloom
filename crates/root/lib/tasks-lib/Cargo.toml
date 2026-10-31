@@ -11,6 +11,7 @@ publish.workspace = true
 angzarr-diagnostic.workspace = true
 # Their catalogs, in the wiring's (`catalog`).
 angzarr-embedded = { workspace = true, features = ["sqlite"] }
+angzarr-yaml.workspace = true
 file-lock.workspace = true
 file-system.workspace = true
 harp-names.workspace = true
