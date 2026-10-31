@@ -97,19 +97,18 @@ check-windows:
         cargo check "${terse[@]}" --manifest-path {{TOP}}/Cargo.toml --target x86_64-pc-windows-gnu \
         -p os -p file-system -p file-lock -p tasks-config -p project-registry --all-targets
 
-# Where `just install` puts the Rust taskloom: a cargo root of its own, so
-# the binary lands in <root>/bin, a directory on no one's PATH, and never
-# shadows the Go taskloom every other project still runs (cargo's default,
-# ~/.cargo/bin, is on PATH). This repository's .envrc puts <root>/bin first
-# on PATH for sessions and shells started here: the one place a session's
-# companion binaries are chosen. TASKLOOM_RS_ROOT overrides it, in both.
+# Where `just install` puts the Rust taskloom, the global taskloom since the
+# owner's switch (2026-10-31): a cargo root of its own, the binary in
+# <root>/bin, which the shell profile (~/.zshrc) puts FIRST on PATH, ahead
+# of any other taskloom (cargo's default, ~/.cargo/bin, and the Go one's).
+# TASKLOOM_RS_ROOT overrides it.
 install_root := env("TASKLOOM_RS_ROOT", home_directory() / ".local/share/taskloom-rs")
 
 # Build and install the taskloom binary into `install_root` (plan step 9).
 [no-exit-message]
 install:
     cargo install --locked --path {{TOP}}/crates/root/bin/taskloom --root {{install_root}}
-    @echo "ok   install ({{install_root}}/bin/taskloom; on PATH only where .envrc is allowed)"
+    @echo "ok   install ({{install_root}}/bin/taskloom; it must come first on PATH, as ~/.zshrc puts it)"
 
 # Wire lefthook's git hooks into the repository's .git/hooks. Worktrees share
 # .git/hooks, so this is once per clone, and again whenever lefthook.yml or
