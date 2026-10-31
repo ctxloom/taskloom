@@ -143,3 +143,32 @@ fn supersedes_reaches_follows_the_chain_transitively() {
     assert!(!list.supersedes_reaches("a", "d"));
     assert!(!list.supersedes_reaches("b", "a"));
 }
+
+// An add's row carries the status and session the add gave, not defaults.
+#[test]
+fn an_added_row_carries_the_adds_status_and_session() {
+    let mut list = PlanList::new();
+    list.fold(
+        "a",
+        &PlanEvent::PlanAdded(AddPlan {
+            harp_id: "a".to_string(),
+            title: "Alpha".to_string(),
+            status: PlanStatus::Active,
+            path: ".taskloom/plans/a.plan.md".to_string(),
+            content_hash: HASH.to_string(),
+            origin_session: "inept-sixth-stick".to_string(),
+        }),
+    );
+    let a = list.get("a").unwrap();
+    assert_eq!(a.status, PlanStatus::Active);
+    assert_eq!(a.origin_session, "inept-sixth-stick");
+}
+
+// Unsuperseding one plan keeps the others the row supersedes.
+#[test]
+fn an_unsupersede_takes_out_only_its_plan() {
+    let mut list = three();
+    list.fold("c", &PlanEvent::Superseded("b".into()));
+    list.fold("c", &PlanEvent::Unsuperseded("a".into()));
+    assert_eq!(list.get("c").unwrap().supersedes, vec!["b"]);
+}

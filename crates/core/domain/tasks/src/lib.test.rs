@@ -281,3 +281,28 @@ fn test_a_task_state_round_trips_through_its_wire_form() {
         })
     );
 }
+
+// The schema stream's payloads go on the wire as the tasks' do, each
+// under its own type url and back whole.
+#[test]
+fn test_the_schema_payloads_round_trip_under_their_own_type_urls() {
+    use crate::{Declare, SchemaCommand, SchemaEvent, SchemaRetagged};
+
+    let tag = |s: &str| Tag::from(tagma_core::Tag::parse(s).unwrap());
+    let event = SchemaEvent::SchemaRetagged(SchemaRetagged {
+        tags: vec![tag("tagma.keys-per-item:area=1")],
+    });
+    let any = event.to_any();
+    assert_eq!(any.type_url, "/ctxloom.tasks.v1.SchemaRetagged");
+    assert_eq!(SchemaEvent::from_any(&any), Ok(event));
+    let command = SchemaCommand::Declare(Declare {
+        add: vec![tag("tagma.keys-per-item:repo=1")],
+        remove: Vec::new(),
+    });
+    assert_eq!(SchemaCommand::from_any(&command.to_any()), Ok(command));
+    assert_eq!(SchemaCommand::type_urls(), ["/ctxloom.tasks.v1.Declare"]);
+    assert_eq!(
+        SchemaEvent::type_urls(),
+        ["/ctxloom.tasks.v1.SchemaRetagged"]
+    );
+}

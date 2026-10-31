@@ -362,3 +362,12 @@ fn rehash_to_the_recorded_hash_is_refused() {
         Err(PlanRejection::HashUnchanged),
     );
 }
+
+// Only `ctxloom:plan` is retired: another key of the namespace, or the
+// same key elsewhere, is not.
+#[test]
+fn test_only_the_plan_tag_is_retired() {
+    assert!(tag_is_retired("ctxloom:plan"));
+    assert!(!tag_is_retired("ctxloom:session"));
+    assert!(!tag_is_retired("plan"));
+}

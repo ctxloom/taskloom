@@ -397,3 +397,22 @@ fn a_hash_is_well_formed_only_as_64_lowercase_hex_digits() {
     let g = format!("{}g", "a".repeat(63));
     assert!(crate::well_formed(&g).is_err());
 }
+
+// A status change replays: the next process sees the plan Active, and so
+// lets it be done.
+#[test]
+fn a_status_change_replays_into_the_next_command() {
+    let mut plans = Plans::new();
+    plans.run(HARP, add(HARP)).unwrap();
+    plans
+        .run(HARP, PlanCommand::SetStatus(PlanStatus::Active))
+        .unwrap();
+    assert_eq!(plans.state(HARP).status, PlanStatus::Active);
+    assert_eq!(
+        plans
+            .run(HARP, PlanCommand::SetStatus(PlanStatus::Done))
+            .map(|e| e.len()),
+        Ok(1)
+    );
+    assert_eq!(plans.state(HARP).status, PlanStatus::Done);
+}

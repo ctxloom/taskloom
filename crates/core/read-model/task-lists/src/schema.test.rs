@@ -70,3 +70,12 @@ fn test_the_views_tags_are_what_tagmas_rules_are_built_from() {
     let findings = rules.validate(&current, &change);
     assert!(findings.iter().any(|f| f.code.as_str() == "too-many-keys"));
 }
+
+// An event projected is past: the same sequence again changes nothing.
+#[test]
+fn test_the_same_sequence_twice_projects_once() {
+    let mut view = SchemaView::new();
+    view.project(1, &retagged(&["tagma.keys-per-item:area=1"]));
+    view.project(1, &retagged(&["tagma.keys-per-item:repo=1"]));
+    assert_eq!(view.export(), ["tagma.keys-per-item:area=1"]);
+}
