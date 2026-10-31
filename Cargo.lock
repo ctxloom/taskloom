@@ -1389,7 +1389,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 name = "plan-files"
 version = "0.1.0"
 dependencies = [
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=3edfe314b468bf75e4f35d05a3b079d8d97ab46f)",
+ "angzarr-embedded-diagnostic",
  "file-system",
  "fluent-syntax",
  "os",
@@ -1411,7 +1411,7 @@ version = "0.1.0"
 dependencies = [
  "angzarr-build",
  "angzarr-embedded",
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=3edfe314b468bf75e4f35d05a3b079d8d97ab46f)",
+ "angzarr-embedded-diagnostic",
  "angzarr-embedded-macros",
  "angzarr-ports",
  "fluent-syntax",
@@ -1424,7 +1424,7 @@ name = "plans-application"
 version = "0.1.0"
 dependencies = [
  "angzarr-embedded",
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=3edfe314b468bf75e4f35d05a3b079d8d97ab46f)",
+ "angzarr-embedded-diagnostic",
  "angzarr-ports",
  "fluent-syntax",
  "plan-lists",
@@ -1438,7 +1438,7 @@ dependencies = [
 name = "plans-cli"
 version = "0.1.0"
 dependencies = [
- "angzarr-embedded-diagnostic 0.1.0 (git+https://github.com/angzarr-io/angzarr-embedded?rev=3edfe314b468bf75e4f35d05a3b079d8d97ab46f)",
+ "angzarr-embedded-diagnostic",
  "clap",
  "fluent-syntax",
  "plans-application",
@@ -1452,7 +1452,7 @@ name = "plans-proto"
 version = "0.1.0"
 dependencies = [
  "angzarr-build",
- "angzarr-proto 0.1.0 (git+https://github.com/angzarr-io/angzarr-project?rev=b0a680fd1d8cdfaef9baace879b6b6adbeeca22a)",
+ "angzarr-proto",
  "prost",
  "prost-types",
 ]
