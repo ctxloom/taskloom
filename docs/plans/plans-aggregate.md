@@ -37,10 +37,11 @@ target write is refused and its first half is left for an unlink.
 committed with the repo. `--path` registers a `.plan.md` elsewhere in the
 tree, stored normalized and work-root-relative; paths outside the root are
 refused. The hash tracks edits (ruling a): `plan list`, `show` and `check`
-read the current file and record `Rehashed` when it changed. `plan check`
-reports only a recorded file that is `missing` and a `.taskloom/plans`
-file no plan records (`unregistered`); either exits 1. There is no
-`--accept`.
+read the current file and record `Rehashed` when it changed, so a changed
+hash is no finding. `plan check` reports a recorded file that is
+`missing`, a `.taskloom/plans` file no plan records (`unregistered`), and
+a governed task the project no longer holds (`missing task`); any exits 1.
+There is no `--accept`.
 
 **CLI** (the shared `--format`, `--json`, `--project`): `plan add --title T
 [--path P] [--status S] [--governs TASK]...`, `plan list [--status S]...

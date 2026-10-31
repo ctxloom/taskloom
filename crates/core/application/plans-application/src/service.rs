@@ -655,9 +655,17 @@ where
                 recorded.push(row.path.clone());
                 if self.tracked(&project, &mut row).await?.is_none() {
                     findings.push(Finding::Missing {
-                        plan: row.harp_id,
-                        path: row.path,
+                        plan: row.harp_id.clone(),
+                        path: row.path.clone(),
                     });
+                }
+                for task in &row.governs {
+                    if !self.tasks.exists(task).await.map_err(PlanError::Tasks)? {
+                        findings.push(Finding::MissingTask {
+                            plan: row.harp_id.clone(),
+                            task: task.clone(),
+                        });
+                    }
                 }
             }
         }

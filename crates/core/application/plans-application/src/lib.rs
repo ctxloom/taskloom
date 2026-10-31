@@ -16,8 +16,8 @@
 //! cycle, and a path resolves inside the work root. The text is a file, the
 //! store holds its path and hash, and the hash tracks the file: `list`,
 //! `show` and `check` read it and record its new hash when it changed
-//! (`Rehashed`). `check` reports a recorded file that is missing and a plan
-//! file no plan records.
+//! (`Rehashed`). `check` reports a recorded file that is missing, a plan
+//! file no plan records, and a governed task the project no longer holds.
 
 mod error;
 mod import;
@@ -106,18 +106,21 @@ pub struct PlanText {
     pub content: Option<String>,
 }
 
-/// What `plan check` found: drift between the store and the work tree that
-/// tracking the hash cannot mend.
+/// What `plan check` found: drift between the store and the work tree (or
+/// the project's tasks) that tracking the hash cannot mend.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Finding {
     /// The recorded file is not there.
     Missing { plan: String, path: String },
+    /// A governed task the project no longer holds (pruned).
+    MissingTask { plan: String, task: String },
     /// A `.taskloom/plans/*.plan.md` no plan records.
     Unregistered { path: String },
 }
 
-/// `plan check`'s answer: the missing files by plan, then the unregistered
-/// ones by path. Every finding fails the check.
+/// `plan check`'s answer: by plan, its missing file then its governed
+/// tasks gone; then the unregistered files by path. Every finding fails the
+/// check.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct CheckReport {
     pub findings: Vec<Finding>,

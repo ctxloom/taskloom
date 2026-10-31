@@ -496,7 +496,7 @@ fn a_refused_link_exits_1_with_the_reason_on_stderr_and_json_envelope() {
         &["plan", "link", "plan-1", "--governs", "ghost"],
     );
     let envelope: Value = serde_json::from_str(&ran.err).unwrap();
-    assert_eq!(envelope["code"], "plans_application.no_such_task");
+    assert_eq!(envelope["code"], "plans-application-no-such-task");
 }
 
 // ---- check ----
@@ -509,8 +509,8 @@ fn drifted() -> Fake {
                     plan: "plan-1".into(),
                     path: ".taskloom/plans/plan-1.plan.md".into(),
                 },
-                // Ruling (a): check's findings are only a missing file or
-                // an unregistered one.
+                // Ruling (a): a changed hash is no finding; the drafted
+                // hash mismatch and external plan are gone.
                 Finding::Unregistered {
                     path: ".taskloom/plans/stray.plan.md".into(),
                 },

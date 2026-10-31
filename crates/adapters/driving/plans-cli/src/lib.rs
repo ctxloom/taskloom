@@ -61,8 +61,8 @@ pub enum PlanCommand {
     /// Remove a link `plan link` made.
     Unlink(LinkArgs),
     /// Report drift: a recorded file that is missing, a plan file under
-    /// .taskloom/plans no plan records. Each file is read, and its hash
-    /// recorded where it changed. Exit 1 on any finding.
+    /// .taskloom/plans no plan records, a governed task gone. Each file is
+    /// read, and its hash recorded where it changed. Exit 1 on any finding.
     Check,
     /// Turn tasks' ctxloom:plan="<path>" tags into plans and governs
     /// links, retiring the tags migrated: a plan outside the work tree is

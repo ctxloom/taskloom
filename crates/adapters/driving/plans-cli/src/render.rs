@@ -148,6 +148,7 @@ impl Render for Shown<'_> {
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum FindingJson<'a> {
     Missing { plan: &'a str, path: &'a str },
+    MissingTask { plan: &'a str, task: &'a str },
     Unregistered { path: &'a str },
 }
 
@@ -170,6 +171,7 @@ impl Render for Checked<'_> {
                 .iter()
                 .map(|finding| match finding {
                     Finding::Missing { plan, path } => FindingJson::Missing { plan, path },
+                    Finding::MissingTask { plan, task } => FindingJson::MissingTask { plan, task },
                     Finding::Unregistered { path } => FindingJson::Unregistered { path },
                 })
                 .collect(),
@@ -185,6 +187,7 @@ impl Render for Checked<'_> {
             .iter()
             .try_for_each(|finding| match finding {
                 Finding::Missing { plan, path } => writeln!(out, "missing: {plan} {path}"),
+                Finding::MissingTask { plan, task } => writeln!(out, "missing task: {plan} {task}"),
                 Finding::Unregistered { path } => writeln!(out, "unregistered: {path}"),
             })
     }

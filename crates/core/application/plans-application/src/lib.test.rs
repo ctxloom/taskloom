@@ -583,10 +583,8 @@ fn check_reports_an_unregistered_plan_file_under_dot_taskloom_plans() {
     );
 }
 
-/// Ruling (a): check's findings are only a missing file or an
-/// unregistered one, so a governed task since pruned is none.
 #[test]
-fn check_does_not_report_a_governed_task_since_pruned() {
+fn check_reports_a_governed_task_since_pruned() {
     let tasks = FakeTasks::with(&[("task-a", &[])]);
     let (files, mint) = (Files::default(), Counter::default());
     let mut service = service_with_two_plans(&files, &tasks, &mint);
@@ -594,7 +592,13 @@ fn check_does_not_report_a_governed_task_since_pruned() {
         .link("plan-1", Link::Governs("task-a".into()))
         .unwrap();
     tasks.tasks.borrow_mut().remove("task-a");
-    assert_eq!(service.check().findings, vec![]);
+    assert_eq!(
+        service.check().findings,
+        vec![Finding::MissingTask {
+            plan: "plan-1".into(),
+            task: "task-a".into()
+        }]
+    );
 }
 
 /// Ruling (a): every finding fails check.

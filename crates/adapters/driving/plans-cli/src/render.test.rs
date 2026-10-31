@@ -18,6 +18,23 @@ fn json(view: &impl Render) -> serde_json::Value {
 }
 
 #[test]
+fn a_governed_task_gone_is_a_finding_in_text_and_json() {
+    let report = plans_application::CheckReport {
+        findings: vec![plans_application::Finding::MissingTask {
+            plan: "plan-1".into(),
+            task: "task-a".into(),
+        }],
+    };
+    assert_eq!(text(&Checked(&report)), "missing task: plan-1 task-a\n");
+    assert_eq!(
+        json(&Checked(&report)),
+        serde_json::json!({"ok": false, "findings": [
+            {"kind": "missing_task", "plan": "plan-1", "task": "task-a"}
+        ]})
+    );
+}
+
+#[test]
 fn a_superseded_plans_json_names_its_successor() {
     let plan = PlanView {
         harp_id: "old".into(),
