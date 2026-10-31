@@ -67,6 +67,9 @@ pub enum TagRefusal {
         target: String,
         detail: String,
     },
+    /// A tag whose target is retired: plans' `ctxloom:plan`, whose work
+    /// plans and their governs links now do.
+    Retired { tag: String, target: String },
     /// Not permitted by the project's tag permits: `permit` is what
     /// `taskloom permit` takes to permit it (its target, no value).
     NotPermitted { tag: String, permit: String },
@@ -96,6 +99,7 @@ impl Diagnostic for TagRefusal {
             TagRefusal::NotANumber { .. } => "tasks-application-tag-not-a-number",
             TagRefusal::OutOfRange { .. } => "tasks-application-tag-out-of-range",
             TagRefusal::NotSemver { .. } => "tasks-application-tag-not-semver",
+            TagRefusal::Retired { .. } => "tasks-application-tag-retired",
             TagRefusal::NotPermitted { .. } => "tasks-application-tag-not-permitted",
             TagRefusal::ScalarConflict { .. } => "tasks-application-tag-scalar-conflict",
         }
@@ -157,6 +161,7 @@ impl Diagnostic for TagRefusal {
             TagRefusal::NotPermitted { tag, permit } => {
                 vec![("tag", s(tag)), ("permit", s(permit))]
             }
+            TagRefusal::Retired { tag, target } => vec![("tag", s(tag)), ("target", s(target))],
             TagRefusal::ScalarConflict {
                 target,
                 first,
@@ -226,10 +231,12 @@ pub fn schema_free(tag: &Tag) -> Result<(), TagRefusal> {
 }
 
 /// Whether `tag` may be written under `schema`: it passes [`schema_free`],
-/// and its value is one its target's declared enum, range and type allow.
+/// its target is not retired ([`retired`]), and its value is one its
+/// target's declared enum, range and type allow.
 pub fn admit(tag: &Tag, schema: &TagSchema) -> Result<(), TagRefusal> {
     let spelled = || tag.to_string();
     schema_free(tag)?;
+    retired(tag)?;
     let Some(value) = &tag.value else {
         return Ok(());
     };
@@ -279,6 +286,20 @@ pub fn admit(tag: &Tag, schema: &TagSchema) -> Result<(), TagRefusal> {
         }
     }
     Ok(())
+}
+
+/// Refused when `tag`'s target is retired ([`plans::tag_is_retired`]): a
+/// write never adds one, though a task may still carry one an import kept
+/// (`plan import` migrates them).
+pub fn retired(tag: &Tag) -> Result<(), TagRefusal> {
+    let target = tag.target();
+    match plans::tag_is_retired(&target) {
+        true => Err(TagRefusal::Retired {
+            tag: tag.to_string(),
+            target,
+        }),
+        false => Ok(()),
+    }
 }
 
 /// Whether the project's tag `permits` permit `tag`: always where it
@@ -430,6 +451,10 @@ pub(crate) fn samples() -> Vec<TagRefusal> {
             value: x(),
             target: x(),
             detail: x(),
+        },
+        TagRefusal::Retired {
+            tag: x(),
+            target: x(),
         },
         TagRefusal::NotPermitted {
             tag: x(),

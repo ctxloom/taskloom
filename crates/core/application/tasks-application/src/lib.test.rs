@@ -351,6 +351,34 @@ fn test_an_add_with_a_blank_tag_is_refused_and_writes_nothing() {
     }
 }
 
+// The plan tag is retired: an add or a retag adding it is refused, and
+// nothing is written; a retag removing one a task still carries is not.
+#[test]
+fn test_a_write_adding_the_retired_plan_tag_is_refused() {
+    let mut service = service(&["swift-amber"]);
+    let task = NewTask {
+        tags: vec![r#"ctxloom:plan="docs/x.plan.md""#.to_string()],
+        ..new_task("Ship it")
+    };
+    let error = add(&mut service, task).unwrap_err();
+    assert_eq!(error.code(), "tasks-application-tag-retired");
+    assert!(service.stores.opened.is_empty());
+    add(&mut service, new_task("Ship it")).unwrap();
+    let error = ready(service.tag(change(
+        "swift-amber",
+        &[r#"ctxloom:plan="docs/x.plan.md""#],
+        &[],
+    )))
+    .unwrap_err();
+    assert_eq!(error.code(), "tasks-application-tag-retired");
+    ready(service.tag(change(
+        "swift-amber",
+        &[],
+        &[r#"ctxloom:plan="docs/x.plan.md""#],
+    )))
+    .unwrap();
+}
+
 #[test]
 fn test_a_tag_naming_a_tag_outside_the_grammar_is_refused_either_way() {
     let mut service = service(&["swift-amber"]);

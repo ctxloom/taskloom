@@ -169,6 +169,8 @@ struct Env {
 /// One finished process.
 struct Ran {
     ok: bool,
+    /// The exit code; -1 when a signal ended the process.
+    code: i32,
     stdout: String,
     stderr: String,
 }
@@ -177,6 +179,7 @@ impl Ran {
     fn of(output: Output) -> Ran {
         Ran {
             ok: output.status.success(),
+            code: output.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         }
@@ -729,6 +732,10 @@ fn test_every_diagnostic_of_every_crate_renders_from_the_binarys_catalog() {
         presentation::diagnostic_samples(),
         file_lock::diagnostic_samples(),
         tasks_watch::diagnostic_samples(),
+        plans::diagnostic_samples(),
+        plans_application::diagnostic_samples(),
+        plan_files::diagnostic_samples(),
+        plans_cli::diagnostic_samples(),
     ]
     .into_iter()
     .flatten()
@@ -764,6 +771,10 @@ fn ours() -> Vec<Box<dyn angzarr_embedded_diagnostic::Diagnostic>> {
         presentation::diagnostic_samples(),
         file_lock::diagnostic_samples(),
         tasks_watch::diagnostic_samples(),
+        plans::diagnostic_samples(),
+        plans_application::diagnostic_samples(),
+        plan_files::diagnostic_samples(),
+        plans_cli::diagnostic_samples(),
     ]
     .into_iter()
     .flatten()
@@ -1229,6 +1240,9 @@ mod companion;
 
 #[path = "import.test.rs"]
 mod import;
+
+#[path = "plan.test.rs"]
+mod plan;
 
 #[path = "project.test.rs"]
 mod project;

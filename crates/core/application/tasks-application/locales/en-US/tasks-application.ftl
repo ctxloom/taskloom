@@ -61,3 +61,4 @@ tasks-application-prune-no-status = a prune needs at least one status to select 
 tasks-application-prune-age-required = a prune needs an age: an offset like 30d, or a date like 2026-01-01
 tasks-application-prune-age-not-positive = the age { $age } is not a positive age
 tasks-application-prune-age-unreadable = the age { $age } is neither an offset (30d, 12w, 720h) nor a date (2026-01-01)
+tasks-application-tag-retired = { $tag } is retired: { $target } tags are plans now (taskloom plan add, taskloom plan link <plan> --governs <task>)

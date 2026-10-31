@@ -23,6 +23,7 @@ mod error;
 mod import;
 mod rules;
 mod service;
+mod tasks;
 
 pub use plans::{tag_is_retired, PlanRejection, PlanStatus, RETIRED_TAG};
 pub use ports::{Mint, PlanFiles, Tasks};
@@ -33,6 +34,7 @@ pub use error::diagnostic_samples;
 pub use error::{PathError, PlanError, CATALOGS, EN_US};
 pub use rules::{content_hash, default_path, frontmatter, plan_name, resolve_path, Frontmatter};
 pub use service::{registry, PlanService, HARP_ATTEMPTS};
+pub use tasks::ProjectTasks;
 
 use std::future::Future;
 

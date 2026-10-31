@@ -11,6 +11,7 @@ publish.workspace = true
 clap.workspace = true
 file-lock.workspace = true
 os.workspace = true
+plans-cli.workspace = true
 presentation.workspace = true
 project-cli.workspace = true
 tasks-application.workspace = true
@@ -51,6 +52,10 @@ file-lock = { workspace = true, features = ["test-support"] }
 os = { workspace = true, features = ["test-support"] }
 presentation = { workspace = true, features = ["test-support"] }
 tasks-application = { workspace = true, features = ["test-support"] }
+plans = { workspace = true, features = ["test-support"] }
+plans-application = { workspace = true, features = ["test-support"] }
+plan-files = { workspace = true, features = ["test-support"] }
+plans-cli = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

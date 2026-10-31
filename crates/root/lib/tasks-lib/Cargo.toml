@@ -17,6 +17,8 @@ file-system.workspace = true
 harp-names.workspace = true
 jsonl-task-log.workspace = true
 os.workspace = true
+plan-files.workspace = true
+plans-application.workspace = true
 presentation.workspace = true
 project-application.workspace = true
 project-registry.workspace = true
@@ -45,6 +47,9 @@ project-application = { workspace = true, features = ["test-support"] }
 os = { workspace = true, features = ["test-support"] }
 file-system = { workspace = true, features = ["test-support"] }
 tasks-application = { workspace = true, features = ["test-support"] }
+plans = { workspace = true, features = ["test-support"] }
+plans-application = { workspace = true, features = ["test-support"] }
+plan-files = { workspace = true, features = ["test-support"] }
 
 [features]
 # `diagnostic_samples`, for other crates' catalog tests: their

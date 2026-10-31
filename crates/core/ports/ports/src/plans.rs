@@ -61,6 +61,11 @@ pub trait Tasks {
         key: &str,
         value: &str,
     ) -> impl Future<Output = Result<(), Report>>;
+    /// The lines the tasks' kernel dead-lettered since the last call, for
+    /// the plans use case to hand up with its own: none, by default.
+    fn dead_letters(&mut self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// Harp ids for new plans, from the same words as tasks': uniqueness is

@@ -1,12 +1,13 @@
 //! taskloom: per-project task tracking, for people and agents alike on
 //! its command line (it serves no MCP). The composition root: it parses the
 //! command line (the global flags, the task commands, and `import`, the
-//! `project` group and `watch` mounted beside them), builds the wiring
+//! `plan` and `project` groups and `watch` mounted beside them), builds the wiring
 //! from the process (tasks-lib's `Taskloom`, the `--config-set` overrides
 //! bound there), and hands the frontend the command parsed only the use
 //! case it runs: the tasks use cases for the task commands and `watch`;
 //! the importer, the only reader of the JSONL task logs, for `import`;
-//! and the project use cases for the `project` group. `watch`
+//! the plans use cases for the `plan` group; and the project use cases
+//! for the `project` group. `watch`
 //! streams the project's changes until SIGINT or SIGTERM (on Windows
 //! Ctrl-C, Ctrl-Break, or the console's close, logoff or shutdown; never
 //! at a closed stdin). It holds no logic of its own, and wires no adapter.
@@ -20,7 +21,12 @@ use tasks_lib::Taskloom;
 /// The binary's en-US catalog: every diagnostic the wiring can raise
 /// (tasks-lib's), then each frontend's own.
 fn catalog() -> Result<presentation::Catalog, presentation::CatalogError> {
-    tasks_lib::catalog(&[tasks_cli::EN_US, project_cli::EN_US, tasks_watch::EN_US])
+    tasks_lib::catalog(&[
+        tasks_cli::EN_US,
+        project_cli::EN_US,
+        tasks_watch::EN_US,
+        plans_cli::EN_US,
+    ])
 }
 
 /// The command line.
@@ -48,6 +54,8 @@ enum Mounted {
     Import(tasks_cli::ImportGroup),
     #[command(flatten)]
     Project(project_cli::Group),
+    #[command(flatten)]
+    Plan(plans_cli::Group),
     #[command(flatten)]
     Watch(tasks_watch::Group),
 }
@@ -126,6 +134,27 @@ fn project_group(
         &mut io::stdout().lock(),
         &mut io::stderr().lock(),
     ))
+}
+
+/// The `plan` group, over the plans use cases: the plan files in the work
+/// tree and the project's store.
+fn plan_group(
+    runtime: &tokio::runtime::Runtime,
+    taskloom: &Taskloom,
+    group: plans_cli::Group,
+    project: Option<String>,
+    settings: &plans_cli::Settings,
+    catalog: &presentation::Catalog,
+) -> ExitCode {
+    let mut plans = taskloom.plans(project);
+    ExitCode::from(runtime.block_on(plans_cli::run(
+        group,
+        settings,
+        catalog,
+        &mut plans,
+        &mut io::stdout().lock(),
+        &mut io::stderr().lock(),
+    )))
 }
 
 /// What the command line reads from the process besides its arguments.
@@ -218,6 +247,14 @@ fn main() -> ExitCode {
                 prog: tasks_cli::PROG,
             };
             project_group(&taskloom, group, &settings, &catalog)
+        }
+        Mounted::Plan(group) => {
+            let settings = plans_cli::Settings {
+                format,
+                session: context.session.clone(),
+                prog: tasks_cli::PROG,
+            };
+            plan_group(&runtime, &taskloom, group, project, &settings, &catalog)
         }
         Mounted::Watch(tasks_watch::Group::Watch) => {
             let settings = tasks_watch::Settings {

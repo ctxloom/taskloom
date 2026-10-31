@@ -10,6 +10,10 @@ publish.workspace = true
 [dependencies]
 angzarr-embedded.workspace = true
 angzarr-embedded-diagnostic.workspace = true
+# The tag plans retired (`plans::tag_is_retired`), refused at admission;
+# and the plans governing a task `show` shows, from the plan list.
+plan-lists.workspace = true
+plans.workspace = true
 ports.workspace = true
 sha2.workspace = true
 tagma-core.workspace = true

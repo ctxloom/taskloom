@@ -10,8 +10,8 @@
 //! directory (or why there is none: then only what needs it fails).
 //! It builds each use case only when asked, and building one does no I/O:
 //! [`Taskloom::tasks`] for a command, [`Taskloom::importer`] for `import`
-//! alone (no other use case can reach the JSONL task logs) and
-//! [`Taskloom::projects`].
+//! alone (no other use case can reach the JSONL task logs),
+//! [`Taskloom::plans`] and [`Taskloom::projects`].
 //!
 //! What a frontend reads back is the application's own typed values (a
 //! listing's reach, hidden counts and priority notes, a write's project,
@@ -32,6 +32,8 @@ use file_system::{Fs, Os};
 use harp_names::HarpNames;
 use jsonl_task_log::JsonlTaskLogDir;
 use os::Flavor;
+use plan_files::FsPlanFiles;
+use plans_application::{PlanService, ProjectTasks};
 use project_registry::{Environment, ProjectRegistry};
 use system::System;
 use task_store_sqlite::SqliteStores;
@@ -57,6 +59,19 @@ pub type Tasks = tasks_application::Service<
 pub type Import =
     tasks_application::Importer<ProjectRegistry<HarpNames>, SqliteStores, System, JsonlTaskLogDir>;
 
+/// The plans use cases over the default adapters: the plan files in the
+/// work tree, the project's tasks through the tasks use cases, plan ids
+/// from harp, and the store the tasks are in.
+pub type Plans = PlanService<
+    ProjectRegistry<HarpNames>,
+    SqliteStores,
+    FsPlanFiles,
+    ProjectTasks<Tasks>,
+    HarpNames,
+    System,
+    System,
+>;
+
 /// The project use cases over the registry (surveying and changing it
 /// mints nothing: no names) and the SQLite store's integrity check.
 pub type Projects = project_application::Projects<ProjectRegistry<()>, SqliteStores>;
@@ -78,7 +93,9 @@ pub fn catalog(
         angzarr_store_sqlite::EN_US,
     ];
     sources.extend(tasks_application::CATALOGS);
+    sources.extend(plans_application::CATALOGS);
     sources.extend([
+        plan_files::EN_US,
         project_application::EN_US,
         file_lock::EN_US,
         file_system::EN_US,
@@ -159,6 +176,28 @@ impl Taskloom {
             System,
             JsonlTaskLogDir::in_home(Arc::clone(&self.fs), self.env.home.as_deref()),
         )
+    }
+
+    /// The plans use cases, acting on `project` when one is pinned (else
+    /// the work root's), their files in the working directory's work root.
+    /// Building them does no I/O, as [`Taskloom::tasks`]'s.
+    pub fn plans(&self, project: Option<String>) -> Plans {
+        let finder = self.registry(());
+        let files = FsPlanFiles::finding_root(Arc::clone(&self.fs), move || {
+            finder
+                .work_root()
+                .map_err(|e| angzarr_embedded_diagnostic::Report::of(&e))
+        });
+        PlanService::new(
+            self.registry(HarpNames),
+            SqliteStores::new(Arc::clone(&self.fs)),
+            files,
+            ProjectTasks::new(self.tasks(), project.clone()),
+            HarpNames,
+            System,
+            System,
+        )
+        .pinned(project)
     }
 
     /// The project use cases.

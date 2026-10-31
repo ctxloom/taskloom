@@ -716,7 +716,14 @@ where
     }
 
     fn dead_letters(&mut self) -> Vec<DeadLetter> {
-        self.dead_letters.take()
+        let mut letters = self.dead_letters.take();
+        letters.extend(
+            self.tasks
+                .dead_letters()
+                .into_iter()
+                .map(|line| DeadLetter { line }),
+        );
+        letters
     }
 }
 

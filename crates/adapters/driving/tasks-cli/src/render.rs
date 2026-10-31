@@ -178,8 +178,9 @@ impl Render for Listed<'_> {
 
 /// The tasks `show` found: JSON one task with its project when one id was
 /// asked for, else an array of them (a group is a list, one value an
-/// object); text each task whole, a blank line between, each headed by its
-/// project when read across projects.
+/// object); text each task whole (the plans governing it among its
+/// headers), a blank line between, each headed by its project when read
+/// across projects.
 pub struct Detailed<'a>(pub &'a Details);
 
 impl Render for Detailed<'_> {
@@ -200,7 +201,8 @@ impl Render for Detailed<'_> {
             if every {
                 writeln!(out, "project: {}", project_label(&row.project))?;
             }
-            detail(out, &row.task, &self.0.shown)?;
+            let plans = self.0.governing.get(i).map(Vec::as_slice);
+            detail(out, &row.task, plans.unwrap_or_default(), &self.0.shown)?;
         }
         Ok(())
     }
@@ -404,7 +406,7 @@ impl Render for Linted<'_> {
 
 /// One task whole: its check, id and status; the tags a person is shown
 /// and its trigger, if any; then its whole text.
-fn detail(out: &mut dyn Write, task: &Task, shown: &Shown) -> io::Result<()> {
+fn detail(out: &mut dyn Write, task: &Task, plans: &[String], shown: &Shown) -> io::Result<()> {
     let check = if task.checked { "x" } else { " " };
     writeln!(out, "[{check}] {}  {}", task.harp_id, task.status)?;
     let tags = self::shown(&task.tags, shown);
@@ -413,6 +415,9 @@ fn detail(out: &mut dyn Write, task: &Task, shown: &Shown) -> io::Result<()> {
     }
     if !task.trigger.is_empty() {
         writeln!(out, "    trigger: {}", task.trigger)?;
+    }
+    if !plans.is_empty() {
+        writeln!(out, "    plans: {}", plans.join(", "))?;
     }
     writeln!(out)?;
     writeln!(out, "{}", task.text)

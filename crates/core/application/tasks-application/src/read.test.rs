@@ -576,6 +576,81 @@ fn test_show_answers_with_each_task_asked_for_in_the_order_asked_whatever_its_st
     assert_eq!(details.reach, Reach::Project(crate::fakes::project()));
 }
 
+/// Run `command` on plan `plan`'s stream in `store`, as `plan link` would.
+fn plan_does(
+    store: &angzarr_embedded::next::angzarr_ports::memory::MemoryStore,
+    plan: &str,
+    command: plans::PlanCommand,
+) {
+    use angzarr_embedded::next::v1::{
+        command_page, Command, CommandBook, CommandPage, Cover, Uuid,
+    };
+    use angzarr_embedded::next::{ids, Kernel, MemoryDeadLetters, Payload, Registry, Sampled};
+    let mut registry = Registry::new();
+    registry.aggregate::<plans::PlanAggregate>(plans::PlanAggregate::default);
+    let book = CommandBook {
+        cover: Some(Cover {
+            domain: plans::PLAN_DOMAIN.to_string(),
+            root: ids::compute_root(plans::PLAN_DOMAIN, plan).ok(),
+            edition: None,
+        }),
+        page: Some(CommandPage {
+            body: Some(command_page::Body::Command(Command {
+                payload: Some(command.to_any()),
+            })),
+            ..CommandPage::default()
+        }),
+        handling: None,
+    };
+    let mut id = [0u8; 16];
+    for (i, byte) in format!("{command:?}").bytes().enumerate() {
+        id[i % 16] ^= byte;
+    }
+    let sampled = Sampled {
+        now: crate::Timestamp {
+            seconds: 1_700_000_000,
+            nanos: 0,
+        },
+        // Its own id, by its payload: a second command under one id is
+        // the first's duplicate.
+        command_id: Uuid::from_bytes(id),
+    };
+    let dead_letters = MemoryDeadLetters::new();
+    ready(
+        Kernel::new(&registry, &dead_letters)
+            .on_retryable(crate::KERNEL_RETRY)
+            .handle::<plans::PlanAggregate, _, _>(store, book, &sampled, &mut ()),
+    )
+    .unwrap_or_else(|failure| panic!("{failure:?}"));
+}
+
+#[test]
+fn test_show_answers_with_the_plans_governing_each_task() {
+    let mut service = with_every_status();
+    let store = &service.stores.store.inner;
+    plan_does(
+        store,
+        "brisk-cedar",
+        plans::PlanCommand::Add(plans::AddPlan {
+            harp_id: "brisk-cedar".into(),
+            title: "Plans".into(),
+            path: ".taskloom/plans/brisk-cedar.plan.md".into(),
+            content_hash: "0".repeat(64),
+            ..plans::AddPlan::default()
+        }),
+    );
+    plan_does(
+        store,
+        "brisk-cedar",
+        plans::PlanCommand::Govern("done".into()),
+    );
+    let details = ready(service.show(asked(&["done", "to-do"]))).unwrap();
+    assert_eq!(
+        details.governing,
+        vec![vec!["brisk-cedar".to_string()], Vec::new()]
+    );
+}
+
 #[test]
 fn test_show_fails_naming_every_id_no_task_holds() {
     let mut service = with_every_status();

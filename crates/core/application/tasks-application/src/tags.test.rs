@@ -379,3 +379,28 @@ fn test_an_undeclared_or_bare_target_takes_many_values() {
     let given = tags(&["triage:type=a", "triage:type=b"]);
     assert_eq!(check_scalars(&TagSchema::default(), &given), Ok(()));
 }
+
+// ------------------------------------------------------------ retired
+
+// Plans replace `ctxloom:plan` (docs/plans/plans-aggregate.md): a write
+// adding it is refused, whatever its value; other ctxloom tags are not.
+#[test]
+fn test_the_retired_plan_tag_is_refused_and_no_other() {
+    let schema = TagSchema::default();
+    let Some(TagRefusal::Retired { tag, target }) =
+        refused(r#"ctxloom:plan="docs/x.plan.md""#, &schema)
+    else {
+        panic!("refused as retired");
+    };
+    assert_eq!(target, "ctxloom:plan");
+    assert_eq!(tag, r#"ctxloom:plan="docs/x.plan.md""#);
+    assert!(refused("ctxloom:plan", &schema).is_some());
+    assert_eq!(refused("ctxloom:session=calm-otter", &schema), None);
+    assert_eq!(refused("plan=x", &schema), None);
+    let english = TagRefusal::Retired {
+        tag: "ctxloom:plan=x".into(),
+        target: "ctxloom:plan".into(),
+    }
+    .english();
+    assert!(english.contains("plan link"), "{english}");
+}

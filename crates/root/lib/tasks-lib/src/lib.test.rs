@@ -495,6 +495,9 @@ fn wired_samples() -> Vec<Box<dyn Diagnostic>> {
         tasks_config::diagnostic_samples(),
         file_lock::diagnostic_samples(),
         file_system::diagnostic_samples(),
+        plans::diagnostic_samples(),
+        plans_application::diagnostic_samples(),
+        plan_files::diagnostic_samples(),
     ]
     .into_iter()
     .flatten()

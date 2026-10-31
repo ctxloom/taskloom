@@ -766,11 +766,35 @@ fn test_edit_needs_text_and_says_why_it_failed() {
 
 fn details(reach: Reach, tasks: Vec<Task>) -> Option<Result<Details, AppError>> {
     let listing = listing_in(reach, tasks);
+    let governing = vec![Vec::new(); listing.rows.len()];
     Some(Ok(Details {
         reach: listing.reach,
         rows: listing.rows,
         shown: listing.shown,
+        governing,
     }))
+}
+
+#[test]
+fn test_show_in_text_names_the_plans_governing_a_task() {
+    let mut details = details(
+        Reach::Project(project()),
+        vec![shapes::task("swift-amber", "To Do")],
+    );
+    if let Some(Ok(details)) = details.as_mut() {
+        details.governing = vec![vec!["brisk-cedar".to_string(), "calm-heron".to_string()]];
+    }
+    let mut fake = Fake {
+        details,
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, true, &["show", "swift-amber"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert!(
+        ran.out.contains("\n    plans: brisk-cedar, calm-heron\n"),
+        "{}",
+        ran.out
+    );
 }
 
 #[test]
