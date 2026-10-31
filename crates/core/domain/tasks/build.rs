@@ -4,7 +4,10 @@
 
 fn main() -> Result<(), angzarr_build::BuildError> {
     angzarr_build::markup_domain(
-        &["ctxloom/tasks/v1/tasks.proto"],
+        &[
+            "ctxloom/tasks/v1/tasks.proto",
+            "ctxloom/tasks/v1/schema.proto",
+        ],
         &["../../../../proto", tagma_proto::PROTO_INCLUDE],
         &[("ctxloom.tasks.v1", "::tasks_proto::v1")],
     )

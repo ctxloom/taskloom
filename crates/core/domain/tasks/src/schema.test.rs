@@ -160,3 +160,189 @@ fn test_a_removal_of_every_rule_still_leaves_the_stream_declared() {
     assert!(state.tags.is_empty());
     assert!(state.declared, "an emptied schema is not reseeded");
 }
+
+// ------------------------------------------- the aggregate, on the kernel
+//
+// The implementation's own (not among the reviewed red tests): the marked-up
+// aggregate over the rules above, driven through angzarr-embedded's kernel
+// over angzarr-ports' in-memory store, as the binary drives it.
+
+mod on_the_kernel {
+    use std::future::Future;
+
+    use angzarr_embedded::next::angzarr_ports::memory::MemoryStore;
+    use angzarr_embedded::next::v1::{
+        command_page, Command, CommandBook, CommandPage, Cover, Uuid,
+    };
+    use angzarr_embedded::next::{
+        Domain, EventStore, Failure, Handled, Kernel, MemoryDeadLetters, OnRetryable, Payload,
+        Registry, Sampled, Stream, StreamRef, Timestamp,
+    };
+    use angzarr_embedded_diagnostic::Diagnostic;
+
+    use super::{spelled, tags};
+    use crate::schema::{
+        schema_root, Declare, SchemaAggregate, SchemaCommand, SchemaEvent, SchemaState,
+        SCHEMA_DOMAIN,
+    };
+
+    fn ready<F: Future>(future: F) -> F::Output {
+        let mut future = std::pin::pin!(future);
+        let waker = std::task::Waker::noop();
+        match future
+            .as_mut()
+            .poll(&mut std::task::Context::from_waker(waker))
+        {
+            std::task::Poll::Ready(out) => out,
+            std::task::Poll::Pending => panic!("the in-memory store never waits"),
+        }
+    }
+
+    fn cover() -> Cover {
+        Cover {
+            domain: SCHEMA_DOMAIN.to_string(),
+            root: Some(schema_root()),
+            edition: None,
+        }
+    }
+
+    struct Schema {
+        store: MemoryStore,
+        registry: Registry,
+        id: u8,
+    }
+
+    impl Schema {
+        fn new() -> Schema {
+            let mut registry = Registry::new();
+            registry.aggregate::<SchemaAggregate>(SchemaAggregate::default);
+            Schema {
+                store: MemoryStore::new(),
+                registry,
+                id: 0,
+            }
+        }
+
+        fn run(&mut self, declare: Declare) -> Result<Vec<SchemaEvent>, &'static str> {
+            self.id += 1;
+            let book = CommandBook {
+                cover: Some(cover()),
+                page: Some(CommandPage {
+                    body: Some(command_page::Body::Command(Command {
+                        payload: Some(SchemaCommand::from(declare).to_any()),
+                    })),
+                    ..CommandPage::default()
+                }),
+                handling: None,
+            };
+            let sampled = Sampled {
+                now: Timestamp {
+                    seconds: 100,
+                    nanos: 0,
+                },
+                command_id: Uuid::from_bytes([self.id; 16]),
+            };
+            let dead_letters = MemoryDeadLetters::new();
+            let handled = ready(
+                Kernel::new(&self.registry, &dead_letters)
+                    .on_retryable(OnRetryable {
+                        max_retries: 0,
+                        ..OnRetryable::default()
+                    })
+                    .handle::<SchemaAggregate, _, _>(&self.store, book, &sampled, &mut ()),
+            );
+            match handled {
+                Ok(Handled::Applied(recorded)) => Ok(recorded
+                    .books()
+                    .iter()
+                    .flat_map(|book| &book.pages)
+                    .map(|page| SchemaEvent::from_any(page.payload.as_ref().unwrap()).unwrap())
+                    .collect()),
+                Ok(Handled::Duplicate(_)) => panic!("a fresh command id"),
+                Err(Failure::Rejected(rejected)) => Err(rejected.code()),
+                Err(other) => panic!("not a rejection: {other:?}"),
+            }
+        }
+
+        fn state(&self) -> SchemaState {
+            let cover = cover();
+            let stream = StreamRef::try_from(&cover).unwrap();
+            let pages = ready(self.store.read(stream, 0, None)).unwrap().pages;
+            Stream::<SchemaAggregate>::replay(cover.clone(), &pages, &self.registry)
+                .unwrap()
+                .state()
+                .state()
+                .clone()
+        }
+    }
+
+    #[test]
+    fn test_the_aggregate_is_the_schema_domain() {
+        assert_eq!(<SchemaAggregate as Domain>::NAME, SCHEMA_DOMAIN);
+    }
+
+    #[test]
+    fn test_a_declare_through_the_kernel_records_and_replays_the_rules() {
+        let mut schema = Schema::new();
+        let events = schema
+            .run(Declare {
+                add: tags(&["tagma.keys-per-item:area=1"]),
+                remove: vec![],
+            })
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        let state = schema.state();
+        assert_eq!(spelled(&state.tags), ["tagma.keys-per-item:area=1"]);
+        assert!(state.declared);
+    }
+
+    #[test]
+    fn test_a_declare_changing_nothing_records_nothing_on_the_stream() {
+        let mut schema = Schema::new();
+        let declare = Declare {
+            add: tags(&["tagma.keys-per-item:area=1"]),
+            remove: vec![],
+        };
+        schema.run(declare.clone()).unwrap();
+        assert_eq!(schema.run(declare).unwrap(), []);
+    }
+
+    #[test]
+    fn test_a_refused_declare_is_a_rejection_by_its_code() {
+        let mut schema = Schema::new();
+        assert_eq!(
+            schema.run(Declare::default()),
+            Err("tasks-schema-tag-required")
+        );
+        assert_eq!(
+            schema.run(Declare {
+                add: tags(&["area:cli"]),
+                remove: vec![],
+            }),
+            Err("tasks-schema-not-config")
+        );
+        assert!(!schema.state().declared, "nothing recorded");
+    }
+
+    #[test]
+    fn test_a_remove_outside_the_config_namespaces_is_refused_too() {
+        let mut schema = Schema::new();
+        assert_eq!(
+            schema.run(Declare {
+                add: vec![],
+                remove: tags(&["area:cli"]),
+            }),
+            Err("tasks-schema-not-config")
+        );
+    }
+
+    #[test]
+    fn test_the_state_crosses_the_wire_whole() {
+        let state = SchemaState {
+            tags: tags(&["tagma.keys-per-item:area=1"]),
+            declared: true,
+        };
+        let wire = tasks_proto::v1::SchemaState::from(state.clone());
+        assert_eq!(SchemaState::try_from(wire).unwrap(), state);
+    }
+}
