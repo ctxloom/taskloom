@@ -39,8 +39,15 @@ use crate::AppError;
 /// attempts), its waits are the ports' (so a test's are exact), and a
 /// person's command that cannot land comes back to them, not to a dead
 /// letter. The kernel's own backoff otherwise, unused.
+///
+/// A command stamped with the head it loaded that loses the race at its
+/// write is run once only and handed back as the store's conflict
+/// (`max_race_runs` 0): the kernel neither re-runs it on the new head
+/// (angzarr decision 14.46) nor dead-letters it; taskloom's loop is the one
+/// that retries.
 pub const KERNEL_RETRY: OnRetryable = OnRetryable {
     max_retries: 0,
+    max_race_runs: 0,
     initial_backoff: Duration::from_millis(100),
     multiplier: 2.0,
     max_backoff: Duration::from_secs(5),
