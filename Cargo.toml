@@ -16,30 +16,31 @@ prost = "0.14"
 prost-types = "0.14"
 # angzarr core's crate (moved there from angzarr-project's rust/), at the
 # core rev angzarr-embedded pins: one angzarr-proto in the graph.
-angzarr-proto = { version = "0.1", git = "https://github.com/angzarr-io/angzarr", rev = "1cf00b71b094c185b0fd6964f646e48b4c39b8ab" }
+angzarr-proto = { version = "0.1", git = "https://github.com/angzarr-io/angzarr", rev = "bfbe8d3e51bbc754ee80f955e9fbb64d83beabb7" }
 
 # angzarr-build (angzarr-cli's markup domain layer) is pinned by full
 # commit, so a fresh clone builds with no sibling checkouts; bumps are
 # deliberate commits. To build against local checkouts while changing them
 # together, see "Co-developing angzarr-cli or tagma" in CLAUDE.md. At
-# 54dbc45, on angzarr core's angzarr-proto and angzarr-embedded 7c85204, as
-# this workspace is: one angzarr-proto and one angzarr-embedded-diagnostic
-# in the lock.
+# 54dbc45, on angzarr core's angzarr-proto 1cf00b7 and angzarr-embedded
+# 7c85204: a build dependency only, so its older angzarr-proto and
+# angzarr-embedded-diagnostic sit in the lock beside this workspace's until
+# angzarr-cli moves to the revs below.
 angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "54dbc459ed4b1ae8ed3cf5bea11902dbb7aea064" }
 
 # angzarr-embedded, angzarr's in-app runtime, taskloom's
 # (taskloom-on-angzarr-embedded.plan.md). Pinned by rev on
-# angzarr-embedded's main: 7c85204 (router d83c854, angzarr core 1cf00b7
-# for angzarr-proto and angzarr-ports, spec ef975bc), a race re-run cap of
-# 0 handing a lost race back.
-angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "7c8520470fa0fd9435020d7c30ade79dd2808ae7" }
-angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "7c8520470fa0fd9435020d7c30ade79dd2808ae7" }
-angzarr-embedded-diagnostic = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "7c8520470fa0fd9435020d7c30ade79dd2808ae7" }
-angzarr-store-sqlite = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "7c8520470fa0fd9435020d7c30ade79dd2808ae7" }
+# angzarr-embedded's main: 07154a2 (router 1008774, angzarr core bfbe8d3
+# for angzarr-proto and angzarr-ports, spec 7597d23): the kernel owns race
+# re-runs and retries, its waits injectable (`Kernel::wait_with`).
+angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "07154a2e3a952c0cfd9d614177b75aa68faa4dfd" }
+angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "07154a2e3a952c0cfd9d614177b75aa68faa4dfd" }
+angzarr-embedded-diagnostic = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "07154a2e3a952c0cfd9d614177b75aa68faa4dfd" }
+angzarr-store-sqlite = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "07154a2e3a952c0cfd9d614177b75aa68faa4dfd" }
 # angzarr's storage contract, angzarr core's crate at the rev angzarr-embedded
-# pins (1cf00b7), so the graph holds one spec, as angzarr-proto above does:
+# pins (bfbe8d3), so the graph holds one spec, as angzarr-proto above does:
 # the store ports, and their in-memory store for tests.
-angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "1cf00b71b094c185b0fd6964f646e48b4c39b8ab" }
+angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "bfbe8d3e51bbc754ee80f955e9fbb64d83beabb7" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
 plans-proto = { path = "crates/core/wire/plans-proto" }
 tasks = { path = "crates/core/domain/tasks" }
