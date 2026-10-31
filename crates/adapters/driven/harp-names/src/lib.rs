@@ -9,13 +9,19 @@ use ports::{Mint, Names};
 #[derive(Clone, Copy, Debug, Default)]
 pub struct HarpNames;
 
-/// A random name of `components` words: adjectives, then a noun.
-fn name(components: u8) -> String {
-    generate_name_with_options(&NameOptions {
+/// `components` words, adjectives then a noun, joined by '-'.
+fn options(components: u8) -> NameOptions {
+    NameOptions {
         components,
         max_element_length: None,
         separator: "-".to_string(),
-    })
+    }
+}
+
+/// A random name of `components` words: adjectives, then a noun.
+fn name(components: u8) -> String {
+    generate_name_with_options(&options(components))
+        .expect("2 and 3 words, joined by '-', are valid")
 }
 
 impl Names for HarpNames {

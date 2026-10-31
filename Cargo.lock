@@ -753,8 +753,8 @@ dependencies = [
 
 [[package]]
 name = "harp-core"
-version = "0.1.0"
-source = "git+https://github.com/benjaminabbitt/harp?rev=21648c9712ab60a84b609e1321201f158203a4bc#21648c9712ab60a84b609e1321201f158203a4bc"
+version = "0.1.2"
+source = "git+https://github.com/benjaminabbitt/harp?rev=e27196f5a425ffcf8e443aab95d2bf085cd2b134#e27196f5a425ffcf8e443aab95d2bf085cd2b134"
 dependencies = [
  "flate2",
  "rand 0.9.5",

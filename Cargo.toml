@@ -75,7 +75,7 @@ tagma-core = { git = "https://github.com/benjaminabbitt/tagma", rev = "33d04781e
 tagma-proto = { git = "https://github.com/benjaminabbitt/tagma", rev = "33d04781e08805af3ba55c99fe465907bc27c2ea" }
 
 # Task and project ids: harp's word lists, as Go's harp ports them.
-harp-core = { git = "https://github.com/benjaminabbitt/harp", rev = "21648c9712ab60a84b609e1321201f158203a4bc" }
+harp-core = { git = "https://github.com/benjaminabbitt/harp", rev = "e27196f5a425ffcf8e443aab95d2bf085cd2b134" }
 
 # Third-party, for the adapters and the composition root.
 clap = { version = "4.5", features = ["derive", "string"] }
