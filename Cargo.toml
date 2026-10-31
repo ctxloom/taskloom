@@ -22,17 +22,16 @@ angzarr-proto = { version = "0.1", git = "https://github.com/angzarr-io/angzarr"
 # commit, so a fresh clone builds with no sibling checkouts; bumps are
 # deliberate commits. To build against local checkouts while changing them
 # together, see "Co-developing angzarr-cli or tagma" in CLAUDE.md. At
-# 1460489, on angzarr core's angzarr-proto, as this workspace is, and
-# angzarr-embedded e2810b4, behind this workspace's 7c85204: until
-# angzarr-cli moves to it, the lock holds two angzarr-embedded-diagnostic
-# (angzarr-build's, a build dependency only).
-angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "1460489002fad87c76a6a20f744f8b1fa32dd650" }
+# 54dbc45, on angzarr core's angzarr-proto and angzarr-embedded 7c85204, as
+# this workspace is: one angzarr-proto and one angzarr-embedded-diagnostic
+# in the lock.
+angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "54dbc459ed4b1ae8ed3cf5bea11902dbb7aea064" }
 
 # angzarr-embedded, angzarr's in-app runtime, taskloom's
 # (taskloom-on-angzarr-embedded.plan.md). Pinned by rev on
-# angzarr-embedded's fix/race-runs-opt-out: 7c85204, e2810b4 (router
-# d83c854, angzarr core 1cf00b7 for angzarr-proto and angzarr-ports, spec
-# ef975bc) with a race re-run cap of 0 handing a lost race back.
+# angzarr-embedded's main: 7c85204 (router d83c854, angzarr core 1cf00b7
+# for angzarr-proto and angzarr-ports, spec ef975bc), a race re-run cap of
+# 0 handing a lost race back.
 angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "7c8520470fa0fd9435020d7c30ade79dd2808ae7" }
 angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "7c8520470fa0fd9435020d7c30ade79dd2808ae7" }
 angzarr-embedded-diagnostic = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "7c8520470fa0fd9435020d7c30ade79dd2808ae7" }
