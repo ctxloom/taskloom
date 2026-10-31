@@ -1,0 +1,16 @@
+[package]
+name = "plans-application"
+version = "0.1.0"
+description = "The plans use cases: add, status, link, check and the import of ctxloom:plan tags (RED STUB)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+plan-lists.workspace = true
+plans.workspace = true
+sha2.workspace = true
+
+[lints]
+workspace = true

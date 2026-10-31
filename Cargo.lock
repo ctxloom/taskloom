@@ -1405,6 +1405,36 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
+name = "plan-lists"
+version = "0.1.0"
+dependencies = [
+ "plans",
+]
+
+[[package]]
+name = "plans"
+version = "0.1.0"
+
+[[package]]
+name = "plans-application"
+version = "0.1.0"
+dependencies = [
+ "plan-lists",
+ "plans",
+ "sha2",
+]
+
+[[package]]
+name = "plans-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "plans-application",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ports"
 version = "0.1.0"
 dependencies = [

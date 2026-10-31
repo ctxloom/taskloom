@@ -38,6 +38,9 @@ tasks-proto = { path = "crates/core/wire/tasks-proto" }
 tasks = { path = "crates/core/domain/tasks" }
 task-lists = { path = "crates/core/read-model/task-lists" }
 task-priority = { path = "crates/core/read-model/task-priority" }
+plans = { path = "crates/core/domain/plans" }
+plan-lists = { path = "crates/core/read-model/plan-lists" }
+plans-application = { path = "crates/core/application/plans-application" }
 ports = { path = "crates/core/ports/ports" }
 tasks-application = { path = "crates/core/application/tasks-application" }
 project-application = { path = "crates/core/application/project-application" }
@@ -56,6 +59,7 @@ presentation = { path = "crates/adapters/driving/presentation" }
 tasks-presentation = { path = "crates/adapters/driving/tasks-presentation" }
 tasks-watch = { path = "crates/adapters/driving/tasks-watch" }
 project-cli = { path = "crates/adapters/driving/project-cli" }
+plans-cli = { path = "crates/adapters/driving/plans-cli" }
 
 # tagma: the tag grammar and query engine (tagma-core) and its Tag message
 # (tagma-proto), pinned by full commit; bumps are deliberate commits.

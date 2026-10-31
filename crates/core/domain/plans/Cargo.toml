@@ -1,0 +1,11 @@
+[package]
+name = "plans"
+version = "0.1.0"
+description = "The plans domain: one plan per aggregate, its status and its typed links (RED STUB: docs/plans/plans-aggregate.md)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
