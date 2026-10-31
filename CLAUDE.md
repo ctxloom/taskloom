@@ -211,10 +211,11 @@ or tagma, whether pinned or patched onto local checkouts.
 
 ## This repository's tasks are in the Rust taskloom
 
-`just install` puts it in `~/.local/share/taskloom-rs/bin`, on no PATH;
-`.envrc` (direnv, `direnv allow` once per checkout) puts that first, so a
-session started here runs it as its CLI (it serves no MCP). Run `taskloom` and
-not `~/go/bin/taskloom`, which writes a log the Rust store never reads.
+The Rust taskloom is the global taskloom (the owner's switch,
+2026-10-31): `just install` puts it in `~/.local/share/taskloom-rs/bin`,
+which must come first on PATH, as `~/.zshrc` puts it; `.envrc` (direnv)
+puts it first here too. It serves no MCP. Run `taskloom` and not
+`~/go/bin/taskloom`, which writes a log the Rust store never reads.
 
 ## The git-hook gates are in gates/; the justfile gives their parameters
 
