@@ -21,8 +21,10 @@ pub enum StoreOpenError {
     /// afresh.
     PredatesEmbedded { path: String, backup: String },
     /// The store at `path` has migrations pending, and its write-ahead log
-    /// `wal` holds frames not yet in the file, so a copy of the file alone
-    /// would not be the store: it is neither backed up nor migrated.
+    /// `wal` is not empty: it may hold frames not yet in the file, so a
+    /// copy of the file alone might not be the store, and it is neither
+    /// backed up nor migrated. A log left by a connection that could not
+    /// checkpoint it (a read-only one, closing last) is refused too.
     BackupUnsafe { path: String, wal: String },
     /// The store at `path` has migrations pending, and could not be copied
     /// to `backup` before migrating it.
