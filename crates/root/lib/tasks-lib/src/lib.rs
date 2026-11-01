@@ -77,6 +77,8 @@ pub type Plans = PlanService<
 pub type Projects = project_application::Projects<ProjectRegistry<()>, SqliteStores>;
 
 /// The en-US catalog of every diagnostic the wiring can raise (its own,
+/// the spec's for the framework's reason keys, which angzarr-embedded
+/// codes its spec conditions under (decision 14.60),
 /// angzarr-embedded's and the angzarr-ports errors it forwards,
 /// angzarr-store-sqlite's, the use cases', every driven and platform
 /// adapter's), then
@@ -88,6 +90,7 @@ pub fn catalog(
 ) -> Result<presentation::Catalog, presentation::CatalogError> {
     let mut sources = vec![
         EN_US,
+        angzarr_embedded::angzarr_proto::REASONS_EN_US,
         angzarr_embedded::EN_US,
         angzarr_embedded::angzarr_ports::EN_US,
         angzarr_embedded::angzarr_store_sqlite::EN_US,
