@@ -445,3 +445,44 @@ fn an_import_with_a_value_left_says_so() {
     assert!(report.plans.is_empty() && report.retired.is_empty());
     assert_eq!(tasks.0.borrow()["task-a"].len(), 1, "its tag is kept");
 }
+
+/// A failure no retry mends (a stream holding an event no plan reads) is
+/// the service's to report as it is, never given up on as retried.
+#[test]
+fn a_failure_no_retry_mends_is_reported_not_given_up() {
+    use angzarr_embedded::v1::EventPage;
+    use angzarr_embedded::{Append, EventStore, StreamRef, Write};
+    let tasks = FakeTasks::with(&[("task-a", &[])]);
+    let (files, mint) = (Files::default(), Counter::default());
+    let mut service = Service::new(&files, &tasks, &mint);
+    service.add(new("One")).unwrap();
+    service
+        .0
+        .borrow()
+        .stores
+        .store
+        .before_next_write(Box::new(|store| {
+            let cover = Cover::natural(plans::PLAN_DOMAIN, "plan-1");
+            let page = EventPage {
+                sequence: 1,
+                payload: Some(angzarr_embedded::Any {
+                    type_url: "/ctxloom.plans.v9.Unknown".to_string(),
+                    value: Vec::new(),
+                }),
+                meta: None,
+            };
+            let write = Write {
+                events: Some(Append {
+                    stream: StreamRef::try_from(&cover).unwrap(),
+                    expected: 1,
+                    pages: std::slice::from_ref(&page),
+                }),
+                ..Write::default()
+            };
+            ready(EventStore::write(store, write)).unwrap();
+        }));
+    let error = service
+        .link("plan-1", Link::Governs("task-a".into()))
+        .unwrap_err();
+    assert!(matches!(error, PlanError::Failed(_)), "{error:?}");
+}
