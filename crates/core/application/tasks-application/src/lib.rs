@@ -15,6 +15,7 @@
 mod error;
 mod import;
 mod lint;
+mod lists;
 mod permit;
 mod priority;
 mod prune;
@@ -318,6 +319,9 @@ pub struct Service<I, S, N, C, D, G = NotConfigured> {
     pub configuration: G,
     pub backoff: Backoff,
     registry: Registry,
+    /// Each project's task and plan lists, kept caught up across the
+    /// service's reads.
+    pub(crate) lists: lists::Lists,
     /// The dead letters the use case's kernel calls answered, taken into
     /// its result, or its error.
     pub(crate) dead_letters: Vec<DeadLetter>,
@@ -358,6 +362,7 @@ impl<I, S, N, C, D> Service<I, S, N, C, D> {
             configuration: NotConfigured,
             backoff: Backoff::DEFAULT,
             registry: registry(),
+            lists: lists::Lists::default(),
             dead_letters: Vec::new(),
         }
     }
@@ -375,6 +380,7 @@ impl<I, S, N, C, D, G> Service<I, S, N, C, D, G> {
             configuration,
             backoff: self.backoff,
             registry: self.registry,
+            lists: self.lists,
             dead_letters: self.dead_letters,
         }
     }

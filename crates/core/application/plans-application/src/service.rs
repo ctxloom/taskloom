@@ -21,15 +21,17 @@
 //! racing can both pass their check (the design's flag): the second
 //! target's write is refused, and its first half is left for an unlink.
 
+use std::collections::BTreeMap;
+
 use angzarr_diagnostic::Report;
 use angzarr_embedded::v1::{
     command_page, Command, CommandBook, CommandPage, Cover, Handling, Uuid,
 };
 use angzarr_embedded::{
-    ids, EventStore, Failure, Kernel, KernelError, Payload, Recovery, Registry, Sampled, Store,
-    StoreError, Stream, StreamRef,
+    ids, CatchUp, EventStore, Failure, Kernel, KernelError, Payload, Recovery, Registry, Sampled,
+    Store, StoreError, Stream, StreamRef,
 };
-use plan_lists::{PlanList, PlanRow};
+use plan_lists::{PlanList, PlanLists, PlanRow};
 use plans::{decide, AddPlan, PlanAggregate, PlanCommand, PlanRejection, PlanState, PLAN_DOMAIN};
 use ports::{
     Clock, CommandIds, Delay, Jitter, Mint, PlanFiles, Project, ProjectIdentity, TaskStores, Tasks,
@@ -71,6 +73,11 @@ pub struct PlanService<I, S, F, T, M, C, D> {
     /// `--project`: the project to act on, overriding the work root's.
     pub project: Option<String>,
     registry: Registry,
+    /// Each project's plan list, by project id, kept caught up across the
+    /// service's reads: its positions held in memory, so the first read
+    /// of a project folds every plan stream from its start, and each later
+    /// one only what was written since.
+    lists: BTreeMap<String, CatchUp<PlanLists>>,
     /// The dead letters the use cases' kernel calls answered, kept until
     /// taken ([`Plans::dead_letters`]).
     dead_letters: Vec<DeadLetter>,
@@ -89,6 +96,7 @@ impl<I, S, F, T, M, C, D> PlanService<I, S, F, T, M, C, D> {
             backoff: Backoff::DEFAULT,
             project: None,
             registry: registry(),
+            lists: BTreeMap::new(),
             dead_letters: Vec::new(),
         }
     }
@@ -199,12 +207,7 @@ impl<C: Clock + CommandIds, D: Delay + Jitter + Send> Runner<'_, C, D> {
             let handled = Kernel::new(self.registry, &Unlogged)
                 .on_retryable(self.backoff.on_retryable())
                 .wait_with(&waits)
-                .handle::<PlanAggregate, _, _>(
-                    store,
-                    book(harp_id, command, head),
-                    &sampled,
-                    &mut (),
-                )
+                .handle::<PlanAggregate, _>(store, book(harp_id, command, head), &sampled)
                 .await;
             self.dead_letters.extend_from_slice(answered(&handled));
             let (failure, recovery) = match handled {
@@ -338,12 +341,21 @@ where
 
     /// Every plan of `project`'s store, caught up now.
     pub(crate) async fn plan_list(&mut self, project: &Project) -> Result<PlanList, PlanError> {
-        let mut list = PlanList::new();
-        if let Some(store) = self.stores.open_existing(project).await.map_err(failed)? {
-            list.catch_up(store, &self.registry)
-                .await
-                .map_err(|e| PlanError::Failed(Report::of(&*e)))?;
+        let Some(store) = self.stores.open_existing(project).await.map_err(failed)? else {
+            return Ok(PlanList::new());
+        };
+        let held = self.lists.entry(project.id.clone());
+        let catch_up = held.or_insert_with(PlanList::catch_up);
+        let failed =
+            |error: &dyn angzarr_diagnostic::Diagnostic| PlanError::Failed(Report::of(error));
+        let caught = catch_up
+            .step(store, &self.registry)
+            .await
+            .map_err(|e| failed(&e))?;
+        if let Some((_, error)) = caught.failures().first() {
+            return Err(failed(error));
         }
+        let list = catch_up.projector().list().clone();
         Ok(list)
     }
 

@@ -20,6 +20,8 @@ tasks-application.workspace = true
 
 [dev-dependencies]
 angzarr-ports = { workspace = true, features = ["memory"] }
+# Its own tests read `dead_letter_sample`, as other crates' do.
+tasks-application = { workspace = true, features = ["test-support"] }
 fluent-syntax.workspace = true
 
 [features]

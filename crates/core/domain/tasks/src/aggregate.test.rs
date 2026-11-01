@@ -136,7 +136,7 @@ impl Task {
                     max_retries: 0,
                     ..OnRetryable::default()
                 })
-                .handle::<TaskAggregate, _, _>(&self.store, book, &sampled, &mut ()),
+                .handle::<TaskAggregate, _>(&self.store, book, &sampled),
         )
         .map_err(Box::new)
     }

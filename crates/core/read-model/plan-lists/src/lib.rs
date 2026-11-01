@@ -2,18 +2,21 @@
 //! streams. It answers both directions of `governs` (the tasks a plan
 //! governs, the plans governing a task) and walks `supersedes`.
 //!
-//! [`PlanList`] is a [`Projection`] of [`PlanAggregate`], as the task list
-//! is of the task aggregate: the kernel hands it each committed event live,
-//! and [`PlanList::catch_up`] reads every plan stream the store holds in one
-//! read-only unit ([`ReadStore`]), as a process that did not run the
-//! command does. [`PlanList::fold`] is the fold both go through.
+//! [`PlanList`] is a projector's read model, as the task list is: on
+//! angzarr-embedded's projector port ([`PlanLists`]), a catch-up
+//! ([`PlanList::catch_up`]) hands it every plan stream's book the store
+//! holds, read in one read-only unit, as a process that did not run the
+//! command does. [`PlanList::fold`] is the fold each event goes through.
 //!
 //! No order crosses streams (ruling D7): each stream's events arrive in
 //! that stream's order, streams in any order, and every answer is sorted by
-//! harp id, never by when a plan was added. A list kept across catch-ups
-//! projects each stream by its own sequence, and keeps no cursor.
+//! harp id, never by when a plan was added. The catch-up keeps where the
+//! list is on each stream, by that stream's own sequence; nothing numbers
+//! across streams.
 
 mod projection;
+
+pub use projection::PlanLists;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -43,8 +46,9 @@ pub struct PlanList {
     rows: BTreeMap<String, PlanRow>,
     /// The reverse of `governs`: each task, the plans governing it.
     governing: BTreeMap<String, BTreeSet<String>>,
-    /// The last sequence projected of each plan stream, by harp id.
-    pub(crate) projected: BTreeMap<String, u64>,
+    /// The plan on each plan stream projected, by root: its harp id, from
+    /// its add.
+    streams: BTreeMap<Vec<u8>, String>,
 }
 
 impl PlanList {
@@ -104,6 +108,25 @@ impl PlanList {
                 row.superseded_by.clear();
             }
             PlanEvent::Rehashed(hash) => row.content_hash = hash.clone(),
+        }
+    }
+
+    /// Forget the plan on the stream rooted at `root`: its row, and its
+    /// place in each task's governing plans.
+    fn forget(&mut self, root: &[u8]) {
+        let Some(harp) = self.streams.remove(root) else {
+            return;
+        };
+        let Some(row) = self.rows.remove(&harp) else {
+            return;
+        };
+        for task in &row.governs {
+            if let Some(plans) = self.governing.get_mut(task) {
+                plans.remove(&harp);
+                if plans.is_empty() {
+                    self.governing.remove(task);
+                }
+            }
         }
     }
 

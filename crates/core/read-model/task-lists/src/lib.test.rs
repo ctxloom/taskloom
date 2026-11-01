@@ -1,21 +1,24 @@
-//! The task list, projected live and caught up: each command runs through
-//! angzarr-embedded's kernel over angzarr-ports' in-memory store with the
-//! list attached as a projection, so the list sees each committed event with
-//! the task just after it; a fresh list catches up from the store, as every
-//! read of another process does.
+//! The task list on the projector port, caught up: each command runs
+//! through angzarr-embedded's kernel over angzarr-ports' in-memory store,
+//! and a list kept across commands (a watch's) catches up after each of
+//! them, as it sees them; a list another hand keeps does not; a fresh list
+//! catches up from the store, as every read of another process does.
 
 use std::future::Future;
-use std::marker::PhantomData;
 
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::{
-    ids, Any, EventStore, Kernel, MemoryDeadLetters, OnRetryable, Payload, ProjectionRoute, Purge,
-    ReadStore, ReadUnit, Registry, Sampled, Slice, StoreError, StreamRef, Timestamp,
+    ids, Any, CatchUp, EventStore, Kernel, MemoryDeadLetters, OnRetryable, Payload, PositionKey,
+    PositionStore, Purge, ReadStore, ReadUnit, Registry, Sampled, Slice, SnapshotStore, StoreError,
+    StreamRef, Timestamp,
 };
-use tasks::{AddTask, RemovalReason, RemoveTask, SetStatus, TaskAggregate, TaskCommand};
+use tasks::{AddTask, RemovalReason, RemoveTask, SetStatus, TaskAggregate, TaskCommand, TaskState};
 
-use super::TaskList;
+use super::{TaskList, TaskLists};
+
+/// A list, caught up from a store as the application keeps one.
+type List = CatchUp<TaskLists>;
 
 const FIRST: &str = "swift-amber";
 const SECOND: &str = "calm-otter";
@@ -47,8 +50,9 @@ impl Project {
         }
     }
 
-    /// Run `command` on task `harp`'s stream, projecting into `list`.
-    fn run(&mut self, list: &mut TaskList, harp: &str, command: impl Into<TaskCommand>) {
+    /// Run `command` on task `harp`'s stream, then catch `list` up: a list
+    /// that sees each commit.
+    fn run(&mut self, list: &mut List, harp: &str, command: impl Into<TaskCommand>) {
         self.seconds += 1;
         let sampled = Sampled {
             now: Timestamp {
@@ -58,25 +62,20 @@ impl Project {
             command_id: Uuid::from_bytes([self.seconds as u8; 16]),
         };
         let dead_letters = MemoryDeadLetters::new();
-        let mut route = ProjectionRoute {
-            name: "list",
-            projection: list,
-            domain: PhantomData::<fn() -> TaskAggregate>,
-        };
         ready(
             Kernel::new(&self.registry, &dead_letters)
                 .on_retryable(OnRetryable {
                     max_retries: 0,
                     ..OnRetryable::default()
                 })
-                .handle::<TaskAggregate, _, _>(
+                .handle::<TaskAggregate, _>(
                     &self.store,
                     book(harp, command.into().to_any()),
                     &sampled,
-                    &mut route,
                 ),
         )
         .unwrap_or_else(|failure| panic!("{failure:?}"));
+        self.catch_up(list);
     }
 
     /// Purge task `harp`'s stream: what a prune does after its removal.
@@ -88,13 +87,14 @@ impl Project {
     }
 
     /// Catch `list` up from the store.
-    fn catch_up(&self, list: &mut TaskList) {
-        ready(list.catch_up(&self.store, &self.registry)).unwrap();
+    fn catch_up(&self, list: &mut List) {
+        let caught = ready(list.step(&self.store, &self.registry)).unwrap();
+        assert!(caught.failures().is_empty(), "{:?}", caught.failures());
     }
 
     /// A list built afresh from the store: another process's.
-    fn rebuilt(&self) -> TaskList {
-        let mut list = TaskList::new();
+    fn rebuilt(&self) -> List {
+        let mut list = TaskList::catch_up();
         self.catch_up(&mut list);
         list
     }
@@ -156,20 +156,35 @@ fn removed() -> RemoveTask {
     }
 }
 
-fn every_task() -> TaskList {
-    TaskList::new()
+fn every_task() -> List {
+    TaskList::catch_up()
 }
 
-fn harps(list: &TaskList) -> Vec<&str> {
-    list.entries().iter().map(|t| t.harp_id.as_str()).collect()
+/// The listed tasks, by harp id.
+fn entries(list: &List) -> Vec<TaskState> {
+    let list = list.projector().list();
+    list.entries().into_iter().cloned().collect()
 }
 
-fn texts(list: &TaskList) -> Vec<&str> {
-    list.entries().iter().map(|t| t.text.as_str()).collect()
+/// The unpurged tasks, by harp id.
+fn unpurged_tasks(list: &List) -> Vec<TaskState> {
+    let list = list.projector().list();
+    list.unpurged().into_iter().cloned().collect()
 }
 
-fn unpurged(list: &TaskList) -> Vec<&str> {
-    list.unpurged().iter().map(|t| t.harp_id.as_str()).collect()
+fn harps(list: &List) -> Vec<String> {
+    entries(list).into_iter().map(|t| t.harp_id).collect()
+}
+
+fn texts(list: &List) -> Vec<String> {
+    entries(list).into_iter().map(|t| t.text).collect()
+}
+
+fn unpurged(list: &List) -> Vec<String> {
+    unpurged_tasks(list)
+        .into_iter()
+        .map(|t| t.harp_id)
+        .collect()
 }
 
 // ------------------------------------------------------------ the list
@@ -189,7 +204,7 @@ fn test_a_listed_task_is_held_as_it_is_after_its_last_event() {
     let mut list = every_task();
     project.run(&mut list, FIRST, add(FIRST, "First"));
     project.run(&mut list, FIRST, status("In Progress", ""));
-    assert_eq!(list.entries()[0].status, "In Progress");
+    assert_eq!(entries(&list)[0].status, "In Progress");
 }
 
 #[test]
@@ -198,7 +213,7 @@ fn test_a_removed_task_leaves_the_list() {
     let mut list = every_task();
     project.run(&mut list, FIRST, add(FIRST, "First"));
     project.run(&mut list, FIRST, removed());
-    assert!(list.entries().is_empty());
+    assert!(entries(&list).is_empty());
 }
 
 // ------------------------------------------------------------ catch-up
@@ -212,7 +227,7 @@ fn test_a_list_caught_up_from_the_store_holds_what_the_live_list_holds() {
     project.run(&mut live, FIRST, removed());
 
     let rebuilt = project.rebuilt();
-    assert_eq!(rebuilt.entries(), live.entries());
+    assert_eq!(entries(&rebuilt), entries(&live));
     assert_eq!(harps(&rebuilt), [SECOND]);
 }
 
@@ -240,7 +255,7 @@ fn test_a_redelivered_event_past_the_first_changes_nothing() {
     project.run(&mut list, FIRST, status("In Progress", ""));
     project.run(&mut list, FIRST, status("Done", ""));
     project.catch_up(&mut list);
-    assert_eq!(list.entries()[0].status, "Done");
+    assert_eq!(entries(&list)[0].status, "Done");
 }
 
 #[test]
@@ -254,7 +269,7 @@ fn test_an_append_seen_at_a_catch_up_is_no_restart() {
     project.run(&mut elsewhere, FIRST, status("In Progress", ""));
     project.catch_up(&mut list);
     assert_eq!(texts(&list), ["First"]);
-    assert_eq!(list.entries()[0].status, "In Progress");
+    assert_eq!(entries(&list)[0].status, "In Progress");
 }
 
 // ------------------------------------------------------------ pruning
@@ -269,7 +284,7 @@ fn test_a_task_minted_on_a_pruned_harp_is_listed_though_its_stream_restarted() {
     project.run(&mut list, FIRST, add(FIRST, "First"));
     project.run(&mut list, FIRST, status("Done", ""));
     project.run(&mut list, FIRST, pruned());
-    assert!(list.entries().is_empty(), "the removal drops it at once");
+    assert!(entries(&list).is_empty(), "the removal drops it at once");
     assert_eq!(project.purge(FIRST), 3);
 
     project.run(&mut list, FIRST, add(FIRST, "Again"));
@@ -322,7 +337,7 @@ fn test_a_task_the_list_does_not_hold_leaves_no_entry_when_its_stream_goes() {
     project.run(&mut list, FIRST, pruned());
     project.purge(FIRST);
     project.catch_up(&mut list);
-    assert!(list.entries().is_empty(), "nothing listed left");
+    assert!(entries(&list).is_empty(), "nothing listed left");
     assert!(unpurged(&list).is_empty(), "its stream forgotten");
 }
 
@@ -340,8 +355,8 @@ fn test_a_task_pruned_but_not_yet_purged_is_held_as_unpurged() {
     project.run(&mut list, FIRST, pruned());
     project.run(&mut list, SECOND, removed());
     assert_eq!(unpurged(&list), [FIRST], "a removal by name is no prune's");
-    assert!(list.entries().is_empty());
-    assert_eq!(list.unpurged()[0].status, "Done", "as it was pruned");
+    assert!(entries(&list).is_empty());
+    assert_eq!(unpurged_tasks(&list)[0].status, "Done", "as it was pruned");
 
     let mut fresh = project.rebuilt();
     assert_eq!(unpurged(&fresh), [FIRST], "read back from the store");
@@ -358,7 +373,7 @@ fn test_a_pruned_stream_read_again_before_its_purge_changes_nothing() {
     project.run(&mut list, FIRST, add(FIRST, "First"));
     project.run(&mut list, FIRST, pruned());
     project.catch_up(&mut list);
-    assert!(list.entries().is_empty(), "nothing projected again");
+    assert!(entries(&list).is_empty(), "nothing projected again");
     assert_eq!(unpurged(&list), [FIRST], "still pruned, not purged");
 }
 
@@ -411,6 +426,59 @@ impl ReadUnit for HollowRead<'_> {
     }
 }
 
+impl EventStore for Hollow {
+    async fn write(
+        &self,
+        write: angzarr_embedded::Write<'_>,
+    ) -> Result<angzarr_embedded::Written, StoreError> {
+        self.0.write(write).await
+    }
+
+    async fn read(
+        &self,
+        stream: StreamRef<'_>,
+        from: u64,
+        to: Option<u64>,
+    ) -> Result<Slice, StoreError> {
+        self.0.read(stream, from, to).await
+    }
+
+    async fn find_command(
+        &self,
+        stream: StreamRef<'_>,
+        command_id: angzarr_embedded::angzarr_ports::Uuid,
+    ) -> Result<Vec<angzarr_embedded::v1::EventPage>, StoreError> {
+        self.0.find_command(stream, command_id).await
+    }
+
+    async fn covers(&self, domain: &str) -> Result<Vec<Cover>, StoreError> {
+        EventStore::covers(&self.0, domain).await
+    }
+}
+
+impl SnapshotStore for Hollow {
+    async fn read_snapshot(
+        &self,
+        stream: StreamRef<'_>,
+    ) -> Result<Option<angzarr_embedded::v1::Snapshot>, StoreError> {
+        SnapshotStore::read_snapshot(&self.0, stream).await
+    }
+
+    async fn write_snapshot(
+        &self,
+        stream: StreamRef<'_>,
+        snapshot: &angzarr_embedded::v1::Snapshot,
+    ) -> Result<(), StoreError> {
+        self.0.write_snapshot(stream, snapshot).await
+    }
+}
+
+impl PositionStore for Hollow {
+    async fn position(&self, key: PositionKey<'_>) -> Result<u64, StoreError> {
+        self.0.position(key).await
+    }
+}
+
 #[test]
 fn test_a_stream_that_replays_to_no_events_is_never_a_blank_task() {
     let mut project = Project::new();
@@ -419,8 +487,8 @@ fn test_a_stream_that_replays_to_no_events_is_never_a_blank_task() {
     let store = Hollow(std::mem::take(&mut project.store));
 
     let mut list = every_task();
-    ready(list.catch_up(&store, &project.registry)).unwrap();
-    assert!(list.entries().is_empty(), "{:?}", list.entries());
+    ready(list.step(&store, &project.registry)).unwrap();
+    assert!(entries(&list).is_empty(), "{:?}", entries(&list));
     assert!(unpurged(&list).is_empty(), "no stream seen");
 }
 
@@ -449,7 +517,7 @@ fn test_a_stream_pruned_purged_and_minted_again_between_catch_ups_lists_the_new_
     prune_purge_and_mint_again(&mut project, FIRST, "Again");
     project.catch_up(&mut list);
     assert_eq!(texts(&list), ["Again"], "the new task, not the pruned one");
-    assert_eq!(list.entries()[0].status, "To Do", "not the old Done");
+    assert_eq!(entries(&list)[0].status, "To Do", "not the old Done");
     project.catch_up(&mut list);
     assert_eq!(
         texts(&list),
@@ -470,14 +538,17 @@ fn test_a_restart_unseen_beside_another_streams_change_lists_both_as_they_are() 
     project.run(&mut list, SECOND, status("Done", ""));
     project.catch_up(&mut list);
 
-    let whole: Vec<(&str, &str, &str)> = list
-        .entries()
-        .iter()
-        .map(|t| (t.harp_id.as_str(), t.text.as_str(), t.status.as_str()))
+    let whole: Vec<(String, String, String)> = entries(&list)
+        .into_iter()
+        .map(|t| (t.harp_id, t.text, t.status))
         .collect();
     assert_eq!(
         whole,
-        [(SECOND, "Second", "Done"), (FIRST, "Again", "To Do")],
+        [(SECOND, "Second", "Done"), (FIRST, "Again", "To Do")].map(|(h, t, s)| (
+            h.to_string(),
+            t.to_string(),
+            s.to_string()
+        )),
         "by harp id"
     );
 }
@@ -490,4 +561,51 @@ fn test_a_restarted_stream_read_by_another_process_is_the_new_task() {
     prune_purge_and_mint_again(&mut project, FIRST, "Again");
     let elsewhere = project.rebuilt();
     assert_eq!(texts(&elsewhere), ["Again"]);
+}
+
+// ------------------------------------------------------------ the port
+
+/// The list on the projector port answers each book with its projection:
+/// the stream, its length, and the list's name.
+#[test]
+fn test_the_list_answers_each_book_with_its_projection() {
+    use angzarr_embedded::ProjectorHandler;
+    let book = angzarr_embedded::v1::EventBook {
+        cover: Some(cover(FIRST)),
+        next_sequence: 0,
+        ..angzarr_embedded::v1::EventBook::default()
+    };
+    let answered = ready(TaskLists::default().dispatch(&book)).unwrap();
+    assert_eq!(answered.projector, "task-list");
+    assert_eq!(answered.cover, Some(cover(FIRST)));
+    assert_eq!(answered.next_sequence, 0);
+}
+
+/// An event the tasks domain cannot read fails its book as a bug naming
+/// the type it could not read; the list keeps nothing of it.
+#[test]
+fn test_an_unreadable_event_is_the_lists_bug_naming_its_type() {
+    use angzarr_embedded::ProjectorHandler;
+    let unknown = "/toy.v9.Unknown";
+    let book = angzarr_embedded::v1::EventBook {
+        cover: Some(cover(FIRST)),
+        pages: vec![angzarr_embedded::v1::EventPage {
+            sequence: 0,
+            payload: Some(Any {
+                type_url: unknown.to_string(),
+                value: Vec::new(),
+            }),
+            meta: None,
+        }],
+        next_sequence: 1,
+        snapshot: None,
+    };
+    let list = TaskLists::default();
+    let error = ready(list.dispatch(&book)).unwrap_err();
+    assert_eq!(
+        error.extras.get("cause.type_url").map(String::as_str),
+        Some(unknown),
+        "{error:?}"
+    );
+    assert!(list.list().entries().is_empty());
 }

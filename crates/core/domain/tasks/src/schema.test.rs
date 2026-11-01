@@ -247,7 +247,7 @@ mod on_the_kernel {
                         max_retries: 0,
                         ..OnRetryable::default()
                     })
-                    .handle::<SchemaAggregate, _, _>(&self.store, book, &sampled, &mut ()),
+                    .handle::<SchemaAggregate, _>(&self.store, book, &sampled),
             );
             match handled {
                 Ok(Handled::Applied(recorded)) => Ok(recorded

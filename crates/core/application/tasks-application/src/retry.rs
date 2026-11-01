@@ -280,7 +280,7 @@ impl<C: Clock, D: Delay + Jitter + Send> Runner<'_, C, D> {
                         let handled = Kernel::new(self.registry, &Unlogged)
                             .on_retryable(self.backoff.on_retryable())
                             .wait_with(&waits)
-                            .handle::<A, _, _>(store, book, &sampled, &mut ())
+                            .handle::<A, _>(store, book, &sampled)
                             .await;
                         self.dead_letters.extend_from_slice(answered(&handled));
                         match handled {

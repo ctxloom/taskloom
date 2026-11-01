@@ -294,7 +294,10 @@ where
         let Some(store) = self.stores.open_existing(project).await.map_err(failed)? else {
             return Ok(false);
         };
-        rows.extend(rows_in(store, &self.registry, project).await?);
+        let listed = self.lists.tasks(project, store, &self.registry, |list| {
+            rows_in(list, project)
+        });
+        rows.extend(listed.await?);
         let schema = crate::store_schema::schema_in(store, &self.registry).await?;
         rules.insert(project.id.clone(), StoreRules::of(&schema));
         Ok(true)
@@ -366,7 +369,10 @@ where
         let Some(store) = self.stores.open_existing(project).await.map_err(failed)? else {
             return Ok(None);
         };
-        Ok(Some(rows_in(store, &self.registry, project).await?))
+        let listed = self.lists.tasks(project, store, &self.registry, |list| {
+            rows_in(list, project)
+        });
+        Ok(Some(listed.await?))
     }
 
     /// The counts by status of every task `scope` reaches.
@@ -486,26 +492,25 @@ where
     /// The plans governing each of `rows`' tasks, by harp id: each
     /// project's plan list caught up once, from the store its tasks are in.
     async fn governing(&mut self, rows: &[Row]) -> Result<Vec<Vec<String>>, AppError> {
-        let mut registry = angzarr_embedded::Registry::new();
-        registry.aggregate::<plans::PlanAggregate>(plans::PlanAggregate::default);
-        let mut lists: BTreeMap<String, plan_lists::PlanList> = BTreeMap::new();
+        let mut by_project: BTreeMap<String, plan_lists::PlanList> = BTreeMap::new();
         let mut governing = Vec::new();
         for row in rows {
-            if !lists.contains_key(&row.project.id) {
-                let mut list = plan_lists::PlanList::new();
-                if let Some(store) = self
+            if !by_project.contains_key(&row.project.id) {
+                let store = self
                     .stores
                     .open_existing(&row.project)
                     .await
-                    .map_err(failed)?
-                {
-                    list.catch_up(store, &registry)
-                        .await
-                        .map_err(|e| AppError::Failed(Report::of(&*e)))?;
-                }
-                lists.insert(row.project.id.clone(), list);
+                    .map_err(failed)?;
+                let list = match store {
+                    Some(store) => {
+                        let listed = self.lists.plans(&row.project, store, Clone::clone);
+                        listed.await?
+                    }
+                    None => plan_lists::PlanList::new(),
+                };
+                by_project.insert(row.project.id.clone(), list);
             }
-            let plans = lists[&row.project.id]
+            let plans = by_project[&row.project.id]
                 .governing(&row.task.harp_id)
                 .into_iter()
                 .map(|plan| plan.harp_id.clone())
@@ -602,16 +607,8 @@ where
     }
 }
 
-/// The live tasks of `project`'s `store` in the order they were added.
-async fn rows_in<St: angzarr_embedded::ReadStore>(
-    store: &St,
-    registry: &angzarr_embedded::Registry,
-    project: &Project,
-) -> Result<Vec<Row>, AppError> {
-    let mut list = task_lists::TaskList::new();
-    list.catch_up(store, registry)
-        .await
-        .map_err(|e| AppError::Failed(Report::of(&*e)))?;
+/// The live tasks of `project`'s `list` in the order they were added.
+fn rows_in(list: &task_lists::TaskList, project: &Project) -> Vec<Row> {
     let mut tasks: Vec<Task> = list.entries().into_iter().map(Task::of).collect();
     tasks.sort_by(|a, b| {
         let added = |t: &Task| (t.created_at.seconds, t.created_at.nanos);
@@ -619,13 +616,13 @@ async fn rows_in<St: angzarr_embedded::ReadStore>(
             .cmp(&added(b))
             .then_with(|| a.harp_id.cmp(&b.harp_id))
     });
-    Ok(tasks
+    tasks
         .into_iter()
         .map(|task| Row {
             project: project.clone(),
             task,
         })
-        .collect())
+        .collect()
 }
 
 /// Each of `rows`' priority in `ranked`, in order.

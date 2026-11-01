@@ -142,12 +142,7 @@ fn other_process(store: &MemoryStore, harp: &str, command: PlanCommand) {
     ready(
         Kernel::new(&registry, &dead_letters)
             .on_retryable(KERNEL_RETRY)
-            .handle::<plans::PlanAggregate, _, _>(
-                store,
-                book(harp, &command, head),
-                &sampled,
-                &mut (),
-            ),
+            .handle::<plans::PlanAggregate, _>(store, book(harp, &command, head), &sampled),
     )
     .unwrap_or_else(|failure| panic!("{failure:?}"));
 }

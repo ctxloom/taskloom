@@ -676,7 +676,7 @@ fn plan_does(
     ready(
         Kernel::new(&registry, &dead_letters)
             .on_retryable(crate::KERNEL_RETRY)
-            .handle::<plans::PlanAggregate, _, _>(store, book, &sampled, &mut ()),
+            .handle::<plans::PlanAggregate, _>(store, book, &sampled),
     )
     .unwrap_or_else(|failure| panic!("{failure:?}"));
 }
@@ -1000,4 +1000,60 @@ fn test_lint_sweeps_every_task_the_read_reaches_under_the_schema_now() {
         "the seeded schema's, and area:x"
     );
     assert_eq!(report.reach, Reach::Project(crate::fakes::project()));
+}
+
+/// A service keeps each project's task list caught up across its reads:
+/// a read after another reads only each stream's first event (what tells
+/// a stream written again from the one seen) and what was written since,
+/// never the whole store again, and lists the same.
+#[test]
+fn a_second_read_reads_only_what_was_written_since() {
+    let mut service = service(&["first", "second", "third"]);
+    for text in ["one", "two"] {
+        add(&mut service, text, "To Do");
+        ready(service.set_status(crate::StatusChange {
+            harp_id: if text == "one" { "first" } else { "second" }.to_string(),
+            status: Some("In Progress".to_string()),
+            ..crate::StatusChange::default()
+        }))
+        .unwrap();
+    }
+    let listing = |service: &mut Fake| {
+        let listed = ready(service.list(ListQuery::default())).unwrap();
+        listed
+            .rows
+            .into_iter()
+            .map(|row| row.task.text)
+            .collect::<Vec<_>>()
+    };
+    let pages = |service: &Fake| service.stores.store.unit_pages();
+    // Each read also reads the store's schema stream, whole: its one
+    // seeded declaration, the rules the listing is read under.
+    const SCHEMA: u32 = 1;
+
+    let before = pages(&service);
+    assert_eq!(listing(&mut service), ["one", "two"]);
+    let first = pages(&service);
+    assert_eq!(
+        first - before,
+        4 + SCHEMA,
+        "the first read folds every stream from its start"
+    );
+
+    assert_eq!(listing(&mut service), ["one", "two"]);
+    let second = pages(&service);
+    assert_eq!(
+        second - first,
+        2 + SCHEMA,
+        "each stream's first event, once"
+    );
+
+    add(&mut service, "three", "To Do");
+    let before = pages(&service);
+    assert_eq!(listing(&mut service), ["one", "two", "three"]);
+    assert_eq!(
+        pages(&service) - before,
+        2 + 1 + SCHEMA,
+        "the two first events seen, and the new stream's one event"
+    );
 }

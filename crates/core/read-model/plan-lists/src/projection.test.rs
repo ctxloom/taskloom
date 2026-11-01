@@ -1,20 +1,23 @@
-//! The plan list, projected live and caught up: each command runs through
-//! angzarr-embedded's kernel over angzarr-ports' in-memory store with the
-//! list attached as a projection; a fresh list catches up from the store,
-//! as every read of another process does, and gives the same list.
+//! The plan list on the projector port, caught up: each command runs
+//! through angzarr-embedded's kernel over angzarr-ports' in-memory store,
+//! and a list kept across commands catches up after each; a fresh list
+//! catches up from the store, as every read of another process does, and
+//! gives the same list.
 
 use std::future::Future;
-use std::marker::PhantomData;
 
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
+use angzarr_embedded::v1::{EventBook, EventPage};
 use angzarr_embedded::{
-    ids, Kernel, MemoryDeadLetters, OnRetryable, Payload, ProjectionRoute, Registry, Sampled,
-    Timestamp,
+    ids, CatchUp, Kernel, MemoryDeadLetters, OnRetryable, Payload, Registry, Sampled, Timestamp,
 };
-use plans::{AddPlan, PlanAggregate, PlanCommand, PlanStatus, PLAN_DOMAIN};
+use plans::{AddPlan, PlanAggregate, PlanCommand, PlanEvent, PlanStatus, PLAN_DOMAIN};
 
-use crate::PlanList;
+use crate::{PlanList, PlanLists};
+
+/// A list, caught up from a store as the application keeps one.
+type List = CatchUp<PlanLists>;
 
 const HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -45,8 +48,8 @@ impl Project {
         }
     }
 
-    /// Run `command` on plan `harp`'s stream, projecting into `list`.
-    fn run(&mut self, list: &mut PlanList, harp: &str, command: PlanCommand) {
+    /// Run `command` on plan `harp`'s stream, then catch `list` up.
+    fn run(&mut self, list: &mut List, harp: &str, command: PlanCommand) {
         self.seconds += 1;
         let sampled = Sampled {
             now: Timestamp {
@@ -56,31 +59,29 @@ impl Project {
             command_id: Uuid::from_bytes([self.seconds as u8; 16]),
         };
         let dead_letters = MemoryDeadLetters::new();
-        let mut route = ProjectionRoute {
-            name: "plans",
-            projection: list,
-            domain: PhantomData::<fn() -> PlanAggregate>,
-        };
         ready(
             Kernel::new(&self.registry, &dead_letters)
                 .on_retryable(OnRetryable {
                     max_retries: 0,
                     ..OnRetryable::default()
                 })
-                .handle::<PlanAggregate, _, _>(
-                    &self.store,
-                    book(harp, command.to_any()),
-                    &sampled,
-                    &mut route,
-                ),
+                .handle::<PlanAggregate, _>(&self.store, book(harp, command.to_any()), &sampled),
         )
         .unwrap_or_else(|failure| panic!("{failure:?}"));
+        self.catch_up(list);
+    }
+
+    /// Catch `list` up: the streams it handed a book.
+    fn catch_up(&self, list: &mut List) -> usize {
+        let caught = ready(list.step(&self.store, &self.registry)).unwrap();
+        assert!(caught.failures().is_empty(), "{:?}", caught.failures());
+        caught.handed().len()
     }
 
     /// A list built afresh from the store: another process's.
-    fn rebuilt(&self) -> PlanList {
-        let mut list = PlanList::new();
-        ready(list.catch_up(&self.store, &self.registry)).unwrap();
+    fn rebuilt(&self) -> List {
+        let mut list = PlanList::catch_up();
+        self.catch_up(&mut list);
         list
     }
 }
@@ -114,7 +115,7 @@ fn add(harp: &str) -> PlanCommand {
 }
 
 /// Two plans: `calm-heron` governs a task and supersedes `brisk-otter`.
-fn two(project: &mut Project, live: &mut PlanList) {
+fn two(project: &mut Project, live: &mut List) {
     project.run(live, "brisk-otter", add("brisk-otter"));
     project.run(live, "calm-heron", add("calm-heron"));
     project.run(
@@ -136,10 +137,11 @@ fn two(project: &mut Project, live: &mut PlanList) {
 
 #[test]
 fn a_list_projected_live_is_the_list_caught_up_from_the_store() {
-    let (mut project, mut live) = (Project::new(), PlanList::new());
+    let (mut project, mut live) = (Project::new(), PlanList::catch_up());
     two(&mut project, &mut live);
     let rebuilt = project.rebuilt();
-    assert_eq!(rebuilt.plans(), live.plans());
+    let rebuilt = rebuilt.projector().list();
+    assert_eq!(rebuilt.plans(), live.projector().list().plans());
     let otter = rebuilt.get("brisk-otter").unwrap();
     assert_eq!(otter.status, PlanStatus::Superseded);
     assert_eq!(otter.superseded_by, "calm-heron");
@@ -159,21 +161,101 @@ fn a_list_projected_live_is_the_list_caught_up_from_the_store() {
 #[test]
 fn a_list_caught_up_again_sees_what_landed_since_and_folds_nothing_twice() {
     let mut project = Project::new();
-    two(&mut project, &mut PlanList::new());
+    two(&mut project, &mut PlanList::catch_up());
     let mut list = project.rebuilt();
     project.run(
-        &mut PlanList::new(),
+        &mut PlanList::catch_up(),
         "calm-heron",
         PlanCommand::Ungovern("swift-amber".into()),
     );
-    ready(list.catch_up(&project.store, &project.registry)).unwrap();
-    ready(list.catch_up(&project.store, &project.registry)).unwrap();
+    assert_eq!(project.catch_up(&mut list), 1, "the one stream written");
+    assert_eq!(project.catch_up(&mut list), 0, "nothing twice");
+    let list = list.projector().list();
     assert!(list.get("calm-heron").unwrap().governs.is_empty());
     assert!(list.governing("swift-amber").is_empty());
-    assert_eq!(list.projected.get("calm-heron"), Some(&3));
 }
 
 #[test]
 fn an_empty_store_catches_up_to_an_empty_list() {
-    assert!(Project::new().rebuilt().plans().is_empty());
+    assert!(Project::new()
+        .rebuilt()
+        .projector()
+        .list()
+        .plans()
+        .is_empty());
+}
+
+/// A plan stream's book, `events` from `from` on, of a stream `length` long.
+fn plan_book(harp: &str, from: u64, events: &[PlanEvent], length: u64) -> EventBook {
+    EventBook {
+        cover: book(harp, angzarr_embedded::Any::default()).cover,
+        pages: (from..)
+            .zip(events)
+            .map(|(sequence, event)| EventPage {
+                sequence,
+                payload: Some(event.to_any()),
+                meta: None,
+            })
+            .collect(),
+        next_sequence: length,
+        snapshot: None,
+    }
+}
+
+fn added(harp: &str) -> PlanEvent {
+    let PlanCommand::Add(add) = add(harp) else {
+        unreachable!()
+    };
+    PlanEvent::PlanAdded(add)
+}
+
+/// A stream handed again from its start (one purged and written again) is
+/// a new plan: what the list held of the old one, its governing included,
+/// leaves it first.
+#[test]
+fn a_stream_handed_from_its_start_replaces_what_the_list_held_of_it() {
+    let mut list = PlanList::new();
+    let governed = PlanEvent::Governed("swift-amber".into());
+    list.project(&plan_book(
+        "calm-heron",
+        0,
+        &[added("calm-heron"), governed],
+        2,
+    ));
+    assert_eq!(list.governing("swift-amber").len(), 1);
+    list.project(&plan_book("calm-heron", 0, &[added("calm-heron")], 1));
+    assert!(list.get("calm-heron").unwrap().governs.is_empty());
+    assert!(list.governing("swift-amber").is_empty(), "no old governing");
+}
+
+/// A stream handed as gone (no event, at 0) takes its plan with it; a
+/// later book of another stream is untouched by it.
+#[test]
+fn a_gone_stream_takes_its_plan_with_it() {
+    let mut list = PlanList::new();
+    list.project(&plan_book("calm-heron", 0, &[added("calm-heron")], 1));
+    list.project(&plan_book("brisk-otter", 0, &[added("brisk-otter")], 1));
+    list.project(&plan_book("calm-heron", 0, &[], 0));
+    let plans: Vec<&str> = list.plans().iter().map(|p| p.harp_id.as_str()).collect();
+    assert_eq!(plans, ["brisk-otter"]);
+    list.project(&plan_book("brisk-otter", 1, &[], 1));
+    assert_eq!(
+        list.plans().len(),
+        1,
+        "an empty book past the start changes nothing"
+    );
+}
+
+/// The list on the projector port answers each book with its projection:
+/// the stream, its length, and the list's name.
+#[test]
+fn the_list_answers_each_book_with_its_projection() {
+    use angzarr_embedded::ProjectorHandler;
+    let book = plan_book("calm-heron", 0, &[added("calm-heron")], 1);
+    let lists = PlanLists::default();
+    let answered = ready(lists.dispatch(&book)).unwrap();
+    assert_eq!(answered.projector, "plan-list");
+    assert_eq!(answered.cover, book.cover);
+    assert_eq!(answered.next_sequence, 1);
+    assert_eq!(lists.list().plans().len(), 1, "and folds it");
 }

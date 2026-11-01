@@ -96,7 +96,7 @@ impl Plans {
                     max_retries: 0,
                     ..OnRetryable::default()
                 })
-                .handle::<PlanAggregate, _, _>(&self.store, book, &sampled, &mut ()),
+                .handle::<PlanAggregate, _>(&self.store, book, &sampled),
         )
         .map_err(Box::new)
     }

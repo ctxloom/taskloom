@@ -1815,7 +1815,7 @@ fn seeded_meanwhile(store: &angzarr_embedded::angzarr_ports::memory::MemoryStore
     ready(
         Kernel::new(&registry, &dead_letters)
             .on_retryable(crate::KERNEL_RETRY)
-            .handle::<tasks::schema::SchemaAggregate, _, _>(store, book, &sampled, &mut ()),
+            .handle::<tasks::schema::SchemaAggregate, _>(store, book, &sampled),
     )
     .unwrap_or_else(|failure| panic!("{failure:?}"));
 }

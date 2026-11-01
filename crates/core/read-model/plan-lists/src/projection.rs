@@ -1,65 +1,84 @@
-//! The plan list as angzarr-embedded projects it: live, from each
-//! committed event, and caught up from a store.
+//! The plan list on angzarr-embedded's projector port: each plan stream's
+//! book folded as it is handed, caught up from a store.
 
-use angzarr_embedded::v1::Cover;
-use angzarr_embedded::{
-    projection, Committed, KernelError, Payload, Projection, ReadStore, ReadUnit, Registry,
-    StoreError, Stream, StreamRef,
-};
-use plans::{PlanAggregate, PlanEvent, PLAN_DOMAIN};
+use std::sync::{Mutex, MutexGuard, PoisonError};
+
+use angzarr_embedded::angzarr_router::error::CodedError;
+use angzarr_embedded::v1::{EventBook, Projection};
+use angzarr_embedded::{CatchUp, Payload, ProjectorHandler};
+use plans::{PlanEvent, PLAN_DOMAIN};
 
 use crate::PlanList;
 
 impl PlanList {
-    /// Project every plan stream `store` holds that is not yet projected,
-    /// listed and read in one read-only unit, so what is projected is one
-    /// moment of the store.
-    pub async fn catch_up<S: ReadStore>(
-        &mut self,
-        store: &S,
-        registry: &Registry,
-    ) -> Result<(), Box<KernelError>> {
-        let mut reads = store.begin_read().await.map_err(store_error)?;
-        let covers = reads.covers(PLAN_DOMAIN).await.map_err(store_error)?;
-        let covers: Vec<Cover> = covers
-            .into_iter()
-            .filter(|cover| cover.edition.is_none())
-            .collect();
-        for cover in covers {
-            let stream = StreamRef::try_from(&cover).map_err(store_error)?;
-            let slice = reads.read(stream, 0, None).await.map_err(store_error)?;
-            let stream = Stream::<PlanAggregate>::replay(cover, &slice.pages, registry)?;
-            stream.dispatch(0, registry, &mut [&mut projection(self)])?;
-        }
-        Ok(())
+    /// An empty list on the projector port, to catch up from a store: its
+    /// positions held in memory, so its first step folds every plan stream
+    /// from its start, and each later one only what was written since.
+    pub fn catch_up() -> CatchUp<PlanLists> {
+        CatchUp::new(&[PLAN_DOMAIN], PlanLists::default())
     }
-}
 
-impl Projection<PlanAggregate> for PlanList {
-    fn project(&mut self, committed: &Committed<'_, PlanAggregate>) {
-        // Lists show the main timeline; a what-if edition is not the project.
-        if committed.cover().edition.is_some() {
-            return;
-        }
-        let harp = committed.state.state().harp_id.clone();
-        let sequence = committed.sequence();
-        if self
-            .projected
-            .get(&harp)
-            .is_some_and(|last| sequence <= *last)
+    /// Fold `book`, one plan stream's events after the last projected of
+    /// it, as the projector port hands it, each through [`PlanList::fold`]:
+    /// a book from sequence 0 starts the stream afresh, and a book with no
+    /// event at 0 says the stream is gone; either way, what the list held
+    /// of a plan on that stream leaves it first. An event this crate's
+    /// plans cannot read is no plan's change.
+    pub fn project(&mut self, book: &EventBook) {
+        let root = book
+            .cover
+            .as_ref()
+            .and_then(|cover| cover.root.as_ref())
+            .map(|r| r.value.to_vec())
+            .unwrap_or_default();
+        if book
+            .pages
+            .first()
+            .map_or(book.next_sequence, |p| p.sequence)
+            == 0
         {
-            return;
+            self.forget(&root);
         }
-        self.projected.insert(harp.clone(), sequence);
-        // An event this crate's plans cannot read is no plan's change.
-        if let Ok(event) = PlanEvent::from_any(&committed.event().to_any()) {
-            self.fold(&harp, &event);
+        for page in &book.pages {
+            let Ok(event) = PlanEvent::from_any(&page.payload.clone().unwrap_or_default()) else {
+                continue;
+            };
+            if let PlanEvent::PlanAdded(add) = &event {
+                self.streams.insert(root.clone(), add.harp_id.clone());
+            }
+            if let Some(harp) = self.streams.get(&root).cloned() {
+                self.fold(&harp, &event);
+            }
         }
     }
 }
 
-fn store_error(error: StoreError) -> Box<KernelError> {
-    Box::new(KernelError::Store(error))
+/// A [`PlanList`] on angzarr-embedded's projector port: what a [`CatchUp`]
+/// hands each plan stream's book.
+#[derive(Default)]
+pub struct PlanLists(Mutex<PlanList>);
+
+impl PlanLists {
+    /// The list as projected so far.
+    pub fn list(&self) -> MutexGuard<'_, PlanList> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl ProjectorHandler for PlanLists {
+    fn name(&self) -> &str {
+        "plan-list"
+    }
+
+    async fn dispatch(&self, events: &EventBook) -> Result<Projection, CodedError> {
+        self.list().project(events);
+        Ok(Projection {
+            cover: events.cover.clone(),
+            projector: self.name().to_string(),
+            next_sequence: events.next_sequence,
+            projection: None,
+        })
+    }
 }
 
 #[cfg(test)]

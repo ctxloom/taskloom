@@ -124,12 +124,7 @@ pub fn run(store: &MemoryStore, harp: &str, command: tasks::TaskCommand) {
     ready(
         Kernel::new(&registry, &dead_letters)
             .on_retryable(crate::KERNEL_RETRY)
-            .handle::<tasks::TaskAggregate, _, _>(
-                store,
-                crate::book(harp, command),
-                &sampled,
-                &mut (),
-            ),
+            .handle::<tasks::TaskAggregate, _>(store, crate::book(harp, command), &sampled),
     )
     .unwrap_or_else(|failure| panic!("{failure:?}"));
 }
@@ -161,6 +156,9 @@ pub struct Flaky {
     pub hollow: bool,
     /// Read-only units begun: how often every stream was read.
     reads: AtomicU32,
+    /// Pages read through read-only units: how much of the store's
+    /// streams their reads replayed.
+    unit_pages: AtomicU32,
     /// Done to the store just before its next purge lands: another
     /// process's purge and mint between a prune's read and its purge.
     before_purge: Mutex<Option<Meanwhile>>,
@@ -189,6 +187,11 @@ impl Flaky {
     /// Read-only units begun.
     pub fn reads(&self) -> u32 {
         self.reads.load(Ordering::SeqCst)
+    }
+
+    /// Pages read through read-only units so far.
+    pub fn unit_pages(&self) -> u32 {
+        self.unit_pages.load(Ordering::SeqCst)
     }
 
     /// Run `meanwhile` before the next attempt.
@@ -332,6 +335,7 @@ impl PositionStore for Flaky {
 pub struct FlakyRead<'s> {
     inner: <MemoryStore as ReadStore>::Reads<'s>,
     hollow: bool,
+    pages: &'s AtomicU32,
 }
 
 impl ReadStore for Flaky {
@@ -342,6 +346,7 @@ impl ReadStore for Flaky {
         Ok(FlakyRead {
             inner: self.inner.begin_read().await?,
             hollow: self.hollow,
+            pages: &self.unit_pages,
         })
     }
 }
@@ -358,6 +363,8 @@ impl ReadUnit for FlakyRead<'_> {
         to: Option<u64>,
     ) -> Result<Slice, StoreError> {
         let slice = self.inner.read(stream, from, to).await?;
+        let read = u32::try_from(slice.pages.len()).unwrap_or(u32::MAX);
+        self.pages.fetch_add(read, Ordering::SeqCst);
         Ok(hollowed(self.hollow, slice))
     }
 

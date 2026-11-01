@@ -27,7 +27,7 @@ use std::future::Future;
 
 use crate::DeadLetter;
 use angzarr_diagnostic::{Arg, Diagnostic, Report};
-use angzarr_embedded::{Purge, ReadStore, Registry, Store, StreamRef};
+use angzarr_embedded::{Purge, Store, StreamRef};
 use ports::{
     Clock, CommandIds, Configuration, Delay, Jitter, ProjectIdentity, TaskStores, Timestamp,
 };
@@ -269,29 +269,17 @@ where
                 .ok_or(AppError::NoProject)?
         };
 
-        let (tasks, unpurged) = live_tasks(store, &self.registry).await?;
+        let listed = self
+            .lists
+            .tasks(&project, store, &self.registry, live_tasks);
+        let (tasks, unpurged) = listed.await?;
         let selection = Selection {
             statuses: &pruning.statuses,
             before,
             tag_query,
             rules: &rules,
         };
-        let matched = query::select(
-            tag_query,
-            tasks
-                .iter()
-                .map(|t| (t.harp_id.as_str(), t.tags.as_slice())),
-            &rules,
-        )
-        .map_err(|e| AppError::TagQuery(Report::of(&e)))?;
-        // A task a prune removed but left unpurged was selected by that
-        // prune: this one finishes it, whatever it selects by.
-        let mut selected: Vec<&TaskState> = tasks
-            .iter()
-            .filter(|t| matched.contains(&t.harp_id) && selection.dated(t))
-            .chain(&unpurged)
-            .collect();
-        selected.sort_by(|a, b| added(a).cmp(&added(b)));
+        let selected = selection.select(&tasks, &unpurged)?;
 
         let mut runner = Runner {
             registry: &self.registry,
@@ -328,22 +316,15 @@ where
     }
 }
 
-/// Every live task in `store`, and every task a prune removed but left
+/// Every live task `list` holds, and every task a prune removed but left
 /// unpurged, each in the order added: one moment of the store.
-async fn live_tasks<S: ReadStore>(
-    store: &S,
-    registry: &Registry,
-) -> Result<(Vec<TaskState>, Vec<TaskState>), AppError> {
-    let mut list = task_lists::TaskList::new();
-    list.catch_up(store, registry)
-        .await
-        .map_err(|e| AppError::Failed(Report::of(&*e)))?;
+fn live_tasks(list: &task_lists::TaskList) -> (Vec<TaskState>, Vec<TaskState>) {
     let in_order = |tasks: Vec<&TaskState>| {
         let mut tasks: Vec<TaskState> = tasks.into_iter().cloned().collect();
         tasks.sort_by(|a, b| added(a).cmp(&added(b)));
         tasks
     };
-    Ok((in_order(list.entries()), in_order(list.unpurged())))
+    (in_order(list.entries()), in_order(list.unpurged()))
 }
 
 /// Where `task` falls in the order added: when it was, then its harp.
@@ -414,6 +395,32 @@ struct Selection<'a> {
 }
 
 impl Selection<'_> {
+    /// The tasks this prune takes, in the order added: each of the live
+    /// `tasks` dated and matching the tag query, and every task a prune
+    /// removed but left `unpurged`, which that prune selected: this one
+    /// finishes it, whatever it selects by.
+    fn select<'t>(
+        &self,
+        tasks: &'t [TaskState],
+        unpurged: &'t [TaskState],
+    ) -> Result<Vec<&'t TaskState>, AppError> {
+        let matched = query::select(
+            self.tag_query,
+            tasks
+                .iter()
+                .map(|t| (t.harp_id.as_str(), t.tags.as_slice())),
+            self.rules,
+        )
+        .map_err(|e| AppError::TagQuery(Report::of(&e)))?;
+        let mut selected: Vec<&TaskState> = tasks
+            .iter()
+            .filter(|t| matched.contains(&t.harp_id) && self.dated(t))
+            .chain(unpurged)
+            .collect();
+        selected.sort_by(|a, b| added(a).cmp(&added(b)));
+        Ok(selected)
+    }
+
     /// Whether `task` is live, in one of the statuses, and last changed
     /// status before the cut.
     fn dated(&self, task: &TaskState) -> bool {

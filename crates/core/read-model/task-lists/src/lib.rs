@@ -3,42 +3,43 @@
 //! stream in a project's store (the store is the collection, so a list needs
 //! no membership metadata on the streams), holding every live task.
 //!
-//! - [`TaskList`] is a [`Projection`] of [`TaskAggregate`]: the kernel hands
-//!   it each committed event live ([`ProjectionRoute`](angzarr_embedded::ProjectionRoute)),
-//!   and [`TaskList::catch_up`] reads every task stream the store holds in
-//!   one read-only unit ([`ReadStore`]: its `covers` lists them, its reads
-//!   read them, all at one moment), as a process that did not run the
-//!   command does.
+//! - [`TaskList`] is the read model, folded one stream's book at a time
+//!   ([`TaskList::project`]); [`TaskLists`] is it on angzarr-embedded's
+//!   projector port, which a [`CatchUp`] catches up from the store
+//!   ([`TaskList::catch_up`]): every main-timeline task stream handed what
+//!   it is owed, from where the list is on it, read in one read-only unit
+//!   (one moment of the store: a write or a purge landing meanwhile,
+//!   through any handle, is the next step's), as a process that did not
+//!   run the command does.
 //! - A list holds every live task (none removed), and the tasks a prune
 //!   removed whose streams are not yet purged ([`TaskList::unpurged`]). A
-//!   stream purged and minted again on its freed harp is a new stream, told
-//!   from the old by its first event (its cause and when it was recorded),
-//!   never by its sequence: each starts at 0.
-//! - A list keeps no cursor: the application reads one and drops it (a
-//!   listing's, a prune's), and a watch asks the store's change token,
-//!   never a list (the owner's ruling on D7, 2026-10-30). A list kept
-//!   across catch-ups still projects each stream by its own sequence:
-//!   nothing numbers across streams.
+//!   stream purged and minted again on its freed harp is a new stream: the
+//!   catch-up tells it from the old by its first event and hands it from
+//!   its start, and a stream purged and not minted again is handed as
+//!   gone.
+//! - A list keeps no cursor across streams: the catch-up keeps where it is
+//!   on each stream, by that stream's own sequence, and a watch asks the
+//!   store's change token, never a list (the owner's ruling on D7,
+//!   2026-10-30). Nothing numbers across streams.
 
 pub mod schema;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use angzarr_embedded::v1::{Cover, Uuid};
-use angzarr_embedded::{
-    ids, projection, Committed, KernelError, Payload, Projection, ReadStore, ReadUnit, Registry,
-    StoreError, Stream, StreamRef, Timestamp,
-};
+use angzarr_embedded::angzarr_router::error::CodedError;
+use angzarr_embedded::v1::{Cover, EventBook, Projection};
+use angzarr_embedded::{CatchUp, Domain, Payload, PayloadError, ProjectorHandler};
 use tasks::{RemovalReason, TaskAggregate, TaskEvent, TaskState, TASK_DOMAIN};
 
 /// One list of a project's tasks: every live task (none removed).
 #[derive(Default)]
 pub struct TaskList {
+    /// Every task stream projected, by root: the task as its events leave
+    /// it.
+    streams: BTreeMap<Vec<u8>, TaskAggregate>,
     /// The listed tasks, by harp id.
     entries: BTreeMap<String, TaskState>,
-    /// How far each task stream (by harp id) is projected, and which
-    /// stream it was.
-    projected: BTreeMap<String, Seen>,
     /// The tasks whose stream's last projected event is a prune's removal,
     /// by harp id: removed, and not yet seen purged.
     unpurged: BTreeMap<String, TaskState>,
@@ -48,6 +49,13 @@ impl TaskList {
     /// An empty list.
     pub fn new() -> TaskList {
         TaskList::default()
+    }
+
+    /// An empty list on the projector port, to catch up from a store: its
+    /// positions held in memory, so its first step folds every task stream
+    /// from its start, and each later one only what was written since.
+    pub fn catch_up() -> CatchUp<TaskLists> {
+        CatchUp::new(&[TASK_DOMAIN], TaskLists::default())
     }
 
     /// The listed tasks, by harp id.
@@ -65,153 +73,122 @@ impl TaskList {
         self.unpurged.values().collect()
     }
 
-    /// Project every task stream `store` holds that is not yet projected,
-    /// listed and read in one read-only unit, so what is projected is one
-    /// moment of the store: a write or a purge landing meanwhile, through
-    /// any handle, is not seen. A task whose stream the store no longer
-    /// holds (pruned whole since the last catch-up) leaves the list, its
-    /// stream is forgotten (so a task minted on its harp later is seen from
-    /// its start).
-    pub async fn catch_up<S: ReadStore>(
-        &mut self,
-        store: &S,
-        registry: &Registry,
-    ) -> Result<(), Box<KernelError>> {
-        let mut reads = store.begin_read().await.map_err(store_error)?;
-        let covers = reads.covers(TASK_DOMAIN).await.map_err(store_error)?;
-        let covers: Vec<Cover> = covers
-            .into_iter()
-            .filter(|cover| cover.edition.is_none())
-            .collect();
-        let held: BTreeSet<Vec<u8>> = covers.iter().map(root).collect();
-        for cover in covers {
-            let stream = StreamRef::try_from(&cover).map_err(store_error)?;
-            let slice = reads.read(stream, 0, None).await.map_err(store_error)?;
-            let stream = Stream::<TaskAggregate>::replay(cover, &slice.pages, registry)?;
-            stream.dispatch(0, registry, &mut [&mut projection(self)])?;
+    /// Fold `book`, one task stream's events after the last projected of
+    /// it, as the projector port hands it: a book from sequence 0 starts
+    /// the stream afresh (a task minted on a harp whose stream was pruned:
+    /// its first state replaces the old task's); a book with no event at 0
+    /// says the stream is gone (pruned whole), and its task leaves the
+    /// list. An event the tasks domain cannot read folds nothing and is the
+    /// fold's error.
+    pub fn project(&mut self, book: &EventBook) -> Result<(), PayloadError> {
+        let root = root(book.cover.as_ref());
+        let Some(first) = book.pages.first() else {
+            if book.next_sequence == 0 {
+                self.forget(&root);
+            }
+            return Ok(());
+        };
+        let mut task = match first.sequence {
+            0 => TaskAggregate::default(),
+            _ => self.streams.remove(&root).unwrap_or_default(),
+        };
+        let mut pruned = false;
+        for page in &book.pages {
+            let event = page.payload.clone().unwrap_or_default();
+            TaskAggregate::apply(
+                &mut task,
+                &<TaskAggregate as Domain>::Event::from_any(&event)?,
+            );
+            pruned = is_pruned(&event);
         }
-        self.forget_gone(&held);
+        self.list(&task, pruned);
+        self.streams.insert(root, task);
         Ok(())
     }
 
-    /// Forget every task whose stream the store no longer holds (`held`
-    /// are the streams it does, by root): a prune that landed whole since
-    /// this list last read. Each such task leaves the list.
-    fn forget_gone(&mut self, held: &BTreeSet<Vec<u8>>) {
-        let gone: Vec<String> = self
-            .projected
-            .keys()
-            .filter(|harp| !held.contains(&root_of(harp)))
-            .cloned()
-            .collect();
-        for harp in &gone {
-            self.projected.remove(harp);
+    /// List `task` as its stream's last event leaves it: removed, it
+    /// leaves the list, and is unpurged if that event is a prune's.
+    fn list(&mut self, task: &TaskAggregate, pruned: bool) {
+        let task = task.state();
+        let harp = task.harp_id.clone();
+        match pruned {
+            true => self.unpurged.insert(harp.clone(), task.clone()),
+            false => self.unpurged.remove(&harp),
+        };
+        match task.removed {
+            true => self.entries.remove(&harp),
+            false => self.entries.insert(harp, task.clone()),
+        };
+    }
+
+    /// Forget the task stream rooted at `root`, which the store no longer
+    /// holds: its task leaves the list.
+    fn forget(&mut self, root: &[u8]) {
+        if let Some(task) = self.streams.remove(root) {
+            let harp = &task.state().harp_id;
             self.entries.remove(harp);
             self.unpurged.remove(harp);
         }
     }
 }
 
-impl Projection<TaskAggregate> for TaskList {
-    fn project(&mut self, committed: &Committed<'_, TaskAggregate>) {
-        // Lists show the main timeline; a what-if edition is not the project.
-        if committed.cover().edition.is_some() {
-            return;
-        }
-        let task = committed.state.state();
-        let harp = task.harp_id.clone();
-        let sequence = committed.sequence();
-        // A pruned stream is purged, and a task minted on the freed harp
-        // starts it again from sequence 0, perhaps all between two
-        // catch-ups: a first event not the one seen first is a new stream,
-        // projected from its start (its first state replaces the old
-        // task's), not skipped as already seen.
-        let first = (sequence == 0).then(|| Fingerprint::of(committed));
-        if let Some(seen) = self.projected.get(&harp) {
-            let restarted = first.is_some() && first != seen.first;
-            if !restarted && sequence <= seen.last {
-                return;
-            }
-        }
-        let first = first.or_else(|| self.projected.get(&harp)?.first.clone());
-        self.projected.insert(
-            harp.clone(),
-            Seen {
-                first,
-                last: sequence,
-            },
-        );
-        if is_pruned(committed) {
-            self.unpurged.insert(harp.clone(), task.clone());
-        } else {
-            self.unpurged.remove(&harp);
-        }
-        if task.removed {
-            self.entries.remove(&harp);
-        } else {
-            self.entries.insert(harp, task.clone());
-        }
+/// A [`TaskList`] on angzarr-embedded's projector port: what a
+/// [`CatchUp`] hands each task stream's book.
+#[derive(Default)]
+pub struct TaskLists(Mutex<TaskList>);
+
+impl TaskLists {
+    /// The list as projected so far.
+    pub fn list(&self) -> MutexGuard<'_, TaskList> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
-/// How far one task stream is projected.
-struct Seen {
-    /// Its first event's fingerprint; none when the list began projecting
-    /// it past its start (live, never caught up), so its first event, if
-    /// it comes, is projected again.
-    first: Option<Fingerprint>,
-    /// The last sequence projected.
-    last: u64,
-}
+impl ProjectorHandler for TaskLists {
+    fn name(&self) -> &str {
+        "task-list"
+    }
 
-/// What tells one stream on a harp from another: its first event's cause
-/// (the command that minted the task) and when it was recorded. The
-/// sequence cannot tell them apart (each starts at 0), nor the payload (a
-/// task minted again may be the same).
-#[derive(Clone, PartialEq, Debug)]
-struct Fingerprint {
-    cause: Uuid,
-    recorded_at: Timestamp,
-}
-
-impl Fingerprint {
-    fn of(committed: &Committed<'_, TaskAggregate>) -> Fingerprint {
-        let envelope = committed.envelope();
-        Fingerprint {
-            cause: envelope.command_id().clone(),
-            recorded_at: envelope.recorded_at(),
-        }
+    async fn dispatch(&self, events: &EventBook) -> Result<Projection, CodedError> {
+        self.list().project(events).map_err(|error| bug(&error))?;
+        Ok(Projection {
+            cover: events.cover.clone(),
+            projector: self.name().to_string(),
+            next_sequence: events.next_sequence,
+            projection: None,
+        })
     }
 }
 
-/// Whether `committed` is a prune's removal: the last its stream holds
-/// before it is purged, read as the tasks domain's event.
-fn is_pruned(committed: &Committed<'_, TaskAggregate>) -> bool {
-    let any = committed.event().to_any();
+/// `error`, an event the list cannot read, as the projector port's bug:
+/// its code, and its text args (the type URL it names).
+fn bug(error: &PayloadError) -> CodedError {
+    use angzarr_embedded::angzarr_diagnostic::{Arg, Diagnostic as _};
+    let args = error
+        .args()
+        .into_iter()
+        .filter_map(|(name, arg)| match arg {
+            Arg::Str(value) => Some((name.to_string(), value)),
+            _ => None,
+        });
+    CodedError::bug(error.code(), args)
+}
+
+/// Whether `event` is a prune's removal: the last its stream holds before
+/// it is purged, read as the tasks domain's event.
+fn is_pruned(event: &angzarr_embedded::Any) -> bool {
     matches!(
-        TaskEvent::from_any(&any),
+        TaskEvent::from_any(event),
         Ok(TaskEvent::TaskRemoved(removed)) if removed.reason == RemovalReason::Pruned
     )
 }
 
-/// A task stream's root, as the list compares streams by.
-fn root(cover: &Cover) -> Vec<u8> {
+/// A task stream's root, as the list tells streams apart by.
+fn root(cover: Option<&Cover>) -> Vec<u8> {
     cover
-        .root
-        .as_ref()
+        .and_then(|cover| cover.root.as_ref())
         .map(|r| r.value.to_vec())
         .unwrap_or_default()
-}
-
-/// The root of the stream of the task `harp_id` names.
-fn root_of(harp_id: &str) -> Vec<u8> {
-    ids::compute_root(TASK_DOMAIN, harp_id)
-        .map(|r| r.value.to_vec())
-        .unwrap_or_default()
-}
-
-fn store_error(error: StoreError) -> Box<KernelError> {
-    Box::new(KernelError::Store(error))
 }
 
 #[cfg(test)]

@@ -345,7 +345,7 @@ mod ticked {
         };
         Kernel::new(&registry, &dead_letters)
             .on_retryable(tasks_application::KERNEL_RETRY)
-            .handle::<TaskAggregate, _, _>(store, book, &sampled, &mut ())
+            .handle::<TaskAggregate, _>(store, book, &sampled)
             .await
             .unwrap_or_else(|failure| panic!("{failure:?}"));
     }
