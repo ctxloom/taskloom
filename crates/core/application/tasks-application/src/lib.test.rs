@@ -1348,18 +1348,16 @@ fn spelled(tags: &[tasks::Tag]) -> Vec<String> {
 
 // ------------------------------------------------------------ reading back
 
+// The task an add answers is its commit's, never a read after it: a
+// stream emptied between the commit and a read (one purged, as a hollow
+// read looks) does not make an add that committed report failure.
 #[test]
-fn test_a_task_read_back_as_no_events_is_never_a_blank_task() {
-    // A stream purged mid-read can read back as a stream with no events.
+fn test_an_add_answers_the_task_its_commit_left_whatever_reads_after_it() {
     let mut service = service(&["swift-amber"]);
     service.stores.store.hollow = true;
-    let error = add(&mut service, new_task("Ship it")).unwrap_err();
-    assert_eq!(
-        error,
-        AppError::Vanished {
-            harp_id: "swift-amber".to_string()
-        }
-    );
+    let written = add(&mut service, new_task("Ship it")).unwrap();
+    assert_eq!(written.task.harp_id, "swift-amber");
+    assert_eq!(written.task.text, "Ship it");
     assert!(listed(&mut service, ListQuery::default()).is_empty());
 }
 
@@ -1813,7 +1811,8 @@ fn seeded_meanwhile(store: &angzarr_embedded::angzarr_ports::memory::MemoryStore
         command_id: angzarr_embedded::v1::Uuid::from_bytes([0xee; 16]),
     };
     ready(
-        Kernel::new(&registry, &dead_letters)
+        Kernel::new(&registry)
+            .log_with(&dead_letters)
             .on_retryable(crate::KERNEL_RETRY)
             .handle::<tasks::schema::SchemaAggregate, _>(store, book, &sampled),
     )

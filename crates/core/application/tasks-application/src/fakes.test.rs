@@ -122,7 +122,8 @@ pub fn run(store: &MemoryStore, harp: &str, command: tasks::TaskCommand) {
         command_id: Uuid::from_bytes([0xee; 16]),
     };
     ready(
-        Kernel::new(&registry, &dead_letters)
+        Kernel::new(&registry)
+            .log_with(&dead_letters)
             .on_retryable(crate::KERNEL_RETRY)
             .handle::<tasks::TaskAggregate, _>(store, crate::book(harp, command), &sampled),
     )

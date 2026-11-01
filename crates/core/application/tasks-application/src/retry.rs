@@ -277,7 +277,8 @@ impl<C: Clock, D: Delay + Jitter + Send> Runner<'_, C, D> {
                     Ok(None) => return Ok(None),
                     Ok(Some(book)) => {
                         let waits = Ported::new(&mut *self.delay);
-                        let handled = Kernel::new(self.registry, &Unlogged)
+                        let handled = Kernel::new(self.registry)
+                            .log_with(&Unlogged)
                             .on_retryable(self.backoff.on_retryable())
                             .wait_with(&waits)
                             .handle::<A, _>(store, book, &sampled)

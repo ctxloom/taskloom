@@ -674,7 +674,8 @@ fn plan_does(
     };
     let dead_letters = MemoryDeadLetters::new();
     ready(
-        Kernel::new(&registry, &dead_letters)
+        Kernel::new(&registry)
+            .log_with(&dead_letters)
             .on_retryable(crate::KERNEL_RETRY)
             .handle::<plans::PlanAggregate, _>(store, book, &sampled),
     )

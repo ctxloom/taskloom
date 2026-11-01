@@ -343,7 +343,8 @@ mod ticked {
             now: Timestamp::default(),
             command_id: Uuid::from_bytes([id; 16]),
         };
-        Kernel::new(&registry, &dead_letters)
+        Kernel::new(&registry)
+            .log_with(&dead_letters)
             .on_retryable(tasks_application::KERNEL_RETRY)
             .handle::<TaskAggregate, _>(store, book, &sampled)
             .await

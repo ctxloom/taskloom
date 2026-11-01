@@ -20,15 +20,15 @@ prost-types = "0.14"
 # commit, so a fresh clone builds with no sibling checkouts; bumps are
 # deliberate commits. To build against local checkouts while changing them
 # together, see "Co-developing angzarr-cli or tagma" in CLAUDE.md. At
-# 1e6349b, on angzarr core ab7ae03, the rev the crates below pin, so the
+# e4fff61, on angzarr core b0cf1bd3, the rev the crates below pin, so the
 # graph holds one angzarr-proto and one angzarr-diagnostic even counting
 # build dependencies; the code it generates names the kernel's crate root
 # (no `next::`) and `::angzarr_embedded::angzarr_diagnostic`.
-angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "6db7a3e2695fd3c2e17e937ab6cb7a3b37e484d3" }
+angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "e4fff61b5d7dd79cc14caaf8f0d8e2d3de2dc537" }
 
 # angzarr-embedded, angzarr's in-app runtime, taskloom's
 # (taskloom-on-angzarr-embedded.plan.md). Pinned by rev on
-# angzarr-embedded's main: cbe108b (router 8af62b6, angzarr core ab7ae03
+# angzarr-embedded's main: c1177bb (router 08f886b, angzarr core b0cf1bd3
 # for angzarr-proto, angzarr-ports and angzarr-diagnostic): the kernel at
 # its crate root (`next` flattened, its codes `angzarr-embedded-*`, a
 # condition the spec keys coded under its key; decision 14.60), each
@@ -39,10 +39,10 @@ angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "6db7
 # one of each. angzarr-proto and angzarr-store-sqlite are reached through
 # those re-exports (`angzarr_embedded::angzarr_proto`,
 # `angzarr_embedded::angzarr_store_sqlite`) and not pinned here.
-angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "5ab4aed03128478dbd0f4e3409a776d1f0b53004" }
-angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "5ab4aed03128478dbd0f4e3409a776d1f0b53004" }
+angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "c1177bbd36454652356e60e032c35ecd02211fea" }
+angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "c1177bbd36454652356e60e032c35ecd02211fea" }
 # angzarr core's shared crates, at the core rev angzarr-embedded pins
-# (ab7ae03), so the graph holds one of each. angzarr-diagnostic, the coded
+# (b0cf1bd3), so the graph holds one of each. angzarr-diagnostic, the coded
 # error trait every error here implements, is pinned directly rather than
 # through angzarr-embedded's re-export so the crates that have no use for
 # the kernel (the platform crates, presentation) do not link it.
@@ -145,3 +145,4 @@ non_ascii_literal = "deny"
 cognitive_complexity = "warn"
 too_many_lines = "warn"
 excessive_nesting = "warn"
+

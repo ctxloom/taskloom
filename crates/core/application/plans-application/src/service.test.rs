@@ -140,7 +140,8 @@ fn other_process(store: &MemoryStore, harp: &str, command: PlanCommand) {
             .next_sequence
     };
     ready(
-        Kernel::new(&registry, &dead_letters)
+        Kernel::new(&registry)
+            .log_with(&dead_letters)
             .on_retryable(KERNEL_RETRY)
             .handle::<plans::PlanAggregate, _>(store, book(harp, &command, head), &sampled),
     )

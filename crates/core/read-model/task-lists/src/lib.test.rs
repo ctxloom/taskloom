@@ -63,7 +63,8 @@ impl Project {
         };
         let dead_letters = MemoryDeadLetters::new();
         ready(
-            Kernel::new(&self.registry, &dead_letters)
+            Kernel::new(&self.registry)
+                .log_with(&dead_letters)
                 .on_retryable(OnRetryable {
                     max_retries: 0,
                     ..OnRetryable::default()

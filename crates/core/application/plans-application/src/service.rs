@@ -204,7 +204,8 @@ impl<C: Clock + CommandIds, D: Delay + Jitter + Send> Runner<'_, C, D> {
                 command_id: command_id.clone(),
             };
             let waits = Ported::new(&mut *self.delay);
-            let handled = Kernel::new(self.registry, &Unlogged)
+            let handled = Kernel::new(self.registry)
+                .log_with(&Unlogged)
                 .on_retryable(self.backoff.on_retryable())
                 .wait_with(&waits)
                 .handle::<PlanAggregate, _>(store, book(harp_id, command, head), &sampled)
