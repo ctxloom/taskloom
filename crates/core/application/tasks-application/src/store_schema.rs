@@ -33,7 +33,7 @@ use std::sync::Arc;
 
 use angzarr_diagnostic::{Arg, Diagnostic, Report};
 use angzarr_embedded::v1::{CommandBook, Cover};
-use angzarr_embedded::{CommandBookExt, CoverExt, Handled, Kernel, Payload, Registry, Store};
+use angzarr_embedded::{CommandBookExt, CoverExt, Handled, Kernel, Registry, Store};
 use ports::{Clock, CommandIds, Configuration, Delay, Jitter, ProjectIdentity, TaskStores};
 use tasks::schema::{
     Declare, SchemaAggregate, SchemaCommand, SchemaState, SCHEMA_DOMAIN, SCHEMA_STREAM,
@@ -616,7 +616,7 @@ where
         tasks::schema::check(&declare).map_err(|r| rejected(&r))?;
         let before = self.seeded(project).await?;
         let store = self.stores.open(project).await.map_err(failed)?;
-        let book = CommandBook::command(schema_stream(), SchemaCommand::from(declare).to_any());
+        let book = CommandBook::command_of(schema_stream(), &SchemaCommand::from(declare));
         let command_id = self.clock.command_id();
         let mut runner = retry::Runner {
             registry: &self.registry,

@@ -6,19 +6,16 @@
 //! harness; these hold the aggregate to the stream it belongs in, and the
 //! wire's round trip.
 
-use std::future::Future;
+use std::collections::BTreeMap;
 
 use angzarr_diagnostic::{Arg, Diagnostic};
-use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::markup::Rejection;
-use angzarr_embedded::v1::{CommandBook, Cover, Uuid};
-use angzarr_embedded::{
-    CommandBookExt, CoverExt, Domain, EventStore, Failure, Handled, Kernel, OnRetryable, Payload,
-    Registry, Rejected, Sampled, Stream, StreamRef, Timestamp,
-};
+use angzarr_embedded::testing::{Harness, Samples};
+use angzarr_embedded::v1::Cover;
+use angzarr_embedded::{CoverExt, Domain, Failure, Payload, Registry, Rejected};
 
 use crate::{
-    AddPlan, PlanAggregate, PlanCommand, PlanEvent, PlanRejection, PlanState, PlanStatus,
+    messages, AddPlan, PlanAggregate, PlanCommand, PlanEvent, PlanRejection, PlanState, PlanStatus,
     PLAN_DOMAIN,
 };
 
@@ -26,35 +23,27 @@ pub(crate) const HARP: &str = "brisk-cedar-otter";
 const HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 const HASH2: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 
-/// Poll `future` once: the in-memory store never waits.
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = std::pin::pin!(future);
-    let waker = std::task::Waker::noop();
-    match future
-        .as_mut()
-        .poll(&mut std::task::Context::from_waker(waker))
-    {
-        std::task::Poll::Ready(out) => out,
-        std::task::Poll::Pending => panic!("the in-memory store never waits"),
-    }
-}
-
-/// One project's store holding plan streams.
+/// Plan streams, each through angzarr-embedded's test support: the kernel
+/// over an in-memory store, one second after the last command, under a
+/// command id of its own, a retryable failure not retried.
 pub(crate) struct Plans {
-    store: MemoryStore,
-    registry: Registry,
-    seconds: i64,
+    streams: BTreeMap<String, Harness<PlanAggregate>>,
 }
 
 impl Plans {
     pub(crate) fn new() -> Plans {
-        let mut registry = Registry::new();
-        registry.aggregate::<PlanAggregate>(PlanAggregate::default);
         Plans {
-            store: MemoryStore::new(),
-            registry,
-            seconds: 100,
+            streams: BTreeMap::new(),
         }
+    }
+
+    /// `harp`'s stream.
+    fn stream(&mut self, harp: &str) -> &mut Harness<PlanAggregate> {
+        self.streams.entry(harp.to_string()).or_insert_with(|| {
+            let mut registry = Registry::new();
+            registry.aggregate::<PlanAggregate>(PlanAggregate::default);
+            Harness::new(registry, cover(harp)).with_samples(Samples::starting_at(100))
+        })
     }
 
     /// Run `command` on `harp`'s stream: the events it committed, or its
@@ -63,19 +52,11 @@ impl Plans {
     // handler's code as owned text.
     #[allow(clippy::result_large_err)]
     fn run(&mut self, harp: &str, command: PlanCommand) -> Result<Vec<PlanEvent>, Rejected> {
-        match self.try_run(book(harp, command.to_any())) {
-            Ok(Handled::Applied(recorded)) => Ok(recorded
-                .books()
-                .iter()
-                .flat_map(|book| &book.pages)
-                .map(|page| PlanEvent::from_any(page.payload.as_ref().unwrap()).unwrap())
-                .collect()),
-            Ok(Handled::Duplicate(..)) => panic!("a fresh command id is never a duplicate"),
-            Ok(Handled::Parked(_)) => panic!("only a fact is parked, and these are commands"),
-            Err(failure) => match *failure {
-                Failure::Rejected(rejected) => Err(rejected),
-                other => panic!("not a rejection: {other:?}"),
-            },
+        let message = messages::PlanCommand::from(&command);
+        match self.stream(harp).when(message).result() {
+            Ok(events) => Ok(events.into_iter().map(PlanEvent::from).collect()),
+            Err(Failure::Rejected(rejected)) => Err(rejected),
+            Err(other) => panic!("not a rejection: {other:?}"),
         }
     }
 
@@ -95,51 +76,18 @@ impl Plans {
         })
     }
 
-    /// Handle `book` through the kernel, one second after the last command,
-    /// under a command id of its own. A retryable failure is not retried.
-    fn try_run(&mut self, book: CommandBook) -> Result<Handled, Box<Failure<Rejected>>> {
-        self.seconds += 1;
-        let sampled = Sampled {
-            now: Timestamp {
-                seconds: self.seconds,
-                nanos: 0,
-            },
-            command_id: Uuid::from_bytes([self.seconds as u8; 16]),
-        };
-        ready(
-            Kernel::new(&self.registry)
-                .on_retryable(OnRetryable {
-                    max_retries: 0,
-                    ..OnRetryable::default()
-                })
-                .handle::<PlanAggregate, _>(&self.store, book, &sampled),
-        )
-        .map_err(Box::new)
-    }
-
-    fn pages(&self, harp: &str) -> Vec<angzarr_embedded::v1::EventPage> {
-        let cover = cover(harp);
-        let stream = StreamRef::try_from(&cover).unwrap();
-        ready(self.store.read(stream, 0, None)).unwrap().pages
+    fn pages(&mut self, harp: &str) -> Vec<angzarr_embedded::v1::EventPage> {
+        self.stream(harp).pages()
     }
 
     /// The plan, replayed from the store as the next process would.
-    pub(crate) fn state(&self, harp: &str) -> PlanState {
-        Stream::<PlanAggregate>::replay(cover(harp), &self.pages(harp), &self.registry)
-            .unwrap()
-            .state()
-            .state()
-            .clone()
+    pub(crate) fn state(&mut self, harp: &str) -> PlanState {
+        self.stream(harp).state().state().clone()
     }
 }
 
 fn cover(harp: &str) -> Cover {
     Cover::natural(PLAN_DOMAIN, harp)
-}
-
-/// A client's command to `harp`'s stream, with no ids of its own.
-fn book(harp: &str, payload: angzarr_embedded::Any) -> CommandBook {
-    CommandBook::command(cover(harp), payload)
 }
 
 fn add(harp: &str) -> PlanCommand {
@@ -262,8 +210,11 @@ fn an_add_naming_another_harp_than_its_stream_is_refused() {
     assert_eq!(
         said(&refused),
         (
-            "plans-not-its-stream".to_string(),
-            vec![("harp_id".to_string(), "calm-dusty-heron".to_string())]
+            "angzarr-embedded-not-its-stream".to_string(),
+            vec![
+                ("domain".to_string(), "plans".to_string()),
+                ("key".to_string(), "calm-dusty-heron".to_string())
+            ]
         )
     );
     assert!(plans.pages(HARP).is_empty());
@@ -292,7 +243,9 @@ fn every_command_and_event_round_trips_through_its_payload() {
         PlanCommand::Reinstate,
         PlanCommand::Rehash(HASH2.into()),
     ] {
-        assert_eq!(PlanCommand::from_any(&command.to_any()), Ok(command));
+        let packed = messages::PlanCommand::from(&command).to_any();
+        let read = messages::PlanCommand::from_any(&packed).map(PlanCommand::from);
+        assert_eq!(read, Ok(command));
     }
     for event in [
         PlanEvent::PlanAdded(added),
@@ -311,21 +264,23 @@ fn every_command_and_event_round_trips_through_its_payload() {
         PlanEvent::Reinstated,
         PlanEvent::Rehashed(HASH2.into()),
     ] {
-        assert_eq!(PlanEvent::from_any(&event.to_any()), Ok(event));
+        let packed = messages::PlanEvent::from(&event).to_any();
+        let read = messages::PlanEvent::from_any(&packed).map(PlanEvent::from);
+        assert_eq!(read, Ok(event));
     }
-    assert_eq!(PlanCommand::type_urls().len(), 9);
-    assert_eq!(PlanEvent::type_urls().len(), 9);
+    assert_eq!(messages::PlanCommand::type_urls().len(), 9);
+    assert_eq!(messages::PlanEvent::type_urls().len(), 9);
 }
 
 #[test]
 fn a_payload_of_another_type_is_unknown() {
     let other = angzarr_embedded::pack(&plans_proto::v1::PlanState::default());
     assert!(matches!(
-        PlanEvent::from_any(&other),
+        messages::PlanEvent::from_any(&other),
         Err(angzarr_embedded::PayloadError::UnknownType { .. })
     ));
     assert!(matches!(
-        PlanCommand::from_any(&other),
+        messages::PlanCommand::from_any(&other),
         Err(angzarr_embedded::PayloadError::UnknownType { .. })
     ));
 }
@@ -334,7 +289,7 @@ fn a_payload_of_another_type_is_unknown() {
 fn a_status_left_unspecified_on_the_wire_is_an_invalid_payload() {
     let unspecified = angzarr_embedded::pack(&plans_proto::v1::SetPlanStatus { status: 0 });
     assert!(matches!(
-        PlanCommand::from_any(&unspecified),
+        messages::PlanCommand::from_any(&unspecified),
         Err(angzarr_embedded::PayloadError::Invalid { .. })
     ));
 }

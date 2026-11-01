@@ -1,11 +1,13 @@
 //! The backoff schedule, and running a command again when the kernel says a retry may mend it.
 
+use crate::fakes::{failing, read_from, At};
+use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use std::time::Duration;
 
 use angzarr_diagnostic::Diagnostic;
 
 use angzarr_embedded::v1::CommandBook;
-use angzarr_embedded::{CommandBookExt, Handled, Payload};
+use angzarr_embedded::{CommandBookExt, Handled};
 
 use super::{Backoff, Ported, Refusal, Runner, DRAW_SCALE};
 use crate::fakes::{ready, FakeClock, FakeDelay, Fault, Flaky};
@@ -17,7 +19,7 @@ type Ran = Result<Result<Handled, Refusal<TaskRejection>>, AppError>;
 
 /// `command` to the task swift-amber's stream.
 fn book(command: impl Into<TaskCommand>) -> CommandBook {
-    CommandBook::command(task_cover("swift-amber"), command.into().to_any())
+    CommandBook::command_of(task_cover("swift-amber"), &command.into())
 }
 
 const MS: Duration = Duration::from_millis(1);
@@ -99,7 +101,7 @@ fn run_as(id: u8, store: &mut Flaky, delay: &mut FakeDelay, attempts: u32) -> Ra
 
 fn events(store: &mut Flaky) -> usize {
     let cover = task_cover("swift-amber");
-    ready(store.read_from(&cover, 0))
+    ready(read_from(store, &cover, 0))
         .unwrap()
         .map_or(0, |slice| slice.pages.len())
 }
@@ -110,7 +112,7 @@ fn test_a_command_that_commits_at_once_waits_for_nothing() {
     let mut delay = FakeDelay::default();
     let outcome = run(&mut store, &mut delay, 3).unwrap();
     assert!(outcome.is_ok(), "committed");
-    assert_eq!(store.begun(), 1);
+    assert_eq!(store.attempts(), 1);
     assert!(delay.slept.is_empty());
     assert_eq!(events(&mut store), 1);
 }
@@ -123,11 +125,11 @@ fn test_a_command_that_commits_at_once_waits_for_nothing() {
 /// them 10ms.
 #[test]
 fn test_a_retryable_failure_is_run_again_after_a_growing_capped_wait() {
-    let mut store = Flaky::failing(&[Fault::Unavailable, Fault::Conflict, Fault::Unavailable]);
+    let mut store = failing(&[Fault::Unavailable, Fault::Conflict, Fault::Unavailable]);
     let mut delay = FakeDelay::default();
     let outcome = run(&mut store, &mut delay, 5).unwrap();
     assert!(outcome.is_ok(), "committed");
-    assert_eq!(store.begun(), 4, "three failures, then the commit");
+    assert_eq!(store.attempts(), 4, "three failures, then the commit");
     assert_eq!(delay.ceilings, [DRAW_SCALE; 3], "one draw a wait");
     assert_eq!(delay.slept, [10 * MS, 10 * MS, 20 * MS]);
     assert_eq!(events(&mut store), 1, "landed once");
@@ -136,7 +138,7 @@ fn test_a_retryable_failure_is_run_again_after_a_growing_capped_wait() {
 /// A store's failures past the cap wait at most the cap.
 #[test]
 fn test_no_wait_exceeds_the_cap() {
-    let mut store = Flaky::failing(&[Fault::Unavailable; 3]);
+    let mut store = failing(&vec![Fault::Unavailable; 3]);
     let mut delay = FakeDelay::default();
     run(&mut store, &mut delay, 5).unwrap().unwrap();
     assert_eq!(delay.slept, [10 * MS, 20 * MS, 30 * MS]);
@@ -144,7 +146,7 @@ fn test_no_wait_exceeds_the_cap() {
 
 #[test]
 fn test_each_wait_is_the_jitter_drawn_under_its_ceiling() {
-    let mut store = Flaky::failing(&[Fault::Unavailable, Fault::Unavailable]);
+    let mut store = failing(&[Fault::Unavailable, Fault::Unavailable]);
     let mut delay = FakeDelay {
         permille: 500,
         ..FakeDelay::default()
@@ -155,7 +157,7 @@ fn test_each_wait_is_the_jitter_drawn_under_its_ceiling() {
 
 #[test]
 fn test_a_jitter_past_its_ceiling_is_held_to_it() {
-    let mut store = Flaky::failing(&[Fault::Unavailable]);
+    let mut store = failing(&[Fault::Unavailable]);
     let mut delay = FakeDelay {
         over: Some(DRAW_SCALE * 9),
         ..FakeDelay::default()
@@ -166,12 +168,12 @@ fn test_a_jitter_past_its_ceiling_is_held_to_it() {
 
 #[test]
 fn test_a_retry_after_a_lost_answer_is_the_duplicate_of_what_landed() {
-    let mut store = Flaky::failing(&[Fault::LandsThenFails]);
+    let mut store = failing(&[Fault::LandsThenFails]);
     let mut delay = FakeDelay::default();
     let outcome = run(&mut store, &mut delay, 5).unwrap();
     assert!(outcome.is_ok(), "committed");
     assert_eq!(
-        store.begun(),
+        store.attempts(),
         1,
         "one write: the retry found it on the stream"
     );
@@ -181,13 +183,13 @@ fn test_a_retry_after_a_lost_answer_is_the_duplicate_of_what_landed() {
 
 #[test]
 fn test_the_attempts_run_out_and_it_gives_up_with_the_last_failure() {
-    let mut store = Flaky::failing(&[Fault::Unavailable; 3]);
+    let mut store = failing(&vec![Fault::Unavailable; 3]);
     let mut delay = FakeDelay::default();
     let Err(AppError::GaveUp { attempts, error }) = run(&mut store, &mut delay, 3) else {
         panic!("gave up");
     };
     assert_eq!(attempts, 3);
-    assert_eq!(store.begun(), 3);
+    assert_eq!(store.attempts(), 3);
     assert_eq!(delay.slept.len(), 2, "no wait after the last attempt");
     assert_eq!(error.code(), "angzarr-ports-store-unavailable");
     assert_eq!(events(&mut store), 0);
@@ -195,13 +197,13 @@ fn test_the_attempts_run_out_and_it_gives_up_with_the_last_failure() {
 
 #[test]
 fn test_a_failure_no_retry_mends_is_not_retried() {
-    let mut store = Flaky::failing(&[Fault::Discontinuous]);
+    let mut store = failing(&[Fault::Discontinuous]);
     let mut delay = FakeDelay::default();
     let Err(AppError::Failed(error)) = run(&mut store, &mut delay, 5) else {
         panic!("failed");
     };
     assert_eq!(error.code(), "angzarr-ports-store-discontinuous");
-    assert_eq!(store.begun(), 1);
+    assert_eq!(store.attempts(), 1);
     assert!(delay.slept.is_empty());
 }
 
@@ -226,7 +228,7 @@ fn test_a_rejection_is_answered_not_retried() {
         "its key and args"
     );
     assert_eq!(
-        store.begun(),
+        store.attempts(),
         1,
         "the add's write; a refusal writes nothing"
     );
@@ -309,9 +311,10 @@ fn test_a_shaped_command_that_loses_the_race_is_shaped_again_on_the_new_head() {
     let stream = task_cover("swift-amber");
     // The shape's load reads the stream once; the kernel's own load for
     // the send reads it next: the edit lands just before that.
-    store.set_before_read(
+    store.before_nth(
+        At::Read,
         2,
-        Box::new(|inner| {
+        Box::new(|inner: &MemoryStore| {
             crate::fakes::run(
                 inner,
                 "swift-amber",
@@ -330,7 +333,7 @@ fn test_a_shaped_command_that_loses_the_race_is_shaped_again_on_the_new_head() {
     let shaped =
         ready(runner.shaped::<TaskAggregate, _, _, _, _>(&store, &stream, &command_id, shape));
     assert!(matches!(shaped, Ok(Ok((Some(_), ())))));
-    assert!(store.before_read_ran());
+    assert!(store.ran(At::Read));
     assert_eq!(
         seen,
         ["Ship it", "Ship it now"],
@@ -416,7 +419,7 @@ fn test_a_purge_gives_up_once_its_attempts_are_spent() {
         .unwrap()
         .unwrap();
     runner.delay.slept.clear();
-    store.fail([Fault::Conflict; 5]);
+    store.fail(vec![Fault::Conflict; 5]);
     let stream = task_cover("swift-amber");
     let Err(AppError::GaveUp { attempts, error }) = ready(runner.purge(&store, &stream)) else {
         panic!("gave up");
@@ -492,7 +495,7 @@ fn test_a_store_that_never_answers_is_given_up_at_the_kernels_cap_under_its_key(
     // decision 14.51), dead-lettering nothing, since taskloom is waiting
     // (angzarr's owner ruling, 2026-10-31), and taskloom does not try it
     // again.
-    let store = Flaky::failing(&[Fault::Unavailable; 4]);
+    let store = failing(&vec![Fault::Unavailable; 4]);
     let mut delay = FakeDelay::default();
     let mut dead_letters = Vec::new();
     let registry = registry();
@@ -527,7 +530,7 @@ fn test_a_store_that_never_answers_is_given_up_at_the_kernels_cap_under_its_key(
     };
     assert_eq!(attempts, 4);
     assert_eq!(error.code(), "angzarr-ports-store-unavailable");
-    assert_eq!(store.begun(), 4, "the kernel's tries, taskloom's none");
+    assert_eq!(store.attempts(), 4, "the kernel's tries, taskloom's none");
     let letters = dead_letters;
     assert!(letters.is_empty(), "{letters:?}");
 }

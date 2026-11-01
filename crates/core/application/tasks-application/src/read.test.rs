@@ -653,7 +653,7 @@ fn plan_does(
         }),
         page: Some(CommandPage {
             body: Some(command_page::Body::Command(Command {
-                payload: Some(command.to_any()),
+                payload: Some(plans::messages::PlanCommand::from(&command).to_any()),
             })),
             ..CommandPage::default()
         }),
@@ -683,7 +683,7 @@ fn plan_does(
 #[test]
 fn test_show_answers_with_the_plans_governing_each_task() {
     let mut service = with_every_status();
-    let store = &service.stores.store.inner;
+    let store = &service.stores.store.inner();
     plan_does(
         store,
         "brisk-cedar",

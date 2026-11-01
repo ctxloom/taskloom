@@ -15,6 +15,8 @@ presentation.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
+# The test support's block_on_ready.
+angzarr-embedded = { workspace = true, features = ["test-support"] }
 fluent-syntax.workspace = true
 # Its `dead_letter_sample`, a letter for the tests to say.
 plans-application = { workspace = true, features = ["test-support"] }

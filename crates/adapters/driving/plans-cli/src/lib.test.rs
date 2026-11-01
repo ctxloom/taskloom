@@ -2,8 +2,6 @@
 //! for, and what it writes, as text and as JSON, the VS Code fields
 //! included.
 
-use std::future::Future;
-
 use clap::Parser;
 use plans_application::{
     CheckReport, Finding, ImportReport, ImportedPlan, LeftTag, Link, NewPlan, PlanError, PlanQuery,
@@ -35,14 +33,8 @@ struct Cli {
     format: Option<String>,
 }
 
-/// Poll `future` once: every fake answers at once.
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
-    match std::pin::pin!(future).poll(&mut cx) {
-        std::task::Poll::Ready(out) => out,
-        std::task::Poll::Pending => panic!("the fakes answer at once"),
-    }
-}
+/// Run a future whose every await is ready at once: the test support's.
+use angzarr_embedded::testing::block_on_ready as ready;
 
 /// `args` (the program's name first) parsed as a binary mounting the group
 /// does, the format chosen as it chooses, and the group run on `plans`

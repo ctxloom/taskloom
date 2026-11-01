@@ -124,7 +124,7 @@ fn old_task(service: &Store, harp: &str, tags: &[&str]) {
         defers: "Deferred".to_string(),
         initial: "To Do".to_string(),
     };
-    crate::fakes::run(&service.stores.store.inner, harp, add.into());
+    crate::fakes::run(service.stores.store.inner(), harp, add.into());
 }
 
 // ------------------------------------------------------- seeding

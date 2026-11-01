@@ -12,5 +12,10 @@ angzarr-ports.workspace = true
 angzarr-diagnostic.workspace = true
 prost-types.workspace = true
 
+[features]
+# `testing`: deterministic stand-ins for the time and waiting ports, for
+# the applications' tests; their dev-dependencies turn it on.
+test-support = []
+
 [lints]
 workspace = true

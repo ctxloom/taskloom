@@ -29,7 +29,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use angzarr_embedded::angzarr_router::error::CodedError;
 use angzarr_embedded::v1::{Cover, EventBook, Projection};
-use angzarr_embedded::{CatchUp, Domain, Payload, PayloadError, ProjectorHandler};
+use angzarr_embedded::{CatchUp, Domain, PageContext, Payload, PayloadError, ProjectorHandler};
 use tasks::{RemovalReason, TaskAggregate, TaskEvent, TaskState, TASK_DOMAIN};
 
 /// One list of a project's tasks: every live task (none removed).
@@ -95,10 +95,12 @@ impl TaskList {
         let mut pruned = false;
         for page in &book.pages {
             let event = page.payload.clone().unwrap_or_default();
-            TaskAggregate::apply(
-                &mut task,
-                &<TaskAggregate as Domain>::Event::from_any(&event)?,
-            );
+            let at = PageContext {
+                cover: book.cover.as_ref(),
+                sequence: page.sequence,
+                meta: page.meta.as_ref(),
+            };
+            TaskAggregate::apply(&mut task, &TaskEvent::from_any(&event)?, &at);
             pruned = is_pruned(&event);
         }
         self.list(&task, pruned);

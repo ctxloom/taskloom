@@ -8,21 +8,21 @@
 //! - every refusal is message-only, a [`PlanRejection`] as a
 //!   `Failed::Rejected` (FAILED_PRECONDITION): a key (`plans-*`) and its
 //!   args, never English. An add whose harp id is not the one its stream
-//!   derives from is refused (`plans-not-its-stream`);
+//!   derives from is refused before its handler runs (`rooted_by`,
+//!   `angzarr-embedded-not-its-stream`);
 //! - one `#[applies]` per event, folding it with [`apply`](crate::apply);
 //! - no snapshot: a plan's stream is short, and every load replays it.
 
-use angzarr_embedded::ids;
 use angzarr_embedded::markup::{Context, Failed};
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd};
 
 use crate::generated::{
-    AddPlan, Govern, Governed, MarkSuperseded, MarkedSuperseded, PlanAdded, PlanEvent,
+    AddPlan, Govern, Governed, MarkSuperseded, MarkedSuperseded, PlanAdded, PlanCommand, PlanEvent,
     PlanStatusChanged, Rehash, Rehashed, Reinstate, Reinstated, SetPlanStatus, Supersede,
     Superseded, Ungovern, Ungoverned, Unsupersede, Unsuperseded,
 };
 use crate::wire::event_of;
-use crate::{carried, status_set, well_formed, PlanRejection, PlanState, PlanStatus, PLAN_DOMAIN};
+use crate::{carried, status_set, well_formed, PlanRejection, PlanState, PlanStatus};
 
 /// The plan aggregate: one plan, folded from its stream.
 #[derive(Clone, Debug, Default)]
@@ -50,40 +50,20 @@ impl PlanAggregate {
     }
 }
 
-/// Whether the plan `harp_id` belongs in the stream rooted at `root`: the
-/// stream is addressed by the root its harp id derives, so the harp id the
-/// add records must be that one, or the plan takes another's.
-fn belongs(harp_id: &str, root: Option<&[u8]>) -> Result<(), PlanRejection> {
-    let derived = ids::compute_root(PLAN_DOMAIN, harp_id).map_err(|e| PlanRejection::NoRoot {
-        harp_id: harp_id.to_string(),
-        cause: e.to_string(),
-    })?;
-    match root == Some(&derived.value[..]) {
-        true => Ok(()),
-        false => Err(PlanRejection::NotItsStream(harp_id.to_string())),
-    }
-}
-
 // The domain is PLAN_DOMAIN, spelled as the markup takes it, a literal
 // (`aggregate.test.rs` holds them to each other).
-#[aggregate(domain = "plans")]
+#[aggregate(domain = "plans", command = PlanCommand, event = PlanEvent)]
 impl PlanAggregate {
-    /// Create the plan, in the stream its harp id derives: refused on a
-    /// stream holding a plan, and for a blank title, a status a plan
+    /// Create the plan, in the stream its harp id derives (`rooted_by`: an
+    /// add sent to another stream is refused before this runs): refused on
+    /// a stream holding a plan, and for a blank title, a status a plan
     /// cannot start in, or a malformed hash.
-    #[handles_cmd(AddPlan)]
+    #[handles_cmd(AddPlan, rooted_by = harp_id)]
     fn add_plan(&self, cmd: AddPlan, ctx: &Context) -> Result<PlanAdded, Failed<PlanRejection>> {
-        // An add to a stream holding a plan is refused as that first.
+        let _ = ctx;
         if self.plan.added {
             return Err(PlanRejection::AlreadyAdded.into());
         }
-        let root = ctx
-            .command
-            .cover
-            .as_ref()
-            .and_then(|cover| cover.root.as_ref())
-            .map(|root| &root.value[..]);
-        belongs(&cmd.harp_id, root)?;
         let add = crate::AddPlan::from(cmd);
         carried(&add)?;
         Ok(add.into())

@@ -3,14 +3,11 @@
 //! reads of each stream. The interleaving is forced: the list's store
 //! runs the other process as soon as its `covers` has answered.
 
-use std::sync::Mutex;
+use std::sync::Arc;
 
-use angzarr_embedded::angzarr_store_sqlite::{SqliteRead, SqliteStore};
-use angzarr_ports::angzarr_proto::v1::{Cover, EventPage, Snapshot};
-use angzarr_ports::{
-    ChangeToken, EventStore, PositionKey, PositionStore, Purge, ReadStore, ReadUnit, Slice,
-    SnapshotStore, StoreError, StreamRef, Watch, Write, Written,
-};
+use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
+use angzarr_embedded::testing::{At, FaultyStore};
+use angzarr_ports::StoreError;
 use harp_names::HarpNames;
 use ports::{Project, TaskStores};
 use project_registry::{Environment, ProjectRegistry};
@@ -21,151 +18,37 @@ use super::{one_document, Env};
 
 /// What the other process does, run once, between a read's `covers` and
 /// its reads.
-type Meanwhile<'e> = Box<dyn FnOnce() + Send + 'e>;
+type Meanwhile = Box<dyn FnOnce(&SqliteStore) + Send>;
 
-/// The project's SQLite store, opened by the list's own handle, running
-/// `meanwhile` once a read-only unit's `covers` has answered.
-struct Interleaved<'e> {
-    store: SqliteStore,
-    meanwhile: Mutex<Option<Meanwhile<'e>>>,
+/// The one project's SQLite store, opened read-only on first ask, by the
+/// list's own handle, with the other process's turn armed to run just
+/// before a read unit's first stream read: once its `covers` has answered
+/// (angzarr-ports' FaultyStore, `At::UnitRead`).
+struct Stores {
+    held: Option<FaultyStore<SqliteStore>>,
+    meanwhile: Option<Meanwhile>,
 }
 
-/// A read-only unit over [`Interleaved`]'s store.
-struct InterleavedRead<'s, 'e> {
-    reads: SqliteRead<'s>,
-    meanwhile: &'s Mutex<Option<Meanwhile<'e>>>,
-}
+impl TaskStores for Stores {
+    type Store = FaultyStore<SqliteStore>;
 
-fn run(meanwhile: &Mutex<Option<Meanwhile<'_>>>) {
-    let meanwhile = meanwhile.lock().unwrap().take();
-    if let Some(meanwhile) = meanwhile {
-        meanwhile();
-    }
-}
-
-impl EventStore for Interleaved<'_> {
-    async fn write(&self, write: Write<'_>) -> Result<Written, StoreError> {
-        self.store.write(write).await
-    }
-
-    async fn read(
-        &self,
-        stream: StreamRef<'_>,
-        from: u64,
-        to: Option<u64>,
-    ) -> Result<Slice, StoreError> {
-        self.store.read(stream, from, to).await
-    }
-
-    async fn find_command(
-        &self,
-        stream: StreamRef<'_>,
-        command_id: angzarr_ports::Uuid,
-    ) -> Result<Vec<EventPage>, StoreError> {
-        self.store.find_command(stream, command_id).await
-    }
-
-    async fn covers(&self, domain: &str) -> Result<Vec<Cover>, StoreError> {
-        self.store.covers(domain).await
-    }
-}
-
-impl SnapshotStore for Interleaved<'_> {
-    async fn read_snapshot(&self, stream: StreamRef<'_>) -> Result<Option<Snapshot>, StoreError> {
-        self.store.read_snapshot(stream).await
-    }
-
-    async fn write_snapshot(
-        &self,
-        stream: StreamRef<'_>,
-        snapshot: &Snapshot,
-    ) -> Result<(), StoreError> {
-        self.store.write_snapshot(stream, snapshot).await
-    }
-}
-
-impl PositionStore for Interleaved<'_> {
-    async fn position(&self, key: PositionKey<'_>) -> Result<u64, StoreError> {
-        self.store.position(key).await
-    }
-}
-
-impl Purge for Interleaved<'_> {
-    async fn purge(&self, stream: StreamRef<'_>, expected: u64) -> Result<u64, StoreError> {
-        self.store.purge(stream, expected).await
-    }
-}
-
-impl Watch for Interleaved<'_> {
-    async fn change_token(&self) -> Result<ChangeToken, StoreError> {
-        self.store.change_token().await
-    }
-}
-
-impl<'e> ReadStore for Interleaved<'e> {
-    type Reads<'s>
-        = InterleavedRead<'s, 'e>
-    where
-        Self: 's;
-
-    async fn begin_read(&self) -> Result<InterleavedRead<'_, 'e>, StoreError> {
-        Ok(InterleavedRead {
-            reads: self.store.begin_read().await?,
-            meanwhile: &self.meanwhile,
-        })
-    }
-}
-
-impl ReadUnit for InterleavedRead<'_, '_> {
-    async fn covers(&mut self, domain: &str) -> Result<Vec<Cover>, StoreError> {
-        let covers = self.reads.covers(domain).await;
-        run(self.meanwhile);
-        covers
-    }
-
-    async fn read(
-        &mut self,
-        stream: StreamRef<'_>,
-        from: u64,
-        to: Option<u64>,
-    ) -> Result<Slice, StoreError> {
-        self.reads.read(stream, from, to).await
-    }
-
-    async fn read_snapshot(
-        &mut self,
-        stream: StreamRef<'_>,
-    ) -> Result<Option<Snapshot>, StoreError> {
-        self.reads.read_snapshot(stream).await
-    }
-}
-
-/// The one project's store, opened read-only on first ask, with the
-/// other process's turn armed.
-struct Stores<'e> {
-    held: Option<Interleaved<'e>>,
-    meanwhile: Option<Meanwhile<'e>>,
-}
-
-impl<'e> TaskStores for Stores<'e> {
-    type Store = Interleaved<'e>;
-
-    async fn open(&mut self, project: &Project) -> Result<&Interleaved<'e>, StoreError> {
+    async fn open(&mut self, project: &Project) -> Result<&FaultyStore<SqliteStore>, StoreError> {
         Ok(self.open_existing(project).await?.expect("a seeded store"))
     }
 
     async fn open_existing(
         &mut self,
         project: &Project,
-    ) -> Result<Option<&Interleaved<'e>>, StoreError> {
+    ) -> Result<Option<&FaultyStore<SqliteStore>>, StoreError> {
         if self.held.is_none() {
             let Some(store) = SqliteStore::open_existing(&project.store).await? else {
                 return Ok(None);
             };
-            self.held = Some(Interleaved {
-                store,
-                meanwhile: Mutex::new(self.meanwhile.take()),
-            });
+            let store = FaultyStore::new(store);
+            if let Some(meanwhile) = self.meanwhile.take() {
+                store.before(At::UnitRead, meanwhile);
+            }
+            self.held = Some(store);
         }
         Ok(self.held.as_ref())
     }
@@ -183,17 +66,19 @@ fn add(env: &Env, args: &[&str]) -> String {
 
 #[test]
 fn test_a_list_reads_one_moment_though_another_process_writes_and_purges_meanwhile() {
-    let env = Env::new("snapshot-harp");
+    let env = Arc::new(Env::new("snapshot-harp"));
     let moving = add(&env, &["Moving"]);
     let pruned = add(&env, &["Pruned", "--status", "Done"]);
     let moved = moving.clone();
-    let meanwhile: Meanwhile<'_> = Box::new(|| {
+    let other = Arc::clone(&env);
+    let meanwhile: Meanwhile = Box::new(move |_: &SqliteStore| {
+        let env = &other;
         let ran = env.run(&["prune", "--older-than", "1ns", "--yes", "--json"]);
         assert!(ran.ok, "{}", ran.stderr);
         assert_eq!(one_document(&ran.stdout)["tasks_pruned"], 1);
         let ran = env.run(&["status", &moved, "In Progress", "--json"]);
         assert!(ran.ok, "{}", ran.stderr);
-        add(&env, &["Added meanwhile"]);
+        add(env, &["Added meanwhile"]);
     });
     let environment = Environment {
         home: Some(env.home.path().to_path_buf()),
@@ -226,15 +111,7 @@ fn test_a_list_reads_one_moment_though_another_process_writes_and_purges_meanwhi
     let listing = runtime.block_on(service.list(all)).unwrap();
     assert!(matches!(listing.reach, Reach::Project(_)));
     assert!(
-        service
-            .stores
-            .held
-            .as_ref()
-            .unwrap()
-            .meanwhile
-            .lock()
-            .unwrap()
-            .is_none(),
+        service.stores.held.as_ref().unwrap().ran(At::UnitRead),
         "the other process ran between the list's covers and its reads"
     );
     let seen: Vec<(&str, &str)> = listing

@@ -4,8 +4,6 @@
 //! them, as it sees them; a list another hand keeps does not; a fresh list
 //! catches up from the store, as every read of another process does.
 
-use std::future::Future;
-
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::{
@@ -22,14 +20,8 @@ type List = CatchUp<TaskLists>;
 const FIRST: &str = "swift-amber";
 const SECOND: &str = "calm-otter";
 
-/// Poll `future` once: the in-memory store never waits.
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
-    match std::pin::pin!(future).poll(&mut cx) {
-        std::task::Poll::Ready(out) => out,
-        std::task::Poll::Pending => panic!("the in-memory store never waits"),
-    }
-}
+/// Run a future whose every await is ready at once: the test support's.
+use angzarr_embedded::testing::block_on_ready as ready;
 
 /// One project's store, and the clock its commands are sampled at.
 struct Project {

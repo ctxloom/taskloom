@@ -2,7 +2,9 @@
 //! the kernel as the binary runs them over SQLite.
 
 use crate::english::English;
+use crate::fakes::{read_from, At};
 use angzarr_diagnostic::{Diagnostic, Report};
+use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::v1::event_meta::Causation;
 use angzarr_embedded::v1::CommandBook;
 use angzarr_embedded::{CommandBookExt, Payload};
@@ -48,7 +50,7 @@ fn listed(service: &mut Fake, query: ListQuery) -> Vec<String> {
 
 /// The command ids recorded on `harp`'s events.
 fn command_ids(service: &mut Fake, harp: &str) -> Vec<angzarr_embedded::v1::Uuid> {
-    let slice = ready(service.stores.store.read_from(&task_cover(harp), 0))
+    let slice = ready(read_from(&service.stores.store, &task_cover(harp), 0))
         .unwrap()
         .expect("the stream");
     slice
@@ -296,7 +298,7 @@ fn test_an_add_retries_its_one_command_id_through_store_failures() {
     let written = add(&mut service, new_task("Ship it")).unwrap();
     assert_eq!(written.task.harp_id, "swift-amber");
     assert_eq!(
-        service.stores.store.begun(),
+        service.stores.store.attempts(),
         1 + 2,
         "the seed, then two writes: the retry after the lost answer found it on the stream"
     );
@@ -321,7 +323,7 @@ fn test_an_add_that_cannot_resolve_its_project_fails_with_why() {
 #[test]
 fn test_an_add_whose_store_does_not_open_fails() {
     let mut service = service(&["swift-amber"]);
-    service.stores.store.open_fails = true;
+    service.stores.open_fails = true;
     let error = add(&mut service, new_task("Ship it")).unwrap_err();
     assert_eq!(error.code(), "angzarr-ports-store-unavailable");
 }
@@ -610,11 +612,14 @@ fn test_a_scalar_value_set_by_another_since_is_displaced_too() {
         remove: vec![parse("triage:level=3")],
     }
     .into();
-    service.stores.store.set_meanwhile(Box::new(move |store| {
-        crate::fakes::run(store, "swift-amber", retag);
-    }));
+    service.stores.store.before(
+        At::Any,
+        Box::new(move |store: &MemoryStore| {
+            crate::fakes::run(store, "swift-amber", retag);
+        }),
+    );
     let written = ready(service.tag(change("swift-amber", &["triage:level=1"], &[]))).unwrap();
-    assert!(service.stores.store.meanwhile_ran(), "the other retag ran");
+    assert!(service.stores.store.ran(At::Any), "the other retag ran");
     assert_eq!(spelled(&written.task.tags), ["triage:level=1", "x"]);
 }
 
@@ -634,15 +639,13 @@ fn test_a_scalar_value_set_between_the_shaping_read_and_the_write_is_displaced_t
     .into();
     // The reads: the schema's load, the shape's load, then the kernel's
     // own for the send: the other retag lands just before that one.
-    service.stores.store.set_before_read(
+    service.stores.store.before_nth(
+        At::Read,
         3,
-        Box::new(move |store| crate::fakes::run(store, "swift-amber", retag)),
+        Box::new(move |store: &MemoryStore| crate::fakes::run(store, "swift-amber", retag)),
     );
     let written = ready(service.tag(change("swift-amber", &["triage:level=1"], &[]))).unwrap();
-    assert!(
-        service.stores.store.before_read_ran(),
-        "the other retag ran"
-    );
+    assert!(service.stores.store.ran(At::Read), "the other retag ran");
     assert_eq!(spelled(&written.task.tags), ["triage:level=1", "x"]);
     assert_eq!(service.delay.slept.len(), 1, "the stale head, retried once");
 }
@@ -718,9 +721,9 @@ fn add_unchecked(service: &mut Configured, tag: &str) {
         backoff: service.backoff,
         dead_letters: &mut service.dead_letters,
     };
-    let book = CommandBook::command(
+    let book = CommandBook::command_of(
         crate::task_cover("swift-amber"),
-        tasks::TaskCommand::from(add).to_any(),
+        &tasks::TaskCommand::from(add),
     );
     let id = angzarr_embedded::v1::Uuid::from_bytes([7; 16]);
     ready(runner.run::<tasks::TaskAggregate, _, _>(&service.stores.store, book, &id))
@@ -856,7 +859,7 @@ fn test_a_tag_whose_project_does_not_resolve_fails_with_why() {
 fn test_a_tag_whose_store_does_not_open_fails() {
     let mut service = service(&[]);
     service.identity.bound = Some(project());
-    service.stores.store.open_fails = true;
+    service.stores.open_fails = true;
     let error = ready(service.tag(change("swift-amber", &["x"], &[]))).unwrap_err();
     assert_eq!(error.code(), "angzarr-ports-store-unavailable");
 }
@@ -1334,7 +1337,7 @@ fn test_a_list_whose_project_does_not_resolve_fails_with_why() {
 fn test_a_list_whose_store_does_not_open_fails() {
     let mut service = service(&[]);
     service.identity.bound = Some(project());
-    service.stores.store.open_fails = true;
+    service.stores.open_fails = true;
     let error = ready(service.list(ListQuery::default())).unwrap_err();
     assert_eq!(error.code(), "angzarr-ports-store-unavailable");
 }
@@ -1363,7 +1366,7 @@ fn spelled(tags: &[tasks::Tag]) -> Vec<String> {
 #[test]
 fn test_an_add_answers_the_task_its_commit_left_whatever_reads_after_it() {
     let mut service = service(&["swift-amber"]);
-    service.stores.store.hollow = true;
+    service.stores.store.hollow(true);
     let written = add(&mut service, new_task("Ship it")).unwrap();
     assert_eq!(written.task.harp_id, "swift-amber");
     assert_eq!(written.task.text, "Ship it");
@@ -1514,7 +1517,7 @@ fn test_a_writes_dead_letters_are_the_kernels_answer_and_the_stores() {
     assert_eq!(letters[0].letter.source_component, "tasks-broken");
     let stream = angzarr_embedded::StreamRef::try_from(&letters[0].stream).unwrap();
     let kept = ready(angzarr_embedded::DeadLetterStore::dead_letters(
-        &service.stores.store.inner,
+        service.stores.store.inner(),
         stream,
     ))
     .unwrap();
@@ -1679,7 +1682,7 @@ fn test_a_keyed_add_retried_after_a_passed_harp_is_purged_answers_with_its_task(
     service.names.seed("r-1", &["swift-amber", "calm-otter"]);
     let first = add(&mut service, keyed("r-1", "Mine")).unwrap();
     assert_eq!(first.task.harp_id, "calm-otter");
-    crate::fakes::purge(&service.stores.store.inner, "swift-amber");
+    crate::fakes::purge(service.stores.store.inner(), "swift-amber");
     assert_eq!(held(&mut service).len(), 1, "theirs purged");
     let again = add(&mut service, keyed("r-1", "Mine")).unwrap();
     assert_eq!(again.task, first.task);
@@ -1791,7 +1794,7 @@ fn test_a_blank_request_id_is_refused_before_anything_is_read() {
 /// Another process seeding `store`'s schema stream with `tag` alone.
 fn seeded_meanwhile(store: &angzarr_embedded::angzarr_ports::memory::MemoryStore, tag: &str) {
     use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover};
-    use angzarr_embedded::{Kernel, Payload, Sampled};
+    use angzarr_embedded::{Kernel, Sampled};
     let registry = crate::registry();
     let declare = tasks::schema::Declare {
         add: vec![tagma_core::Tag::parse(tag).unwrap().into()],
@@ -1833,7 +1836,7 @@ fn schema_events(service: &mut Fake) -> usize {
         root: Some(tasks::schema::schema_root()),
         edition: None,
     };
-    ready(service.stores.store.read_from(&cover, 0))
+    ready(read_from(&service.stores.store, &cover, 0))
         .unwrap()
         .map_or(0, |slice| slice.pages.len())
 }
@@ -1848,12 +1851,13 @@ fn test_a_seed_racing_another_lands_once_and_keeps_the_others() {
     let mut service = service(&["swift-amber"]);
     // The reads: the schema's first load, the seed's shaping load, then
     // the kernel's own for the send: the other's seed lands before that.
-    service.stores.store.set_before_read(
+    service.stores.store.before_nth(
+        At::Read,
         3,
-        Box::new(|store| seeded_meanwhile(store, "tagma.keys-per-item:lang=1")),
+        Box::new(|store: &MemoryStore| seeded_meanwhile(store, "tagma.keys-per-item:lang=1")),
     );
     add(&mut service, new_task("Ship it")).unwrap();
-    assert!(service.stores.store.before_read_ran(), "the other seeded");
+    assert!(service.stores.store.ran(At::Read), "the other seeded");
     assert_eq!(schema_events(&mut service), 1, "one seed");
     assert_eq!(service.delay.slept.len(), 1, "the stale head, retried once");
     let exported = ready(crate::SchemaService::schema_export(&mut service, None)).unwrap();

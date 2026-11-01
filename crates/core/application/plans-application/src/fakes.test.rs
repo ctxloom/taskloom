@@ -6,38 +6,26 @@
 //! runs the use cases as plain calls.
 
 use std::cell::RefCell;
-use std::future::Future;
 use std::path::PathBuf;
-use std::pin::pin;
-use std::sync::Mutex;
-use std::task::{Context, Poll, Waker};
-use std::time::Duration;
 
 use angzarr_diagnostic::Report;
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
-use angzarr_embedded::v1::{Cover, EventPage, Snapshot};
-use angzarr_embedded::{
-    ChangeToken, EventStore, PositionKey, PositionStore, Purge, ReadStore, Slice, SnapshotStore,
-    StoreError, StreamRef, Watch, Write, Written,
-};
-use ports::{
-    Clock, CommandIds, Delay, Jitter, Mint, PlanFiles, Project, ProjectIdentity, TaskStores, Tasks,
-    Timestamp, Uuid,
-};
+use angzarr_embedded::testing::FaultyStore;
+use angzarr_embedded::StoreError;
+use ports::{Mint, PlanFiles, Project, ProjectIdentity, TaskStores, Tasks};
 
 use crate::{
     CheckReport, ImportReport, Link, NewPlan, PlanError, PlanQuery, PlanService, PlanStatus,
     PlanText, PlanView, Plans,
 };
 
-/// Run a future whose every await is ready at once.
-pub fn ready<F: Future>(future: F) -> F::Output {
-    let mut cx = Context::from_waker(Waker::noop());
-    match pin!(future).poll(&mut cx) {
-        Poll::Ready(out) => out,
-        Poll::Pending => panic!("the fakes' futures are ready at once"),
-    }
-}
+/// Run a future whose every await is ready at once: the test support's.
+pub use angzarr_embedded::testing::block_on_ready as ready;
+/// How a write goes wrong, and where another process's doings run:
+/// angzarr-ports' faulty store's.
+pub use angzarr_embedded::testing::{At, Fault};
+/// The clock, ids and delay: the ports' stand-ins.
+pub use ports::testing::{FakeClock, FakeDelay};
 
 pub fn project() -> Project {
     Project {
@@ -73,118 +61,11 @@ impl ProjectIdentity for FakeIdentity {
     }
 }
 
-/// What another process does to the store.
-pub type Meanwhile = Box<dyn FnOnce(&MemoryStore) + Send>;
-
-/// The in-memory store, whose next write is preceded, once, by what
-/// another process does meanwhile: the race between a use case's read and
-/// its write, forced. Writes are counted.
-#[derive(Default)]
-pub struct Store {
-    pub inner: MemoryStore,
-    meanwhile: Mutex<Option<Meanwhile>>,
-    writes: Mutex<u32>,
-    /// Writes still to fail, the store unable to say.
-    failing: Mutex<u32>,
-}
-
-impl Store {
-    /// Run `meanwhile` just before the next write lands.
-    pub fn before_next_write(&self, meanwhile: Meanwhile) {
-        *self.meanwhile.lock().unwrap() = Some(meanwhile);
-    }
-
-    /// Fail the next `writes` writes, the store unable to say.
-    pub fn fail_writes(&self, writes: u32) {
-        *self.failing.lock().unwrap() = writes;
-    }
-
-    /// Writes tried.
-    pub fn writes(&self) -> u32 {
-        *self.writes.lock().unwrap()
-    }
-}
-
-impl EventStore for Store {
-    async fn write(&self, write: Write<'_>) -> Result<Written, StoreError> {
-        *self.writes.lock().unwrap() += 1;
-        {
-            let mut failing = self.failing.lock().unwrap();
-            if *failing > 0 {
-                *failing -= 1;
-                return Err(StoreError::Unavailable(
-                    angzarr_embedded::angzarr_ports::Cause::new("fake-busy", []),
-                ));
-            }
-        }
-        let meanwhile = self.meanwhile.lock().unwrap().take();
-        if let Some(meanwhile) = meanwhile {
-            meanwhile(&self.inner);
-        }
-        self.inner.write(write).await
-    }
-
-    async fn read(
-        &self,
-        stream: StreamRef<'_>,
-        from: u64,
-        to: Option<u64>,
-    ) -> Result<Slice, StoreError> {
-        self.inner.read(stream, from, to).await
-    }
-
-    async fn find_command(
-        &self,
-        stream: StreamRef<'_>,
-        command_id: angzarr_embedded::angzarr_ports::Uuid,
-    ) -> Result<Vec<EventPage>, StoreError> {
-        self.inner.find_command(stream, command_id).await
-    }
-
-    async fn covers(&self, domain: &str) -> Result<Vec<Cover>, StoreError> {
-        self.inner.covers(domain).await
-    }
-}
-
-impl SnapshotStore for Store {
-    async fn read_snapshot(&self, stream: StreamRef<'_>) -> Result<Option<Snapshot>, StoreError> {
-        self.inner.read_snapshot(stream).await
-    }
-
-    async fn write_snapshot(
-        &self,
-        stream: StreamRef<'_>,
-        snapshot: &Snapshot,
-    ) -> Result<(), StoreError> {
-        self.inner.write_snapshot(stream, snapshot).await
-    }
-}
-
-impl PositionStore for Store {
-    async fn position(&self, key: PositionKey<'_>) -> Result<u64, StoreError> {
-        self.inner.position(key).await
-    }
-}
-
-impl ReadStore for Store {
-    type Reads<'s> = <MemoryStore as ReadStore>::Reads<'s>;
-
-    async fn begin_read(&self) -> Result<Self::Reads<'_>, StoreError> {
-        self.inner.begin_read().await
-    }
-}
-
-impl Purge for Store {
-    async fn purge(&self, stream: StreamRef<'_>, expected: u64) -> Result<u64, StoreError> {
-        self.inner.purge(stream, expected).await
-    }
-}
-
-impl Watch for Store {
-    async fn change_token(&self) -> Result<ChangeToken, StoreError> {
-        self.inner.change_token().await
-    }
-}
+/// The in-memory store, failing what a test says: its next writes
+/// (`fail`), and what another process does just before the next write
+/// (`before(At::Write, ..)`), the race between a use case's read and its
+/// write, forced. Its writes are recorded (`writes`).
+pub type Store = FaultyStore<MemoryStore>;
 
 /// The one store, whichever project is asked for.
 #[derive(Default)]
@@ -201,50 +82,6 @@ impl TaskStores for FakeStores {
 
     async fn open_existing(&mut self, _: &Project) -> Result<Option<&Store>, StoreError> {
         Ok(Some(&self.store))
-    }
-}
-
-/// A clock one second on at each reading, and command ids numbered from 1.
-#[derive(Default)]
-pub struct FakeClock {
-    pub seconds: i64,
-    pub ids: u32,
-}
-
-impl Clock for FakeClock {
-    fn now(&mut self) -> Timestamp {
-        self.seconds += 1;
-        Timestamp {
-            seconds: 1_700_000_000 + self.seconds,
-            nanos: 0,
-        }
-    }
-}
-
-impl CommandIds for FakeClock {
-    fn command_id(&mut self) -> Uuid {
-        self.ids += 1;
-        let mut bytes = [0u8; 16];
-        bytes[12..].copy_from_slice(&self.ids.to_be_bytes());
-        Uuid::from_bytes(bytes)
-    }
-}
-
-/// Waits recorded, never waited; no jitter.
-#[derive(Default)]
-pub struct FakeDelay {
-    pub slept: Vec<Duration>,
-}
-
-impl Delay for FakeDelay {
-    async fn sleep(&mut self, duration: Duration) {
-        self.slept.push(duration);
-    }
-}
-
-impl Jitter for FakeDelay {
-    fn up_to(&mut self, ceiling: Duration) -> Duration {
-        ceiling
     }
 }
 

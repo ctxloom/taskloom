@@ -168,7 +168,6 @@ fn test_a_removal_of_every_rule_still_leaves_the_stream_declared() {
 // over angzarr-ports' in-memory store, as the binary drives it.
 
 mod on_the_kernel {
-    use std::future::Future;
 
     use angzarr_diagnostic::Diagnostic;
     use angzarr_embedded::angzarr_ports::memory::MemoryStore;
@@ -184,17 +183,8 @@ mod on_the_kernel {
         SCHEMA_DOMAIN,
     };
 
-    fn ready<F: Future>(future: F) -> F::Output {
-        let mut future = std::pin::pin!(future);
-        let waker = std::task::Waker::noop();
-        match future
-            .as_mut()
-            .poll(&mut std::task::Context::from_waker(waker))
-        {
-            std::task::Poll::Ready(out) => out,
-            std::task::Poll::Pending => panic!("the in-memory store never waits"),
-        }
-    }
+    /// Run a future whose every await is ready at once: the test support's.
+    use angzarr_embedded::testing::block_on_ready as ready;
 
     fn cover() -> Cover {
         Cover {

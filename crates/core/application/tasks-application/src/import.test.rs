@@ -2,6 +2,7 @@
 //! through angzarr-embedded's kernel as the binary runs it over SQLite.
 
 use crate::english::English;
+use crate::fakes::{failing, read_from};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -12,9 +13,7 @@ use ports::{JsonlOp, JsonlRecord, JsonlTaskLogs};
 use tasks::{TaskAggregate, TaskState};
 
 use super::{anomaly_key, record_command_id, rfc3339_nano, Step};
-use crate::fakes::{
-    ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores, Fault, Flaky,
-};
+use crate::fakes::{ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores, Fault};
 use crate::{
     task_cover, ImportReport, ImportRequest, ImportService, Importer, Lost, NewTask, ProjectImport,
     Service, TaskService, Why,
@@ -81,7 +80,7 @@ fn at(seconds: i64) -> Timestamp {
 
 /// The task `harp` as its stream holds it.
 fn state(service: &mut Fake, harp: &str) -> Option<TaskState> {
-    let slice = ready(service.stores.store.read_from(&task_cover(harp), 0)).unwrap()?;
+    let slice = ready(read_from(&service.stores.store, &task_cover(harp), 0)).unwrap()?;
     let stream =
         Stream::<TaskAggregate>::replay(task_cover(harp), &slice.pages, &crate::registry())
             .unwrap();
@@ -90,7 +89,7 @@ fn state(service: &mut Fake, harp: &str) -> Option<TaskState> {
 
 /// How many events `harp`'s stream holds.
 fn events(service: &mut Fake, harp: &str) -> usize {
-    ready(service.stores.store.read_from(&task_cover(harp), 0))
+    ready(read_from(&service.stores.store, &task_cover(harp), 0))
         .unwrap()
         .map_or(0, |slice| slice.pages.len())
 }
@@ -736,7 +735,7 @@ fn test_an_import_that_stopped_part_way_resumes() {
     service.backoff.attempts = 1;
     // The add lands, but its answer is lost and no retry is allowed: the
     // import stops there.
-    service.stores.store = Flaky::failing(&[Fault::LandsThenFails]);
+    service.stores.store = failing(&[Fault::LandsThenFails]);
     let first = import(&mut service);
     let stopped = only(&first);
     assert_eq!(
@@ -773,7 +772,7 @@ fn test_a_record_imports_under_the_command_id_its_line_derives() {
     let stream = angzarr_embedded::StreamRef::try_from(&cover).unwrap();
     let id = angzarr_embedded::angzarr_ports::Uuid::try_from(&id).unwrap();
     let found = ready(angzarr_embedded::EventStore::find_command(
-        &service.stores.store.inner,
+        service.stores.store.inner(),
         stream,
         id,
     ))
@@ -902,7 +901,7 @@ fn test_a_project_that_cannot_resolve_fails() {
 #[test]
 fn test_a_store_that_does_not_open_fails_the_project() {
     let mut service = service(vec![add(HARP, "One", 1)]);
-    service.stores.store.open_fails = true;
+    service.stores.open_fails = true;
     let report = import(&mut service);
     assert_eq!(
         only(&report).failed.as_ref().map(|r| r.code()),

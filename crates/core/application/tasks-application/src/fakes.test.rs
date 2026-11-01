@@ -3,36 +3,27 @@
 //! case to its end without a runtime.
 
 use std::collections::{BTreeMap, VecDeque};
-use std::future::Future;
 use std::path::PathBuf;
-use std::pin::pin;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Mutex;
-use std::task::{Context, Poll, Waker};
-use std::time::Duration;
 
 use angzarr_diagnostic::Report;
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
-use angzarr_embedded::v1::{CommandBook, Cover, EventPage, Snapshot, Uuid};
+use angzarr_embedded::angzarr_ports::Cause;
+use angzarr_embedded::testing::FaultyStore;
+use angzarr_embedded::v1::{CommandBook, Cover};
 use angzarr_embedded::{
-    ChangeToken, CommandBookExt, EventStore, Kernel, Payload, PositionKey, PositionStore, Purge,
-    ReadStore, ReadUnit, Sampled, Slice, SnapshotStore, StoreError, StreamRef, Watch, Write,
-    Written,
+    CommandBookExt, EventStore, Kernel, Purge, Sampled, Slice, StoreError, StreamRef, Watch,
 };
-use angzarr_ports::Cause;
 use ports::{
-    Clock, CommandIds, Delay, HeldToken, Jitter, Names, Project, ProjectIdentity, TaskStores,
-    Timestamp, WatchedStores,
+    HeldToken, Names, Project, ProjectIdentity, TaskStores, Timestamp, Uuid, WatchedStores,
 };
 
-/// Run a future whose every await is ready at once.
-pub fn ready<F: Future>(future: F) -> F::Output {
-    let mut cx = Context::from_waker(Waker::noop());
-    match pin!(future).poll(&mut cx) {
-        Poll::Ready(out) => out,
-        Poll::Pending => panic!("the fakes' futures are ready at once"),
-    }
-}
+/// Run a future whose every await is ready at once: the test support's.
+pub use angzarr_embedded::testing::block_on_ready as ready;
+/// How a write or a purge goes wrong, and where another process's doings
+/// run: angzarr-ports' faulty store's.
+pub use angzarr_embedded::testing::{At, Fault};
+/// The clock, ids and delay: the ports' stand-ins.
+pub use ports::testing::{FakeClock, FakeDelay};
 
 pub fn project() -> Project {
     Project {
@@ -91,23 +82,8 @@ impl ProjectIdentity for FakeIdentity {
     }
 }
 
-/// How one write (or purge) goes wrong.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Fault {
-    /// It fails and nothing lands: the store could not say.
-    Unavailable,
-    /// It lands, then reports failure: the answer was lost.
-    LandsThenFails,
-    /// It is refused: someone appended first.
-    Conflict,
-    /// It fails in a way no retry mends.
-    Discontinuous,
-    /// Nothing goes wrong: a write before the one meant to fail.
-    Sound,
-}
-
 /// What another process does to a store.
-pub type Meanwhile = Box<dyn FnOnce(&MemoryStore) + Send>;
+pub type Meanwhile = angzarr_embedded::testing::Meanwhile<MemoryStore>;
 
 /// Run `command` on `harp`'s stream in `store` directly, as another
 /// process would: what a [`Meanwhile`] does to change a task.
@@ -125,7 +101,7 @@ pub fn run(store: &MemoryStore, harp: &str, command: tasks::TaskCommand) {
             .on_retryable(crate::KERNEL_RETRY)
             .handle::<tasks::TaskAggregate, _>(
                 store,
-                CommandBook::command(crate::task_cover(harp), command.to_any()),
+                CommandBook::command_of(crate::task_cover(harp), &command),
                 &sampled,
             ),
     )
@@ -140,269 +116,33 @@ pub fn purge(store: &MemoryStore, harp: &str) -> u64 {
     ready(Purge::purge(store, stream, head.next_sequence)).unwrap()
 }
 
-/// angzarr-ports' in-memory store, whose writes and purges fail on cue, in
-/// order, with another process's doings run before the next attempt.
-#[derive(Default)]
-pub struct Flaky {
-    pub inner: MemoryStore,
-    faults: Mutex<VecDeque<Fault>>,
-    /// Writes and purges tried.
-    begun: AtomicU32,
-    /// Fails the next open.
-    pub open_fails: bool,
-    /// Done to the store before its next stream read, write or purge: what
-    /// another process does between a use case's earlier read (a listing)
-    /// and the attempt that writes.
-    meanwhile: Mutex<Option<Meanwhile>>,
-    /// Every stream reads back with no events, outside a read-only unit and
-    /// in one: what a stream purged mid-read can look like.
-    pub hollow: bool,
-    /// Read-only units begun: how often every stream was read.
-    reads: AtomicU32,
-    /// Pages read through read-only units: how much of the store's
-    /// streams their reads replayed.
-    unit_pages: AtomicU32,
-    /// Done to the store just before its next purge lands: another
-    /// process's purge and mint between a prune's read and its purge.
-    before_purge: Mutex<Option<Meanwhile>>,
-    /// Done to the store just before the stream read that many reads on
-    /// (1: the next): another process's write between an attempt's reads.
-    before_read: Mutex<Option<(u32, Meanwhile)>>,
+/// angzarr-ports' in-memory store, failing what a test says: its writes
+/// and purges in order (`fail`), with another process's doings run just
+/// before a call (`before`, `before_nth`), reading hollow (`hollow`); the
+/// attempts, the read units begun and their pages counted.
+pub type Flaky = FaultyStore<MemoryStore>;
+
+/// A store whose next writes and purges fail as `faults` say.
+pub fn failing(faults: &[Fault]) -> Flaky {
+    let flaky = Flaky::default();
+    flaky.fail(faults.iter().cloned());
+    flaky
 }
 
-impl Flaky {
-    pub fn failing(faults: &[Fault]) -> Flaky {
-        let flaky = Flaky::default();
-        flaky.fail(faults.iter().copied());
-        flaky
-    }
-
-    /// The next writes and purges fail as `faults` say, in order.
-    pub fn fail(&self, faults: impl IntoIterator<Item = Fault>) {
-        *self.faults.lock().unwrap() = faults.into_iter().collect();
-    }
-
-    /// Writes and purges tried.
-    pub fn begun(&self) -> u32 {
-        self.begun.load(Ordering::SeqCst)
-    }
-
-    /// Read-only units begun.
-    pub fn reads(&self) -> u32 {
-        self.reads.load(Ordering::SeqCst)
-    }
-
-    /// Pages read through read-only units so far.
-    pub fn unit_pages(&self) -> u32 {
-        self.unit_pages.load(Ordering::SeqCst)
-    }
-
-    /// Run `meanwhile` before the next attempt.
-    pub fn set_meanwhile(&self, meanwhile: Meanwhile) {
-        *self.meanwhile.lock().unwrap() = Some(meanwhile);
-    }
-
-    /// Run `meanwhile` just before the next purge lands.
-    pub fn set_before_purge(&self, meanwhile: Meanwhile) {
-        *self.before_purge.lock().unwrap() = Some(meanwhile);
-    }
-
-    /// Run `meanwhile` just before the `nth` stream read from now (1: the
-    /// next).
-    pub fn set_before_read(&self, nth: u32, meanwhile: Meanwhile) {
-        *self.before_read.lock().unwrap() = Some((nth, meanwhile));
-    }
-
-    /// Whether what was set to run before a read has run.
-    pub fn before_read_ran(&self) -> bool {
-        self.before_read.lock().unwrap().is_none()
-    }
-
-    /// Whether what was set to run meanwhile has run.
-    pub fn meanwhile_ran(&self) -> bool {
-        self.meanwhile.lock().unwrap().is_none()
-    }
-
-    fn meanwhile(&self) {
-        let meanwhile = self.meanwhile.lock().unwrap().take();
-        if let Some(meanwhile) = meanwhile {
-            meanwhile(&self.inner);
-        }
-    }
-
-    /// The stream `cover` names from `from`, as a reader outside any use
-    /// case reads it: `None` when it holds no events.
-    pub async fn read_from(&self, cover: &Cover, from: u64) -> Result<Option<Slice>, StoreError> {
-        let stream = StreamRef::try_from(cover)?;
-        let slice = self.inner.read(stream, from, None).await?;
-        Ok((slice.next_sequence > 0).then_some(slice))
-    }
-
-    /// The next fault, counting the attempt.
-    fn fault(&self) -> Option<Fault> {
-        self.begun.fetch_add(1, Ordering::SeqCst);
-        self.faults.lock().unwrap().pop_front()
-    }
+/// The stream `cover` names in `store` from `from`, as a reader outside any
+/// use case reads it: `None` when it holds no events.
+pub async fn read_from(
+    store: &Flaky,
+    cover: &Cover,
+    from: u64,
+) -> Result<Option<Slice>, StoreError> {
+    let stream = StreamRef::try_from(cover)?;
+    let slice = store.inner().read(stream, from, None).await?;
+    Ok((slice.next_sequence > 0).then_some(slice))
 }
 
 fn unavailable() -> StoreError {
     StoreError::Unavailable(Cause::new("fake-busy", []))
-}
-
-fn some_stream() -> StreamRef<'static> {
-    StreamRef::main("tasks", angzarr_ports::Uuid::from_bytes([0; 16]))
-}
-
-/// `slice`, emptied of its events where the store reads hollow.
-fn hollowed(hollow: bool, mut slice: Slice) -> Slice {
-    if hollow {
-        slice.pages.clear();
-    }
-    slice
-}
-
-impl EventStore for Flaky {
-    async fn write(&self, write: Write<'_>) -> Result<Written, StoreError> {
-        self.meanwhile();
-        match self.fault() {
-            None | Some(Fault::Sound) => self.inner.write(write).await,
-            Some(Fault::Unavailable) => Err(unavailable()),
-            Some(Fault::LandsThenFails) => {
-                self.inner.write(write).await?;
-                Err(unavailable())
-            }
-            Some(Fault::Conflict) => Err(StoreError::conflict(some_stream(), 0, 1)),
-            Some(Fault::Discontinuous) => Err(StoreError::discontinuous(some_stream(), 0, 3)),
-        }
-    }
-
-    async fn read(
-        &self,
-        stream: StreamRef<'_>,
-        from: u64,
-        to: Option<u64>,
-    ) -> Result<Slice, StoreError> {
-        self.meanwhile();
-        let due = {
-            let mut armed = self.before_read.lock().unwrap();
-            match armed.take() {
-                Some((1, meanwhile)) => Some(meanwhile),
-                Some((n, meanwhile)) => {
-                    *armed = Some((n - 1, meanwhile));
-                    None
-                }
-                None => None,
-            }
-        };
-        if let Some(meanwhile) = due {
-            meanwhile(&self.inner);
-        }
-        let slice = self.inner.read(stream, from, to).await?;
-        Ok(hollowed(self.hollow, slice))
-    }
-
-    async fn find_command(
-        &self,
-        stream: StreamRef<'_>,
-        command_id: angzarr_ports::Uuid,
-    ) -> Result<Vec<EventPage>, StoreError> {
-        self.inner.find_command(stream, command_id).await
-    }
-
-    async fn covers(&self, domain: &str) -> Result<Vec<Cover>, StoreError> {
-        self.inner.covers(domain).await
-    }
-}
-
-impl SnapshotStore for Flaky {
-    async fn read_snapshot(&self, stream: StreamRef<'_>) -> Result<Option<Snapshot>, StoreError> {
-        self.inner.read_snapshot(stream).await
-    }
-
-    async fn write_snapshot(
-        &self,
-        stream: StreamRef<'_>,
-        snapshot: &Snapshot,
-    ) -> Result<(), StoreError> {
-        self.inner.write_snapshot(stream, snapshot).await
-    }
-}
-
-impl PositionStore for Flaky {
-    async fn position(&self, key: PositionKey<'_>) -> Result<u64, StoreError> {
-        self.inner.position(key).await
-    }
-}
-
-/// A read-only unit over a [`Flaky`] store: as hollow as the store is.
-pub struct FlakyRead<'s> {
-    inner: <MemoryStore as ReadStore>::Reads<'s>,
-    hollow: bool,
-    pages: &'s AtomicU32,
-}
-
-impl ReadStore for Flaky {
-    type Reads<'s> = FlakyRead<'s>;
-
-    async fn begin_read(&self) -> Result<FlakyRead<'_>, StoreError> {
-        self.reads.fetch_add(1, Ordering::SeqCst);
-        Ok(FlakyRead {
-            inner: self.inner.begin_read().await?,
-            hollow: self.hollow,
-            pages: &self.unit_pages,
-        })
-    }
-}
-
-impl ReadUnit for FlakyRead<'_> {
-    async fn covers(&mut self, domain: &str) -> Result<Vec<Cover>, StoreError> {
-        self.inner.covers(domain).await
-    }
-
-    async fn read(
-        &mut self,
-        stream: StreamRef<'_>,
-        from: u64,
-        to: Option<u64>,
-    ) -> Result<Slice, StoreError> {
-        let slice = self.inner.read(stream, from, to).await?;
-        let read = u32::try_from(slice.pages.len()).unwrap_or(u32::MAX);
-        self.pages.fetch_add(read, Ordering::SeqCst);
-        Ok(hollowed(self.hollow, slice))
-    }
-
-    async fn read_snapshot(
-        &mut self,
-        stream: StreamRef<'_>,
-    ) -> Result<Option<Snapshot>, StoreError> {
-        self.inner.read_snapshot(stream).await
-    }
-}
-
-impl Purge for Flaky {
-    async fn purge(&self, stream: StreamRef<'_>, expected: u64) -> Result<u64, StoreError> {
-        self.meanwhile();
-        let before = self.before_purge.lock().unwrap().take();
-        if let Some(before) = before {
-            before(&self.inner);
-        }
-        match self.fault() {
-            None | Some(Fault::Sound) => self.inner.purge(stream, expected).await,
-            Some(Fault::Unavailable) => Err(unavailable()),
-            Some(Fault::LandsThenFails) => {
-                self.inner.purge(stream, expected).await?;
-                Err(unavailable())
-            }
-            Some(Fault::Conflict) => Err(StoreError::conflict(some_stream(), 0, 1)),
-            Some(Fault::Discontinuous) => Err(StoreError::discontinuous(some_stream(), 0, 3)),
-        }
-    }
-}
-
-impl Watch for Flaky {
-    async fn change_token(&self) -> Result<ChangeToken, StoreError> {
-        self.inner.change_token().await
-    }
 }
 
 /// One store, whichever project is asked for, but a project in `others`,
@@ -410,10 +150,12 @@ impl Watch for Flaky {
 /// projects opened to write (`opened`) and to read (`looked`) are
 /// recorded. Its tokens are the in-memory store's under `handle`, which a
 /// test changes to stand for the store opened again; `before_token` is
-/// done to the store as a token is next asked for, before it is read.
+/// done to the store as a token is next asked for, before it is read. With
+/// `open_fails`, every open fails.
 #[derive(Default)]
 pub struct FakeStores {
     pub store: Flaky,
+    pub open_fails: bool,
     pub absent: bool,
     pub opened: Vec<String>,
     pub looked: Vec<String>,
@@ -430,9 +172,9 @@ impl WatchedStores for FakeStores {
             return Ok(None);
         };
         if let Some(meanwhile) = before {
-            meanwhile(&store.inner);
+            meanwhile(store.inner());
         }
-        let change = Watch::change_token(&store.inner).await?;
+        let change = Watch::change_token(store.inner()).await?;
         Ok(Some(HeldToken { handle, change }))
     }
 }
@@ -442,7 +184,7 @@ impl TaskStores for FakeStores {
 
     async fn open(&mut self, project: &Project) -> Result<&Flaky, StoreError> {
         self.opened.push(project.id.clone());
-        if self.store.open_fails {
+        if self.open_fails {
             return Err(unavailable());
         }
         if let Some(other) = self.others.get(&project.id) {
@@ -454,7 +196,7 @@ impl TaskStores for FakeStores {
 
     async fn open_existing(&mut self, project: &Project) -> Result<Option<&Flaky>, StoreError> {
         self.looked.push(project.id.clone());
-        if self.store.open_fails {
+        if self.open_fails {
             return Err(unavailable());
         }
         if let Some(other) = self.others.get(&project.id) {
@@ -525,64 +267,5 @@ impl Names for FakeNames {
 
     fn project_id(&mut self) -> String {
         unreachable!("the application mints no project id")
-    }
-}
-
-/// A clock one second on at each reading, and command ids numbered from 1.
-#[derive(Default)]
-pub struct FakeClock {
-    pub seconds: i64,
-    pub ids: Vec<Uuid>,
-}
-
-impl Clock for FakeClock {
-    fn now(&mut self) -> Timestamp {
-        self.seconds += 1;
-        Timestamp {
-            seconds: 1_700_000_000 + self.seconds,
-            nanos: 0,
-        }
-    }
-}
-
-impl CommandIds for FakeClock {
-    fn command_id(&mut self) -> Uuid {
-        let n = u8::try_from(self.ids.len() + 1).expect("few ids");
-        let id = Uuid::from_bytes([n; 16]);
-        self.ids.push(id.clone());
-        id
-    }
-}
-
-/// Waits recorded, never waited; jitter is a fixed fraction (in
-/// thousandths) of the ceiling, or a fixed duration when `over` is set.
-pub struct FakeDelay {
-    pub slept: Vec<Duration>,
-    pub ceilings: Vec<Duration>,
-    pub permille: u32,
-    pub over: Option<Duration>,
-}
-
-impl Default for FakeDelay {
-    fn default() -> Self {
-        FakeDelay {
-            slept: Vec::new(),
-            ceilings: Vec::new(),
-            permille: 1000,
-            over: None,
-        }
-    }
-}
-
-impl Delay for FakeDelay {
-    async fn sleep(&mut self, duration: Duration) {
-        self.slept.push(duration);
-    }
-}
-
-impl Jitter for FakeDelay {
-    fn up_to(&mut self, ceiling: Duration) -> Duration {
-        self.ceilings.push(ceiling);
-        self.over.unwrap_or(ceiling * self.permille / 1000)
     }
 }

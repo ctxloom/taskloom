@@ -3,7 +3,7 @@
 //! `aggregate.test.rs`'s, through angzarr-embedded's kernel.
 
 use angzarr_diagnostic::Diagnostic;
-use angzarr_embedded::{ids, Payload, PayloadError, Timestamp};
+use angzarr_embedded::{Payload, PayloadError, Timestamp};
 
 use crate::{
     check, AddTask, EditText, RemovalReason, RemoveTask, Retag, SetStatus, StatusChanged, Tag,
@@ -53,26 +53,6 @@ fn tags(spelled: &[&str]) -> Vec<Tag> {
         .iter()
         .map(|s| tagma_core::Tag::parse(s).expect("a valid tag").into())
         .collect()
-}
-
-#[test]
-fn test_an_add_whose_root_cannot_be_derived_says_why() {
-    let root = ids::compute_root("tasks", HARP).unwrap();
-    assert_eq!(
-        crate::belongs("bad:domain", HARP, Some(&root.value[..])),
-        Err(TaskRejection::NoRoot {
-            harp_id: HARP.to_string(),
-            cause: "a domain never contains ':'".to_string(),
-        })
-    );
-    assert_eq!(crate::belongs("tasks", HARP, Some(&root.value[..])), Ok(()));
-    assert_eq!(
-        crate::belongs("tasks", HARP, None),
-        Err(TaskRejection::NotItsStream {
-            harp_id: HARP.to_string()
-        }),
-        "a stream with no root is not its stream"
-    );
 }
 
 #[test]

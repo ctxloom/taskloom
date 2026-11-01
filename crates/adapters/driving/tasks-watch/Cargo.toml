@@ -19,6 +19,8 @@ tasks-application.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+# The test support's block_on_ready.
+angzarr-embedded = { workspace = true, features = ["test-support"] }
 # Rendering catalogs' English, for the tests that hold it to Go's.
 fluent-bundle.workspace = true
 fluent-syntax.workspace = true

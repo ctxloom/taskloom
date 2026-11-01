@@ -24,6 +24,8 @@ pub use prost_types::Timestamp;
 
 mod plans;
 mod project;
+#[cfg(any(test, feature = "test-support"))]
+pub mod testing;
 
 pub use plans::{Mint, PlanFiles, Tasks};
 pub use project::{Change, Checked, IdSource, ProjectAdmin, Registered, StoreCheck, Survey};

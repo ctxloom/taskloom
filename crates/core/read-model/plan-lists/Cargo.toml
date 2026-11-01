@@ -12,8 +12,9 @@ angzarr-embedded.workspace = true
 plans.workspace = true
 
 [dev-dependencies]
-# The in-memory store the list's tests run the kernel over.
-angzarr-ports = { workspace = true, features = ["memory"] }
+# The test support (block_on_ready), and the in-memory store the list's
+# tests run the kernel over.
+angzarr-embedded = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

@@ -23,8 +23,8 @@ use angzarr_embedded_macros::{aggregate, applies, handles_cmd};
 
 use crate::{
     retagged, status_changed, task_added, task_removed, text_edited, AddTask, EditText, RemoveTask,
-    Retag, Retagged, SetStatus, StatusChanged, TaskAdded, TaskEvent, TaskRejection, TaskRemoved,
-    TaskState, TextEdited,
+    Retag, Retagged, SetStatus, StatusChanged, TaskAdded, TaskCommand, TaskEvent, TaskRejection,
+    TaskRemoved, TaskState, TextEdited,
 };
 
 /// The task aggregate: one task, folded from its stream.
@@ -47,26 +47,16 @@ fn fold(task: &mut TaskState, event: TaskEvent) {
 
 // The domain is TASK_DOMAIN, spelled as the markup takes it, a literal
 // (`aggregate.test.rs` holds them to each other).
-#[aggregate(domain = "tasks")]
+#[aggregate(domain = "tasks", command = TaskCommand, event = TaskEvent)]
 impl TaskAggregate {
-    /// Create the task: refused on a stream with history (the harp id is
-    /// taken), recorded at `ctx.recorded_at()`.
-    #[handles_cmd(AddTask)]
+    /// Create the task, in the stream its harp id derives (`rooted_by`: an
+    /// add sent to another stream is refused before this runs): refused on
+    /// a stream with history (the harp id is taken), recorded at
+    /// `ctx.recorded_at()`.
+    #[handles_cmd(AddTask, rooted_by = harp_id)]
     fn add_task(&self, cmd: AddTask, ctx: &Context) -> Result<TaskAdded, Failed<TaskRejection>> {
-        let root = ctx
-            .command
-            .cover
-            .as_ref()
-            .and_then(|cover| cover.root.as_ref());
-        let root = root.map(|root| &root.value[..]);
         let taken = ctx.command.had_prior_events;
-        Ok(task_added(
-            &self.task,
-            taken,
-            &cmd,
-            root,
-            ctx.recorded_at(),
-        )?)
+        Ok(task_added(&self.task, taken, &cmd, ctx.recorded_at())?)
     }
 
     /// Change the status, the trigger, or both; `None` when it changes

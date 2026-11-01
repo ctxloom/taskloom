@@ -23,7 +23,7 @@ tasks-watch.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
-angzarr-embedded = { workspace = true, features = ["sqlite"] }
+angzarr-embedded = { workspace = true, features = ["sqlite", "test-support"] }
 angzarr-ports.workspace = true
 angzarr-diagnostic.workspace = true
 file-system = { workspace = true, features = ["test-support"] }

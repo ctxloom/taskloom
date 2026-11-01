@@ -19,7 +19,11 @@ sha2.workspace = true
 tasks-application.workspace = true
 
 [dev-dependencies]
-angzarr-ports = { workspace = true, features = ["memory"] }
+# The test support the fakes share: the kernel's (`angzarr_embedded::testing`:
+# block_on_ready, angzarr-ports' FaultyStore) and the ports' (`ports::testing`:
+# the clock and the delay).
+angzarr-embedded = { workspace = true, features = ["test-support"] }
+ports = { workspace = true, features = ["test-support"] }
 # Its own tests read `dead_letter_sample`, as other crates' do.
 tasks-application = { workspace = true, features = ["test-support"] }
 fluent-syntax.workspace = true

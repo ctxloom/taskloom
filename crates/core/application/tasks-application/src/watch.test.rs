@@ -5,7 +5,7 @@
 use angzarr_diagnostic::Diagnostic;
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::v1::CommandBook;
-use angzarr_embedded::{CommandBookExt, Payload};
+use angzarr_embedded::CommandBookExt;
 use tasks::{AddTask, RemovalReason, RemoveTask, TaskCommand};
 
 use super::{Watch, WatchRequest, WatchService};
@@ -41,10 +41,7 @@ fn remove(service: &mut Fake, harp: &str) {
 /// removal, without its purge, when `Pruned`.
 fn remove_for(service: &mut Fake, harp: &str, reason: RemovalReason) {
     let command = RemoveTask { reason };
-    let book = CommandBook::command(
-        crate::task_cover(harp),
-        tasks::TaskCommand::from(command).to_any(),
-    );
+    let book = CommandBook::command_of(crate::task_cover(harp), &tasks::TaskCommand::from(command));
     let command_id = ports::CommandIds::command_id(&mut service.clock);
     let mut runner = retry::Runner {
         registry: &service.registry,
@@ -130,7 +127,7 @@ fn test_a_pinned_project_is_watched_and_a_store_that_fails_is_an_error() {
         service.identity.pins,
         [Some("jolly-mute-magma".to_string())]
     );
-    service.stores.store.open_fails = true;
+    service.stores.open_fails = true;
     let failed = ready(service.poll(&mut watch)).unwrap_err();
     assert!(matches!(failed, AppError::Failed(_)), "{failed:?}");
 }
@@ -169,13 +166,13 @@ fn add_elsewhere(store: &MemoryStore, harp: &str) {
 fn test_a_watch_reads_no_stream() {
     let mut service = service(&["swift-amber", "quiet-heron"]);
     add(&mut service, "One");
-    let reads = service.stores.store.reads();
+    let reads = service.stores.store.units();
     let mut watch = start(&mut service, WatchRequest::default());
     assert!(!changed(&mut service, &mut watch));
-    add_elsewhere(&service.stores.store.inner, "far-heron");
+    add_elsewhere(service.stores.store.inner(), "far-heron");
     assert!(changed(&mut service, &mut watch));
     assert_eq!(
-        service.stores.store.reads(),
+        service.stores.store.units(),
         reads,
         "only the token is read"
     );
@@ -199,7 +196,7 @@ fn test_a_commit_by_another_process_between_polls_is_a_change() {
     add(&mut service, "One");
     let mut watch = start(&mut service, WatchRequest::default());
     assert!(!changed(&mut service, &mut watch));
-    add_elsewhere(&service.stores.store.inner, "far-heron");
+    add_elsewhere(service.stores.store.inner(), "far-heron");
     assert!(changed(&mut service, &mut watch));
 }
 
@@ -222,7 +219,7 @@ fn test_a_token_that_moved_with_no_task_changed_is_a_change() {
     let mut service = service(&["swift-amber"]);
     add(&mut service, "One");
     let mut watch = start(&mut service, WatchRequest::default());
-    crate::fakes::purge(&service.stores.store.inner, "no-such-task");
+    crate::fakes::purge(service.stores.store.inner(), "no-such-task");
     assert!(changed(&mut service, &mut watch));
 }
 
@@ -233,7 +230,7 @@ fn test_a_prune_landing_between_polls_is_a_change() {
     add(&mut service, "Kept");
     let mut watch = start(&mut service, WatchRequest::default());
     remove_for(&mut service, "swift-amber", RemovalReason::Pruned);
-    crate::fakes::purge(&service.stores.store.inner, "swift-amber");
+    crate::fakes::purge(service.stores.store.inner(), "swift-amber");
     assert!(changed(&mut service, &mut watch));
     assert!(!changed(&mut service, &mut watch));
 }

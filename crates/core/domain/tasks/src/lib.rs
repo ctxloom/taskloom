@@ -3,17 +3,16 @@
 //! removed task's stream keeps its harp reserved; a prune removes a task
 //! and then purges its stream, which frees the harp.
 //!
-//! The domain types, their wire conversions and their `DomainMessage` impls
-//! are generated from `proto/ctxloom/tasks/v1/tasks.proto` (angzarr-build's
-//! markup layer); [`TaskState`], the [`TaskCommand`] and [`TaskEvent`]
-//! payloads and the rules are this crate's, and [`TaskAggregate`] is the
-//! aggregate angzarr-embedded runs.
+//! The domain types, their wire conversions, their `DomainMessage` impls
+//! and the [`TaskCommand`] and [`TaskEvent`] payloads are generated from
+//! `proto/ctxloom/tasks/v1/tasks.proto` (angzarr-build's markup layer);
+//! [`TaskState`] and the rules are this crate's, and [`TaskAggregate`] is
+//! the aggregate angzarr-embedded runs, on those payloads.
 
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/ctxloom.tasks.v1.domain.rs"));
 }
 mod aggregate;
-mod payload;
 mod rejection;
 pub mod schema;
 mod state;
@@ -21,7 +20,7 @@ mod state;
 use std::collections::BTreeMap;
 use std::fmt;
 
-use angzarr_embedded::{ids, Timestamp};
+use angzarr_embedded::Timestamp;
 
 pub use aggregate::TaskAggregate;
 pub use generated::*;
@@ -69,13 +68,12 @@ pub(crate) fn apply(state: &mut TaskState, event: &TaskEvent) {
 }
 
 /// What an add to the task `held` records, at `at`: refused when the
-/// stream is `taken` (its harp id is), and when the add's harp id is not
-/// the one the stream's `root` derives from.
+/// stream is `taken` (its harp id is). That the add's harp id is the one
+/// its stream derives from is the aggregate's `rooted_by`.
 fn task_added(
     held: &TaskState,
     taken: bool,
     add: &AddTask,
-    root: Option<&[u8]>,
     at: Timestamp,
 ) -> Result<TaskAdded, TaskRejection> {
     if taken {
@@ -87,7 +85,6 @@ fn task_added(
     if harp_id.is_empty() {
         return Err(TaskRejection::HarpIdRequired);
     }
-    belongs(TASK_DOMAIN, harp_id, root)?;
     let Added {
         text,
         status,
@@ -161,24 +158,6 @@ fn task_removed(held: &TaskState, remove: &RemoveTask) -> Result<TaskRemoved, Ta
     Ok(TaskRemoved {
         reason: remove.reason,
     })
-}
-
-/// Whether the task `harp_id` of `domain` belongs in the stream rooted at
-/// `root`: the stream is addressed by the root its harp id derives, so the
-/// harp id the event records must be that one, or the task takes
-/// another's. A root that cannot be derived is refused for that, with its
-/// cause.
-fn belongs(domain: &str, harp_id: &str, root: Option<&[u8]>) -> Result<(), TaskRejection> {
-    let derived = ids::compute_root(domain, harp_id).map_err(|e| TaskRejection::NoRoot {
-        harp_id: harp_id.to_string(),
-        cause: e.to_string(),
-    })?;
-    if root != Some(&derived.value[..]) {
-        return Err(TaskRejection::NotItsStream {
-            harp_id: harp_id.to_string(),
-        });
-    }
-    Ok(())
 }
 
 /// Whether `command` keeps the rules decide holds it to by what it carries

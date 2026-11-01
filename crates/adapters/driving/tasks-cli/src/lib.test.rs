@@ -2,11 +2,8 @@
 //! application for, and how its answer is written.
 
 use std::ffi::OsString;
-use std::future::Future;
 use std::io::Write;
 use std::path::PathBuf;
-use std::pin::pin;
-use std::task::{Context as TaskContext, Poll, Waker};
 
 crate::english_for!(&[crate::EN_US.1]);
 
@@ -42,13 +39,8 @@ mod shapes {
     }
 }
 
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut cx = TaskContext::from_waker(Waker::noop());
-    match pin!(future).poll(&mut cx) {
-        Poll::Ready(out) => out,
-        Poll::Pending => panic!("the fake is ready at once"),
-    }
-}
+/// Run a future whose every await is ready at once: the test support's.
+use angzarr_embedded::testing::block_on_ready as ready;
 
 fn catalog() -> Catalog {
     super::catalog(&[]).expect("the catalog loads")

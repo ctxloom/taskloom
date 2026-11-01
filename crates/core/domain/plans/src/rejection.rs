@@ -35,14 +35,6 @@ pub enum PlanRejection {
     HashUnchanged,
     /// A hash that is not 64 lowercase hex digits.
     BadHash(String),
-    /// An add whose harp id is not the one its stream's root derives from.
-    NotItsStream(String),
-    /// An add whose stream root cannot be derived from its harp id:
-    /// `cause` says why.
-    NoRoot {
-        harp_id: String,
-        cause: String,
-    },
 }
 
 /// Its key and args, never English (angzarr decision 14.37).
@@ -69,8 +61,6 @@ impl Diagnostic for PlanRejection {
             PlanRejection::NotSuperseded(_) => "plans-not-superseded",
             PlanRejection::HashUnchanged => "plans-hash-unchanged",
             PlanRejection::BadHash(_) => "plans-bad-hash",
-            PlanRejection::NotItsStream(_) => "plans-not-its-stream",
-            PlanRejection::NoRoot { .. } => "plans-no-root",
         }
     }
 
@@ -90,11 +80,6 @@ impl Diagnostic for PlanRejection {
                 vec![("plan", plan.as_str().into())]
             }
             PlanRejection::BadHash(hash) => vec![("hash", hash.as_str().into())],
-            PlanRejection::NotItsStream(harp_id) => vec![("harp_id", harp_id.as_str().into())],
-            PlanRejection::NoRoot { harp_id, cause } => vec![
-                ("harp_id", harp_id.as_str().into()),
-                ("cause", cause.as_str().into()),
-            ],
             PlanRejection::AlreadyAdded
             | PlanRejection::NoSuchPlan
             | PlanRejection::EmptyTitle
@@ -131,11 +116,6 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(PlanRejection::NotSuperseded(id())),
         Box::new(PlanRejection::HashUnchanged),
         Box::new(PlanRejection::BadHash("abc".to_string())),
-        Box::new(PlanRejection::NotItsStream(id())),
-        Box::new(PlanRejection::NoRoot {
-            harp_id: id(),
-            cause: "a domain never contains ':'".to_string(),
-        }),
     ]
 }
 

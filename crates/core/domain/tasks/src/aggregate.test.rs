@@ -13,15 +13,14 @@
 //! the catalog) stay where they are.
 
 use std::collections::BTreeMap;
-use std::future::Future;
 
 use angzarr_diagnostic::{Arg, Diagnostic};
-use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::angzarr_router::error::RouterReason;
+use angzarr_embedded::testing::{Harness, Ready, Samples};
 use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::{
-    ids, pack, Any, Domain, EventStore, Failure, Handled, Kernel, KernelError, OnRetryable,
-    Payload, Recovery, Registry, Rejected, Sampled, Stream, StreamRef, Timestamp,
+    ids, pack, Any, CommandBookExt, CoverExt, Domain, Failure, Handled, Kernel, KernelError,
+    OnRetryable, Payload, Recovery, Registry, Rejected, Sampled, Timestamp,
 };
 
 use crate::{
@@ -59,25 +58,12 @@ fn refused(rejection: TaskRejection) -> Result<Vec<TaskEvent>, Said> {
     Err(said(&rejection))
 }
 
-/// Poll `future` once: the in-memory store never waits.
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = std::pin::pin!(future);
-    let waker = std::task::Waker::noop();
-    match future
-        .as_mut()
-        .poll(&mut std::task::Context::from_waker(waker))
-    {
-        std::task::Poll::Ready(out) => out,
-        std::task::Poll::Pending => panic!("the in-memory store never waits"),
-    }
-}
-
-/// One project's store holding one task's stream, and the clock its
-/// commands are sampled at.
+/// One project's store holding one task's stream, through angzarr-embedded's
+/// test support: the kernel over an in-memory store, each command one
+/// second after the last (from second 101), a retryable failure not
+/// retried.
 struct Task {
-    store: MemoryStore,
-    registry: Registry,
-    seconds: i64,
+    harness: Harness<TaskAggregate>,
 }
 
 impl Task {
@@ -85,9 +71,7 @@ impl Task {
         let mut registry = Registry::new();
         registry.aggregate::<TaskAggregate>(TaskAggregate::default);
         Task {
-            store: MemoryStore::new(),
-            registry,
-            seconds: 100,
+            harness: Harness::new(registry, cover()).with_samples(Samples::starting_at(100)),
         }
     }
 
@@ -101,21 +85,16 @@ impl Task {
     /// Run `command` one second after the last: the events it committed,
     /// or its refusal.
     fn run(&mut self, command: impl Into<TaskCommand>) -> Result<Vec<TaskEvent>, Said> {
-        match self.try_run(book(command.into().to_any())) {
-            Ok(Handled::Applied(recorded)) => Ok(events(recorded.books())),
-            Ok(Handled::Duplicate(..)) => panic!("a fresh command id is never a duplicate"),
-            Ok(Handled::Parked(_)) => panic!("only a fact is parked, and these are commands"),
-            Err(failure) => match *failure {
-                Failure::Rejected(rejected) => Err(said(&rejected)),
-                other => panic!("not a rejection: {other:?}"),
-            },
+        match self.harness.when(command).result() {
+            Ok(events) => Ok(events),
+            Err(Failure::Rejected(rejected)) => Err(said(&rejected)),
+            Err(other) => panic!("not a rejection: {other:?}"),
         }
     }
 
     /// Handle `book` through the kernel, one second after the last command.
     fn try_run(&mut self, book: CommandBook) -> Result<Handled, Box<Failure<Rejected>>> {
-        self.seconds += 1;
-        self.try_run_at(book, at(self.seconds))
+        self.harness.when_book(book).handled().map_err(Box::new)
     }
 
     /// Handle `book` through the kernel, sampled at `now`. A retryable
@@ -127,48 +106,35 @@ impl Task {
     ) -> Result<Handled, Box<Failure<Rejected>>> {
         let sampled = Sampled {
             now,
-            command_id: Uuid::from_bytes([self.seconds as u8; 16]),
+            command_id: Samples::command_id(0),
         };
-        ready(
-            Kernel::new(&self.registry)
-                .on_retryable(OnRetryable {
-                    max_retries: 0,
-                    ..OnRetryable::default()
-                })
-                .handle::<TaskAggregate, _>(&self.store, book, &sampled),
-        )
-        .map_err(Box::new)
+        Kernel::new(self.harness.registry())
+            .on_retryable(OnRetryable {
+                max_retries: 0,
+                ..OnRetryable::default()
+            })
+            .handle::<TaskAggregate, _>(self.harness.store(), book, &sampled)
+            .ready()
+            .map_err(Box::new)
     }
 
     /// `command`, refused: the refusal as the caller receives it. Nothing
     /// was recorded for it.
     fn refusal(&mut self, command: impl Into<TaskCommand>) -> Rejected {
         let before = self.pages().len();
-        let refusal = match self.try_run(book(command.into().to_any())) {
-            Err(failure) => match *failure {
-                Failure::Rejected(rejected) => rejected,
-                other => panic!("refused, not {other:?}"),
-            },
-            Ok(_) => panic!("refused, not applied"),
-        };
+        let refusal = self.harness.when(command).refused();
         assert_eq!(self.pages().len(), before, "a refusal records nothing");
         refusal
     }
 
     /// The task's stored pages, oldest first.
     fn pages(&self) -> Vec<angzarr_embedded::v1::EventPage> {
-        let cover = cover();
-        let stream = StreamRef::try_from(&cover).unwrap();
-        ready(self.store.read(stream, 0, None)).unwrap().pages
+        self.harness.pages()
     }
 
     /// The task, replayed from the store as the next process would.
     fn state(&self) -> TaskState {
-        Stream::<TaskAggregate>::replay(cover(), &self.pages(), &self.registry)
-            .unwrap()
-            .state()
-            .state()
-            .clone()
+        self.harness.state().state().clone()
     }
 }
 
@@ -692,16 +658,21 @@ fn test_add_to_a_removed_tasks_stream_is_refused() {
     );
 }
 
+// Sent to the stream its blank harp id names (anywhere else it is not
+// its stream's, refused before the handler runs).
 #[test]
 fn test_add_without_a_harp_id_is_refused() {
     let mut task = Task::new();
-    assert_eq!(
-        task.run(AddTask {
-            harp_id: " ".to_string(),
-            ..add("Ship it")
-        }),
-        refused(TaskRejection::HarpIdRequired)
-    );
+    let blank = TaskCommand::from(AddTask {
+        harp_id: " ".to_string(),
+        ..add("Ship it")
+    });
+    let book = CommandBook::command_of(Cover::natural(TASK_DOMAIN, " "), &blank);
+    let refused = match task.try_run(book).map_err(|failure| *failure) {
+        Err(Failure::Rejected(rejected)) => said(&rejected),
+        other => panic!("refused, not {}", other.is_ok()),
+    };
+    assert_eq!(Err(refused), self::refused(TaskRejection::HarpIdRequired));
 }
 
 #[test]
@@ -714,9 +685,14 @@ fn test_add_naming_another_harp_than_its_stream_is_refused() {
             harp_id: "other-harp".to_string(),
             ..add("Ship it")
         }),
-        refused(TaskRejection::NotItsStream {
-            harp_id: "other-harp".to_string()
-        })
+        Err((
+            "angzarr-embedded-not-its-stream".to_string(),
+            [
+                ("domain".to_string(), "tasks".to_string()),
+                ("key".to_string(), "other-harp".to_string())
+            ]
+            .into()
+        ))
     );
 }
 

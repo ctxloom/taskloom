@@ -12,5 +12,3 @@ plans-already-supersedes = the plan already supersedes plan { $plan }
 plans-not-superseded = the plan does not supersede plan { $plan }
 plans-hash-unchanged = the plan's text has not changed
 plans-bad-hash = { $hash } is not a sha-256: 64 lowercase hex digits
-plans-not-its-stream = plan { $harp_id } does not belong in this stream
-plans-no-root = plan { $harp_id } has no stream to belong in: its root cannot be derived ({ $cause })

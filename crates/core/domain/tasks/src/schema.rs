@@ -198,7 +198,11 @@ impl SchemaAggregate {
 
 // The domain is SCHEMA_DOMAIN, spelled as the markup takes it, a literal
 // (`schema.test.rs` holds them to each other).
-#[aggregate(domain = "schema")]
+#[aggregate(
+    domain = "schema",
+    command = SchemaCommand,
+    event = SchemaEvent
+)]
 impl SchemaAggregate {
     /// Add and remove schema tags; `None` when the rules do not change.
     #[handles_cmd(Declare)]

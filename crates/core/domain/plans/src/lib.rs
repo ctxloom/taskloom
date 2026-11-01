@@ -18,11 +18,19 @@
 
 mod generated {
     // The generated layer's command and event sets (`PlanCommand`,
-    // `PlanEvent`) are not this crate's public ones: those are the
-    // hand-written types below, converted to and from these messages
+    // `PlanEvent`) are the plan's payloads (`messages`); this crate's own
+    // `PlanCommand` and `PlanEvent` below are converted to and from them
     // (`wire.rs`).
     #![allow(dead_code, unused_imports)]
     include!(concat!(env!("OUT_DIR"), "/ctxloom.plans.v1.domain.rs"));
+}
+
+/// The plan's commands and events as the proto's messages: the generated
+/// layer's enums, each a `Payload`, which a book carries
+/// (`CommandBook::command_of(cover, &messages::PlanCommand::from(&command))`)
+/// and a read model decodes (`PlanEvent::from(messages::PlanEvent::from_any(any)?)`).
+pub mod messages {
+    pub use crate::generated::{PlanCommand, PlanEvent};
 }
 mod aggregate;
 mod rejection;

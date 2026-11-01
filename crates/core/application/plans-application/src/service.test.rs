@@ -10,12 +10,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use angzarr_diagnostic::{Diagnostic, Report};
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::v1::{CommandBook, Cover};
-use angzarr_embedded::{CommandBookExt, CoverExt, Kernel, Payload, Sampled};
+use angzarr_embedded::{CommandBookExt, CoverExt, Kernel, Sampled};
 use plans::{PlanCommand, PlanRejection};
 use ports::{Mint, PlanFiles, Tasks, Timestamp, Uuid};
 
 use super::registry;
-use crate::fakes::{ready, Service};
+use crate::fakes::{ready, At, Fault, Service};
 use crate::{
     content_hash, Link, NewPlan, PlanError, PlanQuery, PlanStatus, Plans, KERNEL_RETRY, RETIRED_TAG,
 };
@@ -132,7 +132,10 @@ fn other_process(store: &MemoryStore, harp: &str, command: PlanCommand) {
         },
         command_id: Uuid::from_bytes([0xee; 16]),
     };
-    let book = CommandBook::command(Cover::natural(plans::PLAN_DOMAIN, harp), command.to_any());
+    let book = CommandBook::command_of(
+        Cover::natural(plans::PLAN_DOMAIN, harp),
+        &plans::messages::PlanCommand::from(&command),
+    );
     ready(
         Kernel::new(&registry)
             .on_retryable(KERNEL_RETRY)
@@ -147,14 +150,12 @@ fn a_write_landing_between_the_read_and_the_write_is_decided_again_and_both_land
     let (files, mint) = (Files::default(), Counter::default());
     let mut service = Service::new(&files, &tasks, &mint);
     service.add(new("One")).unwrap();
-    service
-        .0
-        .borrow()
-        .stores
-        .store
-        .before_next_write(Box::new(|store| {
+    service.0.borrow().stores.store.before(
+        At::Write,
+        Box::new(|store: &MemoryStore| {
             other_process(store, "plan-1", PlanCommand::Govern("task-b".into()))
-        }));
+        }),
+    );
     let plan = service
         .link("plan-1", Link::Governs("task-a".into()))
         .unwrap();
@@ -175,8 +176,13 @@ fn a_store_that_cannot_say_is_retried_by_the_kernel_alone() {
     let mut service = Service::new(&files, &tasks, &mint);
     service.add(new("One")).unwrap();
     service.0.get_mut().backoff.attempts = 3;
-    let before = service.0.borrow().stores.store.writes();
-    service.0.borrow().stores.store.fail_writes(3);
+    let before = service.0.borrow().stores.store.writes().len();
+    service
+        .0
+        .borrow()
+        .stores
+        .store
+        .fail(std::iter::repeat_n(Fault::Unavailable, 3));
     let error = service
         .link("plan-1", Link::Governs("task-a".into()))
         .unwrap_err();
@@ -187,13 +193,18 @@ fn a_store_that_cannot_say_is_retried_by_the_kernel_alone() {
     {
         let service = service.0.borrow();
         assert_eq!(
-            service.stores.store.writes() - before,
+            service.stores.store.writes().len() - before,
             3,
             "the kernel's tries alone"
         );
         assert_eq!(service.delay.slept.len(), 2, "a wait between tries");
     }
-    service.0.borrow().stores.store.fail_writes(2);
+    service
+        .0
+        .borrow()
+        .stores
+        .store
+        .fail(std::iter::repeat_n(Fault::Unavailable, 2));
     let plan = service
         .link("plan-1", Link::Governs("task-a".into()))
         .unwrap();
@@ -205,14 +216,12 @@ fn a_race_won_by_the_same_change_comes_back_as_its_refusal() {
     let (files, tasks, mint) = (Files::default(), FakeTasks::default(), Counter::default());
     let mut service = Service::new(&files, &tasks, &mint);
     service.add(new("One")).unwrap();
-    service
-        .0
-        .borrow()
-        .stores
-        .store
-        .before_next_write(Box::new(|store| {
+    service.0.borrow().stores.store.before(
+        At::Write,
+        Box::new(|store: &MemoryStore| {
             other_process(store, "plan-1", PlanCommand::SetStatus(PlanStatus::Active))
-        }));
+        }),
+    );
     assert_eq!(
         service.set_status("plan-1", PlanStatus::Active),
         Err(PlanError::Rejected(PlanRejection::StatusUnchanged(
@@ -258,7 +267,7 @@ fn a_supersede_left_half_done_is_finished_by_linking_again() {
     service.add(new("Two")).unwrap();
     // The first write landed; the second never did.
     other_process(
-        &service.0.borrow().stores.store.inner,
+        service.0.borrow().stores.store.inner(),
         "plan-2",
         PlanCommand::Supersede("plan-1".into()),
     );
@@ -282,7 +291,7 @@ fn an_unlink_left_half_done_is_finished_by_unlinking_again() {
         .link("plan-2", Link::Supersedes("plan-1".into()))
         .unwrap();
     other_process(
-        &service.0.borrow().stores.store.inner,
+        service.0.borrow().stores.store.inner(),
         "plan-2",
         PlanCommand::Unsupersede("plan-1".into()),
     );
@@ -332,11 +341,11 @@ fn an_edit_is_recorded_once_however_often_it_is_read() {
     let mut service = Service::new(&files, &tasks, &mint);
     service.add(new("One")).unwrap();
     files.put(".taskloom/plans/plan-1.plan.md", "edited");
-    let before = service.0.borrow().stores.store.writes();
+    let before = service.0.borrow().stores.store.writes().len();
     service.list(&PlanQuery::default());
     service.show("plan-1").unwrap();
     service.check();
-    assert_eq!(service.0.borrow().stores.store.writes(), before + 1);
+    assert_eq!(service.0.borrow().stores.store.writes().len(), before + 1);
     let shown = service.show("plan-1").unwrap();
     assert_eq!(shown.plan.content_hash, content_hash(b"edited"));
     assert_eq!(shown.content.as_deref(), Some("edited"));
@@ -456,12 +465,9 @@ fn a_failure_no_retry_mends_is_reported_not_given_up() {
     let (files, mint) = (Files::default(), Counter::default());
     let mut service = Service::new(&files, &tasks, &mint);
     service.add(new("One")).unwrap();
-    service
-        .0
-        .borrow()
-        .stores
-        .store
-        .before_next_write(Box::new(|store| {
+    service.0.borrow().stores.store.before(
+        At::Write,
+        Box::new(|store: &MemoryStore| {
             let cover = Cover::natural(plans::PLAN_DOMAIN, "plan-1");
             let page = EventPage {
                 sequence: 1,
@@ -480,7 +486,8 @@ fn a_failure_no_retry_mends_is_reported_not_given_up() {
                 ..Write::default()
             };
             ready(EventStore::write(store, write)).unwrap();
-        }));
+        }),
+    );
     let error = service
         .link("plan-1", Link::Governs("task-a".into()))
         .unwrap_err();

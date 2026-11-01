@@ -24,8 +24,9 @@ angzarr-build.workspace = true
 tagma-proto.workspace = true
 
 [dev-dependencies]
-# The in-memory store the aggregate's tests run the kernel over.
-angzarr-ports = { workspace = true, features = ["memory"] }
+# The aggregate's tests run the kernel over an in-memory store through
+# angzarr-embedded's test support (`testing::Harness`).
+angzarr-embedded = { workspace = true, features = ["test-support"] }
 fluent-syntax = "0.11"
 mutants.workspace = true
 

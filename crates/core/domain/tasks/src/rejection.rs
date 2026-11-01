@@ -8,11 +8,6 @@ use angzarr_diagnostic::{Arg, Diagnostic};
 pub enum TaskRejection {
     /// An add without a harp id.
     HarpIdRequired,
-    /// An add whose harp id is not the one its stream's root derives from.
-    NotItsStream { harp_id: String },
-    /// An add whose stream root cannot be derived from its harp id:
-    /// `cause` says why.
-    NoRoot { harp_id: String, cause: String },
     /// An add to a stream that already holds a task: the harp id is taken.
     TaskExists { harp_id: String },
     /// A command to a stream holding no task.
@@ -54,8 +49,6 @@ impl Diagnostic for TaskRejection {
     fn code(&self) -> &str {
         match self {
             TaskRejection::HarpIdRequired => "tasks-harp-id-required",
-            TaskRejection::NotItsStream { .. } => "tasks-not-its-stream",
-            TaskRejection::NoRoot { .. } => "tasks-no-root",
             TaskRejection::TaskExists { .. } => "tasks-task-exists",
             TaskRejection::NoTask => "tasks-no-task",
             TaskRejection::Removed { .. } => "tasks-removed",
@@ -72,15 +65,9 @@ impl Diagnostic for TaskRejection {
 
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
-            TaskRejection::NotItsStream { harp_id }
-            | TaskRejection::TaskExists { harp_id }
-            | TaskRejection::Removed { harp_id } => {
+            TaskRejection::TaskExists { harp_id } | TaskRejection::Removed { harp_id } => {
                 vec![("harp_id", harp_id.as_str().into())]
             }
-            TaskRejection::NoRoot { harp_id, cause } => vec![
-                ("harp_id", harp_id.as_str().into()),
-                ("cause", cause.as_str().into()),
-            ],
             TaskRejection::StatusReserved { status } => vec![("status", status.as_str().into())],
             TaskRejection::Blank { field } | TaskRejection::Unresolved { field } => {
                 vec![("field", field.as_str().into())]
@@ -105,11 +92,6 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
     let harp_id = || "swift-amber".to_string();
     let tasks: Vec<Box<dyn Diagnostic>> = vec![
         Box::new(TaskRejection::HarpIdRequired),
-        Box::new(TaskRejection::NotItsStream { harp_id: harp_id() }),
-        Box::new(TaskRejection::NoRoot {
-            harp_id: harp_id(),
-            cause: "a domain never contains ':'".to_string(),
-        }),
         Box::new(TaskRejection::TaskExists { harp_id: harp_id() }),
         Box::new(TaskRejection::NoTask),
         Box::new(TaskRejection::Removed { harp_id: harp_id() }),

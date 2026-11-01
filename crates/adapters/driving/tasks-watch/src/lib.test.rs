@@ -6,9 +6,8 @@ use std::cell::Cell;
 use std::collections::VecDeque;
 use std::future::{poll_fn, Future};
 use std::path::PathBuf;
-use std::pin::pin;
 use std::rc::Rc;
-use std::task::{Context, Poll, Waker};
+use std::task::Poll;
 use std::time::{Duration, Instant};
 
 use angzarr_diagnostic::Report;
@@ -26,14 +25,8 @@ use super::{
 #[path = "../fixtures/reviewed.rs"]
 mod reviewed;
 
-/// Run a future whose every await is ready at once.
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut cx = Context::from_waker(Waker::noop());
-    match pin!(future).poll(&mut cx) {
-        Poll::Ready(out) => out,
-        Poll::Pending => panic!("the fakes' futures are ready at once"),
-    }
-}
+/// Run a future whose every await is ready at once: the test support's.
+use angzarr_embedded::testing::block_on_ready as ready;
 
 fn project() -> Project {
     Project {

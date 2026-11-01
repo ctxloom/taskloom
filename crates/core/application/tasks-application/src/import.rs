@@ -46,7 +46,7 @@ use std::future::Future;
 
 use angzarr_diagnostic::{Arg, Diagnostic, Report};
 use angzarr_embedded::v1::{CommandBook, Uuid};
-use angzarr_embedded::{ids, CommandBookExt, EventStore, Payload, Registry, StreamRef};
+use angzarr_embedded::{ids, CommandBookExt, EventStore, Registry, StreamRef};
 use ports::{
     Clock, Delay, Jitter, JsonlOp, JsonlRecord, JsonlTaskLogs, ProjectIdentity, TaskStores,
     Timestamp,
@@ -335,7 +335,7 @@ where
                 backoff: self.backoff,
                 dead_letters: &mut self.dead_letters,
             };
-            let book = CommandBook::command(cover, command.to_any());
+            let book = CommandBook::command_of(cover, &command);
             match runner
                 .run::<TaskAggregate, _, _>(store, book, &command_id)
                 .await

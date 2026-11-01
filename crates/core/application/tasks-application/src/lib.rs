@@ -35,8 +35,8 @@ use angzarr_diagnostic::{Diagnostic, Report};
 use angzarr_embedded::v1::event_meta::Causation;
 use angzarr_embedded::v1::{CommandBook, Cover, Uuid};
 use angzarr_embedded::{
-    CommandBookExt, CoverExt, Handled, Kernel, KernelError, Payload, ReadStore, ReadUnit, Registry,
-    Store, StoreError, StreamRef,
+    CommandBookExt, CoverExt, Handled, Kernel, KernelError, ReadStore, ReadUnit, Registry, Store,
+    StoreError, StreamRef,
 };
 use error::carrying;
 use ports::{Clock, CommandIds, Configuration, Delay, Jitter, Names, ProjectIdentity, TaskStores};
@@ -431,7 +431,7 @@ where
     ) -> Result<Task, AppError> {
         let store = self.stores.open(project).await.map_err(failed)?;
         let cover = task_cover(harp_id);
-        let book = CommandBook::command(cover.clone(), command.to_any());
+        let book = CommandBook::command_of(cover.clone(), &command);
         let mut runner = retry::Runner {
             registry: &self.registry,
             clock: &mut self.clock,
@@ -791,7 +791,7 @@ where
             ..template.clone()
         }
         .into();
-        let book = CommandBook::command(task_cover(&harp_id), add.to_any());
+        let book = CommandBook::command_of(task_cover(&harp_id), &add);
         match runner
             .run::<TaskAggregate, _, _>(store, book, &command_id)
             .await?

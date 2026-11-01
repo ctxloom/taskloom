@@ -4,13 +4,11 @@
 //! catches up from the store, as every read of another process does, and
 //! gives the same list.
 
-use std::future::Future;
-
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::v1::{EventBook, EventPage};
 use angzarr_embedded::{ids, CatchUp, Kernel, OnRetryable, Payload, Registry, Sampled, Timestamp};
-use plans::{AddPlan, PlanAggregate, PlanCommand, PlanEvent, PlanStatus, PLAN_DOMAIN};
+use plans::{messages, AddPlan, PlanAggregate, PlanCommand, PlanEvent, PlanStatus, PLAN_DOMAIN};
 
 use crate::{PlanList, PlanLists};
 
@@ -19,14 +17,8 @@ type List = CatchUp<PlanLists>;
 
 const HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
-/// Poll `future` once: the in-memory store never waits.
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
-    match std::pin::pin!(future).poll(&mut cx) {
-        std::task::Poll::Ready(out) => out,
-        std::task::Poll::Pending => panic!("the in-memory store never waits"),
-    }
-}
+/// Run a future whose every await is ready at once: the test support's.
+use angzarr_embedded::testing::block_on_ready as ready;
 
 /// One project's store, and the clock its commands are sampled at.
 struct Project {
@@ -62,7 +54,11 @@ impl Project {
                     max_retries: 0,
                     ..OnRetryable::default()
                 })
-                .handle::<PlanAggregate, _>(&self.store, book(harp, command.to_any()), &sampled),
+                .handle::<PlanAggregate, _>(
+                    &self.store,
+                    book(harp, messages::PlanCommand::from(&command).to_any()),
+                    &sampled,
+                ),
         )
         .unwrap_or_else(|failure| panic!("{failure:?}"));
         self.catch_up(list);
@@ -190,7 +186,7 @@ fn plan_book(harp: &str, from: u64, events: &[PlanEvent], length: u64) -> EventB
             .zip(events)
             .map(|(sequence, event)| EventPage {
                 sequence,
-                payload: Some(event.to_any()),
+                payload: Some(messages::PlanEvent::from(event).to_any()),
                 meta: None,
             })
             .collect(),

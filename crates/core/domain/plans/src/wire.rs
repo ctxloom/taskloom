@@ -1,10 +1,7 @@
 //! The plan's commands and events as the proto's messages: this crate's
-//! types converted to and from the generated domain layer, and packed as
-//! `Any` by their wire types' names.
-
-use angzarr_embedded::markup::DomainMessage;
-use angzarr_embedded::{decode_as, pack, type_name, Any, Payload, PayloadError, WireError};
-use prost::{Message, Name};
+//! types converted to and from the generated domain layer's
+//! (`crate::messages`), whose enums are the payloads a book carries and a
+//! read model decodes.
 
 use crate::generated as g;
 use crate::{AddPlan, PlanCommand, PlanEvent, PlanStatus};
@@ -85,24 +82,6 @@ impl From<AddPlan> for g::PlanAdded {
     }
 }
 
-/// `value` as its wire type, packed.
-fn packed<D: DomainMessage>(value: D) -> Any
-where
-    D::Wire: Message + Name,
-{
-    pack(&value.to_wire())
-}
-
-/// `any` as the domain message `D`, if it is `D`'s wire type: `None` if it
-/// is another type.
-fn read<D>(any: &Any) -> Option<Result<D, PayloadError>>
-where
-    D: DomainMessage + TryFrom<<D as DomainMessage>::Wire, Error = WireError>,
-    D::Wire: Message + Name + Default,
-{
-    (type_name(&any.type_url) == D::Wire::full_name()).then(|| decode_as::<D::Wire, D>(any))
-}
-
 /// The command as the proto's message.
 pub(crate) fn command_message(command: &PlanCommand) -> g::PlanCommand {
     match command.clone() {
@@ -181,108 +160,26 @@ pub(crate) fn event_of(event: g::PlanEvent) -> PlanEvent {
     }
 }
 
-impl Payload for PlanCommand {
-    fn to_any(&self) -> Any {
-        match command_message(self) {
-            g::PlanCommand::AddPlan(value) => packed(value),
-            g::PlanCommand::SetPlanStatus(value) => packed(value),
-            g::PlanCommand::Govern(value) => packed(value),
-            g::PlanCommand::Ungovern(value) => packed(value),
-            g::PlanCommand::Supersede(value) => packed(value),
-            g::PlanCommand::Unsupersede(value) => packed(value),
-            g::PlanCommand::MarkSuperseded(value) => packed(value),
-            g::PlanCommand::Reinstate(value) => packed(value),
-            g::PlanCommand::Rehash(value) => packed(value),
-        }
-    }
-
-    fn from_any(any: &Any) -> Result<Self, PayloadError> {
-        let command = None
-            .or_else(|| read::<g::AddPlan>(any).map(|r| r.map(g::PlanCommand::AddPlan)))
-            .or_else(|| read::<g::SetPlanStatus>(any).map(|r| r.map(g::PlanCommand::SetPlanStatus)))
-            .or_else(|| read::<g::Govern>(any).map(|r| r.map(g::PlanCommand::Govern)))
-            .or_else(|| read::<g::Ungovern>(any).map(|r| r.map(g::PlanCommand::Ungovern)))
-            .or_else(|| read::<g::Supersede>(any).map(|r| r.map(g::PlanCommand::Supersede)))
-            .or_else(|| read::<g::Unsupersede>(any).map(|r| r.map(g::PlanCommand::Unsupersede)))
-            .or_else(|| {
-                read::<g::MarkSuperseded>(any).map(|r| r.map(g::PlanCommand::MarkSuperseded))
-            })
-            .or_else(|| read::<g::Reinstate>(any).map(|r| r.map(g::PlanCommand::Reinstate)))
-            .or_else(|| read::<g::Rehash>(any).map(|r| r.map(g::PlanCommand::Rehash)))
-            .unwrap_or_else(|| {
-                Err(PayloadError::UnknownType {
-                    type_url: any.type_url.clone(),
-                })
-            })?;
-        Ok(command_of(command))
-    }
-
-    fn type_urls() -> Vec<String> {
-        use plans_proto::v1;
-        vec![
-            v1::AddPlan::type_url(),
-            v1::SetPlanStatus::type_url(),
-            v1::Govern::type_url(),
-            v1::Ungovern::type_url(),
-            v1::Supersede::type_url(),
-            v1::Unsupersede::type_url(),
-            v1::MarkSuperseded::type_url(),
-            v1::Reinstate::type_url(),
-            v1::Rehash::type_url(),
-        ]
+impl From<&PlanCommand> for g::PlanCommand {
+    fn from(command: &PlanCommand) -> g::PlanCommand {
+        command_message(command)
     }
 }
 
-impl Payload for PlanEvent {
-    fn to_any(&self) -> Any {
-        match event_message(self) {
-            g::PlanEvent::PlanAdded(value) => packed(value),
-            g::PlanEvent::PlanStatusChanged(value) => packed(value),
-            g::PlanEvent::Governed(value) => packed(value),
-            g::PlanEvent::Ungoverned(value) => packed(value),
-            g::PlanEvent::Superseded(value) => packed(value),
-            g::PlanEvent::Unsuperseded(value) => packed(value),
-            g::PlanEvent::MarkedSuperseded(value) => packed(value),
-            g::PlanEvent::Reinstated(value) => packed(value),
-            g::PlanEvent::Rehashed(value) => packed(value),
-        }
+impl From<g::PlanCommand> for PlanCommand {
+    fn from(command: g::PlanCommand) -> PlanCommand {
+        command_of(command)
     }
+}
 
-    fn from_any(any: &Any) -> Result<Self, PayloadError> {
-        let event = None
-            .or_else(|| read::<g::PlanAdded>(any).map(|r| r.map(g::PlanEvent::PlanAdded)))
-            .or_else(|| {
-                read::<g::PlanStatusChanged>(any).map(|r| r.map(g::PlanEvent::PlanStatusChanged))
-            })
-            .or_else(|| read::<g::Governed>(any).map(|r| r.map(g::PlanEvent::Governed)))
-            .or_else(|| read::<g::Ungoverned>(any).map(|r| r.map(g::PlanEvent::Ungoverned)))
-            .or_else(|| read::<g::Superseded>(any).map(|r| r.map(g::PlanEvent::Superseded)))
-            .or_else(|| read::<g::Unsuperseded>(any).map(|r| r.map(g::PlanEvent::Unsuperseded)))
-            .or_else(|| {
-                read::<g::MarkedSuperseded>(any).map(|r| r.map(g::PlanEvent::MarkedSuperseded))
-            })
-            .or_else(|| read::<g::Reinstated>(any).map(|r| r.map(g::PlanEvent::Reinstated)))
-            .or_else(|| read::<g::Rehashed>(any).map(|r| r.map(g::PlanEvent::Rehashed)))
-            .unwrap_or_else(|| {
-                Err(PayloadError::UnknownType {
-                    type_url: any.type_url.clone(),
-                })
-            })?;
-        Ok(event_of(event))
+impl From<&PlanEvent> for g::PlanEvent {
+    fn from(event: &PlanEvent) -> g::PlanEvent {
+        event_message(event)
     }
+}
 
-    fn type_urls() -> Vec<String> {
-        use plans_proto::v1;
-        vec![
-            v1::PlanAdded::type_url(),
-            v1::PlanStatusChanged::type_url(),
-            v1::Governed::type_url(),
-            v1::Ungoverned::type_url(),
-            v1::Superseded::type_url(),
-            v1::Unsuperseded::type_url(),
-            v1::MarkedSuperseded::type_url(),
-            v1::Reinstated::type_url(),
-            v1::Rehashed::type_url(),
-        ]
+impl From<g::PlanEvent> for PlanEvent {
+    fn from(event: g::PlanEvent) -> PlanEvent {
+        event_of(event)
     }
 }

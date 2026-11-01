@@ -6,7 +6,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use angzarr_embedded::angzarr_router::error::CodedError;
 use angzarr_embedded::v1::{EventBook, Projection};
 use angzarr_embedded::{CatchUp, Payload, ProjectorHandler};
-use plans::{PlanEvent, PLAN_DOMAIN};
+use plans::{messages, PlanEvent, PLAN_DOMAIN};
 
 use crate::PlanList;
 
@@ -40,7 +40,8 @@ impl PlanList {
             self.forget(&root);
         }
         for page in &book.pages {
-            let Ok(event) = PlanEvent::from_any(&page.payload.clone().unwrap_or_default()) else {
+            let payload = page.payload.clone().unwrap_or_default();
+            let Ok(event) = messages::PlanEvent::from_any(&payload).map(PlanEvent::from) else {
                 continue;
             };
             if let PlanEvent::PlanAdded(add) = &event {

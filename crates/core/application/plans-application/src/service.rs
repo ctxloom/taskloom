@@ -26,8 +26,8 @@ use angzarr_diagnostic::Report;
 use angzarr_embedded::markup::Rejection;
 use angzarr_embedded::v1::{CommandBook, Cover};
 use angzarr_embedded::{
-    CatchUp, CommandBookExt, CoverExt, Failure, Kernel, KernelError, Payload, Recovery, Registry,
-    Sampled, Store, StoreError,
+    CatchUp, CommandBookExt, CoverExt, Failure, Kernel, KernelError, Recovery, Registry, Sampled,
+    Store, StoreError,
 };
 use plan_lists::{PlanList, PlanLists, PlanRow};
 use plans::{AddPlan, PlanAggregate, PlanCommand, PlanRejection, PlanState, PLAN_DOMAIN};
@@ -140,7 +140,10 @@ impl<C: Clock + CommandIds, D: Delay + Jitter + Send> Runner<'_, C, D> {
             now: self.clock.now(),
             command_id: self.clock.command_id(),
         };
-        let book = CommandBook::command(plan_cover(harp_id), command.to_any());
+        let book = CommandBook::command_of(
+            plan_cover(harp_id),
+            &plans::messages::PlanCommand::from(command),
+        );
         let waits = Ported::new(&mut *self.delay);
         let handled = Kernel::new(self.registry)
             .on_retryable(self.backoff.on_retryable())
