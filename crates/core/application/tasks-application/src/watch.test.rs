@@ -46,7 +46,7 @@ fn remove_for(service: &mut Fake, harp: &str, reason: RemovalReason) {
         clock: &mut service.clock,
         delay: &mut service.delay,
         backoff: service.backoff,
-        dead_letters: &service.dead_letters,
+        dead_letters: &mut service.dead_letters,
     };
     let outcome = ready(runner.run(&service.stores.store, &book, &command_id));
     assert!(matches!(outcome, Ok(retry::Outcome::Committed)));

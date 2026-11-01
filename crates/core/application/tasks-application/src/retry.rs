@@ -31,9 +31,11 @@ use std::pin::Pin;
 use std::sync::{Mutex, PoisonError};
 
 use angzarr_diagnostic::Report;
+use angzarr_embedded::v1::AngzarrDeadLetter;
 use angzarr_embedded::{
-    DeadLetterLog, Domain, EventStore, Failure, Kernel, KernelError, OnRetryable, Purge, Recovery,
-    Registry, Rejected, Sampled, Store, StoreError, Stream, StreamRef, Wait,
+    DeadLetter, DeadLetterLog, Domain, EventStore, Failure, Handled, Kernel, KernelError,
+    OnRetryable, Purge, Recovery, Registry, Rejected, Sampled, Store, StoreError, Stream,
+    StreamRef, Wait,
 };
 use ports::{Clock, Delay, Jitter};
 use tasks::{TaskAggregate, TaskState};
@@ -171,15 +173,34 @@ impl Outcome {
     }
 }
 
+/// The kernel's log, which taskloom keeps nothing in: every dead letter a
+/// call wrote comes back in its answer ([`answered`]), and the store keeps
+/// it; a command taskloom waits for is answered, never dead-lettered.
+pub struct Unlogged;
+
+impl DeadLetterLog for Unlogged {
+    fn write(&self, _line: &str) {}
+
+    fn letter(&self, _letter: &AngzarrDeadLetter) {}
+}
+
+/// The dead letters a kernel call answered, handled or failed.
+pub fn answered<R>(handled: &Result<Handled, Failure<R>>) -> &[DeadLetter] {
+    match handled {
+        Ok(handled) => handled.dead_letters(),
+        Err(failure) => failure.dead_letters(),
+    }
+}
+
 /// What [`Runner::run`] needs besides the store and the command.
 pub(crate) struct Runner<'a, C, D> {
     pub registry: &'a Registry,
     pub clock: &'a mut C,
     pub delay: &'a mut D,
     pub backoff: Backoff,
-    /// Where the kernel writes what it dead-letters: the use case's log,
-    /// whose lines it returns with its result.
-    pub dead_letters: &'a dyn DeadLetterLog,
+    /// The dead letters the kernel's calls answered, gathered for the use
+    /// case to return with its result.
+    pub dead_letters: &'a mut Vec<DeadLetter>,
 }
 
 impl<C: Clock, D: Delay + Jitter + Send> Runner<'_, C, D> {
@@ -256,11 +277,12 @@ impl<C: Clock, D: Delay + Jitter + Send> Runner<'_, C, D> {
                     Ok(None) => return Ok(None),
                     Ok(Some(book)) => {
                         let waits = Ported::new(&mut *self.delay);
-                        let handled = Kernel::new(self.registry, self.dead_letters)
+                        let handled = Kernel::new(self.registry, &Unlogged)
                             .on_retryable(self.backoff.on_retryable())
                             .wait_with(&waits)
                             .handle::<A, _, _>(store, book, &sampled, &mut ())
                             .await;
+                        self.dead_letters.extend_from_slice(answered(&handled));
                         match handled {
                             Ok(_) => return Ok(Some(Outcome::Committed)),
                             Err(Failure::Rejected(rejection)) => {

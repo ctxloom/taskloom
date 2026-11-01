@@ -36,7 +36,6 @@ tasks-application-tag-operator-word = the tag { $tag } is a query operator (and,
 tasks-application-tag-reserved-namespace = the tag { $tag } is in the namespace { $namespace }: tagma's and taskloom's namespaces are reserved for the store's tag rules
 tasks-application-tag-rules = the store's tag rules refuse this write: { $findings } (see `taskloom schema show`)
 tasks-application-tag-rule-warning = warning: { $tag } breaks the store's rule { $rule } ({ $args }), as it did before this write
-tasks-application-dead-letter = { $line }
 tasks-application-tag-query = the tag query { $query } is malformed ({ $postfix }): { $grammar }
 tasks-application-lint-rule = { $tags }: { $rule } ({ $args })
 tasks-application-lint-formula-enum = { $facet } on { $target } references the placeholder { $placeholder }, but { $value } is not one of { $reference }'s declared enum values: { $members }

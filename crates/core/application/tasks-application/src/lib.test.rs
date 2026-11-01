@@ -712,7 +712,7 @@ fn add_unchecked(service: &mut Configured, tag: &str) {
         clock: &mut service.clock,
         delay: &mut service.delay,
         backoff: service.backoff,
-        dead_letters: &service.dead_letters,
+        dead_letters: &mut service.dead_letters,
     };
     let book = crate::book("swift-amber", add.into());
     let id = angzarr_embedded::v1::Uuid::from_bytes([7; 16]);
@@ -1365,21 +1365,21 @@ fn test_a_task_read_back_as_no_events_is_never_a_blank_task() {
 
 // ------------------------------------------------------------ dead letters
 
-// the kernel writes a dead letter only for what angzarr would
-// dead-letter (an ingest that panicked, a conflict window decide never
-// acknowledged, a policy's malformed book); the tasks domain, with no
-// routes, can be made to produce none. So each test writes one to the log
-// the kernel is handed, as the kernel would during the write.
-fn dead_letter(service: &Fake, line: &str) {
-    angzarr_embedded::DeadLetterLog::write(&service.dead_letters, line);
+// The kernel answers a dead letter only for what a step with no caller
+// left gave up on (a policy's bug, a projector's): the tasks domain has
+// neither, so these tests hand the use case one among the letters its
+// kernel calls answered, as a call would; the test after them makes the
+// kernel answer one.
+fn dead_letter(service: &mut Fake, component: &str) {
+    service
+        .dead_letters
+        .push(crate::dead_letter_sample(component));
 }
 
-fn letters(lines: &[&str]) -> Vec<crate::DeadLetter> {
-    lines
+fn letters(components: &[&str]) -> Vec<crate::DeadLetter> {
+    components
         .iter()
-        .map(|line| crate::DeadLetter {
-            line: line.to_string(),
-        })
+        .map(|component| crate::dead_letter_sample(component))
         .collect()
 }
 
@@ -1387,13 +1387,13 @@ fn letters(lines: &[&str]) -> Vec<crate::DeadLetter> {
 #[test]
 fn test_every_write_returns_the_dead_letters_written_while_it_ran() {
     let mut service = service(&["swift-amber"]);
-    dead_letter(&service, "DEAD LETTER: add");
+    dead_letter(&mut service, "DEAD LETTER: add");
     let written = add(&mut service, new_task("Ship it")).unwrap();
     assert_eq!(written.dead_letters, letters(&["DEAD LETTER: add"]));
-    dead_letter(&service, "DEAD LETTER: tag");
+    dead_letter(&mut service, "DEAD LETTER: tag");
     let written = ready(service.tag(change("swift-amber", &["x"], &[]))).unwrap();
     assert_eq!(written.dead_letters, letters(&["DEAD LETTER: tag"]));
-    dead_letter(&service, "DEAD LETTER: status");
+    dead_letter(&mut service, "DEAD LETTER: status");
     let set = StatusChange {
         harp_id: "swift-amber".to_string(),
         status: Some("Done".to_string()),
@@ -1401,7 +1401,7 @@ fn test_every_write_returns_the_dead_letters_written_while_it_ran() {
     };
     let written = ready(service.set_status(set)).unwrap();
     assert_eq!(written.dead_letters, letters(&["DEAD LETTER: status"]));
-    dead_letter(&service, "DEAD LETTER: edit");
+    dead_letter(&mut service, "DEAD LETTER: edit");
     let edit = TextEdit {
         harp_id: "swift-amber".to_string(),
         text: "Ship it now".to_string(),
@@ -1431,19 +1431,19 @@ fn test_every_failed_write_carries_the_dead_letters_written_while_it_ran() {
     };
     let failures: [(&str, Result<Written, AppError>); 4] = [
         ("add", {
-            dead_letter(&service, "DEAD LETTER: add");
+            dead_letter(&mut service, "DEAD LETTER: add");
             add(&mut service, new_task(""))
         }),
         ("tag", {
-            dead_letter(&service, "DEAD LETTER: tag");
+            dead_letter(&mut service, "DEAD LETTER: tag");
             ready(service.tag(change("no-such-harp", &["x"], &[])))
         }),
         ("status", {
-            dead_letter(&service, "DEAD LETTER: status");
+            dead_letter(&mut service, "DEAD LETTER: status");
             ready(service.set_status(missing()))
         }),
         ("edit", {
-            dead_letter(&service, "DEAD LETTER: edit");
+            dead_letter(&mut service, "DEAD LETTER: edit");
             ready(service.edit(edit))
         }),
     ];
@@ -1469,12 +1469,49 @@ fn test_every_failed_write_carries_the_dead_letters_written_while_it_ran() {
     assert!(written.dead_letters.is_empty(), "each once");
 }
 
+/// The sample letter says what its doc says: its component, then the
+/// reason's key.
 #[test]
-fn test_a_dead_letter_renders_its_line() {
-    let letter = &letters(&["DEAD LETTER: x"])[0];
-    assert_eq!(letter.code(), "tasks-application-dead-letter");
-    assert_eq!(letter.english(), "DEAD LETTER: x");
-    assert_eq!(letter.args().len(), 1);
+fn test_the_sample_dead_letters_line_names_its_component_and_reason() {
+    let sample = crate::dead_letter_sample("bookkeeping");
+    assert_eq!(
+        crate::dead_letter_line(&sample.letter),
+        "DEAD_LETTER bookkeeping: ROUTER_REASON_UNHANDLED_HANDLER_ERROR"
+    );
+    assert_eq!(sample.stream, crate::cover("swift-amber"));
+}
+
+/// A policy of the tasks domain that is a bug: every task added is its
+/// trigger, and its answer an error.
+fn broken_policy() -> angzarr_embedded::angzarr_router::policy::PolicyDispatch {
+    angzarr_embedded::angzarr_router::policy::PolicyDispatch::new(
+        "tasks-broken",
+        tasks::TASK_DOMAIN,
+        tasks::TASK_DOMAIN,
+    )
+    .on_event("ctxloom.tasks.v1.TaskAdded", |_, _| {
+        Err(angzarr_embedded::angzarr_router::error::CodedError::bug("toy-broken", []).into())
+    })
+}
+
+// The letters a write returns are the kernel's own answer: a policy step
+// it gives up on (no caller is left to hold it) is kept in the project's
+// store, and the add that set it off fails carrying that very letter.
+#[test]
+fn test_a_writes_dead_letters_are_the_kernels_answer_and_the_stores() {
+    let mut service = service(&["swift-amber"]);
+    service.registry.policy_dispatch(broken_policy());
+    let error = add(&mut service, new_task("Ship it")).unwrap_err();
+    let letters = error.dead_letters();
+    assert_eq!(letters.len(), 1, "{error:?}");
+    assert_eq!(letters[0].letter.source_component, "tasks-broken");
+    let stream = angzarr_embedded::StreamRef::try_from(&letters[0].stream).unwrap();
+    let kept = ready(angzarr_embedded::DeadLetterStore::dead_letters(
+        &service.stores.store.inner,
+        stream,
+    ))
+    .unwrap();
+    assert_eq!(kept, letters, "kept as answered");
 }
 
 // ------------------------------------------- idempotency: a request's key

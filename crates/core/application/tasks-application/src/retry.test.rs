@@ -86,7 +86,7 @@ fn run_as(
             cap: 30 * MS,
             attempts,
         },
-        dead_letters: &angzarr_embedded::MemoryDeadLetters::new(),
+        dead_letters: &mut Vec::new(),
     };
     ready(runner.run(store, &book, &command_id))
 }
@@ -237,8 +237,8 @@ fn runner<'a>(
             cap: 30 * MS,
             attempts: 5,
         },
-        // None is written here; leaked, so the runner may outlive this.
-        dead_letters: Box::leak(Box::new(angzarr_embedded::MemoryDeadLetters::new())),
+        // None is answered here; leaked, so the runner may outlive this.
+        dead_letters: Box::leak(Box::new(Vec::new())),
     }
 }
 
@@ -412,7 +412,7 @@ fn test_a_store_that_never_answers_is_given_up_at_the_kernels_cap_under_its_key(
     // again.
     let store = Flaky::failing(&[Fault::Unavailable; 4]);
     let mut delay = FakeDelay::default();
-    let dead_letters = crate::dead_letter::DeadLetters::default();
+    let mut dead_letters = Vec::new();
     let registry = registry();
     let mut clock = FakeClock::default();
     let mut runner = Runner {
@@ -424,7 +424,7 @@ fn test_a_store_that_never_answers_is_given_up_at_the_kernels_cap_under_its_key(
             cap: 30 * MS,
             attempts: 4,
         },
-        dead_letters: &dead_letters,
+        dead_letters: &mut dead_letters,
     };
     let add = AddTask {
         harp_id: "swift-amber".to_string(),
@@ -444,7 +444,7 @@ fn test_a_store_that_never_answers_is_given_up_at_the_kernels_cap_under_its_key(
     assert_eq!(attempts, 4);
     assert_eq!(error.code(), "angzarr-ports-store-unavailable");
     assert_eq!(store.begun(), 4, "the kernel's tries, taskloom's none");
-    let letters = dead_letters.take();
+    let letters = dead_letters;
     assert!(letters.is_empty(), "{letters:?}");
 }
 

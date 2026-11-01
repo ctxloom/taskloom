@@ -160,7 +160,8 @@ pub async fn run<P: Plans>(
     // The kernel's dead letters, almost certainly bugs, are never left
     // unsaid, whatever the command came to.
     for letter in plans.dead_letters() {
-        let _ = writeln!(err, "{}: {}", settings.prog, catalog.message(&letter));
+        let line = plans_application::dead_letter_line(&letter.letter);
+        let _ = writeln!(err, "{}: {line}", settings.prog);
     }
     match answered {
         Ok(Ended::Ok) => 0,

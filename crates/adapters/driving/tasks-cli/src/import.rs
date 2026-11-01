@@ -50,7 +50,7 @@ fn imported(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<(), CliError> {
-    dead_lettered(&report.dead_letters, catalog, err).map_err(output_failed)?;
+    dead_lettered(&report.dead_letters, err).map_err(output_failed)?;
     presentation::render(out, format, &Imported { report, catalog }).map_err(output_failed)?;
     if report.complete() {
         return Ok(());

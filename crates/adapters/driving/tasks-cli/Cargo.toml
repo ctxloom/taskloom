@@ -20,6 +20,8 @@ tasks-presentation.workspace = true
 fluent-bundle.workspace = true
 fluent-syntax.workspace = true
 serde_json.workspace = true
+# Its `dead_letter_sample`, a letter for the tests to say.
+tasks-application = { workspace = true, features = ["test-support"] }
 
 [features]
 # `diagnostic_samples`, for other crates' catalog tests: their

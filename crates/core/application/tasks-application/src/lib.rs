@@ -12,7 +12,6 @@
 //! store. The ports are the only way out: this crate does no I/O, keeps no
 //! clock and starts no runtime.
 
-mod dead_letter;
 mod error;
 mod import;
 mod lint;
@@ -37,7 +36,7 @@ use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cove
 use angzarr_embedded::{
     ids, KernelError, Payload, ReadStore, ReadUnit, Registry, StoreError, Stream, StreamRef,
 };
-use dead_letter::DeadLetters;
+use error::carrying;
 use ports::{Clock, CommandIds, Configuration, Delay, Jitter, Names, ProjectIdentity, TaskStores};
 use std::sync::Mutex;
 use store_schema::judged;
@@ -47,7 +46,34 @@ use tasks::{
     TASK_DOMAIN,
 };
 
-pub use dead_letter::DeadLetter;
+/// A dead letter, as the kernel answers it and the store keeps it: angzarr's
+/// `AngzarrDeadLetter` whole, keyed by the stream it is about. A use case
+/// returns every one its kernel calls answered, beside its result or on
+/// its error, for its driving adapter to say loudly ([`dead_letter_line`]):
+/// each almost certainly marks a bug. A command taskloom waits for is
+/// answered, never dead-lettered.
+pub use angzarr_embedded::{dead_letter_line, DeadLetter};
+
+/// A dead letter as the kernel answers one, from `component`, about the
+/// task swift-amber's stream, its line `DEAD_LETTER <component>:
+/// ROUTER_REASON_UNHANDLED_HANDLER_ERROR`: for a test that hands a use
+/// case, or a driving adapter, a letter a kernel call answered.
+#[cfg(any(test, feature = "test-support"))]
+pub fn dead_letter_sample(component: &str) -> DeadLetter {
+    use angzarr_embedded::v1::{AngzarrDeadLetter, Diagnostic};
+    DeadLetter {
+        stream: cover("swift-amber"),
+        at: angzarr_embedded::DeadLetterAt::Sequence(0),
+        letter: AngzarrDeadLetter {
+            source_component: component.to_string(),
+            reason: Some(Diagnostic {
+                code: "ROUTER_REASON_UNHANDLED_HANDLER_ERROR".to_string(),
+                args: Default::default(),
+            }),
+            ..AngzarrDeadLetter::default()
+        },
+    }
+}
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{AppError, CATALOGS, EN_US};
@@ -63,7 +89,7 @@ pub use prune::{
 };
 pub use read::{Details, Hidden, Listing, Reach, Statuses, Summary, TagCount, Vocabulary};
 pub use request::{request_command_id, REQUEST_NAMESPACE};
-pub use retry::{to_redecide, Backoff, Ported, DRAW_SCALE, KERNEL_RETRY};
+pub use retry::{answered, to_redecide, Backoff, Ported, Unlogged, DRAW_SCALE, KERNEL_RETRY};
 pub use semver::{Semver, Version, SEMVER};
 pub use store_schema::{
     Code as RuleCode, Declaration, Declared, Finding as RuleFinding, Origin, RuleWarning,
@@ -226,8 +252,8 @@ pub struct ListQuery {
 pub(crate) const PRIORITY: &str = "priority";
 
 /// A task written, the project it was written in, which of its tags a
-/// person is shown, and the dead letters the kernel wrote while the
-/// write ran (almost certainly bugs, for the caller to say loudly).
+/// person is shown, and the dead letters its kernel calls answered
+/// (almost certainly bugs, for the caller to say loudly).
 #[derive(Clone, PartialEq, Debug)]
 pub struct Written {
     pub project: Project,
@@ -292,9 +318,9 @@ pub struct Service<I, S, N, C, D, G = NotConfigured> {
     pub configuration: G,
     pub backoff: Backoff,
     registry: Registry,
-    /// The log the kernel writes dead letters to, taken into each
-    /// result, or a write's error.
-    pub(crate) dead_letters: DeadLetters,
+    /// The dead letters the use case's kernel calls answered, taken into
+    /// its result, or its error.
+    pub(crate) dead_letters: Vec<DeadLetter>,
 }
 
 /// Configuration, as a service without any has it: nothing configured, so
@@ -332,7 +358,7 @@ impl<I, S, N, C, D> Service<I, S, N, C, D> {
             configuration: NotConfigured,
             backoff: Backoff::DEFAULT,
             registry: registry(),
-            dead_letters: DeadLetters::default(),
+            dead_letters: Vec::new(),
         }
     }
 }
@@ -420,7 +446,7 @@ where
             clock: &mut self.clock,
             delay: &mut self.delay,
             backoff: self.backoff,
-            dead_letters: &self.dead_letters,
+            dead_letters: &mut self.dead_letters,
         };
         match runner.run_shaped(store, &book, &command_id, shape).await? {
             None | Some(retry::Outcome::Committed) => {}
@@ -486,7 +512,7 @@ where
             clock: &mut self.clock,
             delay: &mut self.delay,
             backoff: self.backoff,
-            dead_letters: &self.dead_letters,
+            dead_letters: &mut self.dead_letters,
         };
         let rules = store_schema::seed_in(&mut runner, store).await?;
         let (tags, _) = tags::collapse(&rules, &[], tags);
@@ -507,7 +533,7 @@ where
                         project,
                         task,
                         shown: rules.shown(),
-                        dead_letters: self.dead_letters.take(),
+                        dead_letters: std::mem::take(&mut self.dead_letters),
                         warnings,
                     });
                 }
@@ -542,7 +568,7 @@ where
                         project,
                         task,
                         shown: rules.shown(),
-                        dead_letters: self.dead_letters.take(),
+                        dead_letters: std::mem::take(&mut self.dead_letters),
                         warnings,
                     });
                 }
@@ -605,7 +631,7 @@ where
             project,
             task: task?,
             shown: rules.shown(),
-            dead_letters: self.dead_letters.take(),
+            dead_letters: std::mem::take(&mut self.dead_letters),
             warnings,
         })
     }
@@ -640,7 +666,7 @@ where
             project,
             task,
             shown: rules.shown(),
-            dead_letters: self.dead_letters.take(),
+            dead_letters: std::mem::take(&mut self.dead_letters),
             warnings: Vec::new(),
         })
     }
@@ -660,7 +686,7 @@ where
             project,
             task,
             shown: rules.shown(),
-            dead_letters: self.dead_letters.take(),
+            dead_letters: std::mem::take(&mut self.dead_letters),
             warnings: Vec::new(),
         })
     }
@@ -677,22 +703,22 @@ where
 {
     async fn add(&mut self, task: NewTask) -> Result<Written, AppError> {
         let written = self.adding(task).await;
-        self.dead_letters.onto(written)
+        carrying(written, &mut self.dead_letters)
     }
 
     async fn tag(&mut self, change: TagChange) -> Result<Written, AppError> {
         let written = self.tagging(change).await;
-        self.dead_letters.onto(written)
+        carrying(written, &mut self.dead_letters)
     }
 
     async fn set_status(&mut self, change: StatusChange) -> Result<Written, AppError> {
         let written = self.setting_status(change).await;
-        self.dead_letters.onto(written)
+        carrying(written, &mut self.dead_letters)
     }
 
     async fn edit(&mut self, edit: TextEdit) -> Result<Written, AppError> {
         let written = self.editing(edit).await;
-        self.dead_letters.onto(written)
+        carrying(written, &mut self.dead_letters)
     }
 
     async fn list(&mut self, query: ListQuery) -> Result<Listing, AppError> {

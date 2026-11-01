@@ -21,21 +21,20 @@
 //! racing can both pass their check (the design's flag): the second
 //! target's write is refused, and its first half is left for an unlink.
 
-use std::sync::{Mutex, PoisonError};
-
 use angzarr_diagnostic::Report;
 use angzarr_embedded::v1::{
     command_page, Command, CommandBook, CommandPage, Cover, Handling, Uuid,
 };
 use angzarr_embedded::{
-    ids, DeadLetterLog, EventStore, Failure, Kernel, KernelError, Payload, Recovery, Registry,
-    Sampled, Store, StoreError, Stream, StreamRef,
+    ids, EventStore, Failure, Kernel, KernelError, Payload, Recovery, Registry, Sampled, Store,
+    StoreError, Stream, StreamRef,
 };
 use plan_lists::{PlanList, PlanRow};
 use plans::{decide, AddPlan, PlanAggregate, PlanCommand, PlanRejection, PlanState, PLAN_DOMAIN};
 use ports::{
     Clock, CommandIds, Delay, Jitter, Mint, PlanFiles, Project, ProjectIdentity, TaskStores, Tasks,
 };
+use tasks_application::{answered, Unlogged};
 
 use crate::rules::{joined, locate, new_plan_text, Located};
 use crate::{
@@ -72,7 +71,9 @@ pub struct PlanService<I, S, F, T, M, C, D> {
     /// `--project`: the project to act on, overriding the work root's.
     pub project: Option<String>,
     registry: Registry,
-    dead_letters: DeadLetters,
+    /// The dead letters the use cases' kernel calls answered, kept until
+    /// taken ([`Plans::dead_letters`]).
+    dead_letters: Vec<DeadLetter>,
 }
 
 impl<I, S, F, T, M, C, D> PlanService<I, S, F, T, M, C, D> {
@@ -88,34 +89,13 @@ impl<I, S, F, T, M, C, D> PlanService<I, S, F, T, M, C, D> {
             backoff: Backoff::DEFAULT,
             project: None,
             registry: registry(),
-            dead_letters: DeadLetters::default(),
+            dead_letters: Vec::new(),
         }
     }
 
     /// The same service, acting on `project` when one is given.
     pub fn pinned(self, project: Option<String>) -> Self {
         PlanService { project, ..self }
-    }
-}
-
-/// The log the kernel writes dead letters to, kept until taken.
-#[derive(Default)]
-struct DeadLetters(Mutex<Vec<String>>);
-
-impl DeadLetters {
-    fn take(&self) -> Vec<DeadLetter> {
-        let mut lines = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        std::mem::take(&mut *lines)
-            .into_iter()
-            .map(|line| DeadLetter { line })
-            .collect()
-    }
-}
-
-impl DeadLetterLog for DeadLetters {
-    fn write(&self, line: &str) {
-        let mut lines = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        lines.push(line.to_string());
     }
 }
 
@@ -177,7 +157,8 @@ async fn plan_at<St: EventStore>(
 /// What one run of a command needs besides the store and the command.
 struct Runner<'a, C, D> {
     registry: &'a Registry,
-    dead_letters: &'a DeadLetters,
+    /// The dead letters the kernel's calls answered, kept until taken.
+    dead_letters: &'a mut Vec<DeadLetter>,
     clock: &'a mut C,
     delay: &'a mut D,
     backoff: Backoff,
@@ -215,7 +196,7 @@ impl<C: Clock + CommandIds, D: Delay + Jitter + Send> Runner<'_, C, D> {
                 command_id: command_id.clone(),
             };
             let waits = Ported::new(&mut *self.delay);
-            let handled = Kernel::new(self.registry, self.dead_letters)
+            let handled = Kernel::new(self.registry, &Unlogged)
                 .on_retryable(self.backoff.on_retryable())
                 .wait_with(&waits)
                 .handle::<PlanAggregate, _, _>(
@@ -225,6 +206,7 @@ impl<C: Clock + CommandIds, D: Delay + Jitter + Send> Runner<'_, C, D> {
                     &mut (),
                 )
                 .await;
+            self.dead_letters.extend_from_slice(answered(&handled));
             let (failure, recovery) = match handled {
                 Ok(_) => return Ok(()),
                 Err(Failure::Rejected(rejected)) => {
@@ -391,7 +373,7 @@ where
         let store = self.stores.open(project).await.map_err(failed)?;
         Runner {
             registry: &self.registry,
-            dead_letters: &self.dead_letters,
+            dead_letters: &mut self.dead_letters,
             clock: &mut self.clock,
             delay: &mut self.delay,
             backoff: self.backoff,
@@ -735,13 +717,8 @@ where
     }
 
     fn dead_letters(&mut self) -> Vec<DeadLetter> {
-        let mut letters = self.dead_letters.take();
-        letters.extend(
-            self.tasks
-                .dead_letters()
-                .into_iter()
-                .map(|line| DeadLetter { line }),
-        );
+        let mut letters = std::mem::take(&mut self.dead_letters);
+        letters.extend(self.tasks.dead_letters());
         letters
     }
 }

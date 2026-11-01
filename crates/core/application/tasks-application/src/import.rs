@@ -53,10 +53,10 @@ use ports::{
 };
 use tasks::{AddTask, EditText, RemovalReason, RemoveTask, Retag, SetStatus, TaskCommand};
 
-use crate::dead_letter::{DeadLetter, DeadLetters};
 use crate::retry::Backoff;
 use crate::tags::{self, Tag, TagRefusal};
 use crate::view::{DEFERS, INITIAL};
+use crate::DeadLetter;
 use crate::{book, cover, registry, retry, store_report, text_hash, AppError};
 
 /// What to import: every project with a log, or the one named.
@@ -217,9 +217,9 @@ pub struct Importer<I, S, D, L> {
     pub jsonl_logs: L,
     pub backoff: Backoff,
     registry: Registry,
-    /// The log the kernel writes dead letters to, taken into the
-    /// report.
-    pub(crate) dead_letters: DeadLetters,
+    /// The dead letters the import's kernel calls answered, taken into
+    /// the report.
+    pub(crate) dead_letters: Vec<DeadLetter>,
 }
 
 impl<I, S, D, L> Importer<I, S, D, L> {
@@ -231,7 +231,7 @@ impl<I, S, D, L> Importer<I, S, D, L> {
             jsonl_logs,
             backoff: Backoff::DEFAULT,
             registry: registry(),
-            dead_letters: DeadLetters::default(),
+            dead_letters: Vec::new(),
         }
     }
 }
@@ -259,7 +259,7 @@ where
             }
             report.projects.push(project);
         }
-        report.dead_letters = self.dead_letters.take();
+        report.dead_letters = std::mem::take(&mut self.dead_letters);
         Ok(report)
     }
 }
@@ -330,7 +330,7 @@ where
                 clock: &mut at,
                 delay: &mut self.delay,
                 backoff: self.backoff,
-                dead_letters: &self.dead_letters,
+                dead_letters: &mut self.dead_letters,
             };
             let book = book(&record.task, command);
             match runner

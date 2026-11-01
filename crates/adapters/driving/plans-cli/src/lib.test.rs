@@ -673,9 +673,7 @@ impl Plans for Refusing {
         self.0.import(dry_run).await
     }
     fn dead_letters(&mut self) -> Vec<plans_application::DeadLetter> {
-        vec![plans_application::DeadLetter {
-            line: "DEAD-LETTER x".into(),
-        }]
+        vec![plans_application::dead_letter_sample("bookkeeping")]
     }
 }
 
@@ -724,10 +722,13 @@ fn a_link_refused_part_way_says_the_links_made_and_the_refusal() {
 fn every_dead_letter_is_said_on_stderr() {
     let ran = run_refusing(true, &["plan", "list"]);
     assert_eq!(ran.code, 0);
-    // Its message is the tasks use cases' catalog's, which the binary's
-    // holds and this one does not.
-    assert!(ran.err.starts_with("taskloom: "), "{}", ran.err);
-    assert!(ran.err.contains("DEAD-LETTER x"), "{}", ran.err);
+    assert!(
+        ran.err.starts_with(
+            "taskloom: DEAD_LETTER bookkeeping: ROUTER_REASON_UNHANDLED_HANDLER_ERROR\n"
+        ),
+        "its line, first: {}",
+        ran.err
+    );
 }
 
 #[test]

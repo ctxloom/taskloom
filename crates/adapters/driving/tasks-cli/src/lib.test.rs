@@ -2255,10 +2255,10 @@ fn test_a_refused_prune_says_why_and_exits_1() {
 // ------------------------------------------------------------ dead letters
 
 fn dead_letters() -> Vec<tasks_application::DeadLetter> {
-    vec![tasks_application::DeadLetter {
-        line: "DEAD LETTER (a bug): x".to_string(),
-    }]
+    vec![tasks_application::dead_letter_sample("bookkeeping")]
 }
+
+const LINE: &str = "taskloom: DEAD_LETTER bookkeeping: ROUTER_REASON_UNHANDLED_HANDLER_ERROR";
 
 // A write's dead letters are said on stderr, after the project, in text and
 // JSON alike: stdout is the task as ever.
@@ -2277,9 +2277,9 @@ fn test_a_writes_dead_letters_are_said_on_stderr() {
         assert_eq!(ran.code, 0, "{}", ran.err);
         assert_eq!(
             ran.err,
-            "taskloom: project /work/tree (jolly-mute-magma)\ntaskloom: DEAD LETTER (a bug): x\n"
+            format!("taskloom: project /work/tree (jolly-mute-magma)\n{LINE}\n")
         );
-        assert!(!ran.out.contains("DEAD LETTER"), "{}", ran.out);
+        assert!(!ran.out.contains("DEAD_LETTER"), "{}", ran.out);
     }
 }
 
@@ -2305,9 +2305,9 @@ fn test_a_failed_writes_dead_letters_are_said_on_stderr_before_its_error() {
         let ran = run_on(&mut fake, terminal, &["edit", "swift-amber", "x"]);
         assert_eq!(ran.code, 1);
         let (letter, rest) = ran.err.split_once('\n').unwrap();
-        assert_eq!(letter, "taskloom: DEAD LETTER (a bug): x");
+        assert_eq!(letter, LINE);
         assert!(rest.contains(error), "{}", ran.err);
-        assert!(!rest.contains("DEAD LETTER"), "{}", ran.err);
+        assert!(!rest.contains("DEAD_LETTER"), "{}", ran.err);
     }
 }
 
@@ -2321,7 +2321,7 @@ fn test_a_prunes_dead_letters_are_said_on_stderr() {
     };
     let ran = run_on(&mut fake, false, &["prune"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
-    assert_eq!(ran.err, "taskloom: DEAD LETTER (a bug): x\n");
+    assert_eq!(ran.err, format!("{LINE}\n"));
 }
 
 #[test]
@@ -2336,7 +2336,7 @@ fn test_an_imports_dead_letters_are_said_on_stderr() {
     };
     let ran = import_on(&mut fake, true, &["import"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
-    assert_eq!(ran.err, "taskloom: DEAD LETTER (a bug): x\n");
+    assert_eq!(ran.err, format!("{LINE}\n"));
 }
 
 // ------------------------------------------------------------ permit, revoke

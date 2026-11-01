@@ -596,7 +596,7 @@ where
             clock: &mut self.clock,
             delay: &mut self.delay,
             backoff: self.backoff,
-            dead_letters: &self.dead_letters,
+            dead_letters: &mut self.dead_letters,
         };
         seed_in(&mut runner, store).await
     }
@@ -618,7 +618,7 @@ where
             clock: &mut self.clock,
             delay: &mut self.delay,
             backoff: self.backoff,
-            dead_letters: &self.dead_letters,
+            dead_letters: &mut self.dead_letters,
         };
         let unshaped: Option<&fn(&SchemaAggregate) -> Option<CommandBook>> = None;
         if let Some(Outcome::Refused(rejection)) = runner

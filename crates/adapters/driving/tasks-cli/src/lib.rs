@@ -29,7 +29,8 @@ use angzarr_diagnostic::Diagnostic;
 use clap::{Args, Parser, Subcommand};
 use presentation::{Catalog, CatalogError, Format, Render, Source, UnknownFormat};
 use tasks_application::{
-    DeadLetter, PermitService, PruneService, RuleWarning, SchemaService, TaskService, Written,
+    dead_letter_line, DeadLetter, PermitService, PruneService, RuleWarning, SchemaService,
+    TaskService, Written,
 };
 
 pub use companion::{Asked, LOADOUT};
@@ -335,7 +336,7 @@ pub(crate) fn finish(
         Err(error) => {
             // A failed use case's dead letters are said before its error.
             if let CliError::App(failed) = &error {
-                let _ = dead_lettered(failed.dead_letters(), catalog, err);
+                let _ = dead_lettered(failed.dead_letters(), err);
             }
             let _ = report(&error, format, catalog, err);
             1
@@ -367,16 +368,13 @@ pub(crate) fn notify(
     writeln!(err, "{PROG}: {}", catalog.message(notice))
 }
 
-/// Say each dead letter the kernel wrote on stderr: almost certainly
-/// a bug, so never left unsaid.
-pub(crate) fn dead_lettered(
-    letters: &[DeadLetter],
-    catalog: &Catalog,
-    err: &mut dyn Write,
-) -> io::Result<()> {
+/// Say each dead letter the kernel wrote on stderr, as its line
+/// ([`dead_letter_line`]: keys and values, never English): almost
+/// certainly a bug, so never left unsaid.
+pub(crate) fn dead_lettered(letters: &[DeadLetter], err: &mut dyn Write) -> io::Result<()> {
     letters
         .iter()
-        .try_for_each(|letter| notify(letter, catalog, err))
+        .try_for_each(|letter| writeln!(err, "{PROG}: {}", dead_letter_line(&letter.letter)))
 }
 
 /// Name the project on stderr, and any dead letter, then render the task.
@@ -393,7 +391,7 @@ pub(crate) fn wrote(
     err: &mut dyn Write,
 ) -> Result<(), CliError> {
     notify(&Notice::project(&written.project), catalog, err)
-        .and_then(|()| dead_lettered(&written.dead_letters, catalog, err))
+        .and_then(|()| dead_lettered(&written.dead_letters, err))
         .and_then(|()| {
             written
                 .warnings()

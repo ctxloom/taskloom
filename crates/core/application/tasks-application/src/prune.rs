@@ -33,6 +33,7 @@ use ports::{
 };
 use tasks::{RemovalReason, RemoveTask, TaskRejection, TaskState, STATUS_CLASS_SIGIL};
 
+use crate::error::carrying;
 use crate::retry::{Outcome, Runner};
 use crate::{
     book, cover, failed, given, query, rejected, AppError, Project, Service, Shown, Task, DONE,
@@ -203,7 +204,7 @@ where
 {
     async fn prune(&mut self, request: PruneRequest) -> Result<Pruning, AppError> {
         let pruning = self.pruning(request).await;
-        self.dead_letters.onto(pruning)
+        carrying(pruning, &mut self.dead_letters)
     }
 }
 
@@ -297,7 +298,7 @@ where
             clock: &mut self.clock,
             delay: &mut self.delay,
             backoff: self.backoff,
-            dead_letters: &self.dead_letters,
+            dead_letters: &mut self.dead_letters,
         };
         for task in selected {
             let Some(events) = take(&mut runner, store, task, &selection, request.apply).await?
@@ -322,7 +323,7 @@ where
             .collect();
         pruning.tasks_remaining = survivors.len();
         pruning.dangling = dangling(&survivors, &gone);
-        pruning.dead_letters = self.dead_letters.take();
+        pruning.dead_letters = std::mem::take(&mut self.dead_letters);
         Ok(pruning)
     }
 }

@@ -4,7 +4,7 @@
 
 use angzarr_diagnostic::Report;
 use ports::Tasks;
-use tasks_application::{AppError, ListQuery, ShowQuery, Tag, TagChange, TaskService};
+use tasks_application::{AppError, DeadLetter, ListQuery, ShowQuery, Tag, TagChange, TaskService};
 
 /// The tasks of the project `project` pins (the work root's when none),
 /// through `service`. The dead letters its writes report are kept for the
@@ -12,7 +12,7 @@ use tasks_application::{AppError, ListQuery, ShowQuery, Tag, TagChange, TaskServ
 pub struct ProjectTasks<S> {
     pub service: S,
     pub project: Option<String>,
-    dead_letters: Vec<String>,
+    dead_letters: Vec<DeadLetter>,
 }
 
 impl<S> ProjectTasks<S> {
@@ -80,19 +80,17 @@ impl<S: TaskService> Tasks for ProjectTasks<S> {
         };
         match self.service.tag(change).await {
             Ok(written) => {
-                self.dead_letters
-                    .extend(written.dead_letters.into_iter().map(|l| l.line));
+                self.dead_letters.extend(written.dead_letters);
                 Ok(())
             }
             Err(error) => {
-                self.dead_letters
-                    .extend(error.dead_letters().iter().map(|l| l.line.clone()));
+                self.dead_letters.extend_from_slice(error.dead_letters());
                 Err(Report::of(&error))
             }
         }
     }
 
-    fn dead_letters(&mut self) -> Vec<String> {
+    fn dead_letters(&mut self) -> Vec<DeadLetter> {
         std::mem::take(&mut self.dead_letters)
     }
 }

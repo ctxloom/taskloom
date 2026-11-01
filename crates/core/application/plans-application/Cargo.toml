@@ -23,9 +23,9 @@ angzarr-ports = { workspace = true, features = ["memory"] }
 fluent-syntax.workspace = true
 
 [features]
-# `diagnostic_samples`, for other crates' catalog tests: their
-# dev-dependency turns it on, and no build of a binary does.
-test-support = []
+# `diagnostic_samples` and `dead_letter_sample`, for other crates' tests:
+# their dev-dependency turns it on, and no build of a binary does.
+test-support = ["tasks-application/test-support"]
 
 [lints]
 workspace = true

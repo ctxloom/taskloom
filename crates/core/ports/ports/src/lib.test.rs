@@ -99,7 +99,7 @@ impl Tasks for NoTasks {
 
 #[test]
 fn test_tasks_dead_letter_nothing_by_default() {
-    assert_eq!(NoTasks.dead_letters(), Vec::<String>::new());
+    assert!(NoTasks.dead_letters().is_empty());
 }
 
 /// A writer that knows nothing of the moved keys.

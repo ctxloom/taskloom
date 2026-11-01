@@ -74,10 +74,9 @@ pub enum AppError {
         permit: String,
         harp_ids: Vec<String>,
     },
-    /// `error`, from a write during which the kernel dead-lettered
-    /// `dead_letters` (never none): `error`'s diagnostic, its code, args
-    /// and English, with the lines beside it for the driving adapter to
-    /// say.
+    /// `error`, from a write whose kernel calls answered `dead_letters`
+    /// (never none): `error`'s diagnostic, its code, args and English,
+    /// with the letters beside it for the driving adapter to say.
     DeadLettered {
         error: Box<AppError>,
         dead_letters: Vec<DeadLetter>,
@@ -85,8 +84,8 @@ pub enum AppError {
 }
 
 impl AppError {
-    /// The dead letters the kernel wrote while the use case that
-    /// failed with this ran: none for most.
+    /// The dead letters the kernel calls of the use case that failed
+    /// with this answered: none for most.
     pub fn dead_letters(&self) -> &[DeadLetter] {
         match self {
             AppError::DeadLettered { dead_letters, .. } => dead_letters,
@@ -95,7 +94,7 @@ impl AppError {
     }
 
     /// This error, carrying `dead_letters` when there are any.
-    pub(crate) fn with_dead_letters(self, dead_letters: Vec<DeadLetter>) -> AppError {
+    fn with_dead_letters(self, dead_letters: Vec<DeadLetter>) -> AppError {
         match dead_letters.is_empty() {
             true => self,
             false => AppError::DeadLettered {
@@ -104,6 +103,16 @@ impl AppError {
             },
         }
     }
+}
+
+/// `result`, its error carrying `dead_letters`, taken, when there are any
+/// ([`AppError::DeadLettered`]): a failure is said with them, as a success
+/// is.
+pub(crate) fn carrying<T>(
+    result: Result<T, AppError>,
+    dead_letters: &mut Vec<DeadLetter>,
+) -> Result<T, AppError> {
+    result.map_err(|error| error.with_dead_letters(std::mem::take(dead_letters)))
 }
 
 /// Each of `ids`, quoted, comma-separated.
@@ -231,9 +240,6 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             harp_id: "swift-amber".to_string(),
         }),
         Box::new(AppError::NoProject),
-        Box::new(crate::DeadLetter {
-            line: "DEAD LETTER (almost certainly a bug): x".to_string(),
-        }),
         Box::new(crate::import::NoJsonlLog {
             project: "jolly-mute-magma".to_string(),
         }),

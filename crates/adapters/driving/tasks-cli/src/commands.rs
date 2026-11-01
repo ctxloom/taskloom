@@ -663,7 +663,7 @@ pub(crate) async fn prune(
     if pruning.project.is_none() {
         notify(&Notice::NothingToPrune, catalog, err).map_err(output_failed)?;
     }
-    dead_lettered(&pruning.dead_letters, catalog, err).map_err(output_failed)?;
+    dead_lettered(&pruning.dead_letters, err).map_err(output_failed)?;
     presentation::render(out, format, &PruneReport(&pruning)).map_err(output_failed)?;
     if pruning.applied || pruning.pruned.is_empty() {
         return Ok(());

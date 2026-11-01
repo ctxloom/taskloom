@@ -27,7 +27,11 @@ mod tasks;
 
 pub use plans::{tag_is_retired, PlanRejection, PlanStatus, RETIRED_TAG};
 pub use ports::{Mint, PlanFiles, Tasks};
-pub use tasks_application::{to_redecide, Backoff, DeadLetter, Ported, KERNEL_RETRY};
+#[cfg(any(test, feature = "test-support"))]
+pub use tasks_application::dead_letter_sample;
+pub use tasks_application::{
+    dead_letter_line, to_redecide, Backoff, DeadLetter, Ported, KERNEL_RETRY,
+};
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
@@ -208,8 +212,8 @@ pub trait Plans {
     /// migrated tags retired. `dry_run` reports and changes nothing.
     /// Running it again adds nothing new.
     fn import(&mut self, dry_run: bool) -> impl Future<Output = Result<ImportReport, PlanError>>;
-    /// The lines the kernel dead-lettered since the last call: almost
-    /// certainly bugs, for the driving adapter to say loudly.
+    /// The dead letters the kernel's calls answered since the last call:
+    /// almost certainly bugs, for the driving adapter to say loudly.
     fn dead_letters(&mut self) -> Vec<DeadLetter> {
         Vec::new()
     }

@@ -824,17 +824,18 @@ fn test_a_blank_tag_query_given_is_refused_not_read_as_none() {
     assert_eq!(listed(&mut service).len(), 4, "nothing pruned");
 }
 
-// A prune returns the dead letters written while it ran (the kernel writes
-// them; here the test writes one to the log it is handed, as the tasks
-// domain can be made to produce none), each once.
+// A prune returns the dead letters its kernel calls answered (here the
+// test hands it one, as the tasks domain can be made to produce none),
+// each once.
 #[test]
 fn test_a_prune_returns_the_dead_letters_written_while_it_ran() {
     let mut service = seeded();
     later(&mut service);
-    angzarr_embedded::DeadLetterLog::write(&service.dead_letters, "DEAD LETTER: prune");
+    service
+        .dead_letters
+        .push(crate::dead_letter_sample("prune"));
     let pruning = prune(&mut service, request(true)).unwrap();
-    let line = "DEAD LETTER: prune".to_string();
-    assert_eq!(pruning.dead_letters, [crate::DeadLetter { line }]);
+    assert_eq!(pruning.dead_letters, [crate::dead_letter_sample("prune")]);
     let pruning = prune(&mut service, request(true)).unwrap();
     assert!(pruning.dead_letters.is_empty(), "each is returned once");
 }
@@ -844,14 +845,15 @@ fn test_a_prune_returns_the_dead_letters_written_while_it_ran() {
 #[test]
 fn test_a_failed_prune_carries_the_dead_letters_written_while_it_ran() {
     let mut service = seeded();
-    angzarr_embedded::DeadLetterLog::write(&service.dead_letters, "DEAD LETTER: prune");
+    service
+        .dead_letters
+        .push(crate::dead_letter_sample("prune"));
     let refused = PruneRequest {
         older_than: "soon".to_string(),
         ..request(true)
     };
     let error = prune(&mut service, refused.clone()).unwrap_err();
-    let line = "DEAD LETTER: prune".to_string();
-    assert_eq!(error.dead_letters(), [crate::DeadLetter { line }]);
+    assert_eq!(error.dead_letters(), [crate::dead_letter_sample("prune")]);
     assert_eq!(error.code(), "tasks-application-prune-age-unreadable");
     let error = prune(&mut service, refused).unwrap_err();
     assert!(error.dead_letters().is_empty(), "each is carried once");
