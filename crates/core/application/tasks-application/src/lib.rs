@@ -33,18 +33,18 @@ use std::future::Future;
 
 use angzarr_diagnostic::{Diagnostic, Report};
 use angzarr_embedded::v1::event_meta::Causation;
-use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
+use angzarr_embedded::v1::{CommandBook, Cover, Uuid};
 use angzarr_embedded::{
-    ids, KernelError, Payload, ReadStore, ReadUnit, Registry, StoreError, Stream, StreamRef,
+    CommandBookExt, CoverExt, Handled, Kernel, KernelError, Payload, ReadStore, ReadUnit, Registry,
+    Store, StoreError, StreamRef,
 };
 use error::carrying;
 use ports::{Clock, CommandIds, Configuration, Delay, Jitter, Names, ProjectIdentity, TaskStores};
-use std::sync::Mutex;
+use retry::Refusal;
 use store_schema::judged;
 use tasks::schema::SchemaAggregate;
 use tasks::{
-    AddTask, EditText, Retag, SetStatus, TaskAggregate, TaskCommand, TaskRejection, TaskState,
-    TASK_DOMAIN,
+    AddTask, EditText, Retag, SetStatus, TaskAggregate, TaskCommand, TaskRejection, TASK_DOMAIN,
 };
 
 /// A dead letter, as the kernel answers it and the store keeps it: angzarr's
@@ -63,7 +63,7 @@ pub use angzarr_embedded::{dead_letter_line, DeadLetter};
 pub fn dead_letter_sample(component: &str) -> DeadLetter {
     use angzarr_embedded::v1::{AngzarrDeadLetter, Diagnostic};
     DeadLetter {
-        stream: cover("swift-amber"),
+        stream: task_cover("swift-amber"),
         at: angzarr_embedded::DeadLetterAt::Sequence(0),
         letter: AngzarrDeadLetter {
             source_component: component.to_string(),
@@ -90,7 +90,7 @@ pub use prune::{
 };
 pub use read::{Details, Hidden, Listing, Reach, Statuses, Summary, TagCount, Vocabulary};
 pub use request::{request_command_id, REQUEST_NAMESPACE};
-pub use retry::{answered, to_redecide, Backoff, Ported, Unlogged, DRAW_SCALE, KERNEL_RETRY};
+pub use retry::{answered, Backoff, Ported, DRAW_SCALE, KERNEL_RETRY};
 pub use semver::{Semver, Version, SEMVER};
 pub use store_schema::{
     Code as RuleCode, Declaration, Declared, Finding as RuleFinding, Origin, RuleWarning,
@@ -429,24 +429,9 @@ where
         command: TaskCommand,
         command_id: Uuid,
     ) -> Result<Task, AppError> {
-        let unshaped: Option<&fn(&TaskState) -> Option<CommandBook>> = None;
-        self.commit_shaped(project, harp_id, command, command_id, unshaped)
-            .await
-    }
-
-    /// [`Service::commit`] of what `shape` makes of the task as each
-    /// attempt reads it ([`retry::Runner::run_shaped`]),
-    /// or of `command` when there is no `shape`.
-    async fn commit_shaped<F: Fn(&TaskState) -> Option<CommandBook> + Sync>(
-        &mut self,
-        project: &Project,
-        harp_id: &str,
-        command: TaskCommand,
-        command_id: Uuid,
-        shape: Option<&F>,
-    ) -> Result<Task, AppError> {
         let store = self.stores.open(project).await.map_err(failed)?;
-        let book = book(harp_id, command);
+        let cover = task_cover(harp_id);
+        let book = CommandBook::command(cover.clone(), command.to_any());
         let mut runner = retry::Runner {
             registry: &self.registry,
             clock: &mut self.clock,
@@ -454,19 +439,10 @@ where
             backoff: self.backoff,
             dead_letters: &mut self.dead_letters,
         };
-        match runner.run_shaped(store, &book, &command_id, shape).await? {
-            None | Some(retry::Outcome::Committed) => {}
-            Some(retry::Outcome::Refused(rejection)) => return Err(rejected(&rejection)),
-        }
-        // The read-back is a read of its own, after the commit: a
-        // remove committed between the two makes a change that committed
-        // report failure (Vanished). Accepted: the change did land, and a
-        // retry of it finds no task to change.
-        read(store, &self.registry, harp_id)
-            .await?
-            .ok_or_else(|| AppError::Vanished {
-                harp_id: harp_id.to_string(),
-            })
+        let handled = runner
+            .run::<TaskAggregate, _, _>(store, book, &command_id)
+            .await??;
+        task_after(store, &self.registry, harp_id, &handled).await
     }
 }
 
@@ -528,12 +504,12 @@ where
         // before any is added on: a harp the add probed past may since have
         // been freed (its task removed and purged), and a retry adding there
         // would add the task again.
-        let keyed = match request_id.as_deref() {
+        let keyed = match request_id {
             Some(key) => {
                 let harps: Vec<String> = (0..KEYED_PROBES)
-                    .map(|position| self.names.task_id_for(key, u64::from(position)))
+                    .map(|position| self.names.task_id_for(&key, u64::from(position)))
                     .collect();
-                let command_id = request_command_id("add", key);
+                let command_id = request_command_id("add", &key);
                 if let Some(task) = own_add(store, &self.registry, &harps, &command_id).await? {
                     return Ok(Written {
                         project,
@@ -543,56 +519,21 @@ where
                         warnings,
                     });
                 }
-                Some((harps, command_id))
+                Some(Keyed {
+                    request_id: key,
+                    harps,
+                    command_id,
+                })
             }
             None => None,
         };
-        let attempts = match keyed {
-            Some(_) => KEYED_PROBES,
-            None => HARP_ATTEMPTS,
-        };
-        for position in 0..attempts {
-            let (harp_id, command_id) = match &keyed {
-                Some((harps, command_id)) => (harps[position as usize].clone(), command_id.clone()),
-                None => (self.names.task_id(), runner.clock.command_id()),
-            };
-            let add = AddTask {
-                harp_id: harp_id.clone(),
-                ..template.clone()
-            };
-            let book = book(&harp_id, add.into());
-            match runner.run(store, &book, &command_id).await? {
-                retry::Outcome::Committed => {
-                    // The read-back is a read of its own, after the
-                    // commit: a remove committed between the two makes an
-                    // add that committed report failure (Vanished), and a
-                    // caller that retries it adds the task again. Accepted.
-                    let task = read(store, &self.registry, &harp_id)
-                        .await?
-                        .ok_or(AppError::Vanished { harp_id })?;
-                    return Ok(Written {
-                        project,
-                        task,
-                        shown: rules.shown(),
-                        dead_letters: std::mem::take(&mut self.dead_letters),
-                        warnings,
-                    });
-                }
-                // Another task holds the harp (this request's own was
-                // looked for first, and would be answered DUPLICATE): never
-                // merged into its stream, the next harp is tried.
-                refused if refused.refused_as("tasks-task-exists") => continue,
-                retry::Outcome::Refused(rejection) => return Err(rejected(&rejection)),
-            }
-        }
-        Err(match request_id {
-            Some(request_id) => AppError::AddRequestIdCollides {
-                request_id,
-                probes: KEYED_PROBES,
-            },
-            None => AppError::HarpsExhausted {
-                attempts: HARP_ATTEMPTS,
-            },
+        let task = add_on_free(&mut runner, &mut self.names, store, &template, keyed).await?;
+        Ok(Written {
+            project,
+            task,
+            shown: rules.shown(),
+            dead_letters: std::mem::take(&mut self.dead_letters),
+            warnings,
         })
     }
 
@@ -613,29 +554,40 @@ where
         self.refuse_moved()?;
         let project = self.existing(change.project.as_deref()).await?;
         let rules = self.seeded(&project).await?;
-        // Judged against the task as the retag's own attempt reads it, and
-        // sent at the head read: a write landing between is the kernel's
-        // conflict, and the next attempt reads, collapses and judges
-        // again. A scalar target's new value displaces the one the task
-        // holds, resolved here, so decide never reads the schema.
-        let verdict: Mutex<Result<Vec<RuleFinding>, AppError>> = Mutex::new(Ok(Vec::new()));
-        let shape = |task: &TaskState| {
+        // Judged against the task as the kernel loads it for the retag,
+        // and sent at that head: a write landing between is stale, and the
+        // kernel loads it again, and this collapses and judges again. A
+        // scalar target's new value displaces the one the task holds,
+        // resolved here, so decide never reads the schema.
+        let shape = |task: &TaskAggregate| {
+            let task = task.state();
             let (add, displaced) = tags::collapse(&rules, &task.tags, add.clone());
             let mut remove = remove.clone();
             remove.extend(displaced);
-            let judgement = judged(rules.validate(&task.tags, &add, &remove));
-            let send = judgement.is_ok();
-            *verdict.lock().unwrap_or_else(|e| e.into_inner()) = judgement;
-            send.then(|| book(&change.harp_id, Retag { add, remove }.into()))
+            match judged(rules.validate(&task.tags, &add, &remove)) {
+                Ok(warnings) => (Some(TaskCommand::from(Retag { add, remove })), Ok(warnings)),
+                Err(refused) => (None, Err(refused)),
+            }
         };
         let command_id = self.command_id("tag", request_id.as_deref());
-        let task = self
-            .commit_shaped(&project, &change.harp_id, retag, command_id, Some(&shape))
-            .await;
-        let warnings = verdict.into_inner().unwrap_or_else(|e| e.into_inner())?;
+        let store = self.stores.open(&project).await.map_err(failed)?;
+        let mut runner = retry::Runner {
+            registry: &self.registry,
+            clock: &mut self.clock,
+            delay: &mut self.delay,
+            backoff: self.backoff,
+            dead_letters: &mut self.dead_letters,
+        };
+        let cover = task_cover(&change.harp_id);
+        let (handled, verdict) = runner
+            .shaped::<TaskAggregate, _, _, _, _>(store, &cover, &command_id, shape)
+            .await??;
+        let warnings = verdict?;
+        let handled = handled.expect("a retag judged sound is sent");
+        let task = task_after(store, &self.registry, &change.harp_id, &handled).await?;
         Ok(Written {
             project,
-            task: task?,
+            task,
             shown: rules.shown(),
             dead_letters: std::mem::take(&mut self.dead_letters),
             warnings,
@@ -777,35 +729,15 @@ pub(crate) fn given<T: AsRef<str>>(
     }
 }
 
-/// The stream of the task `harp_id` names.
-fn cover(harp_id: &str) -> Cover {
-    Cover {
-        domain: TASK_DOMAIN.to_string(),
-        root: ids::compute_root(TASK_DOMAIN, harp_id).ok(),
-        edition: None,
-    }
-}
-
-/// `command` for the task `harp_id`. Its command id is left for the
-/// kernel to take from the [`Sampled`](angzarr_embedded::Sampled) the runner
-/// gives it, the same on every attempt.
-fn book(harp_id: &str, command: TaskCommand) -> CommandBook {
-    CommandBook {
-        cover: Some(cover(harp_id)),
-        page: Some(CommandPage {
-            body: Some(command_page::Body::Command(Command {
-                payload: Some(command.to_any()),
-            })),
-            ..CommandPage::default()
-        }),
-        handling: None,
-    }
+/// The stream of the task `harp_id` names: its harp is its natural key.
+pub(crate) fn task_cover(harp_id: &str) -> Cover {
+    Cover::natural(TASK_DOMAIN, harp_id)
 }
 
 /// The task on the first of `harps` whose stream holds the add
 /// `command_id` sent (a keyed add's, answered DUPLICATE wherever it landed);
 /// `None` when none does.
-async fn own_add<S: ReadStore>(
+async fn own_add<S: Store + ReadStore>(
     store: &S,
     registry: &Registry,
     harps: &[String],
@@ -813,13 +745,82 @@ async fn own_add<S: ReadStore>(
 ) -> Result<Option<Task>, AppError> {
     for harp_id in harps {
         if caused(store, harp_id, command_id).await? {
-            let task = read(store, registry, harp_id).await?;
+            let task = task_now(store, registry, harp_id).await?;
             return task.map(Some).ok_or_else(|| AppError::Vanished {
                 harp_id: harp_id.clone(),
             });
         }
     }
     Ok(None)
+}
+
+/// `template` added on the first harp no task holds: of a keyed add's
+/// harps, in order, under its one command id (`keyed`, the key with its
+/// harps and id); unkeyed, of up to [`HARP_ATTEMPTS`] harps `names` mints,
+/// each under a fresh id. The task as the add left it, from its commit. A
+/// harp another task holds is refused ([`TaskRejection::TaskExists`]; a
+/// keyed add's own was looked for first, and would be answered
+/// DUPLICATE) and passed, never merged into its stream.
+async fn add_on_free<S, N, C, D>(
+    runner: &mut retry::Runner<'_, C, D>,
+    names: &mut N,
+    store: &S,
+    template: &AddTask,
+    keyed: Option<Keyed>,
+) -> Result<Task, AppError>
+where
+    S: Store,
+    N: Names,
+    C: Clock + CommandIds,
+    D: Delay + Jitter + Send,
+{
+    let attempts = match keyed {
+        Some(_) => KEYED_PROBES,
+        None => HARP_ATTEMPTS,
+    };
+    for position in 0..attempts {
+        let (harp_id, command_id) = match &keyed {
+            Some(keyed) => (
+                keyed.harps[position as usize].clone(),
+                keyed.command_id.clone(),
+            ),
+            None => (names.task_id(), runner.clock.command_id()),
+        };
+        let add: TaskCommand = AddTask {
+            harp_id: harp_id.clone(),
+            ..template.clone()
+        }
+        .into();
+        let book = CommandBook::command(task_cover(&harp_id), add.to_any());
+        match runner
+            .run::<TaskAggregate, _, _>(store, book, &command_id)
+            .await?
+        {
+            Ok(handled) => return task_after(store, runner.registry, &harp_id, &handled).await,
+            Err(Refusal {
+                rejection: Some(TaskRejection::TaskExists { .. }),
+                ..
+            }) => continue,
+            Err(refusal) => return Err(refusal.into()),
+        }
+    }
+    Err(match keyed {
+        Some(keyed) => AppError::AddRequestIdCollides {
+            request_id: keyed.request_id,
+            probes: KEYED_PROBES,
+        },
+        None => AppError::HarpsExhausted {
+            attempts: HARP_ATTEMPTS,
+        },
+    })
+}
+
+/// A keyed add: its request's key, the harps the key's order names, and
+/// the one command id every probe sends.
+struct Keyed {
+    request_id: String,
+    harps: Vec<String>,
+    command_id: Uuid,
 }
 
 /// Whether the stream of the task `harp_id` names holds an event
@@ -829,7 +830,7 @@ async fn caused<S: ReadStore>(
     harp_id: &str,
     command_id: &Uuid,
 ) -> Result<bool, AppError> {
-    let cover = cover(harp_id);
+    let cover = task_cover(harp_id);
     let stream = StreamRef::try_from(&cover).map_err(failed)?;
     let mut reads = store.begin_read().await.map_err(failed)?;
     let slice = reads.read(stream, 0, None).await.map_err(failed)?;
@@ -841,23 +842,40 @@ async fn caused<S: ReadStore>(
     }))
 }
 
-/// The task `harp_id` names, as the store holds it now, read in a
-/// read-only unit; `None` when its stream holds no task.
-async fn read<S: ReadStore>(
+/// The task `harp_id` names, as the store holds it now ([`Kernel::load`]);
+/// `None` when its stream holds no task.
+async fn task_now<S: Store>(
     store: &S,
     registry: &Registry,
     harp_id: &str,
 ) -> Result<Option<Task>, AppError> {
-    let cover = cover(harp_id);
-    let stream = StreamRef::try_from(&cover).map_err(failed)?;
-    let mut reads = store.begin_read().await.map_err(failed)?;
-    let slice = reads.read(stream, 0, None).await.map_err(failed)?;
-    let stream = Stream::<TaskAggregate>::replay(cover, &slice.pages, registry)
+    let (task, _) = Kernel::new(registry)
+        .load::<TaskAggregate, _>(store, &task_cover(harp_id))
+        .await
         .map_err(|e| AppError::Failed(Report::of(&e)))?;
-    // A stream that replays to no task (one with no events, or read back
-    // with none) is no task, never a blank one.
-    let state = stream.state().state();
-    Ok((!state.harp_id.is_empty()).then(|| Task::of(state)))
+    Ok(Task::existing(task.state().state()))
+}
+
+/// The task `harp_id` names as `handled` left it: from its commit itself,
+/// never read after it; a duplicate's, which recorded nothing, as the
+/// store holds it now ([`task_now`]). A stream holding no task after all
+/// (one emptied since) is [`AppError::Vanished`].
+async fn task_after<S: Store>(
+    store: &S,
+    registry: &Registry,
+    harp_id: &str,
+    handled: &Handled,
+) -> Result<Task, AppError> {
+    let committed = handled
+        .state::<TaskAggregate>(&task_cover(harp_id), registry)
+        .map_err(|e| AppError::Failed(Report::of(&e)))?;
+    let task = match committed {
+        Some(task) => Task::existing(task.state()),
+        None => task_now(store, registry, harp_id).await?,
+    };
+    task.ok_or_else(|| AppError::Vanished {
+        harp_id: harp_id.to_string(),
+    })
 }
 
 /// A store's failure, as the kernel reports one: its key and args.

@@ -2,17 +2,18 @@
 //! binary drives it: `Kernel::handle` over angzarr-ports' in-memory store,
 //! which checks, identifies, deduplicates against the store, hands the
 //! command to the marked-up [`PlanAggregate`] through angzarr-router, and
-//! commits. The rules themselves are `lib.test.rs`'s, over decide and apply;
-//! these hold the aggregate to them, the stream it belongs in, and the
+//! commits. The rules themselves are `lib.test.rs`'s, through this
+//! harness; these hold the aggregate to the stream it belongs in, and the
 //! wire's round trip.
 
 use std::future::Future;
 
 use angzarr_diagnostic::{Arg, Diagnostic};
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
-use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
+use angzarr_embedded::markup::Rejection;
+use angzarr_embedded::v1::{CommandBook, Cover, Uuid};
 use angzarr_embedded::{
-    ids, Domain, EventStore, Failure, Handled, Kernel, MemoryDeadLetters, OnRetryable, Payload,
+    CommandBookExt, CoverExt, Domain, EventStore, Failure, Handled, Kernel, OnRetryable, Payload,
     Registry, Rejected, Sampled, Stream, StreamRef, Timestamp,
 };
 
@@ -21,7 +22,7 @@ use crate::{
     PLAN_DOMAIN,
 };
 
-const HARP: &str = "brisk-cedar-otter";
+pub(crate) const HARP: &str = "brisk-cedar-otter";
 const HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 const HASH2: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 
@@ -39,14 +40,14 @@ fn ready<F: Future>(future: F) -> F::Output {
 }
 
 /// One project's store holding plan streams.
-struct Plans {
+pub(crate) struct Plans {
     store: MemoryStore,
     registry: Registry,
     seconds: i64,
 }
 
 impl Plans {
-    fn new() -> Plans {
+    pub(crate) fn new() -> Plans {
         let mut registry = Registry::new();
         registry.aggregate::<PlanAggregate>(PlanAggregate::default);
         Plans {
@@ -78,6 +79,22 @@ impl Plans {
         }
     }
 
+    /// [`Plans::run`], its refusal the plan's own, typed, as its handler
+    /// made it.
+    pub(crate) fn decide(
+        &mut self,
+        harp: &str,
+        command: PlanCommand,
+    ) -> Result<Vec<PlanEvent>, PlanRejection> {
+        self.run(harp, command).map_err(|rejected| {
+            rejected
+                .rejection::<<PlanAggregate as Domain>::Rejection>()
+                .and_then(Rejection::message)
+                .cloned()
+                .unwrap_or_else(|| panic!("the plan's own refusal: {rejected:?}"))
+        })
+    }
+
     /// Handle `book` through the kernel, one second after the last command,
     /// under a command id of its own. A retryable failure is not retried.
     fn try_run(&mut self, book: CommandBook) -> Result<Handled, Box<Failure<Rejected>>> {
@@ -89,10 +106,8 @@ impl Plans {
             },
             command_id: Uuid::from_bytes([self.seconds as u8; 16]),
         };
-        let dead_letters = MemoryDeadLetters::new();
         ready(
             Kernel::new(&self.registry)
-                .log_with(&dead_letters)
                 .on_retryable(OnRetryable {
                     max_retries: 0,
                     ..OnRetryable::default()
@@ -109,7 +124,7 @@ impl Plans {
     }
 
     /// The plan, replayed from the store as the next process would.
-    fn state(&self, harp: &str) -> PlanState {
+    pub(crate) fn state(&self, harp: &str) -> PlanState {
         Stream::<PlanAggregate>::replay(cover(harp), &self.pages(harp), &self.registry)
             .unwrap()
             .state()
@@ -119,25 +134,12 @@ impl Plans {
 }
 
 fn cover(harp: &str) -> Cover {
-    Cover {
-        domain: PLAN_DOMAIN.to_string(),
-        root: Some(ids::compute_root(PLAN_DOMAIN, harp).unwrap()),
-        edition: None,
-    }
+    Cover::natural(PLAN_DOMAIN, harp)
 }
 
 /// A client's command to `harp`'s stream, with no ids of its own.
 fn book(harp: &str, payload: angzarr_embedded::Any) -> CommandBook {
-    CommandBook {
-        cover: Some(cover(harp)),
-        page: Some(CommandPage {
-            body: Some(command_page::Body::Command(Command {
-                payload: Some(payload),
-            })),
-            ..CommandPage::default()
-        }),
-        handling: None,
-    }
+    CommandBook::command(cover(harp), payload)
 }
 
 fn add(harp: &str) -> PlanCommand {

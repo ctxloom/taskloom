@@ -4,10 +4,21 @@ use std::time::Duration;
 
 use angzarr_diagnostic::Diagnostic;
 
-use super::{Backoff, Outcome, Ported, Runner, DRAW_SCALE};
+use angzarr_embedded::v1::CommandBook;
+use angzarr_embedded::{CommandBookExt, Handled, Payload};
+
+use super::{Backoff, Ported, Refusal, Runner, DRAW_SCALE};
 use crate::fakes::{ready, FakeClock, FakeDelay, Fault, Flaky};
-use crate::{book, registry, AppError};
-use tasks::AddTask;
+use crate::{registry, task_cover, AppError};
+use tasks::{AddTask, TaskAggregate, TaskCommand, TaskRejection};
+
+/// What a run came to: committed, or the task domain's refusal.
+type Ran = Result<Result<Handled, Refusal<TaskRejection>>, AppError>;
+
+/// `command` to the task swift-amber's stream.
+fn book(command: impl Into<TaskCommand>) -> CommandBook {
+    CommandBook::command(task_cover("swift-amber"), command.into().to_any())
+}
 
 const MS: Duration = Duration::from_millis(1);
 
@@ -52,17 +63,12 @@ fn test_the_default_is_10ms_doubling_to_1s_over_10_attempts() {
 }
 
 /// Run an add of "swift-amber" on `store`, under the first command id.
-fn run(store: &mut Flaky, delay: &mut FakeDelay, attempts: u32) -> Result<Outcome, AppError> {
+fn run(store: &mut Flaky, delay: &mut FakeDelay, attempts: u32) -> Ran {
     run_as(1, store, delay, attempts)
 }
 
 /// [`run`], under the command id of `id`s.
-fn run_as(
-    id: u8,
-    store: &mut Flaky,
-    delay: &mut FakeDelay,
-    attempts: u32,
-) -> Result<Outcome, AppError> {
+fn run_as(id: u8, store: &mut Flaky, delay: &mut FakeDelay, attempts: u32) -> Ran {
     let registry = registry();
     let mut clock = FakeClock::default();
     let command_id = angzarr_embedded::v1::Uuid::from_bytes([id; 16]);
@@ -76,7 +82,7 @@ fn run_as(
         defers: tasks::DEFERRED.to_string(),
         initial: tasks::TO_DO.to_string(),
     };
-    let book = book("swift-amber", add.into());
+    let book = book(add);
     let mut runner = Runner {
         registry: &registry,
         clock: &mut clock,
@@ -88,11 +94,11 @@ fn run_as(
         },
         dead_letters: &mut Vec::new(),
     };
-    ready(runner.run(store, &book, &command_id))
+    ready(runner.run::<TaskAggregate, _, _>(store, book, &command_id))
 }
 
 fn events(store: &mut Flaky) -> usize {
-    let cover = crate::cover("swift-amber");
+    let cover = task_cover("swift-amber");
     ready(store.read_from(&cover, 0))
         .unwrap()
         .map_or(0, |slice| slice.pages.len())
@@ -103,7 +109,7 @@ fn test_a_command_that_commits_at_once_waits_for_nothing() {
     let mut store = Flaky::default();
     let mut delay = FakeDelay::default();
     let outcome = run(&mut store, &mut delay, 3).unwrap();
-    assert!(matches!(outcome, Outcome::Committed));
+    assert!(outcome.is_ok(), "committed");
     assert_eq!(store.begun(), 1);
     assert!(delay.slept.is_empty());
     assert_eq!(events(&mut store), 1);
@@ -120,7 +126,7 @@ fn test_a_retryable_failure_is_run_again_after_a_growing_capped_wait() {
     let mut store = Flaky::failing(&[Fault::Unavailable, Fault::Conflict, Fault::Unavailable]);
     let mut delay = FakeDelay::default();
     let outcome = run(&mut store, &mut delay, 5).unwrap();
-    assert!(matches!(outcome, Outcome::Committed));
+    assert!(outcome.is_ok(), "committed");
     assert_eq!(store.begun(), 4, "three failures, then the commit");
     assert_eq!(delay.ceilings, [DRAW_SCALE; 3], "one draw a wait");
     assert_eq!(delay.slept, [10 * MS, 10 * MS, 20 * MS]);
@@ -132,7 +138,7 @@ fn test_a_retryable_failure_is_run_again_after_a_growing_capped_wait() {
 fn test_no_wait_exceeds_the_cap() {
     let mut store = Flaky::failing(&[Fault::Unavailable; 3]);
     let mut delay = FakeDelay::default();
-    run(&mut store, &mut delay, 5).unwrap();
+    run(&mut store, &mut delay, 5).unwrap().unwrap();
     assert_eq!(delay.slept, [10 * MS, 20 * MS, 30 * MS]);
 }
 
@@ -143,7 +149,7 @@ fn test_each_wait_is_the_jitter_drawn_under_its_ceiling() {
         permille: 500,
         ..FakeDelay::default()
     };
-    run(&mut store, &mut delay, 5).unwrap();
+    run(&mut store, &mut delay, 5).unwrap().unwrap();
     assert_eq!(delay.slept, [5 * MS, 10 * MS]);
 }
 
@@ -154,7 +160,7 @@ fn test_a_jitter_past_its_ceiling_is_held_to_it() {
         over: Some(DRAW_SCALE * 9),
         ..FakeDelay::default()
     };
-    run(&mut store, &mut delay, 5).unwrap();
+    run(&mut store, &mut delay, 5).unwrap().unwrap();
     assert_eq!(delay.slept, [10 * MS]);
 }
 
@@ -163,7 +169,7 @@ fn test_a_retry_after_a_lost_answer_is_the_duplicate_of_what_landed() {
     let mut store = Flaky::failing(&[Fault::LandsThenFails]);
     let mut delay = FakeDelay::default();
     let outcome = run(&mut store, &mut delay, 5).unwrap();
-    assert!(matches!(outcome, Outcome::Committed));
+    assert!(outcome.is_ok(), "committed");
     assert_eq!(
         store.begun(),
         1,
@@ -203,12 +209,19 @@ fn test_a_failure_no_retry_mends_is_not_retried() {
 fn test_a_rejection_is_answered_not_retried() {
     let mut store = Flaky::default();
     let mut delay = FakeDelay::default();
-    run(&mut store, &mut delay, 5).unwrap();
-    let Ok(Outcome::Refused(rejection)) = run_as(2, &mut store, &mut delay, 5) else {
+    run(&mut store, &mut delay, 5).unwrap().unwrap();
+    let Ok(Err(refusal)) = run_as(2, &mut store, &mut delay, 5) else {
         panic!("refused");
     };
     assert_eq!(
-        rejection.to_string(),
+        refusal.rejection,
+        Some(TaskRejection::TaskExists {
+            harp_id: "swift-amber".to_string()
+        }),
+        "the domain's own rejection, typed"
+    );
+    assert_eq!(
+        refusal.report.to_string(),
         "tasks-task-exists harp_id=swift-amber",
         "its key and args"
     );
@@ -242,50 +255,115 @@ fn runner<'a>(
     }
 }
 
-fn removal() -> angzarr_embedded::v1::CommandBook {
-    let remove = tasks::RemoveTask {
+fn removal() -> TaskCommand {
+    tasks::RemoveTask {
         reason: tasks::RemovalReason::Pruned,
-    };
-    book("swift-amber", remove.into())
+    }
+    .into()
 }
 
+/// A shaped command is what the shape makes of the task as the kernel
+/// loads it: nothing, and nothing is sent, when the task does not qualify.
 #[test]
-fn test_a_command_whose_condition_fails_on_the_task_read_in_its_unit_is_not_sent() {
+fn test_a_command_whose_shape_declines_the_task_loaded_is_not_sent() {
     let mut store = Flaky::default();
     let mut delay = FakeDelay::default();
-    run(&mut store, &mut delay, 3).unwrap();
+    run(&mut store, &mut delay, 3).unwrap().unwrap();
     let registry = registry();
     let mut clock = FakeClock::default();
     let command_id = angzarr_embedded::v1::Uuid::from_bytes([9; 16]);
     let mut runner = runner(&registry, &mut clock, &mut delay);
-    let other = |task: &tasks::TaskState| task.text == "Something else";
-    let outcome = ready(runner.run_where(&store, &removal(), &command_id, Some(&other)));
-    assert!(outcome.unwrap().is_none(), "declined");
+    let stream = task_cover("swift-amber");
+    let other = |task: &TaskAggregate| {
+        let text = task.state().text.clone();
+        ((text == "Something else").then(removal), text)
+    };
+    let shaped =
+        ready(runner.shaped::<TaskAggregate, _, _, _, _>(&store, &stream, &command_id, other));
+    let Ok(Ok((None, seen))) = shaped else {
+        panic!("declined");
+    };
+    assert_eq!(seen, "Ship it", "the shape's value comes back beside");
     assert_eq!(events(&mut store), 1, "nothing sent");
 
-    let this = |task: &tasks::TaskState| task.text == "Ship it";
-    let outcome = ready(runner.run_where(&store, &removal(), &command_id, Some(&this)));
-    assert!(matches!(outcome, Ok(Some(Outcome::Committed))));
+    let this = |task: &TaskAggregate| ((task.state().text == "Ship it").then(removal), ());
+    let shaped =
+        ready(runner.shaped::<TaskAggregate, _, _, _, _>(&store, &stream, &command_id, this));
+    assert!(matches!(shaped, Ok(Ok((Some(_), ())))));
     assert_eq!(events(&mut store), 2, "the removal landed");
 }
 
+/// The race, forced: another process's edit lands between the kernel's
+/// load for the shape and its send. The send is stale; the kernel loads
+/// and shapes again, so the shape sees the edit, and the removal lands
+/// once, on the new head.
 #[test]
-fn test_a_condition_reads_through_a_unit_that_can_fail_and_be_retried() {
+fn test_a_shaped_command_that_loses_the_race_is_shaped_again_on_the_new_head() {
     let mut store = Flaky::default();
     let mut delay = FakeDelay::default();
-    run(&mut store, &mut delay, 3).unwrap();
-    store.fail([Fault::Unavailable]);
+    run(&mut store, &mut delay, 3).unwrap().unwrap();
     let registry = registry();
     let mut clock = FakeClock::default();
     let command_id = angzarr_embedded::v1::Uuid::from_bytes([9; 16]);
     let mut runner = runner(&registry, &mut clock, &mut delay);
-    let any = |_: &tasks::TaskState| true;
-    let outcome = ready(runner.run_where(&store, &removal(), &command_id, Some(&any)));
-    assert!(matches!(outcome, Ok(Some(Outcome::Committed))));
+    let stream = task_cover("swift-amber");
+    // The shape's load reads the stream once; the kernel's own load for
+    // the send reads it next: the edit lands just before that.
+    store.set_before_read(
+        2,
+        Box::new(|inner| {
+            crate::fakes::run(
+                inner,
+                "swift-amber",
+                tasks::EditText {
+                    text: "Ship it now".to_string(),
+                }
+                .into(),
+            )
+        }),
+    );
+    let mut seen = Vec::new();
+    let shape = |task: &TaskAggregate| {
+        seen.push(task.state().text.clone());
+        (Some(removal()), ())
+    };
+    let shaped =
+        ready(runner.shaped::<TaskAggregate, _, _, _, _>(&store, &stream, &command_id, shape));
+    assert!(matches!(shaped, Ok(Ok((Some(_), ())))));
+    assert!(store.before_read_ran());
     assert_eq!(
-        store.begun(),
-        3,
-        "the add, then the failed attempt and its retry"
+        seen,
+        ["Ship it", "Ship it now"],
+        "shaped again on the new head"
+    );
+    assert_eq!(events(&mut store), 3, "the add, the edit, the removal once");
+}
+
+/// A refusal of a shaped command is the domain's own, typed.
+#[test]
+fn test_a_shaped_command_the_domain_refuses_comes_back_typed() {
+    let mut store = Flaky::default();
+    let mut delay = FakeDelay::default();
+    run(&mut store, &mut delay, 3).unwrap().unwrap();
+    let registry = registry();
+    let mut clock = FakeClock::default();
+    let command_id = angzarr_embedded::v1::Uuid::from_bytes([9; 16]);
+    let mut runner = runner(&registry, &mut clock, &mut delay);
+    let stream = task_cover("swift-amber");
+    let twice = |_: &TaskAggregate| (Some(removal()), ());
+    ready(runner.shaped::<TaskAggregate, _, _, _, _>(&store, &stream, &command_id, twice))
+        .unwrap()
+        .unwrap();
+    let again = angzarr_embedded::v1::Uuid::from_bytes([10; 16]);
+    let shaped = ready(runner.shaped::<TaskAggregate, _, _, _, _>(&store, &stream, &again, twice));
+    let Ok(Err(refusal)) = shaped else {
+        panic!("refused");
+    };
+    assert_eq!(
+        refusal.rejection,
+        Some(TaskRejection::Removed {
+            harp_id: "swift-amber".to_string()
+        })
     );
 }
 
@@ -293,13 +371,15 @@ fn test_a_condition_reads_through_a_unit_that_can_fail_and_be_retried() {
 fn test_a_purge_deletes_a_removed_tasks_stream_and_says_how_many_events() {
     let mut store = Flaky::default();
     let mut delay = FakeDelay::default();
-    run(&mut store, &mut delay, 3).unwrap();
+    run(&mut store, &mut delay, 3).unwrap().unwrap();
     let registry = registry();
     let mut clock = FakeClock::default();
     let command_id = angzarr_embedded::v1::Uuid::from_bytes([9; 16]);
     let mut runner = runner(&registry, &mut clock, &mut delay);
-    ready(runner.run(&store, &removal(), &command_id)).unwrap();
-    let stream = crate::cover("swift-amber");
+    ready(runner.run::<TaskAggregate, _, _>(&store, book(removal()), &command_id))
+        .unwrap()
+        .unwrap();
+    let stream = task_cover("swift-amber");
     assert_eq!(ready(runner.purge(&store, &stream)).unwrap(), 2);
     assert_eq!(events(&mut store), 0);
     assert_eq!(
@@ -314,11 +394,11 @@ fn test_a_purge_leaves_a_live_task_alone() {
     // A task minted on the harp after the removal was purged by another.
     let mut store = Flaky::default();
     let mut delay = FakeDelay::default();
-    run(&mut store, &mut delay, 3).unwrap();
+    run(&mut store, &mut delay, 3).unwrap().unwrap();
     let registry = registry();
     let mut clock = FakeClock::default();
     let mut runner = runner(&registry, &mut clock, &mut delay);
-    let stream = crate::cover("swift-amber");
+    let stream = task_cover("swift-amber");
     assert_eq!(ready(runner.purge(&store, &stream)).unwrap(), 0);
     assert_eq!(events(&mut store), 1, "kept");
 }
@@ -327,15 +407,17 @@ fn test_a_purge_leaves_a_live_task_alone() {
 fn test_a_purge_gives_up_once_its_attempts_are_spent() {
     let mut store = Flaky::default();
     let mut delay = FakeDelay::default();
-    run(&mut store, &mut delay, 3).unwrap();
+    run(&mut store, &mut delay, 3).unwrap().unwrap();
     let registry = registry();
     let mut clock = FakeClock::default();
     let command_id = angzarr_embedded::v1::Uuid::from_bytes([9; 16]);
     let mut runner = runner(&registry, &mut clock, &mut delay);
-    ready(runner.run(&store, &removal(), &command_id)).unwrap();
+    ready(runner.run::<TaskAggregate, _, _>(&store, book(removal()), &command_id))
+        .unwrap()
+        .unwrap();
     runner.delay.slept.clear();
     store.fail([Fault::Conflict; 5]);
-    let stream = crate::cover("swift-amber");
+    let stream = task_cover("swift-amber");
     let Err(AppError::GaveUp { attempts, error }) = ready(runner.purge(&store, &stream)) else {
         panic!("gave up");
     };
@@ -436,9 +518,11 @@ fn test_a_store_that_never_answers_is_given_up_at_the_kernels_cap_under_its_key(
         defers: tasks::DEFERRED.to_string(),
         initial: tasks::TO_DO.to_string(),
     };
-    let book = book("swift-amber", add.into());
+    let book = book(add);
     let id = angzarr_embedded::v1::Uuid::from_bytes([1; 16]);
-    let Err(AppError::GaveUp { attempts, error }) = ready(runner.run(&store, &book, &id)) else {
+    let Err(AppError::GaveUp { attempts, error }) =
+        ready(runner.run::<TaskAggregate, _, _>(&store, book, &id))
+    else {
         panic!("gave up");
     };
     assert_eq!(attempts, 4);
@@ -446,12 +530,4 @@ fn test_a_store_that_never_answers_is_given_up_at_the_kernels_cap_under_its_key(
     assert_eq!(store.begun(), 4, "the kernel's tries, taskloom's none");
     let letters = dead_letters;
     assert!(letters.is_empty(), "{letters:?}");
-}
-
-#[test]
-fn test_an_outcome_is_refused_as_only_its_own_key() {
-    let refused = Outcome::Refused(angzarr_diagnostic::Report::new("tasks-removed"));
-    assert!(refused.refused_as("tasks-removed"));
-    assert!(!refused.refused_as("tasks-no-task"));
-    assert!(!Outcome::Committed.refused_as("tasks-removed"));
 }

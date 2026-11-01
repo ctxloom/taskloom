@@ -9,11 +9,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use angzarr_diagnostic::{Diagnostic, Report};
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
-use angzarr_embedded::{Kernel, MemoryDeadLetters, Payload, Sampled};
+use angzarr_embedded::v1::{CommandBook, Cover};
+use angzarr_embedded::{CommandBookExt, CoverExt, Kernel, Payload, Sampled};
 use plans::{PlanCommand, PlanRejection};
 use ports::{Mint, PlanFiles, Tasks, Timestamp, Uuid};
 
-use super::{book, registry};
+use super::registry;
 use crate::fakes::{ready, Service};
 use crate::{
     content_hash, Link, NewPlan, PlanError, PlanQuery, PlanStatus, Plans, KERNEL_RETRY, RETIRED_TAG,
@@ -124,7 +125,6 @@ fn new(title: &str) -> NewPlan {
 /// process would.
 fn other_process(store: &MemoryStore, harp: &str, command: PlanCommand) {
     let registry = registry();
-    let dead_letters = MemoryDeadLetters::new();
     let sampled = Sampled {
         now: Timestamp {
             seconds: 1_800_000_000,
@@ -132,18 +132,11 @@ fn other_process(store: &MemoryStore, harp: &str, command: PlanCommand) {
         },
         command_id: Uuid::from_bytes([0xee; 16]),
     };
-    let head = {
-        let cover = super::cover(harp);
-        let at = angzarr_embedded::StreamRef::try_from(&cover).unwrap();
-        ready(angzarr_embedded::EventStore::read(store, at, 0, None))
-            .unwrap()
-            .next_sequence
-    };
+    let book = CommandBook::command(Cover::natural(plans::PLAN_DOMAIN, harp), command.to_any());
     ready(
         Kernel::new(&registry)
-            .log_with(&dead_letters)
             .on_retryable(KERNEL_RETRY)
-            .handle::<plans::PlanAggregate, _>(store, book(harp, &command, head), &sampled),
+            .handle::<plans::PlanAggregate, _>(store, book, &sampled),
     )
     .unwrap_or_else(|failure| panic!("{failure:?}"));
 }
@@ -451,18 +444,4 @@ fn an_import_with_a_value_left_says_so() {
     assert!(report.left_any());
     assert!(report.plans.is_empty() && report.retired.is_empty());
     assert_eq!(tasks.0.borrow()["task-a"].len(), 1, "its tag is kept");
-}
-
-#[test]
-fn a_registered_plan_governs_by_its_command_and_its_event_names_it() {
-    // The book a command is sent in: on the plan's stream, at the head read.
-    let command = PlanCommand::Govern("task-a".into());
-    let sent = book("plan-1", &command, 3);
-    assert_eq!(sent.handling.unwrap().expected_sequence, Some(3));
-    assert_eq!(sent.cover, Some(super::cover("plan-1")));
-    let page = sent.page.unwrap();
-    let Some(angzarr_embedded::v1::command_page::Body::Command(body)) = page.body else {
-        panic!("a command page");
-    };
-    assert_eq!(PlanCommand::from_any(&body.payload.unwrap()), Ok(command));
 }

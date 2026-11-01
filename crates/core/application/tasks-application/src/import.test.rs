@@ -16,7 +16,7 @@ use crate::fakes::{
     ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores, Fault, Flaky,
 };
 use crate::{
-    cover, ImportReport, ImportRequest, ImportService, Importer, Lost, NewTask, ProjectImport,
+    task_cover, ImportReport, ImportRequest, ImportService, Importer, Lost, NewTask, ProjectImport,
     Service, TaskService, Why,
 };
 
@@ -81,15 +81,16 @@ fn at(seconds: i64) -> Timestamp {
 
 /// The task `harp` as its stream holds it.
 fn state(service: &mut Fake, harp: &str) -> Option<TaskState> {
-    let slice = ready(service.stores.store.read_from(&cover(harp), 0)).unwrap()?;
+    let slice = ready(service.stores.store.read_from(&task_cover(harp), 0)).unwrap()?;
     let stream =
-        Stream::<TaskAggregate>::replay(cover(harp), &slice.pages, &crate::registry()).unwrap();
+        Stream::<TaskAggregate>::replay(task_cover(harp), &slice.pages, &crate::registry())
+            .unwrap();
     Some(stream.state().state().clone())
 }
 
 /// How many events `harp`'s stream holds.
 fn events(service: &mut Fake, harp: &str) -> usize {
-    ready(service.stores.store.read_from(&cover(harp), 0))
+    ready(service.stores.store.read_from(&task_cover(harp), 0))
         .unwrap()
         .map_or(0, |slice| slice.pages.len())
 }
@@ -768,7 +769,7 @@ fn test_a_record_imports_under_the_command_id_its_line_derives() {
     let id = record_command_id(&add.raw);
     let mut service = service(vec![add]);
     import(&mut service);
-    let cover = cover(HARP);
+    let cover = task_cover(HARP);
     let stream = angzarr_embedded::StreamRef::try_from(&cover).unwrap();
     let id = angzarr_embedded::angzarr_ports::Uuid::try_from(&id).unwrap();
     let found = ready(angzarr_embedded::EventStore::find_command(

@@ -20,8 +20,8 @@ use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::angzarr_router::error::RouterReason;
 use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::{
-    ids, pack, Any, Domain, EventStore, Failure, Handled, Kernel, KernelError, MemoryDeadLetters,
-    OnRetryable, Payload, Recovery, Registry, Rejected, Sampled, Stream, StreamRef, Timestamp,
+    ids, pack, Any, Domain, EventStore, Failure, Handled, Kernel, KernelError, OnRetryable,
+    Payload, Recovery, Registry, Rejected, Sampled, Stream, StreamRef, Timestamp,
 };
 
 use crate::{
@@ -129,10 +129,8 @@ impl Task {
             now,
             command_id: Uuid::from_bytes([self.seconds as u8; 16]),
         };
-        let dead_letters = MemoryDeadLetters::new();
         ready(
             Kernel::new(&self.registry)
-                .log_with(&dead_letters)
                 .on_retryable(OnRetryable {
                     max_retries: 0,
                     ..OnRetryable::default()

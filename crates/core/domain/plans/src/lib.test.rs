@@ -1,7 +1,8 @@
-//! RED: the plan aggregate's rules, decide and apply, one stream at a time.
-//! Every test fails on a `todo!()` until the aggregate is written.
+//! The plan aggregate's rules, one stream at a time: each command decided
+//! by its handler through the kernel, against the plan its stream folds to.
 
 use super::*;
+use crate::aggregate::tests::{Plans, HARP};
 
 use PlanStatus::{Abandoned, Active, Done, Draft, Superseded};
 
@@ -19,60 +20,60 @@ fn add() -> AddPlan {
     }
 }
 
-/// Run `command` on `state`, folding what it records into it.
-fn run(state: &mut PlanState, command: PlanCommand) -> Result<Vec<PlanEvent>, PlanRejection> {
-    let events = decide(state, &command)?;
-    for event in &events {
-        apply(state, event);
-    }
-    Ok(events)
+/// Run `command` on the plan's stream: the events it recorded, or the
+/// plan's refusal.
+fn run(plans: &mut Plans, command: PlanCommand) -> Result<Vec<PlanEvent>, PlanRejection> {
+    plans.decide(HARP, command)
 }
 
 /// A plan added, in `status` (reached by the allowed path).
-fn plan_in(status: PlanStatus) -> PlanState {
-    let mut state = PlanState::default();
-    run(&mut state, PlanCommand::Add(add())).unwrap();
+fn plan_in(status: PlanStatus) -> Plans {
+    let mut plans = Plans::new();
+    run(&mut plans, PlanCommand::Add(add())).unwrap();
     match status {
         Draft => {}
         Active => {
-            run(&mut state, PlanCommand::SetStatus(Active)).unwrap();
+            run(&mut plans, PlanCommand::SetStatus(Active)).unwrap();
         }
         Superseded => {
-            run(&mut state, PlanCommand::SetStatus(Active)).unwrap();
-            run(&mut state, PlanCommand::MarkSuperseded("next-plan".into())).unwrap();
+            run(&mut plans, PlanCommand::SetStatus(Active)).unwrap();
+            run(&mut plans, PlanCommand::MarkSuperseded("next-plan".into())).unwrap();
         }
         Done | Abandoned => {
-            run(&mut state, PlanCommand::SetStatus(Active)).unwrap();
-            run(&mut state, PlanCommand::SetStatus(status)).unwrap();
+            run(&mut plans, PlanCommand::SetStatus(Active)).unwrap();
+            run(&mut plans, PlanCommand::SetStatus(status)).unwrap();
         }
     }
-    state
+    plans
 }
 
 // ---- add ----
 
 #[test]
 fn add_records_the_plan_whole_and_folds_it() {
-    let mut state = PlanState::default();
-    let events = run(&mut state, PlanCommand::Add(add())).unwrap();
+    let mut plans = Plans::new();
+    let events = run(&mut plans, PlanCommand::Add(add())).unwrap();
     assert_eq!(events, vec![PlanEvent::PlanAdded(add())]);
-    assert!(state.added);
-    assert_eq!(state.harp_id, "brisk-cedar-otter");
-    assert_eq!(state.title, "Plans move into taskloom");
-    assert_eq!(state.status, Draft);
-    assert_eq!(state.path, ".taskloom/plans/brisk-cedar-otter.plan.md");
-    assert_eq!(state.content_hash, HASH);
-    assert_eq!(state.origin_session, "inept-sixth-stick");
-    assert!(state.governs.is_empty() && state.supersedes.is_empty());
+    assert!(plans.state(HARP).added);
+    assert_eq!(plans.state(HARP).harp_id, "brisk-cedar-otter");
+    assert_eq!(plans.state(HARP).title, "Plans move into taskloom");
+    assert_eq!(plans.state(HARP).status, Draft);
+    assert_eq!(
+        plans.state(HARP).path,
+        ".taskloom/plans/brisk-cedar-otter.plan.md"
+    );
+    assert_eq!(plans.state(HARP).content_hash, HASH);
+    assert_eq!(plans.state(HARP).origin_session, "inept-sixth-stick");
+    assert!(plans.state(HARP).governs.is_empty() && plans.state(HARP).supersedes.is_empty());
 }
 
 #[test]
 fn add_may_start_active() {
-    let mut state = PlanState::default();
+    let mut plans = Plans::new();
     let mut active = add();
     active.status = Active;
-    run(&mut state, PlanCommand::Add(active)).unwrap();
-    assert_eq!(state.status, Active);
+    run(&mut plans, PlanCommand::Add(active)).unwrap();
+    assert_eq!(plans.state(HARP).status, Active);
 }
 
 #[test]
@@ -81,7 +82,7 @@ fn add_refuses_to_start_in_any_status_but_draft_or_active() {
         let mut asked = add();
         asked.status = status;
         assert_eq!(
-            decide(&PlanState::default(), &PlanCommand::Add(asked)),
+            run(&mut Plans::new(), PlanCommand::Add(asked)),
             Err(PlanRejection::InitialStatus(status)),
         );
     }
@@ -92,7 +93,7 @@ fn add_refuses_a_blank_title() {
     let mut blank = add();
     blank.title = "  ".to_string();
     assert_eq!(
-        decide(&PlanState::default(), &PlanCommand::Add(blank)),
+        run(&mut Plans::new(), PlanCommand::Add(blank)),
         Err(PlanRejection::EmptyTitle),
     );
 }
@@ -102,23 +103,22 @@ fn add_refuses_a_hash_that_is_not_sha256_hex() {
     let mut bad = add();
     bad.content_hash = "abc".to_string();
     assert_eq!(
-        decide(&PlanState::default(), &PlanCommand::Add(bad)),
+        run(&mut Plans::new(), PlanCommand::Add(bad)),
         Err(PlanRejection::BadHash("abc".to_string())),
     );
 }
 
 #[test]
 fn add_to_a_stream_holding_a_plan_is_refused() {
-    let state = plan_in(Draft);
+    let mut plans = plan_in(Draft);
     assert_eq!(
-        decide(&state, &PlanCommand::Add(add())),
+        run(&mut plans, PlanCommand::Add(add())),
         Err(PlanRejection::AlreadyAdded)
     );
 }
 
 #[test]
 fn every_command_but_add_on_an_empty_stream_is_no_such_plan() {
-    let empty = PlanState::default();
     for command in [
         PlanCommand::SetStatus(Active),
         PlanCommand::Govern("t".into()),
@@ -130,7 +130,7 @@ fn every_command_but_add_on_an_empty_stream_is_no_such_plan() {
         PlanCommand::Rehash(HASH2.into()),
     ] {
         assert_eq!(
-            decide(&empty, &command),
+            run(&mut Plans::new(), command.clone()),
             Err(PlanRejection::NoSuchPlan),
             "{command:?}"
         );
@@ -185,8 +185,8 @@ fn plan_status_allows_exactly_the_proposed_transitions() {
 
 #[test]
 fn set_status_records_from_and_to() {
-    let mut state = plan_in(Draft);
-    let events = run(&mut state, PlanCommand::SetStatus(Active)).unwrap();
+    let mut plans = plan_in(Draft);
+    let events = run(&mut plans, PlanCommand::SetStatus(Active)).unwrap();
     assert_eq!(
         events,
         vec![PlanEvent::StatusChanged {
@@ -194,22 +194,22 @@ fn set_status_records_from_and_to() {
             to: Active
         }]
     );
-    assert_eq!(state.status, Active);
+    assert_eq!(plans.state(HARP).status, Active);
 }
 
 #[test]
 fn set_status_refuses_a_transition_the_table_does_not_allow() {
-    let state = plan_in(Draft);
+    let mut plans = plan_in(Draft);
     assert_eq!(
-        decide(&state, &PlanCommand::SetStatus(Done)),
+        run(&mut plans, PlanCommand::SetStatus(Done)),
         Err(PlanRejection::Transition {
             from: Draft,
             to: Done
         }),
     );
-    let state = plan_in(Superseded);
+    let mut plans = plan_in(Superseded);
     assert_eq!(
-        decide(&state, &PlanCommand::SetStatus(Active)),
+        run(&mut plans, PlanCommand::SetStatus(Active)),
         Err(PlanRejection::Transition {
             from: Superseded,
             to: Active
@@ -219,26 +219,26 @@ fn set_status_refuses_a_transition_the_table_does_not_allow() {
 
 #[test]
 fn set_status_to_the_status_held_is_refused_as_unchanged() {
-    let state = plan_in(Active);
+    let mut plans = plan_in(Active);
     assert_eq!(
-        decide(&state, &PlanCommand::SetStatus(Active)),
+        run(&mut plans, PlanCommand::SetStatus(Active)),
         Err(PlanRejection::StatusUnchanged(Active)),
     );
 }
 
 #[test]
 fn set_status_superseded_is_refused_naming_the_supersede_link() {
-    let state = plan_in(Active);
+    let mut plans = plan_in(Active);
     assert_eq!(
-        decide(&state, &PlanCommand::SetStatus(Superseded)),
+        run(&mut plans, PlanCommand::SetStatus(Superseded)),
         Err(PlanRejection::SupersededBySupersedeOnly),
     );
 }
 
 #[test]
 fn mark_superseded_records_the_successor_and_reinstate_returns_to_active() {
-    let mut state = plan_in(Active);
-    let events = run(&mut state, PlanCommand::MarkSuperseded("next-plan".into())).unwrap();
+    let mut plans = plan_in(Active);
+    let events = run(&mut plans, PlanCommand::MarkSuperseded("next-plan".into())).unwrap();
     assert_eq!(
         events,
         vec![PlanEvent::MarkedSuperseded {
@@ -246,19 +246,19 @@ fn mark_superseded_records_the_successor_and_reinstate_returns_to_active() {
             from: Active
         }]
     );
-    assert_eq!(state.status, Superseded);
-    assert_eq!(state.superseded_by, "next-plan");
+    assert_eq!(plans.state(HARP).status, Superseded);
+    assert_eq!(plans.state(HARP).superseded_by, "next-plan");
 
-    run(&mut state, PlanCommand::Reinstate).unwrap();
-    assert_eq!(state.status, Active);
-    assert_eq!(state.superseded_by, "");
+    run(&mut plans, PlanCommand::Reinstate).unwrap();
+    assert_eq!(plans.state(HARP).status, Active);
+    assert_eq!(plans.state(HARP).superseded_by, "");
 }
 
 #[test]
 fn reinstate_is_refused_unless_the_plan_is_superseded() {
-    let state = plan_in(Active);
+    let mut plans = plan_in(Active);
     assert_eq!(
-        decide(&state, &PlanCommand::Reinstate),
+        run(&mut plans, PlanCommand::Reinstate),
         Err(PlanRejection::Transition {
             from: Active,
             to: Active
@@ -270,20 +270,25 @@ fn reinstate_is_refused_unless_the_plan_is_superseded() {
 
 #[test]
 fn govern_adds_a_task_and_ungovern_removes_it() {
-    let mut state = plan_in(Active);
-    let events = run(&mut state, PlanCommand::Govern("swift-amber-falcon".into())).unwrap();
+    let mut plans = plan_in(Active);
+    let events = run(&mut plans, PlanCommand::Govern("swift-amber-falcon".into())).unwrap();
     assert_eq!(
         events,
         vec![PlanEvent::Governed("swift-amber-falcon".into())]
     );
-    run(&mut state, PlanCommand::Govern("calm-dusty-heron".into())).unwrap();
+    run(&mut plans, PlanCommand::Govern("calm-dusty-heron".into())).unwrap();
     assert_eq!(
-        state.governs.iter().map(String::as_str).collect::<Vec<_>>(),
+        plans
+            .state(HARP)
+            .governs
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
         vec!["calm-dusty-heron", "swift-amber-falcon"],
     );
 
     let events = run(
-        &mut state,
+        &mut plans,
         PlanCommand::Ungovern("swift-amber-falcon".into()),
     )
     .unwrap();
@@ -291,19 +296,19 @@ fn govern_adds_a_task_and_ungovern_removes_it() {
         events,
         vec![PlanEvent::Ungoverned("swift-amber-falcon".into())]
     );
-    assert_eq!(state.governs.len(), 1);
+    assert_eq!(plans.state(HARP).governs.len(), 1);
 }
 
 #[test]
 fn govern_twice_is_refused_and_ungoverning_a_task_not_governed_is_refused() {
-    let mut state = plan_in(Active);
-    run(&mut state, PlanCommand::Govern("swift-amber-falcon".into())).unwrap();
+    let mut plans = plan_in(Active);
+    run(&mut plans, PlanCommand::Govern("swift-amber-falcon".into())).unwrap();
     assert_eq!(
-        decide(&state, &PlanCommand::Govern("swift-amber-falcon".into())),
+        run(&mut plans, PlanCommand::Govern("swift-amber-falcon".into())),
         Err(PlanRejection::AlreadyGoverns("swift-amber-falcon".into())),
     );
     assert_eq!(
-        decide(&state, &PlanCommand::Ungovern("calm-dusty-heron".into())),
+        run(&mut plans, PlanCommand::Ungovern("calm-dusty-heron".into())),
         Err(PlanRejection::NotGoverned("calm-dusty-heron".into())),
     );
 }
@@ -312,34 +317,37 @@ fn govern_twice_is_refused_and_ungoverning_a_task_not_governed_is_refused() {
 
 #[test]
 fn supersede_links_a_plan_and_unsupersede_unlinks_it() {
-    let mut state = plan_in(Active);
-    let events = run(&mut state, PlanCommand::Supersede("old-plan".into())).unwrap();
+    let mut plans = plan_in(Active);
+    let events = run(&mut plans, PlanCommand::Supersede("old-plan".into())).unwrap();
     assert_eq!(events, vec![PlanEvent::Superseded("old-plan".into())]);
-    assert!(state.supersedes.contains("old-plan"));
-    let events = run(&mut state, PlanCommand::Unsupersede("old-plan".into())).unwrap();
+    assert!(plans.state(HARP).supersedes.contains("old-plan"));
+    let events = run(&mut plans, PlanCommand::Unsupersede("old-plan".into())).unwrap();
     assert_eq!(events, vec![PlanEvent::Unsuperseded("old-plan".into())]);
-    assert!(state.supersedes.is_empty());
+    assert!(plans.state(HARP).supersedes.is_empty());
 }
 
 #[test]
 fn a_plan_superseding_itself_is_refused() {
-    let state = plan_in(Active);
+    let mut plans = plan_in(Active);
     assert_eq!(
-        decide(&state, &PlanCommand::Supersede("brisk-cedar-otter".into())),
+        run(
+            &mut plans,
+            PlanCommand::Supersede("brisk-cedar-otter".into())
+        ),
         Err(PlanRejection::SupersedesItself),
     );
 }
 
 #[test]
 fn supersede_twice_and_unsupersede_of_an_unlinked_plan_are_refused() {
-    let mut state = plan_in(Active);
-    run(&mut state, PlanCommand::Supersede("old-plan".into())).unwrap();
+    let mut plans = plan_in(Active);
+    run(&mut plans, PlanCommand::Supersede("old-plan".into())).unwrap();
     assert_eq!(
-        decide(&state, &PlanCommand::Supersede("old-plan".into())),
+        run(&mut plans, PlanCommand::Supersede("old-plan".into())),
         Err(PlanRejection::AlreadySupersedes("old-plan".into())),
     );
     assert_eq!(
-        decide(&state, &PlanCommand::Unsupersede("other".into())),
+        run(&mut plans, PlanCommand::Unsupersede("other".into())),
         Err(PlanRejection::NotSuperseded("other".into())),
     );
 }
@@ -348,17 +356,17 @@ fn supersede_twice_and_unsupersede_of_an_unlinked_plan_are_refused() {
 
 #[test]
 fn rehash_records_the_new_hash() {
-    let mut state = plan_in(Active);
-    let events = run(&mut state, PlanCommand::Rehash(HASH2.into())).unwrap();
+    let mut plans = plan_in(Active);
+    let events = run(&mut plans, PlanCommand::Rehash(HASH2.into())).unwrap();
     assert_eq!(events, vec![PlanEvent::Rehashed(HASH2.into())]);
-    assert_eq!(state.content_hash, HASH2);
+    assert_eq!(plans.state(HARP).content_hash, HASH2);
 }
 
 #[test]
 fn rehash_to_the_recorded_hash_is_refused() {
-    let state = plan_in(Active);
+    let mut plans = plan_in(Active);
     assert_eq!(
-        decide(&state, &PlanCommand::Rehash(HASH.into())),
+        run(&mut plans, PlanCommand::Rehash(HASH.into())),
         Err(PlanRejection::HashUnchanged),
     );
 }

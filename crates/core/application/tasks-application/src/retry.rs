@@ -14,31 +14,33 @@
 //! hands back has had its retries: taskloom gives up on it at once
 //! ([`AppError::GaveUp`]), never retrying it again.
 //!
-//! **taskloom re-reads what it shaped.** A command that depends on the task
-//! as it is (a scalar tag displacing the one held, a removal only of a task
-//! that still qualifies) is shaped from a read of its stream and sent at
-//! the head it read (`Handling.expected_sequence`, STRICT), so a write
-//! landing between is the kernel's stale answer (ABORTED: re-read and
-//! decide again, the caller's, angzarr decision 14.37), and taskloom reads
-//! and shapes again. So it does for what the kernel never runs: a read of
-//! the stream, and a purge at the head read.
+//! **The kernel shapes again what was shaped.** A command that depends on
+//! the task as it is (a scalar tag displacing the one held, a removal only
+//! of a task that still qualifies) is shaped from the stream as the kernel
+//! loads it and sent at that head, STRICT ([`Runner::shaped`],
+//! [`Kernel::handle_shaped`]): a write landing between is stale, and the
+//! kernel loads and shapes it again, under its race re-run cap. What the
+//! kernel never runs, a purge at the head read, taskloom reads and retries
+//! itself ([`Runner::purge`]).
+//!
+//! **A refusal is typed.** The domain's own rejection comes back as its
+//! handler made it ([`Refusal`]), matched as a value, never by its code.
 
 use std::time::Duration;
 
-use angzarr_embedded::v1::{CommandBook, Cover, Handling, Uuid};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Mutex, PoisonError};
 
 use angzarr_diagnostic::Report;
-use angzarr_embedded::v1::AngzarrDeadLetter;
+use angzarr_embedded::markup::Rejection;
+use angzarr_embedded::v1::{CommandBook, Cover, Uuid};
 use angzarr_embedded::{
-    DeadLetter, DeadLetterLog, Domain, EventStore, Failure, Handled, Kernel, KernelError,
-    OnRetryable, Purge, Recovery, Registry, Rejected, Sampled, Store, StoreError, Stream,
-    StreamRef, Wait,
+    DeadLetter, Domain, Failure, Handled, Kernel, KernelError, OnRetryable, Payload, Purge,
+    Recovery, Registry, Rejected, Sampled, Store, StreamRef, Wait,
 };
 use ports::{Clock, Delay, Jitter};
-use tasks::{TaskAggregate, TaskState};
+use tasks::TaskAggregate;
 
 use crate::AppError;
 
@@ -97,20 +99,6 @@ impl<D: Delay + Jitter + Send> Wait for Ported<'_, D> {
     }
 }
 
-/// Whether `failure` is the kernel's answer to re-read and decide again
-/// (ABORTED: a command sent at a head the stream has passed, an overlap, an
-/// unresolved window), which the kernel never retries for its caller.
-pub fn to_redecide(failure: &Failure<Rejected>) -> bool {
-    matches!(
-        failure,
-        Failure::Kernel(
-            KernelError::Stale { .. }
-                | KernelError::Overlap { .. }
-                | KernelError::Unresolved { .. }
-        )
-    )
-}
-
 /// How long to wait between attempts, and how many to make.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct Backoff {
@@ -157,31 +145,19 @@ impl Backoff {
     }
 }
 
-/// What one command came to, short of an error.
-pub(crate) enum Outcome {
-    /// It committed, or had already (a retry answered DUPLICATE): either
-    /// way the command's events are on the stream once.
-    Committed,
-    /// The domain refused it: its key and args.
-    Refused(Report),
+/// A domain's refusal of a command, as the use case reads it: its own
+/// rejection, typed, as its handler made it (`None` for one the router
+/// made on its behalf), and as reported.
+#[derive(Clone, PartialEq, Debug)]
+pub(crate) struct Refusal<R> {
+    pub rejection: Option<R>,
+    pub report: Report,
 }
 
-impl Outcome {
-    /// Whether it was refused under `code`.
-    pub(crate) fn refused_as(&self, code: &str) -> bool {
-        matches!(self, Outcome::Refused(report) if angzarr_diagnostic::Diagnostic::code(report) == code)
+impl<R> From<Refusal<R>> for AppError {
+    fn from(refusal: Refusal<R>) -> AppError {
+        AppError::Rejected(refusal.report)
     }
-}
-
-/// The kernel's log, which taskloom keeps nothing in: every dead letter a
-/// call wrote comes back in its answer ([`answered`]), and the store keeps
-/// it; a command taskloom waits for is answered, never dead-lettered.
-pub struct Unlogged;
-
-impl DeadLetterLog for Unlogged {
-    fn write(&self, _line: &str) {}
-
-    fn letter(&self, _letter: &AngzarrDeadLetter) {}
 }
 
 /// The dead letters a kernel call answered, handled or failed.
@@ -204,113 +180,94 @@ pub(crate) struct Runner<'a, C, D> {
 }
 
 impl<C: Clock, D: Delay + Jitter + Send> Runner<'_, C, D> {
-    /// Run `book` under `command_id` on `store`, the kernel retrying it,
-    /// until it commits, is refused, or fails: in a way a retry will not
-    /// mend, or with its retries spent.
-    pub async fn run<S: Store>(
+    /// Run `book`, a command to a stream of the marked-up aggregate `A`,
+    /// under `command_id` on `store`, the kernel retrying it: what it came
+    /// to, committed (or a duplicate of what did) or refused; or the
+    /// failure, a retryable one given up on at the kernel's cap.
+    pub async fn run<A, R, S>(
         &mut self,
         store: &S,
-        book: &CommandBook,
+        book: CommandBook,
         command_id: &Uuid,
-    ) -> Result<Outcome, AppError> {
-        let always: Option<&fn(&TaskState) -> bool> = None;
-        let outcome = self.run_where(store, book, command_id, always).await?;
-        // With no condition `shaped` always sends the book, so nothing is
-        // declined: a `None` here is a broken invariant, never a commit.
-        Ok(outcome.expect("a command run with no condition is never declined"))
-    }
-
-    /// [`Runner::run`], if the task on `book`'s stream, read at each
-    /// attempt, meets `holds`: `None` (nothing sent) when it does not. The
-    /// command is sent at the head read, so nothing changes the task
-    /// between the reading and the write unseen.
-    pub async fn run_where<S: Store, P: Fn(&TaskState) -> bool + Sync>(
-        &mut self,
-        store: &S,
-        book: &CommandBook,
-        command_id: &Uuid,
-        holds: Option<&P>,
-    ) -> Result<Option<Outcome>, AppError> {
-        let shape = holds.map(|holds| |state: &TaskState| holds(state).then(|| book.clone()));
-        self.run_shaped(store, book, command_id, shape.as_ref())
-            .await
-    }
-
-    /// [`Runner::run`] of what `shape` makes of the task on `book`'s
-    /// stream, read at each attempt: `None` (nothing sent) when it makes
-    /// nothing; `book` itself, unread, when there is no `shape`. A shaped
-    /// book is sent at the head it was shaped from.
-    pub async fn run_shaped<S: Store, F: Fn(&TaskState) -> Option<CommandBook> + Sync>(
-        &mut self,
-        store: &S,
-        book: &CommandBook,
-        command_id: &Uuid,
-        shape: Option<&F>,
-    ) -> Result<Option<Outcome>, AppError> {
-        let shape = shape.map(|shape| |task: &TaskAggregate| shape(task.state()));
-        self.run_shaped_on::<TaskAggregate, _, _>(store, book, command_id, shape.as_ref())
-            .await
-    }
-
-    /// [`Runner::run_shaped`] on a stream of the domain `A`, any marked-up
-    /// aggregate: the schema stream's as well as a task's.
-    pub async fn run_shaped_on<A, S, F>(
-        &mut self,
-        store: &S,
-        book: &CommandBook,
-        command_id: &Uuid,
-        shape: Option<&F>,
-    ) -> Result<Option<Outcome>, AppError>
+    ) -> Result<Result<Handled, Refusal<R>>, AppError>
     where
-        A: Domain<State = A> + Default + Clone,
+        A: Domain<Rejection = Rejection<R>>,
+        R: Clone + Send + Sync + 'static,
         S: Store,
-        F: Fn(&A) -> Option<CommandBook> + Sync,
     {
-        let mut failed = 0;
-        loop {
-            let sampled = Sampled {
-                now: self.clock.now(),
-                command_id: command_id.clone(),
-            };
-            let (failure, recovery) =
-                match shaped::<A, _, _>(self.registry, store, book, shape).await {
-                    Ok(None) => return Ok(None),
-                    Ok(Some(book)) => {
-                        let waits = Ported::new(&mut *self.delay);
-                        let handled = Kernel::new(self.registry)
-                            .log_with(&Unlogged)
-                            .on_retryable(self.backoff.on_retryable())
-                            .wait_with(&waits)
-                            .handle::<A, _>(store, book, &sampled)
-                            .await;
-                        self.dead_letters.extend_from_slice(answered(&handled));
-                        match handled {
-                            Ok(_) => return Ok(Some(Outcome::Committed)),
-                            Err(Failure::Rejected(rejection)) => {
-                                return Ok(Some(Outcome::Refused(rejection.report().clone())))
-                            }
-                            Err(failure) => self.retried(failure)?,
-                        }
-                    }
-                    Err(failed) => failed,
-                };
-            self.again(&mut failed, failure, recovery).await?;
+        let sampled = self.sampled(command_id);
+        let waits = Ported::new(&mut *self.delay);
+        let handled = kernel(self.registry, self.backoff, &waits)
+            .handle::<A, _>(store, book, &sampled)
+            .await;
+        self.dead_letters.extend_from_slice(answered(&handled));
+        self.settled(handled)
+    }
+
+    /// Run what `shape` makes of the `A` stream `stream`, as the kernel
+    /// loads it, under `command_id`: sent at the head shaped from, shaped
+    /// again by the kernel when a write lands between
+    /// ([`Kernel::handle_shaped`]). Beside what it came to (`None`: the
+    /// shape made nothing, and nothing was sent), the shape's value.
+    pub async fn shaped<A, R, S, P, T>(
+        &mut self,
+        store: &S,
+        stream: &Cover,
+        command_id: &Uuid,
+        shape: impl FnMut(&A::State) -> (Option<P>, T),
+    ) -> Result<Result<(Option<Handled>, T), Refusal<R>>, AppError>
+    where
+        A: Domain<Rejection = Rejection<R>>,
+        R: Clone + Send + Sync + 'static,
+        S: Store,
+        P: Payload,
+    {
+        let sampled = self.sampled(command_id);
+        let waits = Ported::new(&mut *self.delay);
+        let shaped = kernel(self.registry, self.backoff, &waits)
+            .handle_shaped::<A, _, _, _>(store, stream, &sampled, shape)
+            .await;
+        if let Ok((Some(handled), _)) = &shaped {
+            self.dead_letters.extend_from_slice(handled.dead_letters());
+        }
+        if let Err(failure) = &shaped {
+            self.dead_letters.extend_from_slice(failure.dead_letters());
+        }
+        self.settled(shaped)
+    }
+
+    /// The instant now and `command_id`: what the kernel stamps a command
+    /// with.
+    fn sampled(&mut self, command_id: &Uuid) -> Sampled {
+        Sampled {
+            now: self.clock.now(),
+            command_id: command_id.clone(),
         }
     }
 
-    /// What the kernel handed back, `failure`, as a failure to re-read
-    /// after: the kernel's answer to decide again ([`to_redecide`]), or one
-    /// no retry mends. A retryable one it did not ask to be re-read has
-    /// had the kernel's retries, and is given up on at once.
-    fn retried(&self, failure: Failure<Rejected>) -> Result<(Report, Recovery), AppError> {
-        let recovery = failure.recovery();
-        if recovery == Recovery::Retry && !to_redecide(&failure) {
-            return Err(AppError::GaveUp {
+    /// What the kernel answered, as the use case reads it: its answer, or
+    /// the domain's refusal; a retryable failure, which has had the
+    /// kernel's retries, given up on at once ([`AppError::GaveUp`]); any
+    /// other failure, the use case's.
+    fn settled<H, R: Clone + 'static>(
+        &self,
+        handled: Result<H, Failure<Rejected>>,
+    ) -> Result<Result<H, Refusal<R>>, AppError> {
+        match handled {
+            Ok(handled) => Ok(Ok(handled)),
+            Err(Failure::Rejected(rejected)) => Ok(Err(Refusal {
+                rejection: rejected
+                    .rejection::<Rejection<R>>()
+                    .and_then(Rejection::message)
+                    .cloned(),
+                report: rejected.report().clone(),
+            })),
+            Err(failure) if failure.recovery() == Recovery::Retry => Err(AppError::GaveUp {
                 attempts: self.backoff.attempts,
                 error: Report::of(&failure),
-            });
+            }),
+            Err(failure) => Err(AppError::Failed(Report::of(&failure))),
         }
-        Ok((Report::of(&failure), recovery))
     }
 
     /// Purge the stream of the task `stream` names, if it holds a removed
@@ -333,8 +290,7 @@ impl<C: Clock, D: Delay + Jitter + Send> Runner<'_, C, D> {
         }
     }
 
-    /// After the `failed`th failure of what taskloom re-reads (a read, a
-    /// shaped command answered stale, a purge), wait to try again; or the
+    /// After the `failed`th failure of a purge, wait to try again; or the
     /// error to end with, when a retry will not mend it or the attempts
     /// are spent.
     async fn again(
@@ -360,91 +316,38 @@ impl<C: Clock, D: Delay + Jitter + Send> Runner<'_, C, D> {
     }
 }
 
-/// A store's failure, as the kernel would report it, with what to do.
-fn store_failed(error: StoreError) -> (Report, Recovery) {
-    let error = KernelError::Store(error);
-    let recovery = error.recovery();
-    (Report::of(&error), recovery)
+/// The kernel over `registry`, retrying as `backoff` says, its waits
+/// `waits`.
+fn kernel<'k>(registry: &'k Registry, backoff: Backoff, waits: &'k dyn Wait) -> Kernel<'k> {
+    Kernel::new(registry)
+        .on_retryable(backoff.on_retryable())
+        .wait_with(waits)
 }
 
-/// The task `stream` holds, replayed, and its head; `None` for a stream
-/// with no events.
-async fn task_at<S: EventStore>(
-    registry: &Registry,
-    store: &S,
-    stream: &Cover,
-) -> Result<Option<(TaskState, u64)>, (Report, Recovery)> {
-    let read = state_at::<TaskAggregate, _>(registry, store, stream).await?;
-    Ok(read.map(|(task, head)| (task.state().clone(), head)))
-}
-
-/// The aggregate `stream` holds, replayed, and its head; `None` for a
-/// stream with no events.
-async fn state_at<A: Domain<State = A> + Clone, S: EventStore>(
-    registry: &Registry,
-    store: &S,
-    stream: &Cover,
-) -> Result<Option<(A, u64)>, (Report, Recovery)> {
-    let at = StreamRef::try_from(stream).map_err(store_failed)?;
-    let slice = store.read(at, 0, None).await.map_err(store_failed)?;
-    if slice.pages.is_empty() {
-        return Ok(None);
-    }
-    let replayed = Stream::<A>::replay(stream.clone(), &slice.pages, registry)
-        .map_err(|e| (Report::of(&e), Recovery::Bug))?;
-    Ok(Some((replayed.state().clone(), slice.next_sequence)))
-}
-
-/// Purge `stream`, if it holds a removed task.
-async fn purge_removed<S: EventStore + Purge>(
+/// Purge `stream`, if it holds a removed task, at the head it was loaded
+/// at: a stream moved since (purged by another prune, a task minted on the
+/// freed harp) is the store's conflict, and the retry loads it again.
+async fn purge_removed<S: Store + Purge>(
     registry: &Registry,
     store: &S,
     stream: &Cover,
 ) -> Result<u64, (Report, Recovery)> {
-    match task_at(registry, store, stream).await? {
-        // At the head read: a stream moved since (purged by another
-        // prune, a task minted on the freed harp) is the store's conflict,
-        // and the retry reads it again.
-        Some((task, head)) if task.removed => {
-            let at = StreamRef::try_from(stream).map_err(store_failed)?;
-            store.purge(at, head).await.map_err(store_failed)
-        }
-        _ => Ok(0),
+    let kernel_failed = |error: KernelError| {
+        let recovery = error.recovery();
+        (Report::of(&error), recovery)
+    };
+    let (task, head) = Kernel::new(registry)
+        .load::<TaskAggregate, _>(store, stream)
+        .await
+        .map_err(kernel_failed)?;
+    if !task.state().state().removed || head == 0 {
+        return Ok(0);
     }
-}
-
-/// What `shape` makes of the aggregate on `book`'s stream, read from
-/// `store`, sent at the head read; `book` itself when there is no `shape`,
-/// without reading.
-async fn shaped<A, S, F>(
-    registry: &Registry,
-    store: &S,
-    book: &CommandBook,
-    shape: Option<&F>,
-) -> Result<Option<CommandBook>, (Report, Recovery)>
-where
-    A: Domain<State = A> + Default + Clone,
-    S: EventStore,
-    F: Fn(&A) -> Option<CommandBook> + Sync,
-{
-    let Some(shape) = shape else {
-        return Ok(Some(book.clone()));
-    };
-    let cover = book.cover.clone().unwrap_or_default();
-    let (task, head) = match state_at::<A, _>(registry, store, &cover).await {
-        Ok(read) => read.unwrap_or_default(),
-        // A stream that does not replay is the kernel's to report, as it
-        // replays it again.
-        Err((_, Recovery::Bug)) => return Ok(Some(book.clone())),
-        Err(failed) => return Err(failed),
-    };
-    Ok(shape(&task).map(|mut shaped| {
-        shaped.handling = Some(Handling {
-            expected_sequence: Some(head),
-            ..Handling::default()
-        });
-        shaped
-    }))
+    let at = StreamRef::try_from(stream).map_err(|e| kernel_failed(KernelError::Store(e)))?;
+    store
+        .purge(at, head)
+        .await
+        .map_err(|e| kernel_failed(KernelError::Store(e)))
 }
 
 #[cfg(test)]

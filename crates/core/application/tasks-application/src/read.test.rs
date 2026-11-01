@@ -642,7 +642,7 @@ fn plan_does(
     command: plans::PlanCommand,
 ) {
     use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
-    use angzarr_embedded::{ids, Kernel, MemoryDeadLetters, Payload, Registry, Sampled};
+    use angzarr_embedded::{ids, Kernel, Payload, Registry, Sampled};
     let mut registry = Registry::new();
     registry.aggregate::<plans::PlanAggregate>(plans::PlanAggregate::default);
     let book = CommandBook {
@@ -672,10 +672,8 @@ fn plan_does(
         // the first's duplicate.
         command_id: Uuid::from_bytes(id),
     };
-    let dead_letters = MemoryDeadLetters::new();
     ready(
         Kernel::new(&registry)
-            .log_with(&dead_letters)
             .on_retryable(crate::KERNEL_RETRY)
             .handle::<plans::PlanAggregate, _>(store, book, &sampled),
     )
@@ -1028,9 +1026,9 @@ fn a_second_read_reads_only_what_was_written_since() {
             .collect::<Vec<_>>()
     };
     let pages = |service: &Fake| service.stores.store.unit_pages();
-    // Each read also reads the store's schema stream, whole: its one
-    // seeded declaration, the rules the listing is read under.
-    const SCHEMA: u32 = 1;
+    // Each read also loads the store's schema stream, the rules the
+    // listing is read under: through the kernel, outside the read units.
+    const SCHEMA: u32 = 0;
 
     let before = pages(&service);
     assert_eq!(listing(&mut service), ["one", "two"]);

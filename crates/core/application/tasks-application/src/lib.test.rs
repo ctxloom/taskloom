@@ -4,13 +4,15 @@
 use crate::english::English;
 use angzarr_diagnostic::{Diagnostic, Report};
 use angzarr_embedded::v1::event_meta::Causation;
+use angzarr_embedded::v1::CommandBook;
+use angzarr_embedded::{CommandBookExt, Payload};
 
 use crate::fakes::{
     project, ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores, Fault,
 };
 use crate::{
-    cover, AppError, ListQuery, NewTask, Service, StatusChange, TagChange, TaskService, TextEdit,
-    Written, HARP_ATTEMPTS,
+    task_cover, AppError, ListQuery, NewTask, Service, StatusChange, TagChange, TaskService,
+    TextEdit, Written, HARP_ATTEMPTS,
 };
 
 type Fake = Service<FakeIdentity, FakeStores, FakeNames, FakeClock, FakeDelay>;
@@ -46,7 +48,7 @@ fn listed(service: &mut Fake, query: ListQuery) -> Vec<String> {
 
 /// The command ids recorded on `harp`'s events.
 fn command_ids(service: &mut Fake, harp: &str) -> Vec<angzarr_embedded::v1::Uuid> {
-    let slice = ready(service.stores.store.read_from(&cover(harp), 0))
+    let slice = ready(service.stores.store.read_from(&task_cover(harp), 0))
         .unwrap()
         .expect("the stream");
     slice
@@ -616,10 +618,10 @@ fn test_a_scalar_value_set_by_another_since_is_displaced_too() {
     assert_eq!(spelled(&written.task.tags), ["triage:level=1", "x"]);
 }
 
-// There is no unit of work: the retag is shaped from one read and sent at
-// the head it read, so a value another process sets between that read and
-// the kernel's own is the kernel's conflict, and the retry shapes it
-// again: the scalar target still holds one value.
+// There is no unit of work: the retag is shaped from the kernel's load and
+// sent at the head loaded, so a value another process sets between that
+// load and the kernel's own for the send is stale, and the kernel loads
+// and shapes it again: the scalar target still holds one value.
 #[test]
 fn test_a_scalar_value_set_between_the_shaping_read_and_the_write_is_displaced_too() {
     let mut service = service(&["swift-amber"]);
@@ -630,8 +632,10 @@ fn test_a_scalar_value_set_between_the_shaping_read_and_the_write_is_displaced_t
         remove: vec![parse("triage:level=3")],
     }
     .into();
+    // The reads: the schema's load, the shape's load, then the kernel's
+    // own for the send: the other retag lands just before that one.
     service.stores.store.set_before_read(
-        2,
+        3,
         Box::new(move |store| crate::fakes::run(store, "swift-amber", retag)),
     );
     let written = ready(service.tag(change("swift-amber", &["triage:level=1"], &[]))).unwrap();
@@ -714,9 +718,14 @@ fn add_unchecked(service: &mut Configured, tag: &str) {
         backoff: service.backoff,
         dead_letters: &mut service.dead_letters,
     };
-    let book = crate::book("swift-amber", add.into());
+    let book = CommandBook::command(
+        crate::task_cover("swift-amber"),
+        tasks::TaskCommand::from(add).to_any(),
+    );
     let id = angzarr_embedded::v1::Uuid::from_bytes([7; 16]);
-    ready(runner.run(&service.stores.store, &book, &id)).unwrap();
+    ready(runner.run::<tasks::TaskAggregate, _, _>(&service.stores.store, book, &id))
+        .unwrap()
+        .unwrap();
 }
 
 #[test]
@@ -1476,7 +1485,7 @@ fn test_the_sample_dead_letters_line_names_its_component_and_reason() {
         crate::dead_letter_line(&sample.letter),
         "DEAD_LETTER bookkeeping: ROUTER_REASON_UNHANDLED_HANDLER_ERROR"
     );
-    assert_eq!(sample.stream, crate::cover("swift-amber"));
+    assert_eq!(sample.stream, crate::task_cover("swift-amber"));
 }
 
 /// A policy of the tasks domain that is a bug: every task added is its
@@ -1782,9 +1791,8 @@ fn test_a_blank_request_id_is_refused_before_anything_is_read() {
 /// Another process seeding `store`'s schema stream with `tag` alone.
 fn seeded_meanwhile(store: &angzarr_embedded::angzarr_ports::memory::MemoryStore, tag: &str) {
     use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover};
-    use angzarr_embedded::{Kernel, MemoryDeadLetters, Payload, Sampled};
+    use angzarr_embedded::{Kernel, Payload, Sampled};
     let registry = crate::registry();
-    let dead_letters = MemoryDeadLetters::new();
     let declare = tasks::schema::Declare {
         add: vec![tagma_core::Tag::parse(tag).unwrap().into()],
         remove: vec![],
@@ -1812,7 +1820,6 @@ fn seeded_meanwhile(store: &angzarr_embedded::angzarr_ports::memory::MemoryStore
     };
     ready(
         Kernel::new(&registry)
-            .log_with(&dead_letters)
             .on_retryable(crate::KERNEL_RETRY)
             .handle::<tasks::schema::SchemaAggregate, _>(store, book, &sampled),
     )
@@ -1839,8 +1846,10 @@ fn schema_events(service: &mut Fake) -> usize {
 #[test]
 fn test_a_seed_racing_another_lands_once_and_keeps_the_others() {
     let mut service = service(&["swift-amber"]);
+    // The reads: the schema's first load, the seed's shaping load, then
+    // the kernel's own for the send: the other's seed lands before that.
     service.stores.store.set_before_read(
-        2,
+        3,
         Box::new(|store| seeded_meanwhile(store, "tagma.keys-per-item:lang=1")),
     );
     add(&mut service, new_task("Ship it")).unwrap();

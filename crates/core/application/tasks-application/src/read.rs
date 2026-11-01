@@ -298,8 +298,8 @@ where
             rows_in(list, project)
         });
         rows.extend(listed.await?);
-        let schema = crate::store_schema::schema_in(store, &self.registry).await?;
-        rules.insert(project.id.clone(), StoreRules::of(&schema));
+        let held = crate::store_schema::rules_in(store, &self.registry).await?;
+        rules.insert(project.id.clone(), held);
         Ok(true)
     }
 

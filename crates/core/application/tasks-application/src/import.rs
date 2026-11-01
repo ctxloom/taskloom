@@ -45,19 +45,22 @@ use std::fmt;
 use std::future::Future;
 
 use angzarr_diagnostic::{Arg, Diagnostic, Report};
-use angzarr_embedded::v1::Uuid;
-use angzarr_embedded::{ids, EventStore, Registry, StreamRef};
+use angzarr_embedded::v1::{CommandBook, Uuid};
+use angzarr_embedded::{ids, CommandBookExt, EventStore, Payload, Registry, StreamRef};
 use ports::{
     Clock, Delay, Jitter, JsonlOp, JsonlRecord, JsonlTaskLogs, ProjectIdentity, TaskStores,
     Timestamp,
 };
-use tasks::{AddTask, EditText, RemovalReason, RemoveTask, Retag, SetStatus, TaskCommand};
+use tasks::{
+    AddTask, EditText, RemovalReason, RemoveTask, Retag, SetStatus, TaskAggregate, TaskCommand,
+    TaskRejection,
+};
 
 use crate::retry::Backoff;
 use crate::tags::{self, Tag, TagRefusal};
 use crate::view::{DEFERS, INITIAL};
 use crate::DeadLetter;
-use crate::{book, cover, registry, retry, store_report, text_hash, AppError};
+use crate::{registry, retry, store_report, task_cover, text_hash, AppError};
 
 /// What to import: every project with a log, or the one named.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
@@ -314,7 +317,7 @@ where
                     continue;
                 }
             };
-            let cover = cover(&record.task);
+            let cover = task_cover(&record.task);
             let command_id = record_command_id(&record.raw);
             let stream = StreamRef::try_from(&cover).map_err(store_report)?;
             let id = angzarr_embedded::angzarr_ports::Uuid::try_from(&command_id)
@@ -332,25 +335,25 @@ where
                 backoff: self.backoff,
                 dead_letters: &mut self.dead_letters,
             };
-            let book = book(&record.task, command);
+            let book = CommandBook::command(cover, command.to_any());
             match runner
-                .run(store, &book, &command_id)
+                .run::<TaskAggregate, _, _>(store, book, &command_id)
                 .await
                 .map_err(|e| Report::of(&e))?
             {
-                retry::Outcome::Committed => {
+                Ok(_) => {
                     report.applied += 1;
                     if record.op == JsonlOp::Add {
                         report.tasks += 1;
                     }
                 }
-                retry::Outcome::Refused(rejection) => {
+                Err(refusal) => {
                     if record.op == JsonlOp::Add {
                         fold.not_imported(&record.task);
                     }
-                    let why = match rejection.code() {
-                        "tasks-task-exists" => Why::HarpTaken,
-                        _ => Why::Refused(rejection),
+                    let why = match refusal.rejection {
+                        Some(TaskRejection::TaskExists { .. }) => Why::HarpTaken,
+                        _ => Why::Refused(refusal.report),
                     };
                     report.lost.push(lost(record, why));
                 }

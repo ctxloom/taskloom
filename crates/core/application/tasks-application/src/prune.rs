@@ -31,12 +31,15 @@ use angzarr_embedded::{Purge, Store, StreamRef};
 use ports::{
     Clock, CommandIds, Configuration, Delay, Jitter, ProjectIdentity, TaskStores, Timestamp,
 };
-use tasks::{RemovalReason, RemoveTask, TaskRejection, TaskState, STATUS_CLASS_SIGIL};
+use tasks::{
+    RemovalReason, RemoveTask, TaskAggregate, TaskCommand, TaskRejection, TaskState,
+    STATUS_CLASS_SIGIL,
+};
 
 use crate::error::carrying;
-use crate::retry::{Outcome, Runner};
+use crate::retry::{Refusal, Runner};
 use crate::{
-    book, cover, failed, given, query, rejected, AppError, Project, Service, Shown, Task, DONE,
+    failed, given, query, rejected, task_cover, AppError, Project, Service, Shown, Task, DONE,
 };
 
 /// The age a prune takes by default: `--older-than 7d`.
@@ -349,7 +352,7 @@ async fn take<S: Store + Purge, C: Clock + CommandIds, D: Delay + Jitter + Send>
     selection: &Selection<'_>,
     apply: bool,
 ) -> Result<Option<u64>, AppError> {
-    let stream = cover(&task.harp_id);
+    let stream = task_cover(&task.harp_id);
     if !apply {
         let at = StreamRef::try_from(&stream).map_err(failed)?;
         let held = store.read(at, 0, None).await.map_err(failed)?;
@@ -363,26 +366,28 @@ async fn take<S: Store + Purge, C: Clock + CommandIds, D: Delay + Jitter + Send>
         return Ok((deleted > 0).then_some(deleted));
     }
     let command_id = runner.clock.command_id();
-    let removal = RemoveTask {
+    let removal = TaskCommand::from(RemoveTask {
         reason: RemovalReason::Pruned,
-    };
-    let book = book(&task.harp_id, removal.into());
+    });
     // A task removed since is let through, for the kernel to answer: this
     // prune's own removal, landed on an attempt whose answer was lost, as
     // a duplicate; anyone else's as refused.
-    let holds = |state: &TaskState| state.removed || selection.holds(state);
+    let holds = |held: &TaskAggregate| {
+        let held = held.state();
+        let take = held.removed || selection.holds(held);
+        (take.then(|| removal.clone()), ())
+    };
     match runner
-        .run_where(store, &book, &command_id, Some(&holds))
+        .shaped::<TaskAggregate, _, _, _, _>(store, &stream, &command_id, holds)
         .await?
     {
-        Some(Outcome::Committed) => runner.purge(store, &stream).await.map(Some),
-        None => Ok(None),
-        Some(outcome)
-            if outcome.refused_as("tasks-removed") || outcome.refused_as("tasks-no-task") =>
-        {
-            Ok(None)
-        }
-        Some(Outcome::Refused(rejection)) => Err(rejected(&rejection)),
+        Ok((Some(_), ())) => runner.purge(store, &stream).await.map(Some),
+        Ok((None, ())) => Ok(None),
+        Err(Refusal {
+            rejection: Some(TaskRejection::Removed { .. } | TaskRejection::NoTask),
+            ..
+        }) => Ok(None),
+        Err(refusal) => Err(refusal.into()),
     }
 }
 

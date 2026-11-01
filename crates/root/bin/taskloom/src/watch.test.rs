@@ -254,8 +254,7 @@ mod ticked {
         command_page, Command, CommandBook, CommandPage, Cover, EventMeta, EventPage, Uuid,
     };
     use angzarr_embedded::{
-        ids, Any, EventStore, Kernel, MemoryDeadLetters, Payload, Purge, Sampled, StreamRef,
-        Timestamp, Write,
+        ids, Any, EventStore, Kernel, Payload, Purge, Sampled, StreamRef, Timestamp, Write,
     };
     use harp_names::HarpNames;
     use ports::{Project, ProjectIdentity};
@@ -338,13 +337,11 @@ mod ticked {
             handling: None,
         };
         let registry = tasks_application::registry();
-        let dead_letters = MemoryDeadLetters::new();
         let sampled = Sampled {
             now: Timestamp::default(),
             command_id: Uuid::from_bytes([id; 16]),
         };
         Kernel::new(&registry)
-            .log_with(&dead_letters)
             .on_retryable(tasks_application::KERNEL_RETRY)
             .handle::<TaskAggregate, _>(store, book, &sampled)
             .await

@@ -340,7 +340,7 @@ Where the port differs from Go:
 - A new database opened by several processes at once failed its migration
   ("table events already exists"): sqlx takes no migration lock on SQLite.
   annals-store-sql now migrates under `BEGIN IMMEDIATE`.
-- Lists, prune's selection and the read-back after a write read through
+- Lists and prune's selection read through
   annals' read-only unit of work (`AsyncReadStore::begin_read`, one SQLite
   read transaction), which every
   `TaskStores::Store` provides: a domain's `covers` and every stream read

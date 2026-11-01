@@ -9,9 +9,7 @@ use std::future::Future;
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::v1::{EventBook, EventPage};
-use angzarr_embedded::{
-    ids, CatchUp, Kernel, MemoryDeadLetters, OnRetryable, Payload, Registry, Sampled, Timestamp,
-};
+use angzarr_embedded::{ids, CatchUp, Kernel, OnRetryable, Payload, Registry, Sampled, Timestamp};
 use plans::{AddPlan, PlanAggregate, PlanCommand, PlanEvent, PlanStatus, PLAN_DOMAIN};
 
 use crate::{PlanList, PlanLists};
@@ -58,10 +56,8 @@ impl Project {
             },
             command_id: Uuid::from_bytes([self.seconds as u8; 16]),
         };
-        let dead_letters = MemoryDeadLetters::new();
         ready(
             Kernel::new(&self.registry)
-                .log_with(&dead_letters)
                 .on_retryable(OnRetryable {
                     max_retries: 0,
                     ..OnRetryable::default()

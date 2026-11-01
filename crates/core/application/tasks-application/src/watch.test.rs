@@ -4,11 +4,13 @@
 
 use angzarr_diagnostic::Diagnostic;
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
+use angzarr_embedded::v1::CommandBook;
+use angzarr_embedded::{CommandBookExt, Payload};
 use tasks::{AddTask, RemovalReason, RemoveTask, TaskCommand};
 
 use super::{Watch, WatchRequest, WatchService};
 use crate::fakes::{project, ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores};
-use crate::{book, retry, AppError, NewTask, Service, TaskService};
+use crate::{retry, AppError, NewTask, Service, TaskService};
 
 type Fake = Service<FakeIdentity, FakeStores, FakeNames, FakeClock, FakeDelay>;
 
@@ -39,7 +41,10 @@ fn remove(service: &mut Fake, harp: &str) {
 /// removal, without its purge, when `Pruned`.
 fn remove_for(service: &mut Fake, harp: &str, reason: RemovalReason) {
     let command = RemoveTask { reason };
-    let book = book(harp, command.into());
+    let book = CommandBook::command(
+        crate::task_cover(harp),
+        tasks::TaskCommand::from(command).to_any(),
+    );
     let command_id = ports::CommandIds::command_id(&mut service.clock);
     let mut runner = retry::Runner {
         registry: &service.registry,
@@ -48,8 +53,9 @@ fn remove_for(service: &mut Fake, harp: &str, reason: RemovalReason) {
         backoff: service.backoff,
         dead_letters: &mut service.dead_letters,
     };
-    let outcome = ready(runner.run(&service.stores.store, &book, &command_id));
-    assert!(matches!(outcome, Ok(retry::Outcome::Committed)));
+    let outcome =
+        ready(runner.run::<tasks::TaskAggregate, _, _>(&service.stores.store, book, &command_id));
+    assert!(matches!(outcome, Ok(Ok(_))));
 }
 
 /// Start watching, as the project is now.

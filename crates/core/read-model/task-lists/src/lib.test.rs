@@ -9,9 +9,8 @@ use std::future::Future;
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::{
-    ids, Any, CatchUp, EventStore, Kernel, MemoryDeadLetters, OnRetryable, Payload, PositionKey,
-    PositionStore, Purge, ReadStore, ReadUnit, Registry, Sampled, Slice, SnapshotStore, StoreError,
-    StreamRef, Timestamp,
+    ids, Any, CatchUp, EventStore, Kernel, OnRetryable, Payload, PositionKey, PositionStore, Purge,
+    ReadStore, ReadUnit, Registry, Sampled, Slice, SnapshotStore, StoreError, StreamRef, Timestamp,
 };
 use tasks::{AddTask, RemovalReason, RemoveTask, SetStatus, TaskAggregate, TaskCommand, TaskState};
 
@@ -61,10 +60,8 @@ impl Project {
             },
             command_id: Uuid::from_bytes([self.seconds as u8; 16]),
         };
-        let dead_letters = MemoryDeadLetters::new();
         ready(
             Kernel::new(&self.registry)
-                .log_with(&dead_letters)
                 .on_retryable(OnRetryable {
                     max_retries: 0,
                     ..OnRetryable::default()

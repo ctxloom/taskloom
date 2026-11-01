@@ -3,12 +3,13 @@
 //! its markdown text and that text's content hash, and its typed links,
 //! `governs` (plan to task, many) and `supersedes` (plan to plan).
 //!
-//! The rules are pure functions, [`decide`] and [`apply`], over this
-//! crate's own types; [`PlanAggregate`] is the aggregate angzarr-embedded
-//! runs, its commands and events the messages of
-//! `proto/ctxloom/plans/v1/plans.proto` (angzarr-build's markup layer),
-//! converted to these at its handlers. A refusal is a [`PlanRejection`]: a
-//! code and its args, its English in the en-US catalog ([`EN_US`]).
+//! [`PlanAggregate`] is the aggregate angzarr-embedded runs, its commands
+//! and events the messages of `proto/ctxloom/plans/v1/plans.proto`
+//! (angzarr-build's markup layer): each of its handlers decides its command
+//! against the plan the stream folds to, and [`apply`] folds each event
+//! into a [`PlanState`]. A refusal is a [`PlanRejection`]: a code and its
+//! args, its English in the en-US catalog ([`EN_US`]). [`check`] runs, for
+//! a caller, the rules a command must keep whatever its stream holds.
 //!
 //! What one stream cannot see is not decided here: whether a linked task or
 //! plan exists, and whether a supersede closes a cycle, are the
@@ -187,74 +188,12 @@ pub enum PlanEvent {
     Rehashed(String),
 }
 
-/// What `command` to the plan `state` records, or why it is refused.
-/// Pure: no clock, no I/O, no other stream.
-pub fn decide(state: &PlanState, command: &PlanCommand) -> Result<Vec<PlanEvent>, PlanRejection> {
-    if let PlanCommand::Add(add) = command {
-        return added(state, add).map(|event| vec![event]);
-    }
-    if !state.added {
-        return Err(PlanRejection::NoSuchPlan);
-    }
-    let event = match command {
-        PlanCommand::Add(_) => unreachable!("an add is decided above"),
-        PlanCommand::SetStatus(to) => status_set(state, *to)?,
-        PlanCommand::Govern(task) => match state.governs.contains(task) {
-            true => return Err(PlanRejection::AlreadyGoverns(task.clone())),
-            false => PlanEvent::Governed(task.clone()),
-        },
-        PlanCommand::Ungovern(task) => match state.governs.contains(task) {
-            true => PlanEvent::Ungoverned(task.clone()),
-            false => return Err(PlanRejection::NotGoverned(task.clone())),
-        },
-        PlanCommand::Supersede(plan) if *plan == state.harp_id => {
-            return Err(PlanRejection::SupersedesItself)
-        }
-        PlanCommand::Supersede(plan) => match state.supersedes.contains(plan) {
-            true => return Err(PlanRejection::AlreadySupersedes(plan.clone())),
-            false => PlanEvent::Superseded(plan.clone()),
-        },
-        PlanCommand::Unsupersede(plan) => match state.supersedes.contains(plan) {
-            true => PlanEvent::Unsuperseded(plan.clone()),
-            false => return Err(PlanRejection::NotSuperseded(plan.clone())),
-        },
-        PlanCommand::MarkSuperseded(by) => match state.status {
-            PlanStatus::Superseded => {
-                return Err(PlanRejection::Transition {
-                    from: PlanStatus::Superseded,
-                    to: PlanStatus::Superseded,
-                })
-            }
-            from => PlanEvent::MarkedSuperseded {
-                by: by.clone(),
-                from,
-            },
-        },
-        PlanCommand::Reinstate => match state.status {
-            PlanStatus::Superseded => PlanEvent::Reinstated,
-            from => {
-                return Err(PlanRejection::Transition {
-                    from,
-                    to: PlanStatus::Active,
-                })
-            }
-        },
-        PlanCommand::Rehash(hash) => {
-            well_formed(hash)?;
-            match *hash == state.content_hash {
-                true => return Err(PlanRejection::HashUnchanged),
-                false => PlanEvent::Rehashed(hash.clone()),
-            }
-        }
-    };
-    Ok(vec![event])
-}
-
-/// Whether `command` keeps the rules decide holds it to by what it carries
-/// alone, whatever its stream holds: an add's title, initial status and
-/// hash, a rehash's hash, a status change's not naming Superseded. Decide
-/// holds every command to these same rules; a caller runs them first, so a
-/// command they refuse is refused before any file is written for it.
+/// Whether `command` keeps the rules the aggregate holds it to by what it
+/// carries alone, whatever its stream holds: an add's title, initial status
+/// and hash, a rehash's hash, a status change's not naming Superseded. The
+/// aggregate holds every command to these same rules; a caller runs them
+/// first, so a command they refuse is refused before any file is written
+/// for it.
 pub fn check(command: &PlanCommand) -> Result<(), PlanRejection> {
     match command {
         PlanCommand::Add(add) => carried(add),
@@ -266,18 +205,8 @@ pub fn check(command: &PlanCommand) -> Result<(), PlanRejection> {
     }
 }
 
-/// What an add to `state` records: refused on a stream holding a plan, and
-/// for a blank title, a status a plan cannot start in, or a malformed hash.
-fn added(state: &PlanState, add: &AddPlan) -> Result<PlanEvent, PlanRejection> {
-    if state.added {
-        return Err(PlanRejection::AlreadyAdded);
-    }
-    carried(add)?;
-    Ok(PlanEvent::PlanAdded(add.clone()))
-}
-
 /// An add's own fields: a title, a status a plan starts in, a sha-256.
-fn carried(add: &AddPlan) -> Result<(), PlanRejection> {
+pub(crate) fn carried(add: &AddPlan) -> Result<(), PlanRejection> {
     if add.title.trim().is_empty() {
         return Err(PlanRejection::EmptyTitle);
     }
@@ -287,9 +216,10 @@ fn carried(add: &AddPlan) -> Result<(), PlanRejection> {
     well_formed(&add.content_hash)
 }
 
-/// What `plan status` moving `state` to `to` records.
-fn status_set(state: &PlanState, to: PlanStatus) -> Result<PlanEvent, PlanRejection> {
-    let from = state.status;
+/// What `plan status` moving a plan `from` its status to `to` moves it to:
+/// never Superseded (only a supersede link sets it), never the status it
+/// holds, and only as [`PlanStatus::may_become`] allows.
+pub(crate) fn status_set(from: PlanStatus, to: PlanStatus) -> Result<PlanStatus, PlanRejection> {
     if to == PlanStatus::Superseded {
         return Err(PlanRejection::SupersededBySupersedeOnly);
     }
@@ -299,7 +229,7 @@ fn status_set(state: &PlanState, to: PlanStatus) -> Result<PlanEvent, PlanReject
     if !from.may_become(to) {
         return Err(PlanRejection::Transition { from, to });
     }
-    Ok(PlanEvent::StatusChanged { from, to })
+    Ok(to)
 }
 
 /// Whether `hash` is a sha-256 as the store records one: 64 lowercase hex

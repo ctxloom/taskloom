@@ -13,9 +13,9 @@ use std::time::Duration;
 
 use angzarr_diagnostic::Report;
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
-use angzarr_embedded::v1::{Cover, EventPage, Snapshot, Uuid};
+use angzarr_embedded::v1::{CommandBook, Cover, EventPage, Snapshot, Uuid};
 use angzarr_embedded::{
-    ChangeToken, EventStore, Kernel, MemoryDeadLetters, PositionKey, PositionStore, Purge,
+    ChangeToken, CommandBookExt, EventStore, Kernel, Payload, PositionKey, PositionStore, Purge,
     ReadStore, ReadUnit, Sampled, Slice, SnapshotStore, StoreError, StreamRef, Watch, Write,
     Written,
 };
@@ -113,7 +113,6 @@ pub type Meanwhile = Box<dyn FnOnce(&MemoryStore) + Send>;
 /// process would: what a [`Meanwhile`] does to change a task.
 pub fn run(store: &MemoryStore, harp: &str, command: tasks::TaskCommand) {
     let registry = crate::registry();
-    let dead_letters = MemoryDeadLetters::new();
     let sampled = Sampled {
         now: Timestamp {
             seconds: 1_700_000_000 + 20 * 86_400,
@@ -123,16 +122,19 @@ pub fn run(store: &MemoryStore, harp: &str, command: tasks::TaskCommand) {
     };
     ready(
         Kernel::new(&registry)
-            .log_with(&dead_letters)
             .on_retryable(crate::KERNEL_RETRY)
-            .handle::<tasks::TaskAggregate, _>(store, crate::book(harp, command), &sampled),
+            .handle::<tasks::TaskAggregate, _>(
+                store,
+                CommandBook::command(crate::task_cover(harp), command.to_any()),
+                &sampled,
+            ),
     )
     .unwrap_or_else(|failure| panic!("{failure:?}"));
 }
 
 /// Purge `harp`'s stream in `store` directly, as another process would.
 pub fn purge(store: &MemoryStore, harp: &str) -> u64 {
-    let cover = crate::cover(harp);
+    let cover = crate::task_cover(harp);
     let stream = StreamRef::try_from(&cover).unwrap();
     let head = ready(EventStore::head(store, stream)).unwrap();
     ready(Purge::purge(store, stream, head.next_sequence)).unwrap()

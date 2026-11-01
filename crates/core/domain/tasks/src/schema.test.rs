@@ -174,8 +174,8 @@ mod on_the_kernel {
     use angzarr_embedded::angzarr_ports::memory::MemoryStore;
     use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
     use angzarr_embedded::{
-        Domain, EventStore, Failure, Handled, Kernel, MemoryDeadLetters, OnRetryable, Payload,
-        Registry, Sampled, Stream, StreamRef, Timestamp,
+        Domain, EventStore, Failure, Handled, Kernel, OnRetryable, Payload, Registry, Sampled,
+        Stream, StreamRef, Timestamp,
     };
 
     use super::{spelled, tags};
@@ -240,10 +240,8 @@ mod on_the_kernel {
                 },
                 command_id: Uuid::from_bytes([self.id; 16]),
             };
-            let dead_letters = MemoryDeadLetters::new();
             let handled = ready(
                 Kernel::new(&self.registry)
-                    .log_with(&dead_letters)
                     .on_retryable(OnRetryable {
                         max_retries: 0,
                         ..OnRetryable::default()

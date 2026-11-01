@@ -29,9 +29,7 @@ pub use plans::{tag_is_retired, PlanRejection, PlanStatus, RETIRED_TAG};
 pub use ports::{Mint, PlanFiles, Tasks};
 #[cfg(any(test, feature = "test-support"))]
 pub use tasks_application::dead_letter_sample;
-pub use tasks_application::{
-    dead_letter_line, to_redecide, Backoff, DeadLetter, Ported, KERNEL_RETRY,
-};
+pub use tasks_application::{dead_letter_line, Backoff, DeadLetter, Ported, KERNEL_RETRY};
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;

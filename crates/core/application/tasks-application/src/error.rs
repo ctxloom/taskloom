@@ -34,8 +34,10 @@ pub enum AppError {
     GaveUp { attempts: u32, error: Report },
     /// Every freshly minted task id was already taken.
     HarpsExhausted { attempts: u32 },
-    /// A task the store accepted is not there when read back: removed
-    /// between the commit and the read-back, so the write did land.
+    /// A task the store accepted is not there when read: a retry answered
+    /// DUPLICATE, which recorded nothing, whose task was removed and purged
+    /// since it landed, so the write did land. A write that commits answers
+    /// its task from the commit itself, never from a read.
     Vanished { harp_id: String },
     /// A change to an existing task where the work root has no project.
     NoProject,

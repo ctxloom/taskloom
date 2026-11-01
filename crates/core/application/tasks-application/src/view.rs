@@ -94,6 +94,13 @@ pub struct Task {
 }
 
 impl Task {
+    /// The task `state` holds, if it holds one: a stream folding to no
+    /// task (one with no events, or emptied since) is no task, never a
+    /// blank one.
+    pub(crate) fn existing(state: &TaskState) -> Option<Task> {
+        (!state.harp_id.is_empty()).then(|| Task::of(state))
+    }
+
     /// The task `state` holds.
     pub fn of(state: &TaskState) -> Task {
         Task {
