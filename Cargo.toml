@@ -20,41 +20,43 @@ prost-types = "0.14"
 # commit, so a fresh clone builds with no sibling checkouts; bumps are
 # deliberate commits. To build against local checkouts while changing them
 # together, see "Co-developing angzarr-cli or tagma" in CLAUDE.md. At
-# 7910823, on angzarr core 9521582, the rev the crates below pin, so the
+# 1e6349b, on angzarr core ab7ae03, the rev the crates below pin, so the
 # graph holds one angzarr-proto and one angzarr-diagnostic even counting
 # build dependencies; the code it generates names the kernel's crate root
 # (no `next::`) and `::angzarr_embedded::angzarr_diagnostic`.
-angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "791082394fc38464f437425e08d45b0df55f767f" }
+angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "1e6349b001b44cb561de5b7f4241d9817cb67def" }
 
 # angzarr-embedded, angzarr's in-app runtime, taskloom's
 # (taskloom-on-angzarr-embedded.plan.md). Pinned by rev on
-# angzarr-embedded's main: e8975d2 (router 83d09ac, angzarr core 9521582
+# angzarr-embedded's main: cbe108b (router 8af62b6, angzarr core ab7ae03
 # for angzarr-proto, angzarr-ports and angzarr-diagnostic): the kernel at
 # its crate root (`next` flattened, its codes `angzarr-embedded-*`, a
-# condition the spec keys coded under its key; decision 14.60), and
+# condition the spec keys coded under its key; decision 14.60), each
+# call answering the dead letters it wrote, the SQLite store keeping them
+# (its migration 0006: owner ruling Q5), and
 # angzarr-proto, angzarr-ports, angzarr-diagnostic and, behind its
 # `sqlite` feature, angzarr-store-sqlite re-exported, so the graph holds
 # one of each. angzarr-proto and angzarr-store-sqlite are reached through
 # those re-exports (`angzarr_embedded::angzarr_proto`,
 # `angzarr_embedded::angzarr_store_sqlite`) and not pinned here.
-angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "e8975d240249bbf2a402f42e409a7adfe4375b76" }
-angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "e8975d240249bbf2a402f42e409a7adfe4375b76" }
+angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "cbe108b56aba6b1096dadfa4c0887e56a1934b7d" }
+angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "cbe108b56aba6b1096dadfa4c0887e56a1934b7d" }
 # angzarr core's shared crates, at the core rev angzarr-embedded pins
-# (9521582), so the graph holds one of each. angzarr-diagnostic, the coded
+# (ab7ae03), so the graph holds one of each. angzarr-diagnostic, the coded
 # error trait every error here implements, is pinned directly rather than
 # through angzarr-embedded's re-export so the crates that have no use for
 # the kernel (the platform crates, presentation) do not link it.
 # angzarr-ports, angzarr's storage contract, is pinned directly for its
 # `memory` feature (the in-memory store the tests run on), which the
 # re-export cannot turn on.
-angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "95215829e4c9b7f5324e70841eaa7888bd0bdd14" }
-angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "95215829e4c9b7f5324e70841eaa7888bd0bdd14" }
+angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "ab7ae03ac548d19f435f532661284a0820e9f654" }
+angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "ab7ae03ac548d19f435f532661284a0820e9f654" }
 # angzarr-yaml, the one reader for every Rust config (owner ruling,
 # 2026-10-31): versioned documents (`schema_version`, migrated on read,
 # a newer one refused), a strict serde decode with key paths, and edits in
 # place that keep comments. tasks-config and project-registry read through
 # it. Its only dependencies are angzarr-diagnostic and serde.
-angzarr-yaml = { git = "https://github.com/angzarr-io/angzarr", rev = "95215829e4c9b7f5324e70841eaa7888bd0bdd14" }
+angzarr-yaml = { git = "https://github.com/angzarr-io/angzarr", rev = "ab7ae03ac548d19f435f532661284a0820e9f654" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
 plans-proto = { path = "crates/core/wire/plans-proto" }
 tasks = { path = "crates/core/domain/tasks" }

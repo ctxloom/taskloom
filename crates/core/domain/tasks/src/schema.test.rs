@@ -256,8 +256,8 @@ mod on_the_kernel {
                     .flat_map(|book| &book.pages)
                     .map(|page| SchemaEvent::from_any(page.payload.as_ref().unwrap()).unwrap())
                     .collect()),
-                Ok(Handled::Duplicate(_)) => panic!("a fresh command id"),
-                Ok(Handled::Parked) => panic!("only a fact is parked, and this is a command"),
+                Ok(Handled::Duplicate(..)) => panic!("a fresh command id"),
+                Ok(Handled::Parked(_)) => panic!("only a fact is parked, and this is a command"),
                 Err(Failure::Rejected(rejected)) => Err(rejected.code().to_string()),
                 Err(other) => panic!("not a rejection: {other:?}"),
             }

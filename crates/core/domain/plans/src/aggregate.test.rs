@@ -69,8 +69,8 @@ impl Plans {
                 .flat_map(|book| &book.pages)
                 .map(|page| PlanEvent::from_any(page.payload.as_ref().unwrap()).unwrap())
                 .collect()),
-            Ok(Handled::Duplicate(_)) => panic!("a fresh command id is never a duplicate"),
-            Ok(Handled::Parked) => panic!("only a fact is parked, and these are commands"),
+            Ok(Handled::Duplicate(..)) => panic!("a fresh command id is never a duplicate"),
+            Ok(Handled::Parked(_)) => panic!("only a fact is parked, and these are commands"),
             Err(failure) => match *failure {
                 Failure::Rejected(rejected) => Err(rejected),
                 other => panic!("not a rejection: {other:?}"),

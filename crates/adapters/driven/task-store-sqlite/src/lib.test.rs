@@ -939,7 +939,7 @@ fn test_reading_a_store_with_a_migration_pending_migrates_it_and_reads_its_tasks
     assert!(!stores.held.as_ref().unwrap().writable, "held read-only");
     assert_eq!(
         ledger(&home, &path),
-        [1, 2, 3, 4, 5],
+        [1, 2, 3, 4, 5, 6],
         "every migration applied"
     );
 }
@@ -1022,7 +1022,7 @@ fn test_a_store_newer_than_the_build_is_refused_and_left_as_it_was() {
     let mut stores = home.stores();
     let refusal = StoreError::NewerThanBuild {
         applied: 99,
-        build: 5,
+        build: 6,
     };
     let read = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
         .map(|found| found.is_some());

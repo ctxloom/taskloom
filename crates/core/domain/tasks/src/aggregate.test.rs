@@ -103,8 +103,8 @@ impl Task {
     fn run(&mut self, command: impl Into<TaskCommand>) -> Result<Vec<TaskEvent>, Said> {
         match self.try_run(book(command.into().to_any())) {
             Ok(Handled::Applied(recorded)) => Ok(events(recorded.books())),
-            Ok(Handled::Duplicate(_)) => panic!("a fresh command id is never a duplicate"),
-            Ok(Handled::Parked) => panic!("only a fact is parked, and these are commands"),
+            Ok(Handled::Duplicate(..)) => panic!("a fresh command id is never a duplicate"),
+            Ok(Handled::Parked(_)) => panic!("only a fact is parked, and these are commands"),
             Err(failure) => match *failure {
                 Failure::Rejected(rejected) => Err(said(&rejected)),
                 other => panic!("not a rejection: {other:?}"),
@@ -949,7 +949,7 @@ fn test_a_retried_command_is_answered_with_its_first_events() {
     let Ok(Handled::Applied(_)) = task.try_run(first.clone()) else {
         panic!("the first send applies");
     };
-    let Ok(Handled::Duplicate(original)) = task.try_run(first) else {
+    let Ok(Handled::Duplicate(original, _)) = task.try_run(first) else {
         panic!("the retry is a duplicate");
     };
     assert_eq!(original.pages.len(), 1);
