@@ -20,17 +20,17 @@ prost-types = "0.14"
 # commit, so a fresh clone builds with no sibling checkouts; bumps are
 # deliberate commits. To build against local checkouts while changing them
 # together, see "Co-developing angzarr-cli or tagma" in CLAUDE.md. At
-# 6a4ab32, on angzarr core 63571a5c, the rev the crates below pin, so the
+# 4748126, on angzarr core 63571a5c, the rev the crates below pin, so the
 # graph holds one angzarr-proto and one angzarr-diagnostic even counting
 # build dependencies; the code it generates names the kernel's crate root
 # (no `next::`) and `::angzarr_embedded::angzarr_diagnostic`, and each
 # component's command and event enums carry their `Payload`, and its
 # `register` answers `Result`.
-angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "6a4ab3225ebe6142fb3a1de785caf057c70ff576" }
+angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "4748126f54cbfce4fb935788f7e4e73896c7ce24" }
 
 # angzarr-embedded, angzarr's in-app runtime, taskloom's
 # (taskloom-on-angzarr-embedded.plan.md). Pinned by rev on
-# angzarr-embedded's main: e98071f (router 152e181, angzarr core 63571a5c
+# angzarr-embedded's main: 421265f (router 152e181, angzarr core 63571a5c
 # for angzarr-proto, angzarr-ports and angzarr-diagnostic): the kernel at
 # its crate root (`next` flattened, its codes `angzarr-embedded-*`, a
 # condition the spec keys coded under its key; decision 14.60), each
@@ -42,12 +42,14 @@ angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "6a4a
 # the tests share (`angzarr_embedded::testing`: block_on_ready, Samples,
 # the aggregate Harness, angzarr-ports' FaultyStore); every registration
 # answering `Result<_, Misconfigured>`, the registry's description its
-# read-only `Catalog`. angzarr-proto and
+# read-only `Catalog`; and an applier handed, for the decision's own
+# events, the metadata the kernel stamps them with (`event_meta`), so the
+# state decided is the state replayed. angzarr-proto and
 # angzarr-store-sqlite are reached through those re-exports
 # (`angzarr_embedded::angzarr_proto`, `angzarr_embedded::angzarr_store_sqlite`)
 # and not pinned here.
-angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "e98071f6d9b74539172eb03af63146159b6b4450" }
-angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "e98071f6d9b74539172eb03af63146159b6b4450" }
+angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "421265f791d8633255b83bff70dc6dd60055de72" }
+angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "421265f791d8633255b83bff70dc6dd60055de72" }
 # angzarr core's shared crates, at the core rev angzarr-embedded pins
 # (63571a5c), so the graph holds one of each. angzarr-diagnostic, the coded
 # error trait every error here implements, is pinned directly rather than
