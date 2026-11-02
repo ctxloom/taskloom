@@ -35,12 +35,13 @@ impl World {
         dir
     }
 
-    /// `taskloom args` in `cwd`, with only HOME and PATH set.
+    /// `taskloom args` in `cwd`, its work root ([`Isolated::working_in`]),
+    /// with only HOME and PATH set besides.
     fn run(&self, cwd: &Path, args: &[&str]) -> Ran {
         let output = Command::new(binary())
             .args(args)
-            .current_dir(cwd)
             .isolated(self.home.path())
+            .working_in(cwd)
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
             .output()
             .expect("taskloom runs");

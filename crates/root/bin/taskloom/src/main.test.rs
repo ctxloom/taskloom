@@ -51,6 +51,14 @@ fn binary() -> &'static Path {
 /// the variable the host reads it from (HOME; USERPROFILE on Windows).
 pub(crate) trait Isolated {
     fn isolated(&mut self, home: impl AsRef<std::ffi::OsStr>) -> &mut Self;
+
+    /// Run in `dir`, which is its work root (CTXLOOM_ROOT), whatever is
+    /// above it: a test's directories are in TMPDIR, which may be inside a
+    /// checkout (a worktree's target/), and that checkout is no project of
+    /// theirs. After [`Isolated::isolated`], which clears the environment.
+    /// How a work root is found is project-registry's to test, on a
+    /// filesystem of its own.
+    fn working_in(&mut self, dir: impl AsRef<Path>) -> &mut Self;
 }
 
 impl Isolated for Command {
@@ -64,6 +72,18 @@ impl Isolated for Command {
         }
         self.env(flavor.home_var(), home)
     }
+
+    fn working_in(&mut self, dir: impl AsRef<Path>) -> &mut Command {
+        let dir = dir.as_ref();
+        self.current_dir(dir).env("CTXLOOM_ROOT", dir)
+    }
+}
+
+/// A directory outside every work root whatever TMPDIR is: the host's top
+/// (`/`, or `C:\` on Windows), with no `.git` above it, which a process
+/// run there with no CTXLOOM_ROOT only reads.
+pub(crate) fn outside_every_work_root() -> &'static Path {
+    Path::new(os::host().flavor().top())
 }
 
 /// The real filesystem, through the seam: where the binary's processes
@@ -214,12 +234,29 @@ impl Env {
         self.run_in(self.project.path(), args, vars)
     }
 
-    /// [`Env::run_with`], in `dir`.
+    /// [`Env::run_with`], in `dir`, its work root ([`Isolated::working_in`]).
     fn run_in(&self, dir: &Path, args: &[&str], vars: &[(&str, &str)]) -> Ran {
-        let output = Command::new(binary())
+        let mut command = Command::new(binary());
+        command
             .args(args)
-            .current_dir(dir)
             .isolated(self.home.path())
+            .working_in(dir);
+        self.output(command, vars)
+    }
+
+    /// [`Env::run`], outside every work root ([`outside_every_work_root`]).
+    fn run_outside(&self, args: &[&str]) -> Ran {
+        let mut command = Command::new(binary());
+        command
+            .args(args)
+            .isolated(self.home.path())
+            .current_dir(outside_every_work_root());
+        self.output(command, &[])
+    }
+
+    /// What `command`, given PATH, the session and `vars`, does.
+    fn output(&self, mut command: Command, vars: &[(&str, &str)]) -> Ran {
+        let output = command
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
             .env("CTXLOOM_SESSION_HARP", self.session)
             .envs(vars.iter().copied())
@@ -667,7 +704,7 @@ fn test_a_relative_path_is_never_resolved_against_the_top_when_the_cwd_is_gone()
 fn test_a_read_spans_every_project_when_asked_or_outside_any_work_root() {
     let env = Env::new("global-harp");
     env.seed("in the first");
-    let (repo, stray, empty_repo) = (Temp::new(), Temp::new(), Temp::new());
+    let (repo, empty_repo) = (Temp::new(), Temp::new());
     for dir in [&repo, &empty_repo] {
         disk::create_dir_all(dir.path().join(".git")).unwrap();
     }
@@ -688,7 +725,7 @@ fn test_a_read_spans_every_project_when_asked_or_outside_any_work_root() {
     assert_eq!(seen, ["in the first", "in the repo"]);
     assert!(rows.iter().all(|r| r["project_id"].is_string()), "{rows:?}");
 
-    let fallback = env.run_in(stray.path(), &["list", "--json"], &[]);
+    let fallback = env.run_outside(&["list", "--json"]);
     assert!(fallback.ok, "{}", fallback.stderr);
     assert_eq!(fallback.json().as_array().unwrap().len(), 2);
     assert!(
@@ -696,7 +733,7 @@ fn test_a_read_spans_every_project_when_asked_or_outside_any_work_root() {
         "{}",
         fallback.stderr
     );
-    let text = env.run_in(stray.path(), &["list", "--format", "text"], &[]);
+    let text = env.run_outside(&["list", "--format", "text"]);
     assert!(
         text.stdout.starts_with("Projects: 2 (--global)\n"),
         "{}",
@@ -710,7 +747,7 @@ fn test_a_read_spans_every_project_when_asked_or_outside_any_work_root() {
         "{}",
         in_repo.stderr
     );
-    assert!(!disk::exists(stray.path().join(".project-id")));
+    assert!(!disk::exists(outside_every_work_root().join(".project-id")));
     assert!(!disk::exists(empty_repo.path().join(".project-id")));
 }
 

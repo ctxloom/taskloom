@@ -80,9 +80,11 @@ fn test_a_list_reads_one_moment_though_another_process_writes_and_purges_meanwhi
         assert!(ran.ok, "{}", ran.stderr);
         add(env, &["Added meanwhile"]);
     });
+    // The binary's processes' work root (`Isolated::working_in`), so the
+    // list reads their project whatever is above the directory.
     let environment = Environment {
         home: Some(env.home.path().to_path_buf()),
-        root: None,
+        root: Some(env.project.path().to_path_buf()),
         project_id: None,
     };
     let stores = Stores {

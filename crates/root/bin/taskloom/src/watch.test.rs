@@ -37,8 +37,8 @@ impl Watching {
         let mut child = os::own_group(&mut command)
             .arg("watch")
             .args(args)
-            .current_dir(env.project.path())
             .isolated(env.home.path())
+            .working_in(env.project.path())
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
             // As the VS Code extension spawns it: stdin is /dev/null, closed
             // from the start.
