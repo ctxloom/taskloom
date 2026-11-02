@@ -11,6 +11,17 @@
 //! projector caught up from the store. The ports are the only way out: this
 //! crate does no I/O, keeps no clock and starts no runtime.
 //!
+//! The crate is laid out as tasks-application is (CLAUDE.md, "A context's
+//! application crate"): a unit per use case over only the ports it uses
+//! (`add.rs` `Adding`, `change.rs` `Changing`: status, link and unlink,
+//! `read.rs` `Reading`: list and show, `check.rs` `Checking`, `import.rs`
+//! `Importing`), shared collaborators (`project.rs` `Projects`: resolve,
+//! open, a plan's stream, the plan list caught up; `write.rs` `Writes`:
+//! `Projects` and kernel-runner's `Runner`; `tree.rs` `Tree`: `Writes`
+//! and the work tree's files, a plan viewed and its file's hash tracked),
+//! and `service.rs`, the [`PlanService`] owning the ports once and lending
+//! each call's unit its share.
+//!
 //! The rules the aggregate cannot see are here: a `governs` link names a
 //! task that exists, a `supersedes` link a plan that exists and closes no
 //! cycle, and a path resolves inside the work root. The text is a file, the
@@ -19,11 +30,18 @@
 //! (`Rehashed`). `check` reports a recorded file that is missing, a plan
 //! file no plan records, and a governed task the project no longer holds.
 
+mod add;
+mod change;
+mod check;
 mod error;
 mod import;
+mod project;
+mod read;
 mod rules;
 mod service;
 mod tasks;
+mod tree;
+mod write;
 
 /// A dead letter, as the kernel answers it: angzarr-embedded's.
 pub use angzarr_embedded::{dead_letter_line, DeadLetter};
@@ -52,14 +70,19 @@ pub fn dead_letter_sample(component: &str) -> DeadLetter {
     }
 }
 
+pub use add::NewPlan;
+pub use change::Link;
+pub use check::{CheckReport, Finding};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{PathError, PlanError, CATALOGS, EN_US};
+pub use import::{ImportReport, ImportedPlan, LeftTag};
+pub use project::HARP_ATTEMPTS;
+pub use read::{PlanQuery, PlanText};
 pub use rules::{content_hash, default_path, frontmatter, plan_name, resolve_path, Frontmatter};
-pub use service::{registry, PlanService, HARP_ATTEMPTS};
+pub use service::{registry, Governing, PlanService, Plans};
 pub use tasks::ProjectTasks;
-
-use std::future::Future;
+pub use tree::PlanView;
 
 /// Where a plan's text goes when `plan add` names no path:
 /// `<work-root>/.taskloom/plans/<harp-id>.plan.md`, committed with the work
@@ -67,191 +90,6 @@ use std::future::Future;
 pub const PLANS_DIR: &str = ".taskloom/plans";
 /// A plan file's suffix.
 pub const PLAN_SUFFIX: &str = ".plan.md";
-
-/// `plan add`.
-#[derive(Clone, PartialEq, Eq, Debug, Default)]
-pub struct NewPlan {
-    pub title: String,
-    /// Register this file; None writes a new one at [`default_path`].
-    pub path: Option<String>,
-    pub status: PlanStatus,
-    pub governs: Vec<String>,
-    /// CTXLOOM_SESSION_HARP.
-    pub session: String,
-}
-
-/// A typed link, as `plan link` and `plan unlink` name it.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub enum Link {
-    Governs(String),
-    Supersedes(String),
-}
-
-/// `plan list`'s filters.
-#[derive(Clone, PartialEq, Eq, Debug, Default)]
-pub struct PlanQuery {
-    /// Any of these; empty is every status.
-    pub statuses: Vec<PlanStatus>,
-    /// Only plans governing this task.
-    pub governs: Option<String>,
-}
-
-/// A plan as the use cases answer it.
-#[derive(Clone, PartialEq, Eq, Debug, Default)]
-pub struct PlanView {
-    pub harp_id: String,
-    pub title: String,
-    pub status: PlanStatus,
-    /// As recorded: work-root-relative.
-    pub path: String,
-    /// Absolute: the work root joined with `path`.
-    pub abs_path: String,
-    /// [`plan_name`] of the path.
-    pub name: String,
-    /// The file's hash as last recorded: as it is now, after a read that
-    /// found it changed.
-    pub content_hash: String,
-    /// The session it was added in.
-    pub origin_session: String,
-    /// The file's frontmatter `sessions:`, read now; empty when it has none
-    /// or the file is missing.
-    pub sessions: Vec<String>,
-    pub governs: Vec<String>,
-    pub supersedes: Vec<String>,
-    pub superseded_by: String,
-}
-
-/// `plan show`: the plan and its text.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct PlanText {
-    pub plan: PlanView,
-    /// None when the file is missing.
-    pub content: Option<String>,
-}
-
-/// What `plan check` found: drift between the store and the work tree (or
-/// the project's tasks) that tracking the hash cannot mend.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub enum Finding {
-    /// The recorded file is not there.
-    Missing { plan: String, path: String },
-    /// A governed task the project no longer holds (pruned).
-    MissingTask { plan: String, task: String },
-    /// A `.taskloom/plans/*.plan.md` no plan records.
-    Unregistered { path: String },
-}
-
-/// `plan check`'s answer: by plan, its missing file then its governed
-/// tasks gone; then the unregistered files by path. Every finding fails the
-/// check.
-#[derive(Clone, PartialEq, Eq, Debug, Default)]
-pub struct CheckReport {
-    pub findings: Vec<Finding>,
-}
-
-impl CheckReport {
-    /// Whether anything was found: `plan check` exits 1.
-    pub fn failed(&self) -> bool {
-        !self.findings.is_empty()
-    }
-}
-
-/// One `ctxloom:plan` value `plan import` registered (or found already
-/// registered) and the tasks it now governs.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct ImportedPlan {
-    pub harp_id: String,
-    /// The path the plan records: the value's, made work-root-relative, or
-    /// for a plan outside the work root its copy's under [`PLANS_DIR`].
-    pub path: String,
-    /// The value named a file outside the work root, copied in (the
-    /// original is left as it was).
-    pub external: bool,
-    /// Added by this import (false: a plan already recording the path).
-    pub new: bool,
-    /// Every task the plan governs after the import, by harp id.
-    pub governs: Vec<String>,
-}
-
-/// A `ctxloom:plan` value `plan import` left as it was, and the tasks
-/// carrying it (their tag kept, so nothing is lost).
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct LeftTag {
-    pub value: String,
-    pub tasks: Vec<String>,
-}
-
-/// `plan import`'s report.
-#[derive(Clone, PartialEq, Eq, Debug, Default)]
-pub struct ImportReport {
-    pub plans: Vec<ImportedPlan>,
-    /// Values naming no readable file.
-    pub dead: Vec<LeftTag>,
-    /// Values naming a file that is not a `.plan.md`.
-    pub not_plans: Vec<LeftTag>,
-    /// (task, value): the tags removed, each now a governs link.
-    pub retired: Vec<(String, String)>,
-}
-
-impl ImportReport {
-    /// Whether a value was left behind (dead, or not a plan): `plan
-    /// import` exits 1, so a script sees what was left.
-    pub fn left_any(&self) -> bool {
-        !self.dead.is_empty() || !self.not_plans.is_empty()
-    }
-}
-
-/// The plans use cases, as a driving adapter reaches them. Their futures
-/// are not promised `Send` (see [`ports::Tasks`]).
-pub trait Plans {
-    fn add(&mut self, new: NewPlan) -> impl Future<Output = Result<PlanView, PlanError>>;
-    fn set_status(
-        &mut self,
-        plan: &str,
-        status: PlanStatus,
-    ) -> impl Future<Output = Result<PlanView, PlanError>>;
-    fn link(&mut self, plan: &str, link: Link)
-        -> impl Future<Output = Result<PlanView, PlanError>>;
-    fn unlink(
-        &mut self,
-        plan: &str,
-        link: Link,
-    ) -> impl Future<Output = Result<PlanView, PlanError>>;
-    /// The plans `query` selects, by harp id; each file read, and its new
-    /// hash recorded where it changed.
-    fn list(&mut self, query: &PlanQuery)
-        -> impl Future<Output = Result<Vec<PlanView>, PlanError>>;
-    /// The plan `id_or_path` names: a harp id, or a path (relative, or
-    /// absolute as `plan list` gives it), and its text.
-    fn show(&mut self, id_or_path: &str) -> impl Future<Output = Result<PlanText, PlanError>>;
-    /// Every recorded file read (its new hash recorded where it changed),
-    /// and what is missing or unregistered reported.
-    fn check(&mut self) -> impl Future<Output = Result<CheckReport, PlanError>>;
-    /// Every task's `ctxloom:plan` tags into plans and governs links, the
-    /// migrated tags retired. `dry_run` reports and changes nothing.
-    /// Running it again adds nothing new.
-    fn import(&mut self, dry_run: bool) -> impl Future<Output = Result<ImportReport, PlanError>>;
-    /// The dead letters the kernel's calls answered since the last call:
-    /// almost certainly bugs, for the driving adapter to say loudly.
-    fn dead_letters(&mut self) -> Vec<DeadLetter> {
-        Vec::new()
-    }
-}
-
-/// The plans governing tasks, as a frontend showing a task names them
-/// (`taskloom show`). The tasks know no plan: plans are downstream of the
-/// tasks, whose ids their links name, so which plans govern a task is the
-/// plans' to answer, and the frontend puts the two together.
-pub trait Governing {
-    /// The plans governing each of `tasks` (the project a task is in, and
-    /// its harp id), by harp id, in `tasks`' order: each project's plan
-    /// list caught up once, from the store its tasks are in; none where
-    /// the project has no store.
-    fn governing(
-        &mut self,
-        tasks: &[(Project, String)],
-    ) -> impl Future<Output = Result<Vec<Vec<String>>, PlanError>>;
-}
 
 #[cfg(test)]
 #[path = "fakes.test.rs"]

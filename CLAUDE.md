@@ -80,6 +80,13 @@ tasks-application is the example:
   prefixed with its crate's name and is public (the CLI's JSON carries
   it), so the use cases share the context's `AppError` and codes.
 
+plans-application is laid out the same way: `add.rs` (`Adding`),
+`change.rs` (`Changing`: status, link, unlink), `read.rs` (`Reading`:
+list, show), `check.rs` (`Checking`) and `import.rs` (`Importing`) over
+`project.rs` (`Projects`: resolve, open, a plan's stream, the plan list),
+`write.rs` (`Writes`) and `tree.rs` (`Tree`: the writes and the work
+tree's files), composed by `PlanService` (`service.rs`).
+
 The domain crates keep their hand-written markup (`aggregate.rs` beside
 the rules in `lib.rs`) rather than blackjack's generated adapter over a
 pure domain crate (owner ruling Q8): angzarr-build's Rust adapter has no

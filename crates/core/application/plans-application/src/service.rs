@@ -1,49 +1,80 @@
-//! [`PlanService`]: the use cases over the ports and angzarr-embedded's
-//! kernel.
-//!
-//! **Each command is decided once, by the kernel.** A command is sent to
-//! its plan's stream, and the plan aggregate decides it against the stream
-//! as the kernel loads it; its refusal comes back typed, the plan's own
-//! [`PlanRejection`]. A write landing between the kernel's load and its
-//! write is the kernel's race to run again, on the new head; a store that
-//! could not say is the kernel's to retry, under kernel-runner's
-//! [`KERNEL_RETRY`] over the [`Delay`] and [`Jitter`] ports, as the tasks'
-//! commands are ([`Runner`]); one it hands back has had its retries, and is
-//! given up on. A retry re-sends the same command id, so an attempt that landed
-//! after all is answered DUPLICATE.
-//!
-//! **A supersede is two writes**, one on each plan's stream: `Supersede` on
-//! the superseding plan, then `MarkSuperseded` on its target (an unlink,
-//! `Unsupersede` then `Reinstate`). No order crosses streams. Each half is
-//! checked against what the other stream holds, so a link or unlink left
-//! half done is finished by running it again. Two supersedes of one target
-//! racing can both pass their check (the design's flag): the second
-//! target's write is refused, and its first half is left for an unlink.
+//! [`PlanService`]: the ports the use cases run over, owned once, and the
+//! composition of the use-case units behind the traits a driving adapter
+//! calls ([`Plans`], [`Governing`]). Each call lends its unit only the
+//! ports it uses ([`Parts`]); the unit is the use case.
 
 use std::collections::BTreeMap;
+use std::future::Future;
 
-use angzarr_diagnostic::Report;
-use angzarr_embedded::v1::{CommandBook, Cover};
-use angzarr_embedded::{
-    CommandBookExt, CoverExt, DeadLetter, Kernel, KernelError, OnRetryable, Registry, StoreError,
-};
-use kernel_runner::{ProjectLists, Refusal, Runner, KERNEL_RETRY};
-use plan_lists::{PlanList, PlanLists, PlanRow};
-use plans::{AddPlan, PlanAggregate, PlanCommand, PlanRejection, PlanState, PLAN_DOMAIN};
+use angzarr_embedded::{DeadLetter, OnRetryable, Registry};
+use kernel_runner::{ProjectLists, Runner, KERNEL_RETRY};
+use plan_lists::{PlanList, PlanLists};
+use plans::{PlanAggregate, PlanStatus};
 use ports::{
     Clock, CommandIds, Delay, Jitter, Mint, PlanFiles, Project, ProjectIdentity, TaskStores, Tasks,
 };
 
-use crate::rules::{joined, locate, new_plan_text, Located};
-use crate::{
-    content_hash, default_path, frontmatter, plan_name, resolve_path, CheckReport, Finding,
-    Governing, ImportReport, Link, NewPlan, PlanError, PlanQuery, PlanStatus, PlanText, PlanView,
-    Plans, PLANS_DIR,
-};
+use crate::add::Adding;
+use crate::change::Changing;
+use crate::check::Checking;
+use crate::import::Importing;
+use crate::project::Projects;
+use crate::read::Reading;
+use crate::tree::Tree;
+use crate::write::Writes;
+use crate::{CheckReport, ImportReport, Link, NewPlan, PlanError, PlanQuery, PlanText, PlanView};
 
-/// How many plan ids an add mints before giving up, each refused because a
-/// plan already holds it.
-pub const HARP_ATTEMPTS: u32 = 100;
+/// The plans use cases, as a driving adapter reaches them. Their futures
+/// are not promised `Send` (see [`ports::Tasks`]).
+pub trait Plans {
+    fn add(&mut self, new: NewPlan) -> impl Future<Output = Result<PlanView, PlanError>>;
+    fn set_status(
+        &mut self,
+        plan: &str,
+        status: PlanStatus,
+    ) -> impl Future<Output = Result<PlanView, PlanError>>;
+    fn link(&mut self, plan: &str, link: Link)
+        -> impl Future<Output = Result<PlanView, PlanError>>;
+    fn unlink(
+        &mut self,
+        plan: &str,
+        link: Link,
+    ) -> impl Future<Output = Result<PlanView, PlanError>>;
+    /// The plans `query` selects, by harp id; each file read, and its new
+    /// hash recorded where it changed.
+    fn list(&mut self, query: &PlanQuery)
+        -> impl Future<Output = Result<Vec<PlanView>, PlanError>>;
+    /// The plan `id_or_path` names: a harp id, or a path (relative, or
+    /// absolute as `plan list` gives it), and its text.
+    fn show(&mut self, id_or_path: &str) -> impl Future<Output = Result<PlanText, PlanError>>;
+    /// Every recorded file read (its new hash recorded where it changed),
+    /// and what is missing or unregistered reported.
+    fn check(&mut self) -> impl Future<Output = Result<CheckReport, PlanError>>;
+    /// Every task's `ctxloom:plan` tags into plans and governs links, the
+    /// migrated tags retired. `dry_run` reports and changes nothing.
+    /// Running it again adds nothing new.
+    fn import(&mut self, dry_run: bool) -> impl Future<Output = Result<ImportReport, PlanError>>;
+    /// The dead letters the kernel's calls answered since the last call:
+    /// almost certainly bugs, for the driving adapter to say loudly.
+    fn dead_letters(&mut self) -> Vec<DeadLetter> {
+        Vec::new()
+    }
+}
+
+/// The plans governing tasks, as a frontend showing a task names them
+/// (`taskloom show`). The tasks know no plan: plans are downstream of the
+/// tasks, whose ids their links name, so which plans govern a task is the
+/// plans' to answer, and the frontend puts the two together.
+pub trait Governing {
+    /// The plans governing each of `tasks` (the project a task is in, and
+    /// its harp id), by harp id, in `tasks`' order: each project's plan
+    /// list caught up once, from the store its tasks are in; none where
+    /// the project has no store.
+    fn governing(
+        &mut self,
+        tasks: &[(Project, String)],
+    ) -> impl Future<Output = Result<Vec<Vec<String>>, PlanError>>;
+}
 
 /// The registry the plans domain runs under: the plan aggregate.
 pub fn registry() -> Registry {
@@ -54,11 +85,12 @@ pub fn registry() -> Registry {
     registry
 }
 
-/// The use cases over their ports: `identity` resolves the project (the
-/// one `project` pins, if any), `stores` opens its store, `files` reaches
-/// the work tree, `tasks` the project's tasks and `mint` new ids; `clock`
-/// stamps commands and mints their ids; `delay` waits, with jitter, between
-/// retries.
+/// The ports the use cases run over, owned once, and what they share
+/// across calls: `identity` resolves the project (the one `project` pins,
+/// if any), `stores` opens its store, `files` reaches the work tree,
+/// `tasks` the project's tasks and `mint` new ids; `clock` stamps commands
+/// and mints their ids; `delay` waits, with jitter, between retries. Each
+/// call lends its use case only the ports it uses.
 pub struct PlanService<I, S, F, T, M, C, D> {
     pub identity: I,
     pub stores: S,
@@ -102,447 +134,66 @@ impl<I, S, F, T, M, C, D> PlanService<I, S, F, T, M, C, D> {
     pub fn pinned(self, project: Option<String>) -> Self {
         PlanService { project, ..self }
     }
-}
 
-/// The stream of the plan `harp_id` names: its harp is its natural key.
-fn plan_cover(harp_id: &str) -> Cover {
-    Cover::natural(PLAN_DOMAIN, harp_id)
-}
-
-fn failed(error: StoreError) -> PlanError {
-    PlanError::Failed(Report::of(&KernelError::Store(error)))
-}
-
-/// A plan as the list holds one, from its stream's state.
-fn row_of(state: &PlanState) -> PlanRow {
-    PlanRow {
-        harp_id: state.harp_id.clone(),
-        title: state.title.clone(),
-        status: state.status,
-        path: state.path.clone(),
-        content_hash: state.content_hash.clone(),
-        origin_session: state.origin_session.clone(),
-        governs: state.governs.iter().cloned().collect(),
-        supersedes: state.supersedes.iter().cloned().collect(),
-        superseded_by: state.superseded_by.clone(),
-    }
-}
-
-/// The view of `row`, its file `text` as read now (None: missing).
-pub(crate) fn view_of(root: &str, row: &PlanRow, text: Option<&[u8]>) -> PlanView {
-    let sessions = text
-        .map(|text| frontmatter(&String::from_utf8_lossy(text)).sessions)
-        .unwrap_or_default();
-    PlanView {
-        harp_id: row.harp_id.clone(),
-        title: row.title.clone(),
-        status: row.status,
-        path: row.path.clone(),
-        abs_path: joined(root, &row.path),
-        name: plan_name(&row.path),
-        content_hash: row.content_hash.clone(),
-        origin_session: row.origin_session.clone(),
-        sessions,
-        governs: row.governs.clone(),
-        supersedes: row.supersedes.clone(),
-        superseded_by: row.superseded_by.clone(),
-    }
-}
-
-impl<I, S, F, T, M, C, D> PlanService<I, S, F, T, M, C, D>
-where
-    I: ProjectIdentity,
-    S: TaskStores,
-    F: PlanFiles,
-    T: Tasks,
-    M: Mint,
-    C: Clock + CommandIds,
-    D: Delay + Jitter + Send,
-{
-    /// The project a write goes to: pinned, bound, or minted and bound.
-    pub(crate) fn for_write(&mut self) -> Result<Project, PlanError> {
-        self.identity
-            .for_write(self.project.as_deref())
-            .map_err(PlanError::Identity)
-    }
-
-    /// The project a read is about: `None` where there is none yet, or it
-    /// has no store, so no plan.
-    pub(crate) async fn for_read(&mut self) -> Result<Option<Project>, PlanError> {
-        let Some(project) = self
-            .identity
-            .for_read(self.project.as_deref())
-            .map_err(PlanError::Identity)?
-        else {
-            return Ok(None);
+    /// The ports and shared state, each lent apart, for one call.
+    fn parts(&mut self) -> Parts<'_, I, S, F, T, M, C, D> {
+        let projects = Projects {
+            identity: &mut self.identity,
+            stores: &mut self.stores,
+            pinned: self.project.as_deref(),
+            registry: &self.registry,
+            lists: &mut self.lists,
         };
-        let store = self.stores.open_existing(&project).await.map_err(failed)?;
-        Ok(store.is_some().then_some(project))
-    }
-
-    /// The project holding the plan `plan`, which must exist.
-    async fn holding(&mut self, plan: &str) -> Result<Project, PlanError> {
-        let missing = || PlanError::NoSuchPlan(plan.to_string());
-        let project = self.for_read().await?.ok_or_else(missing)?;
-        match self.state(&project, plan).await? {
-            Some(_) => Ok(project),
-            None => Err(missing()),
-        }
-    }
-
-    pub(crate) fn work_root(&self) -> Result<String, PlanError> {
-        self.files.work_root().map_err(PlanError::NoWorkRoot)
-    }
-
-    /// Every plan of `project`'s store, caught up now.
-    pub(crate) async fn plan_list(&mut self, project: &Project) -> Result<PlanList, PlanError> {
-        let Some(store) = self.stores.open_existing(project).await.map_err(failed)? else {
-            return Ok(PlanList::new());
-        };
-        let lists = self.lists.caught_up(project, store, &self.registry).await;
-        Ok(lists.map_err(PlanError::Failed)?.list().clone())
-    }
-
-    /// The plan `harp_id` as its stream holds it now; `None` when it holds
-    /// none.
-    pub(crate) async fn state(
-        &mut self,
-        project: &Project,
-        harp_id: &str,
-    ) -> Result<Option<PlanState>, PlanError> {
-        let Some(store) = self.stores.open_existing(project).await.map_err(failed)? else {
-            return Ok(None);
-        };
-        let (plan, _) = Kernel::new(&self.registry)
-            .load::<PlanAggregate, _>(store, &plan_cover(harp_id))
-            .await
-            .map_err(|e| PlanError::Failed(Report::of(&e)))?;
-        let state = plan.state().state();
-        Ok(state.added.then(|| state.clone()))
-    }
-
-    /// Run `command` on the plan `harp_id` in `project`'s store.
-    pub(crate) async fn commit(
-        &mut self,
-        project: &Project,
-        harp_id: &str,
-        command: PlanCommand,
-    ) -> Result<(), PlanError> {
-        let store = self.stores.open(project).await.map_err(failed)?;
-        let book = CommandBook::command_of(
-            plan_cover(harp_id),
-            &plans::messages::PlanCommand::from(&command),
-        );
-        let command_id = self.clock.command_id();
-        let mut runner = Runner {
+        let runner = Runner {
             registry: &self.registry,
             clock: &mut self.clock,
             delay: &mut self.delay,
             retry: self.retry,
             dead_letters: &mut self.dead_letters,
         };
-        match runner
-            .run::<PlanAggregate, PlanRejection, _>(store, book, &command_id)
-            .await?
-        {
-            Ok(_) => Ok(()),
-            // The plan's own rejection, typed; one the router made on its
-            // behalf, as reported.
-            Err(Refusal {
-                rejection: Some(rejection),
-                ..
-            }) => Err(PlanError::Rejected(rejection)),
-            Err(Refusal { report, .. }) => Err(PlanError::Failed(report)),
+        Parts {
+            tree: Tree {
+                writes: Writes { projects, runner },
+                files: &self.files,
+            },
+            tasks: &mut self.tasks,
+            mint: &self.mint,
         }
     }
 
-    /// A fresh plan id: one no plan stream of `project` holds.
-    pub(crate) async fn fresh_id(&mut self, project: &Project) -> Result<String, PlanError> {
-        for _ in 0..HARP_ATTEMPTS {
-            let harp_id = self.mint.mint();
-            if self.state(project, &harp_id).await?.is_none() {
-                return Ok(harp_id);
-            }
-        }
-        Err(PlanError::HarpsExhausted {
-            attempts: HARP_ATTEMPTS,
-        })
+    fn adding(&mut self) -> Adding<'_, I, S, F, T, M, C, D> {
+        let Parts { tree, tasks, mint } = self.parts();
+        Adding { tree, tasks, mint }
     }
 
-    /// The plan `harp_id`, viewed as its stream and file are now.
-    async fn view(&mut self, project: &Project, harp_id: &str) -> Result<PlanView, PlanError> {
-        let state = self
-            .state(project, harp_id)
-            .await?
-            .ok_or_else(|| PlanError::NoSuchPlan(harp_id.to_string()))?;
-        let root = self.work_root()?;
-        let text = self.files.read(&state.path);
-        Ok(view_of(&root, &row_of(&state), text.as_deref()))
+    fn changing(&mut self) -> Changing<'_, I, S, F, T, C, D> {
+        let Parts { tree, tasks, .. } = self.parts();
+        Changing { tree, tasks }
     }
 
-    /// `row`'s file read now, and its hash recorded where it changed (the
-    /// row then carrying it): the file's text, or None when it is missing.
-    async fn tracked(
-        &mut self,
-        project: &Project,
-        row: &mut PlanRow,
-    ) -> Result<Option<Vec<u8>>, PlanError> {
-        let Some(text) = self.files.read(&row.path) else {
-            return Ok(None);
-        };
-        let hash = content_hash(&text);
-        if hash != row.content_hash {
-            let rehash = PlanCommand::Rehash(hash.clone());
-            match self.commit(project, &row.harp_id, rehash).await {
-                // Recorded meanwhile by another reader: the same hash.
-                Ok(()) | Err(PlanError::Rejected(PlanRejection::HashUnchanged)) => {}
-                Err(error) => return Err(error),
-            }
-            row.content_hash = hash;
+    fn reading(&mut self) -> Reading<'_, I, S, F, C, D> {
+        Reading {
+            tree: self.parts().tree,
         }
-        Ok(Some(text))
     }
 
-    async fn adding(&mut self, new: NewPlan) -> Result<PlanView, PlanError> {
-        let mut governs = new.governs.clone();
-        governs.sort();
-        governs.dedup();
-        // What the add carries alone, refused before anything is written.
-        let template = AddPlan {
-            harp_id: String::new(),
-            title: new.title.trim().to_string(),
-            status: new.status,
-            path: String::new(),
-            content_hash: content_hash(b""),
-            origin_session: new.session.clone(),
-        };
-        plans::check(&PlanCommand::Add(template.clone())).map_err(PlanError::Rejected)?;
-        for task in &governs {
-            if !self.tasks.exists(task).await.map_err(PlanError::Tasks)? {
-                return Err(PlanError::NoSuchTask(task.clone()));
-            }
-        }
-        let root = self.work_root()?;
-        let (harp_id, path, hash, project) = match &new.path {
-            Some(given) => {
-                let path = resolve_path(&root, given).map_err(PlanError::Path)?;
-                let text = self
-                    .files
-                    .read(&path)
-                    .ok_or_else(|| PlanError::FileMissing(path.clone()))?;
-                let project = self.for_write()?;
-                if let Some(row) = self.plan_list(&project).await?.by_path(&path) {
-                    return Err(PlanError::AlreadyRegistered {
-                        path,
-                        plan: row.harp_id.clone(),
-                    });
-                }
-                let harp_id = self.fresh_id(&project).await?;
-                (harp_id, path, content_hash(&text), project)
-            }
-            None => {
-                let project = self.for_write()?;
-                let harp_id = self.fresh_id(&project).await?;
-                let path = default_path(&harp_id);
-                let text = new_plan_text(&template.title, &new.session);
-                if !self
-                    .files
-                    .create(&path, text.as_bytes())
-                    .map_err(PlanError::Files)?
-                {
-                    return Err(PlanError::FileExists(path));
-                }
-                (harp_id, path, content_hash(text.as_bytes()), project)
-            }
-        };
-        let add = AddPlan {
-            harp_id: harp_id.clone(),
-            path,
-            content_hash: hash,
-            ..template
-        };
-        self.commit(&project, &harp_id, PlanCommand::Add(add))
-            .await?;
-        for task in governs {
-            self.commit(&project, &harp_id, PlanCommand::Govern(task))
-                .await?;
-        }
-        self.view(&project, &harp_id).await
+    fn checking(&mut self) -> Checking<'_, I, S, F, T, C, D> {
+        let Parts { tree, tasks, .. } = self.parts();
+        Checking { tree, tasks }
     }
 
-    async fn linking(&mut self, plan: &str, link: Link) -> Result<PlanView, PlanError> {
-        let project = self.holding(plan).await?;
-        match link {
-            Link::Governs(task) => {
-                if !self.tasks.exists(&task).await.map_err(PlanError::Tasks)? {
-                    return Err(PlanError::NoSuchTask(task));
-                }
-                self.commit(&project, plan, PlanCommand::Govern(task))
-                    .await?;
-            }
-            Link::Supersedes(target) => self.superseding(&project, plan, target).await?,
-        }
-        self.view(&project, plan).await
+    fn importing(&mut self) -> Importing<'_, I, S, F, T, M, C, D> {
+        let Parts { tree, tasks, mint } = self.parts();
+        Importing { tree, tasks, mint }
     }
+}
 
-    /// `plan` supersedes `target`: both exist, the link closes no cycle,
-    /// and no other plan supersedes `target`. Two writes, the second on the
-    /// target; a link left half done (the first landed) is finished.
-    async fn superseding(
-        &mut self,
-        project: &Project,
-        plan: &str,
-        target: String,
-    ) -> Result<(), PlanError> {
-        if target == plan {
-            return Err(PlanError::Rejected(PlanRejection::SupersedesItself));
-        }
-        let list = self.plan_list(project).await?;
-        let (Some(superseding), Some(superseded)) = (list.get(plan), list.get(&target)) else {
-            return Err(PlanError::NoSuchPlan(target));
-        };
-        if list.supersedes_reaches(&target, plan) {
-            return Err(PlanError::SupersedeCycle {
-                plan: plan.to_string(),
-                target,
-            });
-        }
-        let linked = superseding.supersedes.contains(&target);
-        let marked_by = superseded.superseded_by.clone();
-        match (linked, marked_by.as_str()) {
-            (true, by) if by == plan => {
-                return Err(PlanError::Rejected(PlanRejection::AlreadySupersedes(
-                    target,
-                )))
-            }
-            (_, "") => {}
-            (_, by) if by != plan => {
-                return Err(PlanError::AlreadySuperseded {
-                    plan: target,
-                    by: by.to_string(),
-                })
-            }
-            _ => {}
-        }
-        if !linked {
-            self.commit(project, plan, PlanCommand::Supersede(target.clone()))
-                .await?;
-        }
-        if marked_by.is_empty() {
-            self.commit(
-                project,
-                &target,
-                PlanCommand::MarkSuperseded(plan.to_string()),
-            )
-            .await?;
-        }
-        Ok(())
-    }
-
-    async fn unlinking(&mut self, plan: &str, link: Link) -> Result<PlanView, PlanError> {
-        let project = self.holding(plan).await?;
-        match link {
-            Link::Governs(task) => {
-                self.commit(&project, plan, PlanCommand::Ungovern(task))
-                    .await?;
-            }
-            Link::Supersedes(target) => {
-                let linked = self
-                    .state(&project, plan)
-                    .await?
-                    .is_some_and(|p| p.supersedes.contains(&target));
-                let marked = self
-                    .state(&project, &target)
-                    .await?
-                    .is_some_and(|t| t.superseded_by == plan);
-                if !linked && !marked {
-                    return Err(PlanError::Rejected(PlanRejection::NotSuperseded(target)));
-                }
-                if linked {
-                    self.commit(&project, plan, PlanCommand::Unsupersede(target.clone()))
-                        .await?;
-                }
-                if marked {
-                    self.commit(&project, &target, PlanCommand::Reinstate)
-                        .await?;
-                }
-            }
-        }
-        self.view(&project, plan).await
-    }
-
-    async fn listing(&mut self, query: &PlanQuery) -> Result<Vec<PlanView>, PlanError> {
-        let Some(project) = self.for_read().await? else {
-            return Ok(Vec::new());
-        };
-        let root = self.work_root()?;
-        let list = self.plan_list(&project).await?;
-        let selected: Vec<PlanRow> = match &query.governs {
-            Some(task) => list.governing(task),
-            None => list.plans(),
-        }
-        .into_iter()
-        .filter(|row| query.statuses.is_empty() || query.statuses.contains(&row.status))
-        .cloned()
-        .collect();
-        let mut views = Vec::new();
-        for mut row in selected {
-            let text = self.tracked(&project, &mut row).await?;
-            views.push(view_of(&root, &row, text.as_deref()));
-        }
-        Ok(views)
-    }
-
-    async fn showing(&mut self, id_or_path: &str) -> Result<PlanText, PlanError> {
-        let missing = || PlanError::NoSuchPlan(id_or_path.to_string());
-        let project = self.for_read().await?.ok_or_else(missing)?;
-        let root = self.work_root()?;
-        let list = self.plan_list(&project).await?;
-        let found = list
-            .get(id_or_path)
-            .or_else(|| match locate(&root, id_or_path) {
-                Located::Inside(path) => list.by_path(&path),
-                Located::Outside(_) => None,
-            });
-        let mut row = found.cloned().ok_or_else(missing)?;
-        let text = self.tracked(&project, &mut row).await?;
-        Ok(PlanText {
-            plan: view_of(&root, &row, text.as_deref()),
-            content: text.map(|text| String::from_utf8_lossy(&text).into_owned()),
-        })
-    }
-
-    async fn checking(&mut self) -> Result<CheckReport, PlanError> {
-        let mut findings = Vec::new();
-        let mut recorded = Vec::new();
-        if let Some(project) = self.for_read().await? {
-            let list = self.plan_list(&project).await?;
-            for row in list.plans() {
-                let mut row = row.clone();
-                recorded.push(row.path.clone());
-                if self.tracked(&project, &mut row).await?.is_none() {
-                    findings.push(Finding::Missing {
-                        plan: row.harp_id.clone(),
-                        path: row.path.clone(),
-                    });
-                }
-                for task in &row.governs {
-                    if !self.tasks.exists(task).await.map_err(PlanError::Tasks)? {
-                        findings.push(Finding::MissingTask {
-                            plan: row.harp_id.clone(),
-                            task: task.clone(),
-                        });
-                    }
-                }
-            }
-        }
-        for path in self.files.plan_files(PLANS_DIR) {
-            if !recorded.contains(&path) {
-                findings.push(Finding::Unregistered { path });
-            }
-        }
-        Ok(CheckReport { findings })
-    }
+/// A [`PlanService`]'s ports and shared state, each borrowed apart, from
+/// which a call's use case takes what it uses.
+struct Parts<'s, I, S, F, T, M, C, D> {
+    tree: Tree<'s, I, S, F, C, D>,
+    tasks: &'s mut T,
+    mint: &'s M,
 }
 
 impl<I, S, F, T, M, C, D> Plans for PlanService<I, S, F, T, M, C, D>
@@ -556,38 +207,35 @@ where
     D: Delay + Jitter + Send,
 {
     async fn add(&mut self, new: NewPlan) -> Result<PlanView, PlanError> {
-        self.adding(new).await
+        self.adding().add(new).await
     }
 
     async fn set_status(&mut self, plan: &str, status: PlanStatus) -> Result<PlanView, PlanError> {
-        let project = self.holding(plan).await?;
-        self.commit(&project, plan, PlanCommand::SetStatus(status))
-            .await?;
-        self.view(&project, plan).await
+        self.changing().set_status(plan, status).await
     }
 
     async fn link(&mut self, plan: &str, link: Link) -> Result<PlanView, PlanError> {
-        self.linking(plan, link).await
+        self.changing().link(plan, link).await
     }
 
     async fn unlink(&mut self, plan: &str, link: Link) -> Result<PlanView, PlanError> {
-        self.unlinking(plan, link).await
+        self.changing().unlink(plan, link).await
     }
 
     async fn list(&mut self, query: &PlanQuery) -> Result<Vec<PlanView>, PlanError> {
-        self.listing(query).await
+        self.reading().list(query).await
     }
 
     async fn show(&mut self, id_or_path: &str) -> Result<PlanText, PlanError> {
-        self.showing(id_or_path).await
+        self.reading().show(id_or_path).await
     }
 
     async fn check(&mut self) -> Result<CheckReport, PlanError> {
-        self.checking().await
+        self.checking().check().await
     }
 
     async fn import(&mut self, dry_run: bool) -> Result<ImportReport, PlanError> {
-        self.importing(dry_run).await
+        self.importing().import(dry_run).await
     }
 
     fn dead_letters(&mut self) -> Vec<DeadLetter> {
@@ -597,25 +245,22 @@ where
     }
 }
 
+/// Which plans govern a task reads the plan list alone: the store each
+/// task's project is in, under the plans' registry.
 impl<I, S, F, T, M, C, D> Governing for PlanService<I, S, F, T, M, C, D>
 where
-    I: ProjectIdentity,
     S: TaskStores,
-    F: PlanFiles,
-    T: Tasks,
-    M: Mint,
-    C: Clock + CommandIds,
-    D: Delay + Jitter + Send,
 {
     async fn governing(
         &mut self,
         tasks: &[(Project, String)],
     ) -> Result<Vec<Vec<String>>, PlanError> {
+        let projects = &mut self.parts().tree.writes.projects;
         let mut by_project: BTreeMap<String, PlanList> = BTreeMap::new();
         let mut governing = Vec::new();
         for (project, harp_id) in tasks {
             if !by_project.contains_key(&project.id) {
-                let list = self.plan_list(project).await?;
+                let list = projects.plan_list(project).await?;
                 by_project.insert(project.id.clone(), list);
             }
             let plans = by_project[&project.id]

@@ -26,10 +26,63 @@ use ports::{
 use tasks_application::RETIRED_TAG;
 
 use crate::rules::{locate, title_of, Located};
-use crate::{
-    content_hash, default_path, plan_name, ImportReport, ImportedPlan, LeftTag, PlanError,
-    PlanService, PLANS_DIR, PLAN_SUFFIX,
-};
+use crate::tree::Tree;
+use crate::{content_hash, default_path, plan_name, PlanError, PLANS_DIR, PLAN_SUFFIX};
+
+/// One `ctxloom:plan` value `plan import` registered (or found already
+/// registered) and the tasks it now governs.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ImportedPlan {
+    pub harp_id: String,
+    /// The path the plan records: the value's, made work-root-relative, or
+    /// for a plan outside the work root its copy's under [`PLANS_DIR`].
+    pub path: String,
+    /// The value named a file outside the work root, copied in (the
+    /// original is left as it was).
+    pub external: bool,
+    /// Added by this import (false: a plan already recording the path).
+    pub new: bool,
+    /// Every task the plan governs after the import, by harp id.
+    pub governs: Vec<String>,
+}
+
+/// A `ctxloom:plan` value `plan import` left as it was, and the tasks
+/// carrying it (their tag kept, so nothing is lost).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct LeftTag {
+    pub value: String,
+    pub tasks: Vec<String>,
+}
+
+/// `plan import`'s report.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct ImportReport {
+    pub plans: Vec<ImportedPlan>,
+    /// Values naming no readable file.
+    pub dead: Vec<LeftTag>,
+    /// Values naming a file that is not a `.plan.md`.
+    pub not_plans: Vec<LeftTag>,
+    /// (task, value): the tags removed, each now a governs link.
+    pub retired: Vec<(String, String)>,
+}
+
+impl ImportReport {
+    /// Whether a value was left behind (dead, or not a plan): `plan
+    /// import` exits 1, so a script sees what was left.
+    pub fn left_any(&self) -> bool {
+        !self.dead.is_empty() || !self.not_plans.is_empty()
+    }
+}
+
+/// An import over the ports it needs: the project, the kernel and the work
+/// tree ([`Tree`]), the tasks whose tags it reads and retires, and the
+/// mint a new plan's id is drawn from. Borrowed from the service for one
+/// call.
+pub(crate) struct Importing<'s, I, S, F, T, M, C, D> {
+    pub tree: Tree<'s, I, S, F, C, D>,
+    pub tasks: &'s mut T,
+    pub mint: &'s M,
+}
 
 /// The values naming one readable plan file, and its text.
 struct Group {
@@ -59,7 +112,7 @@ fn left(left: Left) -> Vec<LeftTag> {
         .collect()
 }
 
-impl<I, S, F, T, M, C, D> PlanService<I, S, F, T, M, C, D>
+impl<I, S, F, T, M, C, D> Importing<'_, I, S, F, T, M, C, D>
 where
     I: ProjectIdentity,
     S: TaskStores,
@@ -69,8 +122,8 @@ where
     C: Clock + CommandIds,
     D: Delay + Jitter + Send,
 {
-    pub(crate) async fn importing(&mut self, dry_run: bool) -> Result<ImportReport, PlanError> {
-        let root = self.work_root()?;
+    pub(crate) async fn import(&mut self, dry_run: bool) -> Result<ImportReport, PlanError> {
+        let root = self.tree.work_root()?;
         let tagged = self
             .tasks
             .tagged(RETIRED_TAG)
@@ -81,12 +134,13 @@ where
             dead,
             not_plans,
         } = self.sorted(&root, tagged);
+        let projects = &mut self.tree.writes.projects;
         let project = match dry_run {
-            true => self.for_read().await?,
-            false => Some(self.for_write()?),
+            true => projects.for_read().await?,
+            false => Some(projects.for_write()?),
         };
         let list = match &project {
-            Some(project) => self.plan_list(project).await?,
+            Some(project) => projects.plan_list(project).await?,
             None => PlanList::new(),
         };
         let mut report = ImportReport {
@@ -114,7 +168,7 @@ where
                 Located::Inside(path) => (false, path),
                 Located::Outside(path) => (true, path),
             };
-            let Some(text) = self.files.read(&path) else {
+            let Some(text) = self.tree.files.read(&path) else {
                 sorted.dead.entry(value).or_default().insert(task);
                 continue;
             };
@@ -167,7 +221,10 @@ where
             None => {
                 // A dry run's ids are not reserved: a run mints its own.
                 let harp_id = match project {
-                    Some(project) => self.fresh_id(project).await?,
+                    Some(project) => {
+                        let projects = &mut self.tree.writes.projects;
+                        projects.fresh_id(self.mint, project).await?
+                    }
                     None => self.mint.mint(),
                 };
                 let registered = match external {
@@ -192,7 +249,7 @@ where
             }
             for task in tasks.iter().filter(|task| !governs.contains(*task)) {
                 let govern = PlanCommand::Govern(task.clone());
-                match self.commit(project, &harp_id, govern).await {
+                match self.tree.writes.commit(project, &harp_id, govern).await {
                     Ok(()) | Err(PlanError::Rejected(PlanRejection::AlreadyGoverns(_))) => {}
                     Err(error) => return Err(error),
                 }
@@ -225,6 +282,7 @@ where
     ) -> Result<(), PlanError> {
         if external
             && !self
+                .tree
                 .files
                 .create(&add.path, text)
                 .map_err(PlanError::Files)?
@@ -232,6 +290,7 @@ where
             return Err(PlanError::FileExists(add.path));
         }
         let harp_id = add.harp_id.clone();
-        self.commit(project, &harp_id, PlanCommand::Add(add)).await
+        let add = PlanCommand::Add(add);
+        self.tree.writes.commit(project, &harp_id, add).await
     }
 }

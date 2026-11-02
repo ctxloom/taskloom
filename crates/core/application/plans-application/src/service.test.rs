@@ -313,6 +313,35 @@ fn an_unlink_left_half_done_is_finished_by_unlinking_again() {
     );
 }
 
+// An unlink left half done the other way (its first write landed, so the
+// target is still marked by the plan that no longer supersedes it) is
+// finished by linking again: the plan's half is written, the target's,
+// already there, is not.
+#[test]
+fn a_link_over_an_unlink_left_half_done_writes_only_the_missing_half() {
+    let (files, tasks, mint) = (Files::default(), FakeTasks::default(), Counter::default());
+    let mut service = Service::new(&files, &tasks, &mint);
+    service.add(new("One")).unwrap();
+    service.add(new("Two")).unwrap();
+    service
+        .link("plan-2", Link::Supersedes("plan-1".into()))
+        .unwrap();
+    other_process(
+        service.0.borrow().stores.store.inner(),
+        "plan-2",
+        PlanCommand::Unsupersede("plan-1".into()),
+    );
+    let two = service
+        .link("plan-2", Link::Supersedes("plan-1".into()))
+        .unwrap();
+    assert_eq!(two.supersedes, ["plan-1"]);
+    let one = service.show("plan-1").unwrap().plan;
+    assert_eq!(
+        (one.status, one.superseded_by.as_str()),
+        (PlanStatus::Superseded, "plan-2")
+    );
+}
+
 #[test]
 fn unlink_governs_removes_the_link_and_a_missing_plan_is_named() {
     let tasks = FakeTasks::with(&[("task-a", &[])]);
