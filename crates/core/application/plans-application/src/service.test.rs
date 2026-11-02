@@ -496,3 +496,51 @@ fn a_failure_no_retry_mends_is_reported_not_given_up() {
         .unwrap_err();
     assert!(matches!(error, PlanError::Failed(_)), "{error:?}");
 }
+
+// `show`'s plans: each task's governing plans, in the order asked, read
+// from its own project's store; none for a task no plan governs, or in a
+// project with no store.
+#[test]
+fn the_plans_governing_each_task_are_answered_in_the_order_asked() {
+    use crate::Governing;
+    let tasks = FakeTasks::with(&[("done", &[]), ("to-do", &[])]);
+    let (files, mint) = (Files::default(), Counter::default());
+    let mut service = Service::new(&files, &tasks, &mint);
+    let governs = |ids: &[&str]| ids.iter().map(|id| id.to_string()).collect();
+    service
+        .add(NewPlan {
+            governs: governs(&["done"]),
+            ..new("One")
+        })
+        .unwrap();
+    service
+        .add(NewPlan {
+            governs: governs(&["done", "to-do"]),
+            ..new("Two")
+        })
+        .unwrap();
+    let here = crate::fakes::project();
+    let elsewhere = ports::Project {
+        id: "brisk-tall-oak".to_string(),
+        ..crate::fakes::project()
+    };
+    let real = service.0.get_mut();
+    real.stores.absent.insert(elsewhere.id.clone());
+    let asked = [
+        (here.clone(), "done".to_string()),
+        (here.clone(), "nope".to_string()),
+        (elsewhere, "done".to_string()),
+        (here, "to-do".to_string()),
+    ];
+    let governing = ready(real.governing(&asked)).unwrap();
+    let ids = |ids: &[&str]| -> Vec<String> { ids.iter().map(|id| id.to_string()).collect() };
+    assert_eq!(
+        governing,
+        [
+            ids(&["plan-1", "plan-2"]),
+            ids(&[]),
+            ids(&[]),
+            ids(&["plan-2"])
+        ]
+    );
+}

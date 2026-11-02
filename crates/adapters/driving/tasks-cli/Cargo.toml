@@ -13,6 +13,9 @@ clap.workspace = true
 presentation.workspace = true
 serde.workspace = true
 tasks-application.workspace = true
+# The plans governing each task `show` shows: the plans', which the tasks
+# use cases know nothing of.
+plans-application.workspace = true
 tasks-presentation.workspace = true
 
 [dev-dependencies]

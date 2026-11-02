@@ -12,9 +12,6 @@ angzarr-embedded.workspace = true
 angzarr-diagnostic.workspace = true
 # Each command run through the kernel, as every context runs one.
 kernel-runner.workspace = true
-# The plans governing a task `show` shows, from the plan list.
-plan-lists.workspace = true
-plans.workspace = true
 ports.workspace = true
 sha2.workspace = true
 tagma-core.workspace = true

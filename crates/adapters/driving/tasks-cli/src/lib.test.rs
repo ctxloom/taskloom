@@ -19,7 +19,7 @@ use tasks_application::{
 
 use presentation::Catalog;
 
-use super::{parse, run, run_import, Command, Context, Globals, ImportGroup};
+use super::{parse, run, run_import, Command, Context, Globals, ImportGroup, UseCases};
 
 mod shapes {
     use tasks_application::{Task, Timestamp};
@@ -93,6 +93,48 @@ struct Fake {
     permit_lists: usize,
     schema: Option<Result<SchemaSummary, AppError>>,
     schemas: usize,
+    /// The plans' answer to `governing` (none for every task when left
+    /// out), and every set of tasks it was asked about.
+    governing: Option<Result<Vec<Vec<String>>, plans_application::PlanError>>,
+    governed: Vec<Vec<(tasks_application::Project, String)>>,
+}
+
+/// The plans' half of `show`, over a [`Fake`]'s answer, which it takes,
+/// recording what it was asked into the fake's `governed`.
+struct FakePlans<'f> {
+    answer: Option<Result<Vec<Vec<String>>, plans_application::PlanError>>,
+    governed: &'f mut Vec<Vec<(tasks_application::Project, String)>>,
+}
+
+impl plans_application::Governing for FakePlans<'_> {
+    async fn governing(
+        &mut self,
+        tasks: &[(tasks_application::Project, String)],
+    ) -> Result<Vec<Vec<String>>, plans_application::PlanError> {
+        self.governed.push(tasks.to_vec());
+        self.answer
+            .take()
+            .unwrap_or_else(|| Ok(vec![Vec::new(); tasks.len()]))
+    }
+}
+
+/// `fake` as the use cases a command runs on: its tasks' half, and its
+/// plans' answer as their half.
+fn run_with<R>(fake: &mut Fake, call: impl FnOnce(UseCases<'_, Fake, FakePlans<'_>>) -> R) -> R {
+    let answer = fake.governing.take();
+    let mut governed = std::mem::take(&mut fake.governed);
+    let result = {
+        let mut plans = FakePlans {
+            answer,
+            governed: &mut governed,
+        };
+        call(UseCases {
+            tasks: fake,
+            plans: &mut plans,
+        })
+    };
+    fake.governed = governed;
+    result
 }
 
 impl TaskService for Fake {
@@ -292,7 +334,9 @@ fn run_in(context: &Context, fake: &mut Fake, args: &[&str]) -> Ran {
         let Line::Tasks(command) = line else {
             panic!("not a task command: {args:?}")
         };
-        ready(run(command, globals, context, catalog, fake, out, err))
+        run_with(fake, |use_cases| {
+            ready(run(command, globals, context, catalog, use_cases, out, err))
+        })
     })
 }
 
@@ -799,26 +843,25 @@ fn test_edit_needs_text_and_says_why_it_failed() {
 
 fn details(reach: Reach, tasks: Vec<Task>) -> Option<Result<Details, AppError>> {
     let listing = listing_in(reach, tasks);
-    let governing = vec![Vec::new(); listing.rows.len()];
     Some(Ok(Details {
         reach: listing.reach,
         rows: listing.rows,
         shown: listing.shown,
-        governing,
     }))
 }
 
 #[test]
 fn test_show_in_text_names_the_plans_governing_a_task() {
-    let mut details = details(
+    let details = details(
         Reach::Project(project()),
         vec![shapes::task("swift-amber", "To Do")],
     );
-    if let Some(Ok(details)) = details.as_mut() {
-        details.governing = vec![vec!["brisk-cedar".to_string(), "calm-heron".to_string()]];
-    }
     let mut fake = Fake {
         details,
+        governing: Some(Ok(vec![vec![
+            "brisk-cedar".to_string(),
+            "calm-heron".to_string(),
+        ]])),
         ..Fake::default()
     };
     let ran = run_on(&mut fake, true, &["show", "swift-amber"]);
@@ -828,6 +871,30 @@ fn test_show_in_text_names_the_plans_governing_a_task() {
         "{}",
         ran.out
     );
+    assert_eq!(
+        fake.governed,
+        [vec![(project(), "swift-amber".to_string())]],
+        "the plans asked about each task found, in its project"
+    );
+}
+
+// The plans' half failing fails `show`, under the plans' error.
+#[test]
+fn test_show_whose_plans_cannot_be_read_says_why() {
+    let mut fake = Fake {
+        details: details(
+            Reach::Project(project()),
+            vec![shapes::task("swift-amber", "To Do")],
+        ),
+        governing: Some(Err(plans_application::PlanError::Failed(
+            angzarr_diagnostic::Report::new("x-broken"),
+        ))),
+        ..Fake::default()
+    };
+    let ran = run_on(&mut fake, false, &["show", "swift-amber"]);
+    assert_eq!(ran.code, 1);
+    let envelope: serde_json::Value = serde_json::from_str(&ran.err).unwrap();
+    assert_eq!(envelope["code"], "x-broken", "{}", ran.err);
 }
 
 #[test]
@@ -1696,15 +1763,17 @@ fn test_output_that_cannot_be_written_fails_with_why() {
         };
         let mut err = Vec::new();
         let (command, globals) = parsed(args);
-        let code = ready(run(
-            command,
-            globals,
-            &context,
-            &catalog(),
-            &mut fake,
-            &mut Broken,
-            &mut err,
-        ));
+        let code = run_with(&mut fake, |use_cases| {
+            ready(run(
+                command,
+                globals,
+                &context,
+                &catalog(),
+                use_cases,
+                &mut Broken,
+                &mut err,
+            ))
+        });
         assert_eq!(code, 1);
         assert_eq!(
             String::from_utf8(err).unwrap().lines().last(),
@@ -1718,15 +1787,17 @@ fn test_output_that_cannot_be_written_fails_with_why() {
     };
     let mut err = Vec::new();
     let (command, globals) = parsed(&["taskloom", "--json", "list"]);
-    let code = ready(run(
-        command,
-        globals,
-        &context,
-        &catalog(),
-        &mut fake,
-        &mut Broken,
-        &mut err,
-    ));
+    let code = run_with(&mut fake, |use_cases| {
+        ready(run(
+            command,
+            globals,
+            &context,
+            &catalog(),
+            use_cases,
+            &mut Broken,
+            &mut err,
+        ))
+    });
     assert_eq!(code, 1);
     let envelope: serde_json::Value = serde_json::from_slice(&err).unwrap();
     assert_eq!(envelope["code"], "tasks-cli-output");

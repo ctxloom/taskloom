@@ -38,8 +38,8 @@ use ports::{
 use crate::rules::{joined, locate, new_plan_text, Located};
 use crate::{
     content_hash, default_path, frontmatter, plan_name, resolve_path, CheckReport, Finding,
-    ImportReport, Link, NewPlan, PlanError, PlanQuery, PlanStatus, PlanText, PlanView, Plans,
-    PLANS_DIR,
+    Governing, ImportReport, Link, NewPlan, PlanError, PlanQuery, PlanStatus, PlanText, PlanView,
+    Plans, PLANS_DIR,
 };
 
 /// How many plan ids an add mints before giving up, each refused because a
@@ -608,6 +608,38 @@ where
         let mut letters = std::mem::take(&mut self.dead_letters);
         letters.extend(self.tasks.dead_letters());
         letters
+    }
+}
+
+impl<I, S, F, T, M, C, D> Governing for PlanService<I, S, F, T, M, C, D>
+where
+    I: ProjectIdentity,
+    S: TaskStores,
+    F: PlanFiles,
+    T: Tasks,
+    M: Mint,
+    C: Clock + CommandIds,
+    D: Delay + Jitter + Send,
+{
+    async fn governing(
+        &mut self,
+        tasks: &[(Project, String)],
+    ) -> Result<Vec<Vec<String>>, PlanError> {
+        let mut by_project: BTreeMap<String, PlanList> = BTreeMap::new();
+        let mut governing = Vec::new();
+        for (project, harp_id) in tasks {
+            if !by_project.contains_key(&project.id) {
+                let list = self.plan_list(project).await?;
+                by_project.insert(project.id.clone(), list);
+            }
+            let plans = by_project[&project.id]
+                .governing(harp_id)
+                .into_iter()
+                .map(|plan| plan.harp_id.clone())
+                .collect();
+            governing.push(plans);
+        }
+        Ok(governing)
     }
 }
 

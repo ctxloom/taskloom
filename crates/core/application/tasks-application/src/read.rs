@@ -143,9 +143,6 @@ pub struct Details {
     pub rows: Vec<Row>,
     /// Which of their tags a person is shown.
     pub shown: Shown,
-    /// The plans governing each row's task, by harp id, in the rows' order
-    /// (the plan list of its project's store, read with the tasks).
-    pub governing: Vec<Vec<String>>,
 }
 
 /// How many tasks hold each status, over every task the read reached
@@ -480,44 +477,11 @@ where
         if !held.is_empty() {
             return Err(AppError::Ambiguous { held });
         }
-        let governing = self.governing(&rows).await?;
         Ok(Details {
             shown: scan.rules().shown(),
             reach: scan.reach,
             rows,
-            governing,
         })
-    }
-
-    /// The plans governing each of `rows`' tasks, by harp id: each
-    /// project's plan list caught up once, from the store its tasks are in.
-    async fn governing(&mut self, rows: &[Row]) -> Result<Vec<Vec<String>>, AppError> {
-        let mut by_project: BTreeMap<String, plan_lists::PlanList> = BTreeMap::new();
-        let mut governing = Vec::new();
-        for row in rows {
-            if !by_project.contains_key(&row.project.id) {
-                let store = self
-                    .stores
-                    .open_existing(&row.project)
-                    .await
-                    .map_err(failed)?;
-                let list = match store {
-                    Some(store) => {
-                        let listed = self.lists.plans(&row.project, store, Clone::clone);
-                        listed.await?
-                    }
-                    None => plan_lists::PlanList::new(),
-                };
-                by_project.insert(row.project.id.clone(), list);
-            }
-            let plans = by_project[&row.project.id]
-                .governing(&row.task.harp_id)
-                .into_iter()
-                .map(|plan| plan.harp_id.clone())
-                .collect();
-            governing.push(plans);
-        }
-        Ok(governing)
     }
 
     /// The listing `query` asks for.

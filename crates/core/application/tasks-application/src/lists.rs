@@ -1,8 +1,8 @@
-//! The read models a service keeps, one of each per project: the task
-//! list and the plan list, each a projector on angzarr-embedded's port,
-//! caught up from the project's store whenever it is read.
+//! The read model a service keeps, one per project: the task list, a
+//! projector on angzarr-embedded's port, caught up from the project's
+//! store whenever it is read.
 //!
-//! Each list's positions are held in memory, with the list: the first read
+//! A list's positions are held in memory, with the list: the first read
 //! of a project in a process folds every stream of its store from its
 //! start (the lists are not persisted, so there is nothing to resume
 //! from), and every later read in the same process only what was written
@@ -12,33 +12,16 @@
 
 use angzarr_diagnostic::Report;
 use angzarr_embedded::{CatchUp, ListPositions, ProjectorHandler, ReadStore, Registry, Store};
-use plan_lists::{PlanList, PlanLists};
 use std::collections::BTreeMap;
 use task_lists::{TaskList, TaskLists};
 
 use crate::error::AppError;
 use crate::Project;
 
-/// Each project's lists, by project id, as last caught up.
+/// Each project's task list, by project id, as last caught up.
+#[derive(Default)]
 pub(crate) struct Lists {
     tasks: BTreeMap<String, CatchUp<TaskLists>>,
-    plans: BTreeMap<String, CatchUp<PlanLists>>,
-    /// The plan domain, as the plan lists' catch-up reads its streams.
-    plan_registry: Registry,
-}
-
-impl Default for Lists {
-    fn default() -> Self {
-        let mut plan_registry = Registry::new();
-        plan_registry
-            .aggregate::<plans::PlanAggregate>(plans::PlanAggregate::default)
-            .expect("the plan domain alone is registered");
-        Lists {
-            tasks: BTreeMap::new(),
-            plans: BTreeMap::new(),
-            plan_registry,
-        }
-    }
 }
 
 impl Lists {
@@ -54,20 +37,6 @@ impl Lists {
         let held = self.tasks.entry(project.id.clone());
         let catch_up = held.or_insert_with(TaskList::catch_up);
         caught_up(catch_up, store, registry).await?;
-        Ok(read(&catch_up.projector().list()))
-    }
-
-    /// What `read` reads of `project`'s plan list, caught up from `store`
-    /// now.
-    pub(crate) async fn plans<S: ReadStore + Store + ListPositions, R>(
-        &mut self,
-        project: &Project,
-        store: &S,
-        read: impl FnOnce(&PlanList) -> R,
-    ) -> Result<R, AppError> {
-        let held = self.plans.entry(project.id.clone());
-        let catch_up = held.or_insert_with(PlanList::catch_up);
-        caught_up(catch_up, store, &self.plan_registry).await?;
         Ok(read(&catch_up.projector().list()))
     }
 }

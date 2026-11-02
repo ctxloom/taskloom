@@ -3,6 +3,7 @@
 use std::fmt;
 
 use angzarr_diagnostic::{Arg, Diagnostic};
+use plans_application::PlanError;
 use presentation::UnknownFormat;
 use tasks_application::AppError;
 
@@ -13,6 +14,9 @@ use crate::Notice;
 pub enum CliError {
     /// The use case failed: its error's diagnostic.
     App(AppError),
+    /// The plans' half of `show` (the plans governing each task) failed:
+    /// its error's diagnostic.
+    Plans(PlanError),
     /// The answer could not be written out.
     Output { detail: String },
     /// An import left something behind: projects it stopped in, and
@@ -48,6 +52,7 @@ impl Diagnostic for CliError {
     fn code(&self) -> &str {
         match self {
             CliError::App(error) => error.code(),
+            CliError::Plans(error) => error.code(),
             CliError::Output { .. } => "tasks-cli-output",
             CliError::Incomplete { .. } => "tasks-cli-import-incomplete",
             CliError::Usage { .. } => "tasks-cli-usage",
@@ -63,6 +68,7 @@ impl Diagnostic for CliError {
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             CliError::App(error) => error.args(),
+            CliError::Plans(error) => error.args(),
             CliError::Output { detail } | CliError::Usage { detail } => {
                 vec![("ext_err_txt", detail.as_str().into())]
             }

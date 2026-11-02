@@ -219,12 +219,19 @@ fn main() -> ExitCode {
     let group = match command {
         Command::Tasks(command) => {
             let mut service = taskloom.tasks();
+            // The plans name the plans governing each task `show` shows,
+            // in the project each was found in.
+            let mut plans = taskloom.plans(globals.project.clone());
+            let use_cases = tasks_cli::UseCases {
+                tasks: &mut service,
+                plans: &mut plans,
+            };
             return ExitCode::from(runtime.block_on(tasks_cli::run(
                 command,
                 globals,
                 &context,
                 &catalog,
-                &mut service,
+                use_cases,
                 &mut stdout.lock(),
                 &mut stderr.lock(),
             )));

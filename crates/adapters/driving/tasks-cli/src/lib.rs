@@ -27,6 +27,7 @@ use std::io::{self, Write};
 
 use angzarr_diagnostic::Diagnostic;
 use clap::{Args, Parser, Subcommand};
+use plans_application::Governing;
 use presentation::{Catalog, CatalogError, Format, Render, Source, UnknownFormat};
 use tasks_application::{
     dead_letter_line, DeadLetter, PermitService, PruneService, RuleWarning, SchemaService,
@@ -67,6 +68,7 @@ pub struct Context {
 pub fn catalog(adapters: &[Source]) -> Result<Catalog, CatalogError> {
     let mut sources = vec![EN_US];
     sources.extend(tasks_application::CATALOGS);
+    sources.extend(plans_application::CATALOGS);
     sources.extend_from_slice(adapters);
     Catalog::en_us(&sources)
 }
@@ -274,17 +276,33 @@ pub fn parse<P: Parser>(
     })
 }
 
-/// Run `command` under the global flags against `service`, writing to
+/// The use cases a task command runs on: the tasks', and the plans'
+/// query naming the plans governing each task `show` shows (the tasks know
+/// no plan).
+pub struct UseCases<'a, S, P> {
+    pub tasks: &'a mut S,
+    pub plans: &'a mut P,
+}
+
+/// Run `command` under the global flags against `use_cases`, writing to
 /// `out` and `err` with messages from `catalog`; the exit code.
-pub async fn run<S: TaskService + PruneService + PermitService + SchemaService>(
+pub async fn run<S, P>(
     command: Command,
     globals: Globals,
     context: &Context,
     catalog: &Catalog,
-    service: &mut S,
+    use_cases: UseCases<'_, S, P>,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> u8 {
+) -> u8
+where
+    S: TaskService + PruneService + PermitService + SchemaService,
+    P: Governing,
+{
+    let UseCases {
+        tasks: service,
+        plans,
+    } = use_cases;
     if let Command::Loadout = command {
         // Printed in its own format.
         let printed = companion::loadout(globals.json, globals.format, out);
@@ -304,7 +322,7 @@ pub async fn run<S: TaskService + PruneService + PermitService + SchemaService>(
         Command::Add(args) => commands::add(args, ctx, service, out, err).await,
         Command::Status(args) => commands::status(args, ctx, service, out, err).await,
         Command::Edit(args) => commands::edit(args, ctx, service, out, err).await,
-        Command::Show(args) => commands::show(args, ctx, service, out, err).await,
+        Command::Show(args) => commands::show(args, ctx, service, plans, out, err).await,
         Command::Lint(args) => commands::lint(args, ctx, service, out, err).await,
         Command::Summary(args) => commands::summary(args, ctx, service, out, err).await,
         Command::Statuses(args) => commands::statuses(args, ctx, service, out, err).await,

@@ -67,10 +67,12 @@ impl ProjectIdentity for FakeIdentity {
 /// write, forced. Its writes are recorded (`writes`).
 pub type Store = FaultyStore<MemoryStore>;
 
-/// The one store, whichever project is asked for.
+/// The one store, whichever project is asked for, but those `absent`
+/// names, which have none.
 #[derive(Default)]
 pub struct FakeStores {
     pub store: Store,
+    pub absent: std::collections::BTreeSet<String>,
 }
 
 impl TaskStores for FakeStores {
@@ -80,8 +82,8 @@ impl TaskStores for FakeStores {
         Ok(&self.store)
     }
 
-    async fn open_existing(&mut self, _: &Project) -> Result<Option<&Store>, StoreError> {
-        Ok(Some(&self.store))
+    async fn open_existing(&mut self, project: &Project) -> Result<Option<&Store>, StoreError> {
+        Ok((!self.absent.contains(&project.id)).then_some(&self.store))
     }
 }
 

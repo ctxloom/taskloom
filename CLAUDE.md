@@ -108,6 +108,16 @@ Dependencies point inward; a review refuses a change that breaks these:
 - A domain never depends on a read model (the write side reads no
   projection); a read model never depends on the application layer (a query
   issues no command).
+- Contexts depend one way, downstream on upstream. Plans are downstream of
+  the tasks (a plan's links name task ids; a task names no plan): the plans
+  crates may depend on the tasks' application crate (its published use
+  cases, which plans reach through their own `Tasks` port, `ProjectTasks`;
+  the retired task tag), and no tasks crate names a plan. A view joining
+  the two, such as `show`'s governing plans, is the driving adapter's,
+  composed from each context's own query (`TaskService::show`, then
+  plans-application's `Governing`). A policy could carry it once policies
+  emit facts (ruled, not yet built): today's policies stay within one
+  domain.
 - Entities are aggregates; anything listed is a projector's read model,
   never an aggregate. Nothing numbers across streams (ruling D7). A watch
   keeps no cursor (the owner's cut of D7, 2026-10-30): it holds only the

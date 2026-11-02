@@ -28,7 +28,7 @@ mod tasks;
 /// A dead letter, as the kernel answers it: angzarr-embedded's.
 pub use angzarr_embedded::{dead_letter_line, DeadLetter};
 pub use plans::{PlanRejection, PlanStatus};
-pub use ports::{Mint, PlanFiles, Tasks};
+pub use ports::{Mint, PlanFiles, Project, Tasks};
 
 /// A dead letter as the kernel answers one, from `component`, about the
 /// plan brisk-cedar's stream, its line `DEAD_LETTER <component>:
@@ -236,6 +236,21 @@ pub trait Plans {
     fn dead_letters(&mut self) -> Vec<DeadLetter> {
         Vec::new()
     }
+}
+
+/// The plans governing tasks, as a frontend showing a task names them
+/// (`taskloom show`). The tasks know no plan: plans are downstream of the
+/// tasks, whose ids their links name, so which plans govern a task is the
+/// plans' to answer, and the frontend puts the two together.
+pub trait Governing {
+    /// The plans governing each of `tasks` (the project a task is in, and
+    /// its harp id), by harp id, in `tasks`' order: each project's plan
+    /// list caught up once, from the store its tasks are in; none where
+    /// the project has no store.
+    fn governing(
+        &mut self,
+        tasks: &[(Project, String)],
+    ) -> impl Future<Output = Result<Vec<Vec<String>>, PlanError>>;
 }
 
 #[cfg(test)]

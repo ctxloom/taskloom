@@ -178,16 +178,19 @@ impl Render for Listed<'_> {
     }
 }
 
-/// The tasks `show` found: JSON one task with its project when one id was
-/// asked for, else an array of them (a group is a list, one value an
-/// object); text each task whole (the plans governing it among its
-/// headers), a blank line between, each headed by its project when read
-/// across projects.
-pub struct Detailed<'a>(pub &'a Details);
+/// The tasks `show` found, and the plans governing each (in the rows'
+/// order): JSON one task with its project when one id was asked for, else
+/// an array of them (a group is a list, one value an object); text each
+/// task whole (the plans governing it among its headers), a blank line
+/// between, each headed by its project when read across projects.
+pub struct Detailed<'a> {
+    pub details: &'a Details,
+    pub governing: &'a [Vec<String>],
+}
 
 impl Render for Detailed<'_> {
     fn json(&self) -> impl Serialize + '_ {
-        let rows = &self.0.rows;
+        let rows = &self.details.rows;
         match rows.as_slice() {
             [one] => OneOrMany::One(attributed(one)),
             _ => OneOrMany::Many(rows.iter().map(attributed).collect()),
@@ -195,16 +198,21 @@ impl Render for Detailed<'_> {
     }
 
     fn text(&self, out: &mut dyn Write) -> io::Result<()> {
-        let every = self.0.reach.is_every();
-        for (i, row) in self.0.rows.iter().enumerate() {
+        let every = self.details.reach.is_every();
+        for (i, row) in self.details.rows.iter().enumerate() {
             if i > 0 {
                 writeln!(out)?;
             }
             if every {
                 writeln!(out, "project: {}", project_label(&row.project))?;
             }
-            let plans = self.0.governing.get(i).map(Vec::as_slice);
-            detail(out, &row.task, plans.unwrap_or_default(), &self.0.shown)?;
+            let plans = self.governing.get(i).map(Vec::as_slice);
+            detail(
+                out,
+                &row.task,
+                plans.unwrap_or_default(),
+                &self.details.shown,
+            )?;
         }
         Ok(())
     }
