@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 angzarr_presentation::english_for!(&[crate::EN_US.1]);
 
-use angzarr_diagnostic::Report;
+use angzarr_diagnostic::{code, Diagnostic, Report};
 use tasks_application::{
     AppError, Details, Finding, Hidden, ImportReport, ImportRequest, ImportService, LintReport,
     ListQuery, Listing, NewTask, PermitChange, PermitList, PermitService, Permitted, PriorityNote,
@@ -721,7 +721,7 @@ fn test_status_needs_an_id_and_a_change_and_says_why_it_failed() {
 #[test]
 fn test_status_on_no_task_whose_status_is_a_task_says_the_harp_goes_first() {
     let mut fake = Fake {
-        written: Some(Err(AppError::Rejected(Report::new("tasks-no-task")))),
+        written: Some(Err(tasks_application::no_task_sample())),
         details: details(
             Reach::Project(project()),
             vec![shapes::task("swift-amber", "To Do")],
@@ -753,7 +753,7 @@ fn test_status_on_no_task_whose_status_is_a_task_says_the_harp_goes_first() {
 // change failed otherwise, its own error stands.
 #[test]
 fn test_status_keeps_its_own_error_unless_the_status_is_a_task() {
-    let no_task = || Some(Err(AppError::Rejected(Report::new("tasks-no-task"))));
+    let no_task = || Some(Err(tasks_application::no_task_sample()));
     let mut fake = Fake {
         written: no_task(),
         details: Some(Err(AppError::NotFound {
@@ -1316,10 +1316,15 @@ fn test_lint_says_each_violation_and_exits_1_for_any() {
         first["reason"],
         "area:x=c: not-in-enum (allowed=a, allowed=b)"
     );
-    assert_eq!(first["finding"]["code"], "tasks-application-lint-rule");
+    let rule = tasks_application::Finding::Rule {
+        rule: String::new(),
+        tags: String::new(),
+        args: String::new(),
+    };
+    assert_eq!(first["finding"]["code"], rule.code());
     assert_eq!(first["finding"]["args"]["rule"], "not-in-enum");
     let envelope: serde_json::Value = serde_json::from_str(&ran.err).unwrap();
-    assert_eq!(envelope["code"], "tasks-cli-lint-violations");
+    assert_eq!(envelope["code"], code!("lint-violations"));
 }
 
 #[test]
@@ -1800,7 +1805,7 @@ fn test_output_that_cannot_be_written_fails_with_why() {
     });
     assert_eq!(code, 1);
     let envelope: serde_json::Value = serde_json::from_slice(&err).unwrap();
-    assert_eq!(envelope["code"], "tasks-cli-output");
+    assert_eq!(envelope["code"], code!("output"));
     assert_eq!(envelope["message"], "cannot write the output: closed");
 }
 
@@ -1809,12 +1814,12 @@ fn test_output_that_cannot_be_written_fails_with_why() {
 #[test]
 fn test_a_text_error_is_its_catalog_message_not_its_english() {
     let mut fake = Fake {
-        written: Some(Err(AppError::Rejected(Report::new("tasks-text-required")))),
+        written: Some(Err(tasks_application::no_task_sample())),
         ..Fake::default()
     };
     let ran = run_on(&mut fake, true, &["add", "x"]);
     assert_eq!(ran.code, 1);
-    assert_eq!(ran.err, "taskloom: a task needs text\n");
+    assert_eq!(ran.err, "taskloom: there is no such task\n");
 }
 
 #[test]
@@ -1833,7 +1838,7 @@ fn test_a_json_error_is_an_envelope_on_stderr_with_its_cause_nested() {
     assert_eq!(
         envelope,
         serde_json::json!({
-            "code": "tasks-application-gave-up",
+            "code": AppError::GaveUp { attempts: 0, error: Report::new("") }.code(),
             "args": {
                 "attempts": 10,
                 "error": {
@@ -1863,7 +1868,7 @@ fn test_a_usage_error_in_json_is_an_envelope() {
         assert_eq!(ran.out, "", "{args:?}");
         let envelope: serde_json::Value =
             serde_json::from_str(&ran.err).unwrap_or_else(|e| panic!("{args:?}: {e}: {}", ran.err));
-        assert_eq!(envelope["code"], "tasks-cli-usage", "{args:?}");
+        assert_eq!(envelope["code"], code!("usage"), "{args:?}");
         assert_eq!(
             envelope["message"], envelope["args"]["ext_err_txt"],
             "{args:?}"
@@ -2319,8 +2324,9 @@ fn test_a_prune_where_there_is_no_project_says_so_on_stderr() {
 
 #[test]
 fn test_a_refused_prune_says_why_and_exits_1() {
-    let refusal = angzarr_diagnostic::Report::new("tasks-application-prune-age-unreadable")
-        .arg("age", "soon");
+    let refusal = Report::of(&tasks_application::PruneRefusal::AgeUnreadable {
+        age: "soon".to_string(),
+    });
     let mut fake = Fake {
         pruning: Some(Err(AppError::Prune(refusal))),
         ..Fake::default()
@@ -2379,7 +2385,10 @@ fn test_a_failed_writes_dead_letters_are_said_on_stderr_before_its_error() {
             true,
             "taskloom: there is no project here yet, so no task to change\n",
         ),
-        (false, "\"code\": \"tasks-application-no-project\""),
+        (
+            false,
+            &format!("\"code\": \"{}\"", AppError::NoProject.code()),
+        ),
     ] {
         let mut fake = Fake {
             written: Some(Err(failed.clone())),

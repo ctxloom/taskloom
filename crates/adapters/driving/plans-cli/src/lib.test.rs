@@ -2,6 +2,7 @@
 //! for, and what it writes, as text and as JSON, the VS Code fields
 //! included.
 
+use angzarr_diagnostic::Diagnostic;
 use angzarr_presentation::{Catalog, Format};
 use clap::Parser;
 use plans_application::{
@@ -488,7 +489,10 @@ fn a_refused_link_exits_1_with_the_reason_on_stderr_and_json_envelope() {
         &["plan", "link", "plan-1", "--governs", "ghost"],
     );
     let envelope: Value = serde_json::from_str(&ran.err).unwrap();
-    assert_eq!(envelope["code"], "plans-application-no-such-task");
+    assert_eq!(
+        envelope["code"],
+        plans_application::PlanError::NoSuchTask(String::new()).code()
+    );
 }
 
 // ---- check ----

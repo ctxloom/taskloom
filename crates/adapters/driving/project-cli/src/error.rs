@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 use project_application::ProjectError;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -26,8 +26,8 @@ impl Diagnostic for CliError {
     fn code(&self) -> &str {
         match self {
             CliError::Project(error) => error.code(),
-            CliError::Output { .. } => "project-cli-output",
-            CliError::ProjectNotTaken { .. } => "project-cli-project-not-taken",
+            CliError::Output { .. } => code!("output"),
+            CliError::ProjectNotTaken { .. } => code!("project-not-taken"),
         }
     }
 
@@ -43,8 +43,8 @@ impl Diagnostic for CliError {
 /// This crate's en-US messages, its name first: what an edge's catalog
 /// embeds to render its diagnostics.
 pub const EN_US: (&str, &str) = (
-    "project-cli",
-    include_str!("../locales/en-US/project-cli.ftl"),
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
 );
 
 /// One value of every error this crate defines (not the wrapper), for the

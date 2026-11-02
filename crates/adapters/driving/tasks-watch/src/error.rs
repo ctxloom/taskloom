@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 use tasks_application::AppError;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -29,8 +29,8 @@ impl Diagnostic for WatchError {
     fn code(&self) -> &str {
         match self {
             WatchError::App(error) => error.code(),
-            WatchError::NoProject => "tasks-watch-no-project",
-            WatchError::Output { .. } => "tasks-watch-output",
+            WatchError::NoProject => code!("no-project"),
+            WatchError::Output { .. } => code!("output"),
         }
     }
 
@@ -46,8 +46,8 @@ impl Diagnostic for WatchError {
 /// This crate's en-US messages, its name first: what an edge's catalog
 /// embeds to render its diagnostics.
 pub const EN_US: (&str, &str) = (
-    "tasks-watch",
-    include_str!("../locales/en-US/tasks-watch.ftl"),
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
 );
 
 /// One value of every error this crate defines (not the wrapper), for the

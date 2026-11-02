@@ -165,7 +165,7 @@ fn test_every_code_is_under_the_crates_name_with_its_message() {
 /// dead letters, and nothing else.
 #[test]
 fn test_no_task_is_the_domains_refusal_of_a_missing_task_and_nothing_else() {
-    let no_task = AppError::Rejected(Report::of(&tasks::TaskRejection::NoTask));
+    let no_task = crate::no_task_sample();
     assert!(no_task.is_no_task());
     let lettered = AppError::DeadLettered {
         error: Box::new(no_task),

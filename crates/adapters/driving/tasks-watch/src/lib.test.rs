@@ -10,7 +10,7 @@ use std::rc::Rc;
 use std::task::Poll;
 use std::time::{Duration, Instant};
 
-use angzarr_diagnostic::Report;
+use angzarr_diagnostic::{code, Diagnostic, Report};
 use angzarr_presentation::{Catalog, Format};
 use serde_json::Value;
 use tasks_application::{AppError, Project, Watch, WatchRequest, WatchService};
@@ -246,7 +246,7 @@ fn test_a_watch_where_there_is_no_project_says_so_and_writes_no_line() {
 
     let streamed = stream(&mut Scripted::default(), &settings(Format::Json), 3);
     let envelope: Value = serde_json::from_str(&streamed.err).expect("an envelope");
-    assert_eq!(envelope["code"], "tasks-watch-no-project");
+    assert_eq!(envelope["code"], code!("no-project"));
 }
 
 #[test]
@@ -276,7 +276,7 @@ fn test_a_watch_or_a_poll_that_fails_ends_the_stream_with_why() {
     assert_eq!(streamed.code, 1);
     assert!(streamed.lines.is_empty());
     let envelope: Value = serde_json::from_str(&streamed.err).unwrap();
-    assert_eq!(envelope["code"], "tasks-application-no-project");
+    assert_eq!(envelope["code"], AppError::NoProject.code());
 
     let mut service = Scripted::of(vec![true]);
     service.polls.push_back(Err(why));
@@ -315,7 +315,7 @@ fn test_a_stream_no_one_reads_ends_with_why() {
     ));
     assert_eq!(code, 1);
     let envelope: Value = serde_json::from_str(&String::from_utf8(err).unwrap()).unwrap();
-    assert_eq!(envelope["code"], "tasks-watch-output");
+    assert_eq!(envelope["code"], code!("output"));
     assert_eq!(service.polled, 0);
 }
 

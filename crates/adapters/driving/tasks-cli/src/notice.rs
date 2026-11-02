@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 use tasks_application::Project;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -56,14 +56,14 @@ impl fmt::Display for Notice {
 impl Diagnostic for Notice {
     fn code(&self) -> &str {
         match self {
-            Notice::Project { .. } => "tasks-cli-project",
-            Notice::UnrootedProject { .. } => "tasks-cli-unrooted-project",
-            Notice::NoProject => "tasks-cli-no-project",
-            Notice::EveryProject { .. } => "tasks-cli-every-project",
-            Notice::Hidden { .. } => "tasks-cli-hidden",
-            Notice::Omitted { .. } => "tasks-cli-omitted",
-            Notice::NothingToPrune => "tasks-cli-nothing-to-prune",
-            Notice::ReportOnly { .. } => "tasks-cli-report-only",
+            Notice::Project { .. } => code!("project"),
+            Notice::UnrootedProject { .. } => code!("unrooted-project"),
+            Notice::NoProject => code!("no-project"),
+            Notice::EveryProject { .. } => code!("every-project"),
+            Notice::Hidden { .. } => code!("hidden"),
+            Notice::Omitted { .. } => code!("omitted"),
+            Notice::NothingToPrune => code!("nothing-to-prune"),
+            Notice::ReportOnly { .. } => code!("report-only"),
         }
     }
 

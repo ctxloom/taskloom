@@ -4,7 +4,7 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use angzarr_diagnostic::Report;
+use angzarr_diagnostic::{code, Diagnostic, Report};
 use angzarr_presentation::{Catalog, Format};
 use clap::Parser;
 use project_application::{
@@ -355,7 +355,7 @@ fn test_in_json_a_refused_command_writes_its_envelope_on_stderr() {
     assert_eq!(
         envelope,
         json!({
-            "code": "project-application-unknown-project",
+            "code": project_application::ProjectError::UnknownProject { id: String::new() }.code(),
             "args": {"id": "tpyo"},
             "message": "no project tpyo is registered or has a database: nothing to repoint to",
         })
@@ -455,7 +455,7 @@ fn test_output_that_cannot_be_written_exits_1() {
             let err = String::from_utf8(err).unwrap();
             if json {
                 let envelope: Value = serde_json::from_str(&err).expect("an envelope");
-                assert_eq!(envelope["code"], "project-cli-output");
+                assert_eq!(envelope["code"], code!("output"));
                 assert_eq!(envelope["message"], "cannot write the output: broken pipe");
             } else {
                 assert_eq!(err, "p: cannot write the output: broken pipe\n");
@@ -507,7 +507,7 @@ fn test_project_is_refused_by_every_command_but_show() {
                 assert_eq!(
                     envelope,
                     json!({
-                        "code": "project-cli-project-not-taken",
+                        "code": code!("project-not-taken"),
                         "args": {"command": command},
                         "message": expected,
                     })

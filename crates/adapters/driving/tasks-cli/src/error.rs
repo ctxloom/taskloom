@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 use angzarr_presentation::UnknownFormat;
 use plans_application::PlanError;
 use tasks_application::AppError;
@@ -53,15 +53,15 @@ impl Diagnostic for CliError {
         match self {
             CliError::App(error) => error.code(),
             CliError::Plans(error) => error.code(),
-            CliError::Output { .. } => "tasks-cli-output",
-            CliError::Incomplete { .. } => "tasks-cli-import-incomplete",
-            CliError::Usage { .. } => "tasks-cli-usage",
+            CliError::Output { .. } => code!("output"),
+            CliError::Incomplete { .. } => code!("import-incomplete"),
+            CliError::Usage { .. } => code!("usage"),
             CliError::Format(error) => error.code(),
-            CliError::LoadoutFormat { .. } => "tasks-cli-loadout-format",
-            CliError::LintViolations { .. } => "tasks-cli-lint-violations",
-            CliError::LintCheckedNothing => "tasks-cli-lint-checked-nothing",
-            CliError::SchemaFindings { .. } => "tasks-cli-schema-findings",
-            CliError::StatusReversed { .. } => "tasks-cli-status-reversed",
+            CliError::LoadoutFormat { .. } => code!("loadout-format"),
+            CliError::LintViolations { .. } => code!("lint-violations"),
+            CliError::LintCheckedNothing => code!("lint-checked-nothing"),
+            CliError::SchemaFindings { .. } => code!("schema-findings"),
+            CliError::StatusReversed { .. } => code!("status-reversed"),
         }
     }
 
@@ -88,7 +88,10 @@ impl Diagnostic for CliError {
 
 /// This crate's en-US messages, its name first: what an edge's catalog
 /// embeds to render its diagnostics.
-pub const EN_US: (&str, &str) = ("tasks-cli", include_str!("../locales/en-US/tasks-cli.ftl"));
+pub const EN_US: (&str, &str) = (
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
+);
 
 /// One value of every error and notice this crate defines (not the
 /// wrapper), for the catalog test.

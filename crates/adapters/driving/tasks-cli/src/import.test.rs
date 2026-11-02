@@ -1,13 +1,21 @@
 //! The import report, as a person and as a program reads it.
 
-use angzarr_diagnostic::Report;
+use angzarr_diagnostic::{Diagnostic, Report};
 use serde_json::{json, Value};
-use tasks_application::{ImportReport, Lost, ProjectImport, Why};
+use tasks_application::{AppError, ImportReport, Lost, ProjectImport, Why};
 
 use super::{text, ImportJson};
 
 fn catalog() -> angzarr_presentation::Catalog {
     crate::catalog(&[]).expect("the catalog loads")
+}
+
+/// The domain's refusal of a record, as the import reports it.
+fn refused() -> Report {
+    let AppError::Rejected(report) = tasks_application::no_task_sample() else {
+        unreachable!("a refusal");
+    };
+    report
 }
 
 fn every_count() -> ProjectImport {
@@ -35,7 +43,7 @@ fn every_count() -> ProjectImport {
                 op: "status",
                 harp_id: "calm-otter".to_string(),
                 text: String::new(),
-                why: Why::Refused(Report::new("tasks-trigger-required")),
+                why: Why::Refused(refused()),
             },
         ],
     }
@@ -64,7 +72,7 @@ fn test_text_names_every_count_and_every_record_left_behind() {
          6 to no live task, as Go ignores them, 7 displaced adds Go's repair re-added, \
          2 not imported\n  \
          not imported: line 12, add swift-amber \"Ship it\": another task holds this harp in Go's log: run Go's `taskloom repair`, then import again\n  \
-         not imported: line 13, status calm-otter: a Deferred task needs a trigger: the condition that should revive it\n  \
+         not imported: line 13, status calm-otter: there is no such task\n  \
          stopped: x-bad\n"
     );
 }
@@ -125,7 +133,7 @@ fn test_json_carries_the_whole_report() {
                         "harp_id": "swift-amber",
                         "text": "Ship it\nwith notes",
                         "why": {
-                            "code": "tasks-application-import-displaced",
+                            "code": Why::Displaced.code(),
                             "args": {},
                             "message": "another task holds this harp in Go's log: run Go's `taskloom repair`, then import again"
                         }
@@ -135,7 +143,7 @@ fn test_json_carries_the_whole_report() {
                         "op": "status",
                         "harp_id": "calm-otter",
                         "text": "",
-                        "why": {"code": "tasks-trigger-required", "args": {}, "message": "a Deferred task needs a trigger: the condition that should revive it"}
+                        "why": {"code": refused().code(), "args": {}, "message": "there is no such task"}
                     }
                 ]
             }]

@@ -80,6 +80,16 @@ pub fn dead_letter_sample(component: &str) -> DeadLetter {
         },
     }
 }
+/// The domain's refusal of a command to no task, as a use case answers it
+/// ([`AppError::is_no_task`]): for a driving adapter's tests, which see no
+/// domain.
+#[cfg(any(test, feature = "test-support"))]
+pub fn no_task_sample() -> AppError {
+    AppError::Rejected(angzarr_diagnostic::Report::of(
+        &tasks::TaskRejection::NoTask,
+    ))
+}
+
 pub use add::{NewTask, KEYED_PROBES};
 pub use change::{StatusChange, TagChange, TextEdit};
 #[cfg(any(test, feature = "test-support"))]
@@ -92,7 +102,7 @@ pub use ports::Timestamp;
 pub use ports::{NamespacePermit, Project, TagPermits};
 pub use priority::{PriorityNote, PriorityWarning};
 pub use prune::{
-    Dangling, PruneRequest, PruneService, Pruned, Pruning, Via, DEFAULT_OLDER_THAN,
+    Dangling, PruneRefusal, PruneRequest, PruneService, Pruned, Pruning, Via, DEFAULT_OLDER_THAN,
     DEFAULT_PRUNE_STATUSES,
 };
 pub use read::{

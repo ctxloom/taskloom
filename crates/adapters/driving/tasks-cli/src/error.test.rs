@@ -1,6 +1,6 @@
 //! The errors' English, the wrapper's delegation, and the catalog.
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 use tasks_application::AppError;
 
 angzarr_presentation::english_for!(&[crate::EN_US.1]);
@@ -116,7 +116,7 @@ fn test_a_usage_error_is_clap_s_words() {
     let error = CliError::Usage {
         detail: "error: no\n".to_string(),
     };
-    assert_eq!(error.code(), "tasks-cli-usage");
+    assert!(matches!(error, CliError::Usage { .. }), "{error:?}");
     assert_eq!(error.english(), "error: no\n");
     assert!(matches!(&error.args()[..], [("ext_err_txt", Arg::Str(d))] if d == "error: no\n"));
 }
@@ -129,5 +129,17 @@ fn test_a_project_notice_names_its_root_and_id() {
     };
     assert_eq!(notice.english(), "project /w (a-b-c)");
     assert_eq!(arg_names(&notice), ["root", "id"]);
-    assert_eq!(crate::Notice::NoProject.code(), "tasks-cli-no-project");
+    assert_eq!(crate::Notice::NoProject.code(), code!("no-project"));
+}
+
+/// The catalog is exported under the crate's package name, and every code
+/// is under that name, with its message using exactly its args.
+#[test]
+fn test_every_code_is_under_the_crates_name_with_its_message() {
+    let (name, text) = crate::EN_US;
+    assert_eq!(name, env!("CARGO_PKG_NAME"));
+    assert_eq!(
+        angzarr_diagnostic::catalog::check(name, text, &crate::diagnostic_samples()),
+        []
+    );
 }

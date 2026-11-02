@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 use plans_application::PlanError;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -40,10 +40,10 @@ impl Diagnostic for CliError {
     fn code(&self) -> &str {
         match self {
             CliError::Plan(error) => error.code(),
-            CliError::Output { .. } => "plans-cli-output",
-            CliError::UnknownStatus { .. } => "plans-cli-unknown-status",
-            CliError::NoLink { .. } => "plans-cli-no-link",
-            CliError::FileMissing { .. } => "plans-cli-file-missing",
+            CliError::Output { .. } => code!("output"),
+            CliError::UnknownStatus { .. } => code!("unknown-status"),
+            CliError::NoLink { .. } => code!("no-link"),
+            CliError::FileMissing { .. } => code!("file-missing"),
         }
     }
 
@@ -63,7 +63,10 @@ impl Diagnostic for CliError {
 
 /// This crate's en-US messages, its name first: what an edge's catalog
 /// embeds to render its diagnostics.
-pub const EN_US: (&str, &str) = ("plans-cli", include_str!("../locales/en-US/plans-cli.ftl"));
+pub const EN_US: (&str, &str) = (
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
+);
 
 /// One value of every error this crate defines (not the wrapper), for the
 /// catalog test.
