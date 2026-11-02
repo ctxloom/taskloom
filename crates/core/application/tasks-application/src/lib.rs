@@ -302,7 +302,8 @@ pub fn registry() -> Registry {
     let mut registry = Registry::new();
     registry
         .aggregate::<TaskAggregate>(TaskAggregate::default)
-        .aggregate::<SchemaAggregate>(SchemaAggregate::default);
+        .and_then(|registry| registry.aggregate::<SchemaAggregate>(SchemaAggregate::default))
+        .expect("the task and schema domains, each once");
     registry
 }
 

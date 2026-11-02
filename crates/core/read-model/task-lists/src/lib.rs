@@ -56,6 +56,7 @@ impl TaskList {
     /// from its start, and each later one only what was written since.
     pub fn catch_up() -> CatchUp<TaskLists> {
         CatchUp::new(&[TASK_DOMAIN], TaskLists::default())
+            .expect("a task list reads the task domain")
     }
 
     /// The listed tasks, by harp id.

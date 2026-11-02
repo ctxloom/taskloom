@@ -50,7 +50,9 @@ pub const HARP_ATTEMPTS: u32 = 100;
 /// The registry the plans domain runs under: the plan aggregate.
 pub fn registry() -> Registry {
     let mut registry = Registry::new();
-    registry.aggregate::<PlanAggregate>(PlanAggregate::default);
+    registry
+        .aggregate::<PlanAggregate>(PlanAggregate::default)
+        .expect("the plan domain, once");
     registry
 }
 
@@ -262,7 +264,7 @@ where
         let failed =
             |error: &dyn angzarr_diagnostic::Diagnostic| PlanError::Failed(Report::of(error));
         let caught = catch_up
-            .step(store, &self.registry)
+            .step(store, self.registry.catalog())
             .await
             .map_err(|e| failed(&e))?;
         if let Some((_, error)) = caught.failures().first() {

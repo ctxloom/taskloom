@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use angzarr_diagnostic::Report;
 pub use angzarr_ports::angzarr_proto::v1::Uuid;
-use angzarr_ports::{ChangeToken, Purge, ReadStore, Store, StoreError, Watch};
+use angzarr_ports::{ChangeToken, ListPositions, Purge, ReadStore, Store, StoreError, Watch};
 /// An instant: prost's `Timestamp`, as every recorded event carries one.
 pub use prost_types::Timestamp;
 
@@ -76,9 +76,10 @@ pub trait ProjectIdentity {
 
 /// A project's store, opened where its project says.
 pub trait TaskStores {
-    /// A project's store: every base port, one-moment reads, a purge and a
-    /// change token.
-    type Store: Store + ReadStore + Purge + Watch + Send + Sync;
+    /// A project's store: every base port, one-moment reads, a purge, a
+    /// change token, and the positions it holds, listed (what a catch-up
+    /// reads when it starts).
+    type Store: Store + ReadStore + ListPositions + Purge + Watch + Send + Sync;
 
     /// The project's store, to write: opened (and created) on first use and
     /// held after.

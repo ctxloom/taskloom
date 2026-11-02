@@ -1510,7 +1510,7 @@ fn broken_policy() -> angzarr_embedded::angzarr_router::policy::PolicyDispatch {
 #[test]
 fn test_a_writes_dead_letters_are_the_kernels_answer_and_the_stores() {
     let mut service = service(&["swift-amber"]);
-    service.registry.policy_dispatch(broken_policy());
+    service.registry.policy_dispatch(broken_policy()).unwrap();
     let error = add(&mut service, new_task("Ship it")).unwrap_err();
     let letters = error.dead_letters();
     assert_eq!(letters.len(), 1, "{error:?}");

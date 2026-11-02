@@ -5,10 +5,11 @@
 //! catches up from the store, as every read of another process does.
 
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
+use angzarr_embedded::testing::FaultyStore;
 use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::{
-    ids, Any, CatchUp, EventStore, Kernel, OnRetryable, Payload, PositionKey, PositionStore, Purge,
-    ReadStore, ReadUnit, Registry, Sampled, Slice, SnapshotStore, StoreError, StreamRef, Timestamp,
+    ids, Any, CatchUp, EventStore, Kernel, OnRetryable, Payload, Purge, Registry, Sampled,
+    StreamRef, Timestamp,
 };
 use tasks::{AddTask, RemovalReason, RemoveTask, SetStatus, TaskAggregate, TaskCommand, TaskState};
 
@@ -33,7 +34,9 @@ struct Project {
 impl Project {
     fn new() -> Project {
         let mut registry = Registry::new();
-        registry.aggregate::<TaskAggregate>(TaskAggregate::default);
+        registry
+            .aggregate::<TaskAggregate>(TaskAggregate::default)
+            .unwrap();
         Project {
             store: MemoryStore::new(),
             registry,
@@ -78,7 +81,7 @@ impl Project {
 
     /// Catch `list` up from the store.
     fn catch_up(&self, list: &mut List) {
-        let caught = ready(list.step(&self.store, &self.registry)).unwrap();
+        let caught = ready(list.step(&self.store, self.registry.catalog())).unwrap();
         assert!(caught.failures().is_empty(), "{:?}", caught.failures());
     }
 
@@ -379,105 +382,18 @@ fn test_a_harp_minted_again_after_its_purge_is_no_longer_unpurged() {
     assert_eq!(harps(&list), [FIRST]);
 }
 
-/// A store whose every stream reads back empty: what a stream purged
-/// between a listing's `covers` and its read can look like.
-struct Hollow(MemoryStore);
-
-/// Hollow's read-only unit: the streams listed, each read empty.
-struct HollowRead<'s>(&'s MemoryStore);
-
-impl ReadStore for Hollow {
-    type Reads<'s> = HollowRead<'s>;
-
-    async fn begin_read(&self) -> Result<HollowRead<'_>, StoreError> {
-        Ok(HollowRead(&self.0))
-    }
-}
-
-impl ReadUnit for HollowRead<'_> {
-    async fn covers(&mut self, domain: &str) -> Result<Vec<Cover>, StoreError> {
-        EventStore::covers(self.0, domain).await
-    }
-
-    async fn read(
-        &mut self,
-        _: StreamRef<'_>,
-        _: u64,
-        _: Option<u64>,
-    ) -> Result<Slice, StoreError> {
-        Ok(Slice::default())
-    }
-
-    async fn read_snapshot(
-        &mut self,
-        _: StreamRef<'_>,
-    ) -> Result<Option<angzarr_embedded::v1::Snapshot>, StoreError> {
-        Ok(None)
-    }
-}
-
-impl EventStore for Hollow {
-    async fn write(
-        &self,
-        write: angzarr_embedded::Write<'_>,
-    ) -> Result<angzarr_embedded::Written, StoreError> {
-        self.0.write(write).await
-    }
-
-    async fn read(
-        &self,
-        stream: StreamRef<'_>,
-        from: u64,
-        to: Option<u64>,
-    ) -> Result<Slice, StoreError> {
-        self.0.read(stream, from, to).await
-    }
-
-    async fn find_command(
-        &self,
-        stream: StreamRef<'_>,
-        command_id: angzarr_embedded::angzarr_ports::Uuid,
-    ) -> Result<Vec<angzarr_embedded::v1::EventPage>, StoreError> {
-        self.0.find_command(stream, command_id).await
-    }
-
-    async fn covers(&self, domain: &str) -> Result<Vec<Cover>, StoreError> {
-        EventStore::covers(&self.0, domain).await
-    }
-}
-
-impl SnapshotStore for Hollow {
-    async fn read_snapshot(
-        &self,
-        stream: StreamRef<'_>,
-    ) -> Result<Option<angzarr_embedded::v1::Snapshot>, StoreError> {
-        SnapshotStore::read_snapshot(&self.0, stream).await
-    }
-
-    async fn write_snapshot(
-        &self,
-        stream: StreamRef<'_>,
-        snapshot: &angzarr_embedded::v1::Snapshot,
-    ) -> Result<(), StoreError> {
-        self.0.write_snapshot(stream, snapshot).await
-    }
-}
-
-impl PositionStore for Hollow {
-    async fn position(&self, key: PositionKey<'_>) -> Result<u64, StoreError> {
-        self.0.position(key).await
-    }
-}
-
 #[test]
 fn test_a_stream_that_replays_to_no_events_is_never_a_blank_task() {
     let mut project = Project::new();
     let mut live = every_task();
     project.run(&mut live, FIRST, add(FIRST, "First"));
-    let store = Hollow(std::mem::take(&mut project.store));
+    // Every stream read back empty: what a stream purged between a
+    // listing's `covers` and its read can look like.
+    let store = FaultyStore::new(std::mem::take(&mut project.store));
+    store.hollow(true);
 
     let mut list = every_task();
-    ready(list.step(&store, &project.registry)).unwrap();
+    ready(list.step(&store, project.registry.catalog())).unwrap();
     assert!(entries(&list).is_empty(), "{:?}", entries(&list));
     assert!(unpurged(&list).is_empty(), "no stream seen");
 }

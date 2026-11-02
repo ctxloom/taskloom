@@ -69,7 +69,9 @@ struct Task {
 impl Task {
     fn new() -> Task {
         let mut registry = Registry::new();
-        registry.aggregate::<TaskAggregate>(TaskAggregate::default);
+        registry
+            .aggregate::<TaskAggregate>(TaskAggregate::default)
+            .unwrap();
         Task {
             harness: Harness::new(registry, cover()).with_samples(Samples::starting_at(100)),
         }

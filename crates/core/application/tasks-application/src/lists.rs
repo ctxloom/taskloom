@@ -11,7 +11,7 @@
 //! and written again, is told by the catch-up.
 
 use angzarr_diagnostic::Report;
-use angzarr_embedded::{CatchUp, ProjectorHandler, ReadStore, Registry, Store};
+use angzarr_embedded::{CatchUp, ListPositions, ProjectorHandler, ReadStore, Registry, Store};
 use plan_lists::{PlanList, PlanLists};
 use std::collections::BTreeMap;
 use task_lists::{TaskList, TaskLists};
@@ -30,7 +30,9 @@ pub(crate) struct Lists {
 impl Default for Lists {
     fn default() -> Self {
         let mut plan_registry = Registry::new();
-        plan_registry.aggregate::<plans::PlanAggregate>(plans::PlanAggregate::default);
+        plan_registry
+            .aggregate::<plans::PlanAggregate>(plans::PlanAggregate::default)
+            .expect("the plan domain alone is registered");
         Lists {
             tasks: BTreeMap::new(),
             plans: BTreeMap::new(),
@@ -42,7 +44,7 @@ impl Default for Lists {
 impl Lists {
     /// What `read` reads of `project`'s task list, caught up from `store`
     /// (its store, under `registry`, the tasks domain's) now.
-    pub(crate) async fn tasks<S: ReadStore + Store, R>(
+    pub(crate) async fn tasks<S: ReadStore + Store + ListPositions, R>(
         &mut self,
         project: &Project,
         store: &S,
@@ -57,7 +59,7 @@ impl Lists {
 
     /// What `read` reads of `project`'s plan list, caught up from `store`
     /// now.
-    pub(crate) async fn plans<S: ReadStore + Store, R>(
+    pub(crate) async fn plans<S: ReadStore + Store + ListPositions, R>(
         &mut self,
         project: &Project,
         store: &S,
@@ -73,14 +75,14 @@ impl Lists {
 /// One step of `catch_up` over `store`: every stream handed what it is
 /// owed, or the first stream that failed as the read's failure (held, so
 /// the next read hands it again).
-async fn caught_up<P: ProjectorHandler, S: ReadStore + Store>(
+async fn caught_up<P: ProjectorHandler, S: ReadStore + Store + ListPositions>(
     catch_up: &mut CatchUp<P>,
     store: &S,
     registry: &Registry,
 ) -> Result<(), AppError> {
     let failed = |error: &dyn angzarr_diagnostic::Diagnostic| AppError::Failed(Report::of(error));
     let caught = catch_up
-        .step(store, registry)
+        .step(store, registry.catalog())
         .await
         .map_err(|e| failed(&e))?;
     match caught.failures().first() {

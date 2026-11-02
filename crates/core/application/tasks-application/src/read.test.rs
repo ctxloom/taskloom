@@ -644,7 +644,9 @@ fn plan_does(
     use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
     use angzarr_embedded::{ids, Kernel, Payload, Registry, Sampled};
     let mut registry = Registry::new();
-    registry.aggregate::<plans::PlanAggregate>(plans::PlanAggregate::default);
+    registry
+        .aggregate::<plans::PlanAggregate>(plans::PlanAggregate::default)
+        .unwrap();
     let book = CommandBook {
         cover: Some(Cover {
             domain: plans::PLAN_DOMAIN.to_string(),

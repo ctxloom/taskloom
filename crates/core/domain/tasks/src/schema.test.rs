@@ -203,7 +203,9 @@ mod on_the_kernel {
     impl Schema {
         fn new() -> Schema {
             let mut registry = Registry::new();
-            registry.aggregate::<SchemaAggregate>(SchemaAggregate::default);
+            registry
+                .aggregate::<SchemaAggregate>(SchemaAggregate::default)
+                .unwrap();
             Schema {
                 store: MemoryStore::new(),
                 registry,

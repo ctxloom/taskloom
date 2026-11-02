@@ -41,7 +41,9 @@ impl Plans {
     fn stream(&mut self, harp: &str) -> &mut Harness<PlanAggregate> {
         self.streams.entry(harp.to_string()).or_insert_with(|| {
             let mut registry = Registry::new();
-            registry.aggregate::<PlanAggregate>(PlanAggregate::default);
+            registry
+                .aggregate::<PlanAggregate>(PlanAggregate::default)
+                .unwrap();
             Harness::new(registry, cover(harp)).with_samples(Samples::starting_at(100))
         })
     }

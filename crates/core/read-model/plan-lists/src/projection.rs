@@ -16,6 +16,7 @@ impl PlanList {
     /// from its start, and each later one only what was written since.
     pub fn catch_up() -> CatchUp<PlanLists> {
         CatchUp::new(&[PLAN_DOMAIN], PlanLists::default())
+            .expect("a plan list reads the plan domain")
     }
 
     /// Fold `book`, one plan stream's events after the last projected of

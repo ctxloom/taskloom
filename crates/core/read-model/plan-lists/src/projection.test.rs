@@ -30,7 +30,9 @@ struct Project {
 impl Project {
     fn new() -> Project {
         let mut registry = Registry::new();
-        registry.aggregate::<PlanAggregate>(PlanAggregate::default);
+        registry
+            .aggregate::<PlanAggregate>(PlanAggregate::default)
+            .unwrap();
         Project {
             store: MemoryStore::new(),
             registry,
@@ -66,7 +68,7 @@ impl Project {
 
     /// Catch `list` up: the streams it handed a book.
     fn catch_up(&self, list: &mut List) -> usize {
-        let caught = ready(list.step(&self.store, &self.registry)).unwrap();
+        let caught = ready(list.step(&self.store, self.registry.catalog())).unwrap();
         assert!(caught.failures().is_empty(), "{:?}", caught.failures());
         caught.handed().len()
     }
