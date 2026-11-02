@@ -68,6 +68,50 @@ fn text(value: &Value) -> &str {
     value.as_str().unwrap_or_else(|| panic!("{value} is text"))
 }
 
+// `show` names the plans governing each task it shows, read in the
+// task's own project's store, across projects too; a task no plan governs
+// has no plans line.
+#[test]
+fn show_names_the_plans_governing_each_task_and_none_for_a_task_ungoverned() {
+    let world = World::new();
+    let governed = world.json(&["add", "Move plans into taskloom"]);
+    let governed = text(&governed["harp_id"]).to_string();
+    let free = world.json(&["add", "Tidy the docs"]);
+    let free = text(&free["harp_id"]).to_string();
+    let first = world.json(&["plan", "add", "--title", "Plans", "--governs", &governed]);
+    let first = text(&first["id"]).to_string();
+    let second = world.json(&["plan", "add", "--title", "More", "--governs", &governed]);
+    let second = text(&second["id"]).to_string();
+    let mut both = [first, second];
+    both.sort();
+    let line = format!("\n    plans: {}\n", both.join(", "));
+    for global in [false, true] {
+        let mut args = vec!["show", governed.as_str(), free.as_str(), "--format", "text"];
+        if global {
+            args.push("--global");
+        }
+        let shown = world.run(&args);
+        assert!(shown.ok, "{}", shown.stderr);
+        assert_eq!(
+            shown.stdout.matches("    plans: ").count(),
+            1,
+            "only the governed task's: {}",
+            shown.stdout
+        );
+        assert!(shown.stdout.contains(&line), "{}", shown.stdout);
+        let (governed_at, free_at) = (
+            shown.stdout.find(&governed).unwrap(),
+            shown.stdout.find(&free).unwrap(),
+        );
+        let plans_at = shown.stdout.find("    plans: ").unwrap();
+        assert!(
+            governed_at < plans_at && plans_at < free_at,
+            "the line is the governed task's: {}",
+            shown.stdout
+        );
+    }
+}
+
 #[test]
 fn a_plan_added_is_written_listed_shown_linked_and_tracked() {
     let world = World::new();
