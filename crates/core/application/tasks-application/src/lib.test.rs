@@ -290,7 +290,7 @@ fn test_an_add_leaving_out_status_trigger_and_session_is_to_do_with_none() {
 fn test_an_add_retries_its_one_command_id_through_store_failures() {
     let mut service = service(&["swift-amber"]);
     // The store's schema seeded first, so the faults fall on the add.
-    ready(service.seeded(&project())).unwrap();
+    ready(service.writes().seeded(&project())).unwrap();
     service
         .stores
         .store

@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use task_lists::{TaskList, TaskLists};
 
 use crate::error::AppError;
-use crate::Project;
+use crate::{Project, Row, Task};
 
 /// Each project's task list, by project id, as last caught up.
 #[derive(Default)]
@@ -39,6 +39,36 @@ impl Lists {
         caught_up(catch_up, store, registry).await?;
         Ok(read(&catch_up.projector().list()))
     }
+
+    /// The live tasks of `project`'s task list, caught up from `store`
+    /// now, in the order they were added.
+    pub(crate) async fn rows<S: ReadStore + Store + ListPositions>(
+        &mut self,
+        project: &Project,
+        store: &S,
+        registry: &Registry,
+    ) -> Result<Vec<Row>, AppError> {
+        self.tasks(project, store, registry, |list| rows_in(list, project))
+            .await
+    }
+}
+
+/// The live tasks of `project`'s `list` in the order they were added.
+fn rows_in(list: &task_lists::TaskList, project: &Project) -> Vec<Row> {
+    let mut tasks: Vec<Task> = list.entries().into_iter().map(Task::of).collect();
+    tasks.sort_by(|a, b| {
+        let added = |t: &Task| (t.created_at.seconds, t.created_at.nanos);
+        added(a)
+            .cmp(&added(b))
+            .then_with(|| a.harp_id.cmp(&b.harp_id))
+    });
+    tasks
+        .into_iter()
+        .map(|task| Row {
+            project: project.clone(),
+            task,
+        })
+        .collect()
 }
 
 /// One step of `catch_up` over `store`: every stream handed what it is

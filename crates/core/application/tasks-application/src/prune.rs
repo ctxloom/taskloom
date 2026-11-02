@@ -37,10 +37,11 @@ use tasks::{
     STATUS_CLASS_SIGIL,
 };
 
-use crate::error::carrying;
-use crate::{
-    failed, given, query, rejected, task_cover, AppError, Project, Service, Shown, Task, DONE,
-};
+use crate::lists::Lists;
+use crate::request::given;
+use crate::task::task_cover;
+use crate::write::Writes;
+use crate::{failed, query, rejected, AppError, Project, Shown, Task, DONE};
 use kernel_runner::{Refusal, Runner};
 
 /// The age a prune takes by default: `--older-than 7d`.
@@ -197,37 +198,31 @@ pub trait PruneService {
     ) -> impl Future<Output = Result<Pruning, AppError>> + Send;
 }
 
-impl<I, S, N, C, D, G> PruneService for Service<I, S, N, C, D, G>
-where
-    I: ProjectIdentity + Send,
-    S: TaskStores + Send,
-    N: Send,
-    C: Clock + CommandIds + Send,
-    D: Delay + Jitter + Send,
-    G: Configuration + Send,
-{
-    async fn prune(&mut self, request: PruneRequest) -> Result<Pruning, AppError> {
-        let pruning = self.pruning(request).await;
-        carrying(pruning, &mut self.dead_letters)
-    }
+/// The prune over the ports it needs: its project and the kernel
+/// ([`Writes`]), and the task lists kept caught up across the service's
+/// reads. Borrowed from the service for one call.
+pub(crate) struct Pruner<'s, I, S, G, C, D> {
+    pub writes: Writes<'s, I, S, G, C, D>,
+    pub lists: &'s mut Lists,
 }
 
-/// The prune, its failure carrying the dead letters written while it ran
-/// ([`PruneService`] wraps them).
-impl<I, S, N, C, D, G> Service<I, S, N, C, D, G>
+impl<I, S, G, C, D> Pruner<'_, I, S, G, C, D>
 where
     I: ProjectIdentity,
     S: TaskStores,
+    G: Configuration,
     C: Clock + CommandIds,
     D: Delay + Jitter + Send,
-    G: Configuration,
 {
-    async fn pruning(&mut self, request: PruneRequest) -> Result<Pruning, AppError> {
+    /// The prune `request` asks for; its failure carries the dead letters
+    /// written while it ran ([`PruneService`] wraps them).
+    pub(crate) async fn prune(&mut self, request: PruneRequest) -> Result<Pruning, AppError> {
         let tag_query = given(request.tag_query.as_deref(), "tag_query")?;
         query::check(tag_query).map_err(|e| AppError::TagQuery(Report::of(&e)))?;
-        self.refuse_moved()?;
+        self.writes.projects.refuse_moved()?;
         let statuses = statuses(&request.statuses)?;
-        let before = cut(&request.older_than, self.clock.now()).map_err(|e| refused(&e))?;
+        let now = self.writes.runner.clock.now();
+        let before = cut(&request.older_than, now).map_err(|e| refused(&e))?;
         let mut pruning = Pruning {
             project: None,
             statuses,
@@ -244,15 +239,13 @@ where
         // A prune resolves its project as a read does: where there is none,
         // or no store yet, there is nothing to prune, and nothing is minted
         // or created to say so.
-        let Some(project) = self
-            .identity
-            .for_read(request.project.as_deref())
-            .map_err(AppError::Identity)?
-        else {
+        let projects = &mut self.writes.projects;
+        let found = projects.identity.for_read(request.project.as_deref());
+        let Some(project) = found.map_err(AppError::Identity)? else {
             return Ok(pruning);
         };
         pruning.project = Some(project.clone());
-        if self
+        if projects
             .stores
             .open_existing(&project)
             .await
@@ -261,21 +254,20 @@ where
         {
             return Ok(pruning);
         }
-        let rules = self.rules_of(&project).await?;
+        let rules = projects.rules_of(&project).await?;
         pruning.shown = rules.shown();
         let store = if request.apply {
-            self.stores.open(&project).await.map_err(failed)?
+            projects.stores.open(&project).await.map_err(failed)?
         } else {
-            self.stores
+            projects
+                .stores
                 .open_existing(&project)
                 .await
                 .map_err(failed)?
                 .ok_or(AppError::NoProject)?
         };
-
-        let listed = self
-            .lists
-            .tasks(&project, store, &self.registry, live_tasks);
+        let registry = projects.registry;
+        let listed = self.lists.tasks(&project, store, registry, live_tasks);
         let (tasks, unpurged) = listed.await?;
         let selection = Selection {
             statuses: &pruning.statuses,
@@ -283,18 +275,9 @@ where
             tag_query,
             rules: &rules,
         };
-        let selected = selection.select(&tasks, &unpurged)?;
-
-        let mut runner = Runner {
-            registry: &self.registry,
-            clock: &mut self.clock,
-            delay: &mut self.delay,
-            retry: self.retry,
-            dead_letters: &mut self.dead_letters,
-        };
-        for task in selected {
-            let Some(events) = take(&mut runner, store, task, &selection, request.apply).await?
-            else {
+        let runner = &mut self.writes.runner;
+        for task in selection.select(&tasks, &unpurged)? {
+            let Some(events) = take(runner, store, task, &selection, request.apply).await? else {
                 continue;
             };
             pruning.events_removed += events;
@@ -303,8 +286,17 @@ where
                 status_set_at: task.status_set_at,
             });
         }
+        pruning.left(&tasks);
+        pruning.dead_letters = std::mem::take(runner.dead_letters);
+        Ok(pruning)
+    }
+}
 
-        let gone: BTreeSet<&str> = pruning
+impl Pruning {
+    /// What the prune left of `tasks` (every live task it read): how many,
+    /// and every place one names a task it took.
+    fn left(&mut self, tasks: &[TaskState]) {
+        let gone: BTreeSet<&str> = self
             .pruned
             .iter()
             .map(|p| p.task.harp_id.as_str())
@@ -313,10 +305,8 @@ where
             .iter()
             .filter(|t| !gone.contains(t.harp_id.as_str()))
             .collect();
-        pruning.tasks_remaining = survivors.len();
-        pruning.dangling = dangling(&survivors, &gone);
-        pruning.dead_letters = std::mem::take(&mut self.dead_letters);
-        Ok(pruning)
+        self.tasks_remaining = survivors.len();
+        self.dangling = dangling(&survivors, &gone);
     }
 }
 

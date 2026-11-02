@@ -22,9 +22,11 @@ use std::future::Future;
 use ports::{Clock, CommandIds, Configuration, ConfigurationWriter, ProjectIdentity, TaskStores};
 use tasks::schema::Declare;
 
+use crate::lists::Lists;
 use crate::rules::{closing, permit_tag, StoreRules};
-use crate::schema::Declared;
-use crate::{tags, AppError, Declaration, Service, Tag};
+use crate::schema::{self, Declared};
+use crate::write::Writes;
+use crate::{tags, AppError, Declaration, Tag};
 
 /// A permit to grant or revoke, spelled as above. It is the work root's
 /// project's: the store written is the work root's, so there is no
@@ -95,25 +97,41 @@ pub trait PermitService {
     fn import_config(&mut self) -> impl Future<Output = Result<Declared, AppError>> + Send;
 }
 
-impl<I, S, N, C, D, G> PermitService for Service<I, S, N, C, D, G>
+/// Granting and revoking permits, and every other change to the store's
+/// rules, over the ports they need: its project and the kernel
+/// ([`Writes`]; the configuration writable, for `schema import-config`),
+/// and the task lists kept caught up across the service's reads (a revoke
+/// reads what the tasks carry). Borrowed from the service for one call.
+pub(crate) struct Permitting<'s, I, S, G, C, D> {
+    pub writes: Writes<'s, I, S, G, C, D>,
+    pub lists: &'s mut Lists,
+}
+
+impl<I, S, G, C, D> Permitting<'_, I, S, G, C, D>
 where
-    I: ProjectIdentity + Send,
-    S: TaskStores + Send,
-    N: Send,
-    C: Clock + CommandIds + Send,
+    I: ProjectIdentity,
+    S: TaskStores,
+    G: Configuration + ConfigurationWriter,
+    C: Clock + CommandIds,
     D: ports::Delay + ports::Jitter + Send,
-    G: Configuration + ConfigurationWriter + Send,
 {
-    async fn permit(&mut self, change: PermitChange) -> Result<Permitted, AppError> {
+    /// [`PermitService::permit`].
+    pub(crate) async fn permit(&mut self, change: PermitChange) -> Result<Permitted, AppError> {
         let permit = Permit::parse(&change.permit)?;
-        self.refuse_moved()?;
-        let project = self.identity.for_write(None).map_err(AppError::Identity)?;
-        let rules = self.seeded(&project).await?;
+        self.writes.projects.refuse_moved()?;
+        let project = self
+            .writes
+            .projects
+            .identity
+            .for_write(None)
+            .map_err(AppError::Identity)?;
+        let rules = self.writes.seeded(&project).await?;
         let mut add = vec![permit.tag()];
         if !rules.closed() {
             add.extend(first_permits(&rules));
         }
         let declared = self
+            .writes
             .declaring(
                 &project,
                 Declare {
@@ -128,16 +146,18 @@ where
         })
     }
 
-    async fn revoke(&mut self, change: PermitChange) -> Result<Permitted, AppError> {
+    /// [`PermitService::revoke`].
+    pub(crate) async fn revoke(&mut self, change: PermitChange) -> Result<Permitted, AppError> {
         let permit = Permit::parse(&change.permit)?;
-        self.refuse_moved()?;
+        self.writes.projects.refuse_moved()?;
         let not_declared = || AppError::PermitNotDeclared {
             permit: permit.to_string(),
         };
-        let Some(project) = self.identity.for_read(None).map_err(AppError::Identity)? else {
+        let found = self.writes.projects.identity.for_read(None);
+        let Some(project) = found.map_err(AppError::Identity)? else {
             return Err(not_declared());
         };
-        let rules = self.rules_of(&project).await?;
+        let rules = self.writes.projects.rules_of(&project).await?;
         if !rules.holds(&permit.tag()) {
             return Err(not_declared());
         }
@@ -149,6 +169,7 @@ where
             });
         }
         let declared = self
+            .writes
             .declaring(
                 &project,
                 Declare {
@@ -163,13 +184,18 @@ where
         })
     }
 
-    async fn declare(&mut self, declaration: Declaration) -> Result<Declared, AppError> {
-        self.refuse_moved()?;
-        self.declared(declaration).await
-    }
-
-    async fn import_config(&mut self) -> Result<Declared, AppError> {
-        self.importing_config().await
+    /// [`PermitService::declare`]: a person's [`Declaration`], parsed, on
+    /// the work root's project's store.
+    pub(crate) async fn declare(&mut self, declaration: Declaration) -> Result<Declared, AppError> {
+        self.writes.projects.refuse_moved()?;
+        let declare = schema::declaration(declaration)?;
+        let project = self
+            .writes
+            .projects
+            .identity
+            .for_write(None)
+            .map_err(AppError::Identity)?;
+        self.writes.declaring(&project, declare).await
     }
 }
 
@@ -186,32 +212,36 @@ fn first_permits(rules: &StoreRules) -> Vec<tagma_core::Tag> {
     tags
 }
 
-impl<I, S, N, C, D, G> Service<I, S, N, C, D, G>
+impl<I, S, G, C, D> Permitting<'_, I, S, G, C, D>
 where
     I: ProjectIdentity,
     S: TaskStores,
+    G: Configuration + ConfigurationWriter,
     C: Clock + CommandIds,
     D: ports::Delay + ports::Jitter + Send,
-    G: Configuration + ConfigurationWriter,
 {
     /// [`PermitService::import_config`]. The moved keys are not refused
     /// here, as everywhere else ([`ports::Configuration::moved`]): this is
     /// what moves them.
-    async fn importing_config(&mut self) -> Result<Declared, AppError> {
-        let schema = self
-            .configuration
+    pub(crate) async fn import_config(&mut self) -> Result<Declared, AppError> {
+        let configuration = &mut *self.writes.projects.configuration;
+        let schema = configuration
             .tag_schema()
             .map_err(AppError::Configuration)?;
-        let permits = self
-            .configuration
+        let permits = configuration
             .tag_permits()
             .map_err(AppError::Configuration)?;
         let mut add: Vec<tagma_core::Tag> = Vec::new();
         for declaration in &schema {
             add.extend(imported(declaration)?);
         }
-        let project = self.identity.for_write(None).map_err(AppError::Identity)?;
-        let rules = self.seeded(&project).await?;
+        let project = self
+            .writes
+            .projects
+            .identity
+            .for_write(None)
+            .map_err(AppError::Identity)?;
+        let rules = self.writes.seeded(&project).await?;
         if let Some(permits) = &permits {
             add.extend(permitted(permits));
             if !rules.closed() {
@@ -233,10 +263,12 @@ where
                     add: add.into_iter().map(Tag::from).collect(),
                     remove: Vec::new(),
                 };
-                self.declaring(&project, declare).await?
+                self.writes.declaring(&project, declare).await?
             }
         };
         let retired = self
+            .writes
+            .projects
             .configuration
             .retire_moved()
             .map_err(AppError::Configuration)?;
@@ -302,13 +334,7 @@ fn permitted(permits: &ports::TagPermits) -> Vec<tagma_core::Tag> {
     tags
 }
 
-impl<I, S, N, C, D, G> Service<I, S, N, C, D, G>
-where
-    I: ProjectIdentity,
-    S: TaskStores,
-    C: Clock,
-    G: Configuration,
-{
+impl<I, S: TaskStores, G, C, D> Permitting<'_, I, S, G, C, D> {
     /// The harp ids, sorted, of `project`'s tasks (whatever their status)
     /// carrying a tag `permit` admits, as tagma matches its pattern.
     async fn carrying(
@@ -316,7 +342,12 @@ where
         project: &crate::Project,
         permit: &Permit,
     ) -> Result<Vec<String>, AppError> {
-        let rows = self.rows_of(project).await?.unwrap_or_default();
+        let projects = &mut self.writes.projects;
+        let opened = projects.stores.open_existing(project).await;
+        let rows = match opened.map_err(crate::failed)? {
+            Some(store) => self.lists.rows(project, store, projects.registry).await?,
+            None => Vec::new(),
+        };
         let alone = tagma_core::Rules::from_tags(&[closing(), permit.tag()]);
         let mut harp_ids: Vec<String> = rows
             .into_iter()

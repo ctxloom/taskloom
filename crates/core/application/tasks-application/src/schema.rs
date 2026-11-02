@@ -23,7 +23,8 @@ use tasks::schema::{
 };
 
 use crate::rules::{Finding, StoreRules};
-use crate::{failed, rejected, AppError, Project, Service, Tag};
+use crate::write::Writes;
+use crate::{failed, rejected, AppError, Tag};
 use kernel_runner::Runner;
 
 /// Schema tags to add and remove, in tagma's grammar: `taskloom schema
@@ -152,147 +153,71 @@ fn parsed(spelled: &[String]) -> Result<Vec<Tag>, AppError> {
     crate::tags::parse_all(spelled).map_err(|r| crate::refused(&r))
 }
 
-impl<I, S, N, C, D, G: Configuration> Service<I, S, N, C, D, G> {
-    /// Refused where a configuration layer still sets a key that moved
-    /// into the store ([`ports::Configuration::moved`]).
-    pub(crate) fn refuse_moved(&mut self) -> Result<(), AppError> {
-        self.configuration.moved().map_err(AppError::Configuration)
-    }
-}
-
-impl<I, S, N, C, D, G> Service<I, S, N, C, D, G>
+/// `declare` sent to `store`'s schema stream, whose rules were `before`:
+/// the tags after it, and whether they changed (a duplicate's, which
+/// recorded nothing, as `store` holds them now).
+pub(crate) async fn declare_in<St, C, D>(
+    runner: &mut Runner<'_, C, D>,
+    store: &St,
+    declare: Declare,
+    before: StoreRules,
+) -> Result<Declared, AppError>
 where
-    S: TaskStores,
-{
-    /// The rules of `project`'s store, read and never written: the seed
-    /// where it has no store or no schema stream yet.
-    pub(crate) async fn rules_of(&mut self, project: &Project) -> Result<StoreRules, AppError> {
-        let Some(store) = self.stores.open_existing(project).await.map_err(failed)? else {
-            return Ok(StoreRules::default());
-        };
-        rules_in(store, &self.registry).await
-    }
-}
-
-impl<I, S, N, C, D, G> Service<I, S, N, C, D, G>
-where
-    I: ProjectIdentity,
-    S: TaskStores,
+    St: Store,
     C: Clock + CommandIds,
     D: Delay + Jitter + Send,
 {
-    /// `project`'s store's rules after seeding its schema stream, where it
-    /// has no history ([`seed_in`]).
-    pub(crate) async fn seeded(&mut self, project: &Project) -> Result<StoreRules, AppError> {
-        let store = self.stores.open(project).await.map_err(failed)?;
-        let mut runner = Runner {
-            registry: &self.registry,
-            clock: &mut self.clock,
-            delay: &mut self.delay,
-            retry: self.retry,
-            dead_letters: &mut self.dead_letters,
-        };
-        seed_in(&mut runner, store).await
-    }
-
-    /// `declare` on `project`'s store's schema stream, seeded first: the
-    /// tags after it, and whether they changed.
-    pub(crate) async fn declaring(
-        &mut self,
-        project: &Project,
-        declare: Declare,
-    ) -> Result<Declared, AppError> {
-        tasks::schema::check(&declare).map_err(|r| rejected(&r))?;
-        let before = self.seeded(project).await?;
-        let store = self.stores.open(project).await.map_err(failed)?;
-        let book = CommandBook::command_of(schema_stream(), &SchemaCommand::from(declare));
-        let command_id = self.clock.command_id();
-        let mut runner = Runner {
-            registry: &self.registry,
-            clock: &mut self.clock,
-            delay: &mut self.delay,
-            retry: self.retry,
-            dead_letters: &mut self.dead_letters,
-        };
-        let handled = runner
-            .run::<SchemaAggregate, _, _>(store, book, &command_id)
-            .await??;
-        let after = rules_after(store, &self.registry, &handled).await?;
-        Ok(Declared {
-            changed: after != before,
-            tags: after.export(),
-        })
-    }
-
-    /// A person's [`Declaration`], parsed, on the work root's project's
-    /// store.
-    pub(crate) async fn declared(
-        &mut self,
-        declaration: Declaration,
-    ) -> Result<Declared, AppError> {
-        let declare = Declare {
-            add: parsed(&declaration.add)?,
-            remove: parsed(&declaration.remove)?,
-        };
-        tasks::schema::check(&declare).map_err(|r| rejected(&r))?;
-        let project = self.identity.for_write(None).map_err(AppError::Identity)?;
-        self.declaring(&project, declare).await
-    }
+    let book = CommandBook::command_of(schema_stream(), &SchemaCommand::from(declare));
+    let command_id = runner.clock.command_id();
+    let handled = runner
+        .run::<SchemaAggregate, _, _>(store, book, &command_id)
+        .await??;
+    let after = rules_after(store, runner.registry, &handled).await?;
+    Ok(Declared {
+        changed: after != before,
+        tags: after.export(),
+    })
 }
 
-impl<I, S, N, C, D, G> Service<I, S, N, C, D, G>
+/// A person's [`Declaration`], parsed: what it adds and removes, held to
+/// the schema stream's rules by what it carries alone.
+pub(crate) fn declaration(declaration: Declaration) -> Result<Declare, AppError> {
+    let declare = Declare {
+        add: parsed(&declaration.add)?,
+        remove: parsed(&declaration.remove)?,
+    };
+    tasks::schema::check(&declare).map_err(|r| rejected(&r))?;
+    Ok(declare)
+}
+
+/// [`SchemaService::schema_export`]: the store's schema tags, seeded first
+/// where it is there but has no schema stream; the seed's where there is
+/// no project or no store, written nowhere.
+pub(crate) async fn export<I, S, G, C, D>(
+    writes: &mut Writes<'_, I, S, G, C, D>,
+    pinned: Option<&str>,
+) -> Result<Vec<String>, AppError>
 where
     I: ProjectIdentity,
     S: TaskStores,
-    C: Clock + CommandIds,
-    D: Delay + Jitter + Send,
     G: Configuration,
-{
-    /// The rules of the store `pinned` (or the work root) names, refused
-    /// first where a layer still sets a moved key; the seed where there is
-    /// no project or no store.
-    pub(crate) async fn rules_for(&mut self, pinned: Option<&str>) -> Result<StoreRules, AppError> {
-        self.refuse_moved()?;
-        match self.identity.for_read(pinned).map_err(AppError::Identity)? {
-            Some(project) => self.rules_of(&project).await,
-            None => Ok(StoreRules::default()),
-        }
-    }
-}
-
-impl<I, S, N, C, D, G> SchemaService for Service<I, S, N, C, D, G>
-where
-    I: ProjectIdentity + Send,
-    S: TaskStores + Send,
-    N: Send,
-    C: Clock + CommandIds + Send,
+    C: Clock + CommandIds,
     D: Delay + Jitter + Send,
-    G: Configuration + Send,
 {
-    async fn schema_export(&mut self, project: Option<String>) -> Result<Vec<String>, AppError> {
-        self.refuse_moved()?;
-        let Some(found) = self
-            .identity
-            .for_read(project.as_deref())
-            .map_err(AppError::Identity)?
-        else {
-            return Ok(StoreRules::default().export());
-        };
-        if self
-            .stores
-            .open_existing(&found)
-            .await
-            .map_err(failed)?
-            .is_none()
-        {
-            return Ok(StoreRules::default().export());
-        }
-        Ok(self.seeded(&found).await?.export())
+    writes.projects.refuse_moved()?;
+    let found = writes
+        .projects
+        .identity
+        .for_read(pinned)
+        .map_err(AppError::Identity)?;
+    let Some(found) = found else {
+        return Ok(StoreRules::default().export());
+    };
+    let opened = writes.projects.stores.open_existing(&found).await;
+    if opened.map_err(failed)?.is_none() {
+        return Ok(StoreRules::default().export());
     }
-
-    async fn schema_check(&mut self, project: Option<String>) -> Result<Vec<Finding>, AppError> {
-        Ok(self.rules_for(project.as_deref()).await?.check())
-    }
+    Ok(writes.seeded(&found).await?.export())
 }
 
 #[cfg(test)]

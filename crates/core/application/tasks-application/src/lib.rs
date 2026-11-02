@@ -1,24 +1,40 @@
-//! The tasks use cases: add a task, move, edit or retag one, read a
-//! project's tasks (or every project's), watch them change, prune old
-//! finished ones, read what the project's tag permits permit; and, apart
-//! from them, import the JSONL task logs ([`Importer`], the one use case
-//! that reads them), and grant and revoke tag permits ([`PermitService`],
-//! a person's, apart so a frontend can leave it out).
+//! The tasks use cases, each a unit of its own over only the ports it
+//! uses, borrowed from one [`Service`] that owns the ports and composes
+//! the units behind the traits a driving adapter calls:
 //!
-//! Each resolves its project through [`ProjectIdentity`], opens the
-//! project's store through [`TaskStores`], and runs its command through
-//! angzarr-embedded's kernel through kernel-runner's [`Runner`], which
-//! retries it ([`KERNEL_RETRY`]: the kernel owns race re-runs, its waits
-//! taskloom's ports); a list is the task-list projector caught up from the
-//! store. The ports are the only way out: this crate does no I/O, keeps no
-//! clock and starts no runtime.
+//! - add a task ([`TaskService::add`]);
+//! - change one: its status, deferring it on a trigger or reviving it
+//!   ([`TaskService::set_status`]), its text ([`TaskService::edit`]), its
+//!   tags ([`TaskService::tag`]);
+//! - read them: list, show, count, the statuses and tags in use, lint
+//!   ([`TaskService::list`] and the rest), and the store's rules
+//!   ([`TaskService::tag_schema`], [`TaskService::permits`],
+//!   [`SchemaService`]);
+//! - prune old finished ones ([`PruneService`]);
+//! - grant and revoke tag permits, and declare the store's rules
+//!   ([`PermitService`], a person's, apart so a frontend can leave it out);
+//! - watch a project's store change ([`WatchService`]);
+//! - and, apart from them, import the JSONL task logs ([`Importer`], the
+//!   one use case that reads them).
+//!
+//! Each reaches its project through one collaborator (`project`:
+//! [`ProjectIdentity`], [`TaskStores`], the configuration's moved keys
+//! refused), and a write runs its commands through angzarr-embedded's
+//! kernel through kernel-runner's [`Runner`] (`write`), which retries
+//! them ([`KERNEL_RETRY`]: the kernel owns race re-runs, its waits
+//! taskloom's ports); a read is the task-list projector caught up from the
+//! store (`lists`). The ports are the only way out: this crate does no
+//! I/O, keeps no clock and starts no runtime.
 
+mod add;
+mod change;
 mod error;
 mod import;
 mod lint;
 mod lists;
 mod permit;
 mod priority;
+mod project;
 mod prune;
 mod query;
 mod read;
@@ -27,26 +43,33 @@ mod rules;
 mod schema;
 mod semver;
 mod tags;
+mod task;
 mod view;
 mod watch;
+mod write;
 
 use std::future::Future;
 
 use angzarr_diagnostic::{Diagnostic, Report};
-use angzarr_embedded::v1::event_meta::Causation;
-use angzarr_embedded::v1::{CommandBook, Cover, Uuid};
-use angzarr_embedded::{
-    CommandBookExt, CoverExt, Handled, Kernel, KernelError, ReadStore, ReadUnit, Registry, Store,
-    StoreError, StreamRef,
+use angzarr_embedded::{KernelError, OnRetryable, Registry, StoreError};
+use kernel_runner::{Runner, KERNEL_RETRY};
+use ports::{
+    Clock, CommandIds, Configuration, ConfigurationWriter, Delay, Jitter, Names, ProjectIdentity,
+    TaskStores, WatchedStores,
 };
-use error::carrying;
-use kernel_runner::{Refusal, Runner, KERNEL_RETRY};
-use ports::{Clock, CommandIds, Configuration, Delay, Jitter, Names, ProjectIdentity, TaskStores};
-use rules::judged;
 use tasks::schema::SchemaAggregate;
-use tasks::{
-    AddTask, EditText, Retag, SetStatus, TaskAggregate, TaskCommand, TaskRejection, TASK_DOMAIN,
-};
+use tasks::TaskAggregate;
+
+use add::Adding;
+use change::Changing;
+use error::carrying;
+use lists::Lists;
+use permit::Permitting;
+use project::Projects;
+use prune::Pruner;
+use read::Reading;
+use watch::Watching;
+use write::Writes;
 
 /// A dead letter, as the kernel answers it and the store keeps it: angzarr's
 /// `AngzarrDeadLetter` whole, keyed by the stream it is about. A use case
@@ -76,6 +99,8 @@ pub fn dead_letter_sample(component: &str) -> DeadLetter {
         },
     }
 }
+pub use add::{NewTask, KEYED_PROBES};
+pub use change::{StatusChange, TagChange, TextEdit};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{AppError, CATALOGS, EN_US};
@@ -89,7 +114,10 @@ pub use prune::{
     Dangling, PruneRequest, PruneService, Pruned, Pruning, Via, DEFAULT_OLDER_THAN,
     DEFAULT_PRUNE_STATUSES,
 };
-pub use read::{Details, Hidden, Listing, Reach, Statuses, Summary, TagCount, Vocabulary};
+pub use read::{
+    Details, Hidden, ListQuery, Listing, Reach, Scope, ShowQuery, Statuses, Summary, TagCount,
+    Vocabulary,
+};
 pub use request::{request_command_id, REQUEST_NAMESPACE};
 pub use rules::{
     Code as RuleCode, Finding as RuleFinding, Origin, RuleWarning, RulesRefusal, SchemaSummary,
@@ -103,184 +131,20 @@ pub use tags::{
     is_retired as tag_is_retired, parse as parse_tag, schema_free as schema_free_tag, Tag,
     RETIRED_TAG,
 };
+pub use task::Written;
 pub use view::{text_hash, Row, Shown, StatusInfo, Task};
-
-// Used across the crate's modules by these paths; nothing outside uses them.
-pub(crate) use tags::TagRefusal;
-pub(crate) use view::DONE;
 pub use watch::{Watch, WatchRequest, WatchService};
 
-/// How many task ids an add mints before giving up, each refused because a
-/// task already holds it.
-pub(crate) const HARP_ATTEMPTS: u32 = 100;
+// Used across the crate's modules by these paths; nothing outside uses them.
+#[cfg(test)]
+pub(crate) use add::HARP_ATTEMPTS;
+pub(crate) use tags::TagRefusal;
+pub(crate) use task::task_cover;
+pub(crate) use view::DONE;
 
-/// How many positions of its key's order ([`Names::task_id_for`]) an add
-/// under a request id probes, from position 0, before refusing
-/// ([`AppError::AddRequestIdCollides`]): a position another request's task
-/// holds is passed and a free one is added on, but only once every one of
-/// the positions has been checked for this request's own add, which is
-/// answered DUPLICATE wherever it is: a position passed may since be free.
-///
-/// Compatibility promise: the key's harps are fixed by the seed (FNV-1a 64
-/// of the key, in harp-names), harp's seeded index (scheme v1), and this
-/// probe order (positions 0 to `KEYED_PROBES - 1`, in turn). A retry finds
-/// the task it added only if all three are what they were when it was
-/// added; raising the bound is safe, lowering it or reordering is not.
-pub const KEYED_PROBES: u32 = 8;
-
-/// A task to add. A value given (`Some`) is never read as one left out:
-/// given blank, it is refused ([`AppError::Blank`]).
-#[derive(Clone, PartialEq, Debug, Default)]
-pub struct NewTask {
-    /// An explicit project id, overriding resolution.
-    pub project: Option<String>,
-    pub text: String,
-    /// `None` means To Do.
-    pub status: Option<String>,
-    /// Given, the task is added Deferred, returning to To Do when the
-    /// trigger is cleared. Required when the status is Deferred; refused
-    /// with any other.
-    pub trigger: Option<String>,
-    pub tags: Vec<String>,
-    /// The session adding it, if one is.
-    pub origin_session: Option<String>,
-    /// The request's key, as [`TagChange::request_id`]'s. An add's stream
-    /// is its harp's and the kernel deduplicates within a stream, so the
-    /// key pins the harp too ([`Names::task_id_for`]): the add looks for its
-    /// own add on each of the key's [`KEYED_PROBES`] harps and answers with
-    /// the task there if one holds it (DUPLICATE); else it is added on the
-    /// first harp no task holds. Every one held by another request's task,
-    /// it is refused ([`AppError::AddRequestIdCollides`]).
-    pub request_id: Option<String>,
-}
-
-/// Tags to add to and remove from a task: the adds first, then the
-/// removes, so a tag named in both ends up removed. Each is a tag in
-/// tagma's grammar; one that does not parse refuses the change, as does an
-/// added one the tag schema refuses. An added value of a scalar target
-/// displaces the value the task holds.
-#[derive(Clone, PartialEq, Debug, Default)]
-pub struct TagChange {
-    pub project: Option<String>,
-    pub harp_id: String,
-    pub add: Vec<String>,
-    pub remove: Vec<String>,
-    /// The request's key: the id the caller gave the request, and gives
-    /// again when it retries it (no edge mints one). The command id derives
-    /// from it ([`request_command_id`]), so a retry is answered DUPLICATE
-    /// and applies nothing, answering with the task as it stands. `None`, a
-    /// fresh command id. Given blank, refused ([`AppError::Blank`]).
-    pub request_id: Option<String>,
-}
-
-/// A task's status, its trigger, or both, changed. A trigger given defers
-/// the task, keeping the status it held to return to; given with a
-/// status, the status must be Deferred. `clear_trigger` clears the one
-/// held, returning a Deferred task to that status (or to `status`, given).
-/// A trigger left out (`None`) keeps the one held while the task stays
-/// Deferred; moving to any other status clears it. A status or trigger
-/// given blank is refused ([`AppError::Blank`]), and a trigger given with
-/// `clear_trigger` ([`AppError::TriggerAndClear`]).
-#[derive(Clone, PartialEq, Debug, Default)]
-pub struct StatusChange {
-    pub project: Option<String>,
-    pub harp_id: String,
-    pub status: Option<String>,
-    pub trigger: Option<String>,
-    pub clear_trigger: bool,
-    /// The request's key: the id the caller gave the request, and gives
-    /// again when it retries it (no edge mints one). The command id derives
-    /// from it ([`request_command_id`]), so a retry is answered DUPLICATE
-    /// and applies nothing, answering with the task as it stands. `None`, a
-    /// fresh command id. Given blank, refused ([`AppError::Blank`]).
-    pub request_id: Option<String>,
-}
-
-/// A task's text replaced whole; its status and trigger untouched.
-#[derive(Clone, PartialEq, Debug, Default)]
-pub struct TextEdit {
-    pub project: Option<String>,
-    pub harp_id: String,
-    pub text: String,
-    /// The request's key: the id the caller gave the request, and gives
-    /// again when it retries it (no edge mints one). The command id derives
-    /// from it ([`request_command_id`]), so a retry is answered DUPLICATE
-    /// and applies nothing, answering with the task as it stands. `None`, a
-    /// fresh command id. Given blank, refused ([`AppError::Blank`]).
-    pub request_id: Option<String>,
-}
-
-/// The tasks to show, by id, every one of which must be found: in the
-/// work root's project, or with `global` in every project.
-#[derive(Clone, PartialEq, Debug, Default)]
-pub struct ShowQuery {
-    pub project: Option<String>,
-    pub global: bool,
-    pub harp_ids: Vec<String>,
-}
-
-/// Where a read that takes no filter reads: the work root's project (or
-/// the one pinned), or with `global` every project.
-#[derive(Clone, PartialEq, Debug, Default)]
-pub struct Scope {
-    pub project: Option<String>,
-    pub global: bool,
-}
-
-/// Which tasks to list. By default the active ones: neither terminal nor
-/// Deferred. `all` lists every task; naming statuses (or the classes
-/// `@open` and `@terminal`) lists exactly the tasks in them. A term keeps
-/// those whose text mentions it, case-insensitively, and a tag query those
-/// it selects. `global` reads every project. A term, tag query, sort or
-/// limit given blank (a limit of 0) is refused ([`AppError::Blank`]),
-/// never read as none.
-#[derive(Clone, PartialEq, Debug, Default)]
-pub struct ListQuery {
-    pub project: Option<String>,
-    pub statuses: Vec<String>,
-    pub all: bool,
-    /// A postfix tag query (see [`QUERY_GRAMMAR`]).
-    pub tag_query: Option<String>,
-    /// A substring of the text, any case.
-    pub term: Option<String>,
-    /// Every project's tasks, not the work root's project's.
-    pub global: bool,
-    /// At most this many tasks, the rest counted as omitted; `None` for
-    /// no limit. A limit of 0 is given blank, and refused.
-    pub limit: Option<usize>,
-    /// The order: `None` for the listing's own, or [`PRIORITY`], the one
-    /// sort.
-    pub sort: Option<String>,
-}
-
-/// The sort by derived priority, `--sort priority`.
-pub(crate) const PRIORITY: &str = "priority";
-
-/// A task written, the project it was written in, which of its tags a
-/// person is shown, and the dead letters its kernel calls answered
-/// (almost certainly bugs, for the caller to say loudly).
-#[derive(Clone, PartialEq, Debug)]
-pub struct Written {
-    pub project: Project,
-    pub task: Task,
-    pub shown: Shown,
-    pub dead_letters: Vec<DeadLetter>,
-    /// tagma's `Existing` findings on the task written ([`Written::warnings`]).
-    pub warnings: Vec<RuleFinding>,
-}
-
-impl Written {
-    /// tagma's `Existing` findings on the task written: what was wrong
-    /// before the write and still is. A write is never refused for these
-    /// (an `Introduced` finding refuses it, `tasks-application-tag-rules`),
-    /// and the edge prints them on stderr, or in the JSON document.
-    pub fn warnings(&self) -> &[RuleFinding] {
-        &self.warnings
-    }
-}
-
-/// The use cases, as a driving adapter calls them. Their futures are
-/// `Send`, so a server can spawn them.
+/// The use cases a driving adapter calls for a task: the writes (add,
+/// status, edit, tag) and the reads. Their futures are `Send`, so a server
+/// can spawn them.
 pub trait TaskService {
     fn add(&mut self, task: NewTask) -> impl Future<Output = Result<Written, AppError>> + Send;
     fn tag(&mut self, change: TagChange) -> impl Future<Output = Result<Written, AppError>> + Send;
@@ -321,10 +185,14 @@ pub fn registry() -> Registry {
     registry
 }
 
-/// The use cases over their ports: `clock` stamps commands and mints their
-/// ids; `delay` waits, with jitter, between retries; `configuration` is
-/// what is configured, nothing until [`Service::with_configuration`] gives
-/// it. It reads no JSONL task log: only an [`Importer`] does.
+/// The ports the use cases run over, owned once, and what they share
+/// across calls: `identity` resolves a project and `stores` opens its
+/// store; `names` mints task ids (only an add does); `clock` stamps
+/// commands and mints their ids; `delay` waits, with jitter, between
+/// retries; `configuration` is what is configured, nothing until
+/// [`Service::with_configuration`] gives it. Each call lends its use case
+/// only the ports it uses. It reads no JSONL task log: only an
+/// [`Importer`] does.
 pub struct Service<I, S, N, C, D, G = NotConfigured> {
     pub identity: I,
     pub stores: S,
@@ -333,11 +201,11 @@ pub struct Service<I, S, N, C, D, G = NotConfigured> {
     pub delay: D,
     pub configuration: G,
     /// How the kernel retries a command ([`KERNEL_RETRY`]).
-    pub retry: angzarr_embedded::OnRetryable,
+    pub retry: OnRetryable,
     pub(crate) registry: Registry,
-    /// Each project's task and plan lists, kept caught up across the
-    /// service's reads.
-    pub(crate) lists: lists::Lists,
+    /// Each project's task list, kept caught up across the service's
+    /// reads.
+    pub(crate) lists: Lists,
     /// The dead letters the use case's kernel calls answered, taken into
     /// its result, or its error.
     pub(crate) dead_letters: Vec<DeadLetter>,
@@ -378,7 +246,7 @@ impl<I, S, N, C, D> Service<I, S, N, C, D> {
             configuration: NotConfigured,
             retry: KERNEL_RETRY,
             registry: registry(),
-            lists: lists::Lists::default(),
+            lists: Lists::default(),
             dead_letters: Vec::new(),
         }
     }
@@ -400,269 +268,107 @@ impl<I, S, N, C, D, G> Service<I, S, N, C, D, G> {
             dead_letters: self.dead_letters,
         }
     }
+
+    /// The ports and shared state, each lent apart, for one call.
+    fn parts(&mut self) -> Parts<'_, I, S, N, C, D, G> {
+        Parts {
+            projects: Projects {
+                identity: &mut self.identity,
+                stores: &mut self.stores,
+                configuration: &mut self.configuration,
+                registry: &self.registry,
+            },
+            names: &mut self.names,
+            runner: Runner {
+                registry: &self.registry,
+                clock: &mut self.clock,
+                delay: &mut self.delay,
+                retry: self.retry,
+                dead_letters: &mut self.dead_letters,
+            },
+            lists: &mut self.lists,
+        }
+    }
+
+    /// The writes' share of the parts: the project and the kernel.
+    fn writes(&mut self) -> Writes<'_, I, S, G, C, D> {
+        self.parts().writes().0
+    }
+
+    fn adding(&mut self) -> Adding<'_, I, S, N, G, C, D> {
+        let (writes, parts) = self.parts().writes();
+        Adding {
+            writes,
+            names: parts.names,
+        }
+    }
+
+    fn changing(&mut self) -> Changing<'_, I, S, G, C, D> {
+        Changing {
+            writes: self.writes(),
+        }
+    }
+
+    fn reading(&mut self) -> Reading<'_, I, S, G, C> {
+        let parts = self.parts();
+        Reading {
+            projects: parts.projects,
+            clock: parts.runner.clock,
+            lists: parts.lists,
+        }
+    }
+
+    fn pruner(&mut self) -> Pruner<'_, I, S, G, C, D> {
+        let (writes, rest) = self.parts().writes();
+        Pruner {
+            writes,
+            lists: rest.lists,
+        }
+    }
+
+    fn permitting(&mut self) -> Permitting<'_, I, S, G, C, D> {
+        let (writes, rest) = self.parts().writes();
+        Permitting {
+            writes,
+            lists: rest.lists,
+        }
+    }
+
+    fn watching(&mut self) -> Watching<'_, I, S> {
+        Watching {
+            identity: &mut self.identity,
+            stores: &mut self.stores,
+        }
+    }
 }
 
-impl<I, S, N, C, D, G> Service<I, S, N, C, D, G>
-where
-    I: ProjectIdentity,
-    S: TaskStores,
-    C: Clock + CommandIds,
-    D: Delay + Jitter + Send,
-{
-    /// The project of a change to an existing task, resolved as a read
-    /// resolves it: where there is none, or no store yet, there is no task
-    /// to change, and nothing is minted or created to say so.
-    async fn existing(&mut self, pinned: Option<&str>) -> Result<Project, AppError> {
-        let project = self
-            .identity
-            .for_read(pinned)
-            .map_err(AppError::Identity)?
-            .ok_or(AppError::NoProject)?;
-        match self.stores.open_existing(&project).await.map_err(failed)? {
-            Some(_) => Ok(project),
-            None => Err(rejected(&TaskRejection::NoTask)),
-        }
-    }
-
-    /// The command id `operation` sends: derived from the request's key
-    /// when one is given ([`request_command_id`]), so a retry sends the
-    /// same; a fresh one when none is.
-    fn command_id(&mut self, operation: &str, request_id: Option<&str>) -> Uuid {
-        match request_id {
-            Some(key) => request_command_id(operation, key),
-            None => self.clock.command_id(),
-        }
-    }
-
-    /// Run `command` on the task `harp_id` in `project`'s store, under
-    /// `command_id`, retried by the kernel ([`Runner`]); the task after it. A command
-    /// already applied under `command_id` is answered DUPLICATE and
-    /// applies nothing: the task is answered as it stands.
-    async fn commit(
-        &mut self,
-        project: &Project,
-        harp_id: &str,
-        command: TaskCommand,
-        command_id: Uuid,
-    ) -> Result<Task, AppError> {
-        let store = self.stores.open(project).await.map_err(failed)?;
-        let cover = task_cover(harp_id);
-        let book = CommandBook::command_of(cover.clone(), &command);
-        let mut runner = Runner {
-            registry: &self.registry,
-            clock: &mut self.clock,
-            delay: &mut self.delay,
-            retry: self.retry,
-            dead_letters: &mut self.dead_letters,
-        };
-        let handled = runner
-            .run::<TaskAggregate, _, _>(store, book, &command_id)
-            .await??;
-        task_after(store, &self.registry, harp_id, &handled).await
-    }
+/// A [`Service`]'s ports and shared state, each borrowed apart, from
+/// which a call's use case takes what it uses.
+struct Parts<'s, I, S, N, C, D, G> {
+    projects: Projects<'s, I, S, G>,
+    names: &'s mut N,
+    runner: Runner<'s, C, D>,
+    lists: &'s mut Lists,
 }
 
-/// The writes, each failure carrying the dead letters written while it
-/// ran ([`TaskService`] wraps them).
-impl<I, S, N, C, D, G> Service<I, S, N, C, D, G>
-where
-    I: ProjectIdentity,
-    S: TaskStores,
-    N: Names,
-    C: Clock + CommandIds,
-    D: Delay + Jitter + Send,
-    G: Configuration,
-{
-    async fn adding(&mut self, task: NewTask) -> Result<Written, AppError> {
-        let request_id = given(task.request_id, "request_id")?;
-        let status = given(task.status, "status")?;
-        let trigger = given(task.trigger, "trigger")?;
-        let origin_session = given(task.origin_session, "origin_session")?;
-        let tags = tags::admit_all(&task.tags).map_err(|r| refused(&r))?;
-        // Each attempt mints its own harp (the key's, given one); everything
-        // else is this, held to
-        // the domain's rules now, before a project is bound or a store
-        // created for an add they refuse.
-        let template = AddTask {
-            harp_id: String::new(),
-            text: task.text,
-            status,
-            trigger,
-            tags: Vec::new(),
-            origin_session,
-            defers: view::DEFERS.to_string(),
-            initial: view::INITIAL.to_string(),
-        };
-        tasks::check(&template.clone().into()).map_err(|r| rejected(&r))?;
-        // The store's rules as read before anything is bound: a refused
-        // add binds no project and creates no store. They are read again
-        // once the store is open and seeded, and judge the add there.
-        let rules = self.rules_for(task.project.as_deref()).await?;
-        let (collapsed, _) = tags::collapse(&rules, &[], tags.clone());
-        judged(rules.validate(&[], &collapsed, &[]))?;
-        let project = self
-            .identity
-            .for_write(task.project.as_deref())
-            .map_err(AppError::Identity)?;
-        let store = self.stores.open(&project).await.map_err(failed)?;
-        let mut runner = Runner {
-            registry: &self.registry,
-            clock: &mut self.clock,
-            delay: &mut self.delay,
-            retry: self.retry,
-            dead_letters: &mut self.dead_letters,
-        };
-        let rules = schema::seed_in(&mut runner, store).await?;
-        let (tags, _) = tags::collapse(&rules, &[], tags);
-        let warnings = judged(rules.validate(&[], &tags, &[]))?;
-        let template = AddTask { tags, ..template };
-        // A keyed add's harps, each checked for this request's own add
-        // before any is added on: a harp the add probed past may since have
-        // been freed (its task removed and purged), and a retry adding there
-        // would add the task again.
-        let keyed = match request_id {
-            Some(key) => {
-                let harps: Vec<String> = (0..KEYED_PROBES)
-                    .map(|position| self.names.task_id_for(&key, u64::from(position)))
-                    .collect();
-                let command_id = request_command_id("add", &key);
-                if let Some(task) = own_add(store, &self.registry, &harps, &command_id).await? {
-                    return Ok(Written {
-                        project,
-                        task,
-                        shown: rules.shown(),
-                        dead_letters: std::mem::take(&mut self.dead_letters),
-                        warnings,
-                    });
-                }
-                Some(Keyed {
-                    request_id: key,
-                    harps,
-                    command_id,
-                })
-            }
-            None => None,
-        };
-        let task = add_on_free(&mut runner, &mut self.names, store, &template, keyed).await?;
-        Ok(Written {
-            project,
-            task,
-            shown: rules.shown(),
-            dead_letters: std::mem::take(&mut self.dead_letters),
-            warnings,
-        })
-    }
+/// What the parts lend beside a write's [`Writes`].
+struct Rest<'s, N> {
+    names: &'s mut N,
+    lists: &'s mut Lists,
+}
 
-    async fn tagging(&mut self, change: TagChange) -> Result<Written, AppError> {
-        let request_id = given(change.request_id, "request_id")?;
-        // Nothing to add or remove is refused before anything is read.
-        let add = tags::parse_all(&change.add).map_err(|r| refused(&r))?;
-        let remove = tags::parse_all(&change.remove).map_err(|r| refused(&r))?;
-        let retag: TaskCommand = Retag {
-            add: add.clone(),
-            remove: remove.clone(),
-        }
-        .into();
-        tasks::check(&retag).map_err(|r| rejected(&r))?;
-        for tag in &add {
-            tags::admit(tag).map_err(|r| refused(&r))?;
-        }
-        self.refuse_moved()?;
-        let project = self.existing(change.project.as_deref()).await?;
-        let rules = self.seeded(&project).await?;
-        // Judged against the task as the kernel loads it for the retag,
-        // and sent at that head: a write landing between is stale, and the
-        // kernel loads it again, and this collapses and judges again. A
-        // scalar target's new value displaces the one the task holds,
-        // resolved here, so decide never reads the schema.
-        let shape = |task: &TaskAggregate| {
-            let task = task.state();
-            let (add, displaced) = tags::collapse(&rules, &task.tags, add.clone());
-            let mut remove = remove.clone();
-            remove.extend(displaced);
-            match judged(rules.validate(&task.tags, &add, &remove)) {
-                Ok(warnings) => (Some(TaskCommand::from(Retag { add, remove })), Ok(warnings)),
-                Err(refused) => (None, Err(refused)),
-            }
+impl<'s, I, S, N, C, D, G> Parts<'s, I, S, N, C, D, G> {
+    /// The project and the kernel, as a write takes them, and the rest.
+    fn writes(self) -> (Writes<'s, I, S, G, C, D>, Rest<'s, N>) {
+        let writes = Writes {
+            projects: self.projects,
+            runner: self.runner,
         };
-        let command_id = self.command_id("tag", request_id.as_deref());
-        let store = self.stores.open(&project).await.map_err(failed)?;
-        let mut runner = Runner {
-            registry: &self.registry,
-            clock: &mut self.clock,
-            delay: &mut self.delay,
-            retry: self.retry,
-            dead_letters: &mut self.dead_letters,
+        let rest = Rest {
+            names: self.names,
+            lists: self.lists,
         };
-        let cover = task_cover(&change.harp_id);
-        let (handled, verdict) = runner
-            .shaped::<TaskAggregate, _, _, _, _>(store, &cover, &command_id, shape)
-            .await??;
-        let warnings = verdict?;
-        let handled = handled.expect("a retag judged sound is sent");
-        let task = task_after(store, &self.registry, &change.harp_id, &handled).await?;
-        Ok(Written {
-            project,
-            task,
-            shown: rules.shown(),
-            dead_letters: std::mem::take(&mut self.dead_letters),
-            warnings,
-        })
-    }
-
-    async fn setting_status(&mut self, change: StatusChange) -> Result<Written, AppError> {
-        let request_id = given(change.request_id, "request_id")?;
-        let status = given(change.status, "status")?;
-        let trigger = given(change.trigger, "trigger")?;
-        // SetStatus's trigger given empty is its clearing, which no edge
-        // spells so: a trigger given blank is refused above.
-        let trigger = match (trigger, change.clear_trigger) {
-            (Some(_), true) => return Err(AppError::TriggerAndClear),
-            (None, true) => Some(String::new()),
-            (trigger, false) => trigger,
-        };
-        let set: TaskCommand = SetStatus {
-            status,
-            trigger,
-            defers: view::DEFERS.to_string(),
-            initial: view::INITIAL.to_string(),
-        }
-        .into();
-        tasks::check(&set).map_err(|r| rejected(&r))?;
-        self.refuse_moved()?;
-        let project = self.existing(change.project.as_deref()).await?;
-        let rules = self.seeded(&project).await?;
-        let command_id = self.command_id("set_status", request_id.as_deref());
-        let task = self
-            .commit(&project, &change.harp_id, set, command_id)
-            .await?;
-        Ok(Written {
-            project,
-            task,
-            shown: rules.shown(),
-            dead_letters: std::mem::take(&mut self.dead_letters),
-            warnings: Vec::new(),
-        })
-    }
-
-    async fn editing(&mut self, edit: TextEdit) -> Result<Written, AppError> {
-        let request_id = given(edit.request_id, "request_id")?;
-        let command: TaskCommand = EditText { text: edit.text }.into();
-        tasks::check(&command).map_err(|r| rejected(&r))?;
-        self.refuse_moved()?;
-        let project = self.existing(edit.project.as_deref()).await?;
-        let rules = self.seeded(&project).await?;
-        let command_id = self.command_id("edit", request_id.as_deref());
-        let task = self
-            .commit(&project, &edit.harp_id, command, command_id)
-            .await?;
-        Ok(Written {
-            project,
-            task,
-            shown: rules.shown(),
-            dead_letters: std::mem::take(&mut self.dead_letters),
-            warnings: Vec::new(),
-        })
+        (writes, rest)
     }
 }
 
@@ -676,55 +382,56 @@ where
     G: Configuration + Send,
 {
     async fn add(&mut self, task: NewTask) -> Result<Written, AppError> {
-        let written = self.adding(task).await;
+        let written = self.adding().add(task).await;
         carrying(written, &mut self.dead_letters)
     }
 
     async fn tag(&mut self, change: TagChange) -> Result<Written, AppError> {
-        let written = self.tagging(change).await;
+        let written = self.changing().retag(change).await;
         carrying(written, &mut self.dead_letters)
     }
 
     async fn set_status(&mut self, change: StatusChange) -> Result<Written, AppError> {
-        let written = self.setting_status(change).await;
+        let written = self.changing().set_status(change).await;
         carrying(written, &mut self.dead_letters)
     }
 
     async fn edit(&mut self, edit: TextEdit) -> Result<Written, AppError> {
-        let written = self.editing(edit).await;
+        let written = self.changing().edit(edit).await;
         carrying(written, &mut self.dead_letters)
     }
 
     async fn list(&mut self, query: ListQuery) -> Result<Listing, AppError> {
-        self.listing(query).await
+        self.reading().list(query).await
     }
 
     async fn show(&mut self, query: ShowQuery) -> Result<Details, AppError> {
-        self.details(query).await
+        self.reading().show(query).await
     }
 
     async fn summary(&mut self, scope: Scope) -> Result<Summary, AppError> {
-        self.summed(scope).await
+        self.reading().summary(scope).await
     }
 
     async fn statuses(&mut self, scope: Scope) -> Result<Statuses, AppError> {
-        self.taxonomy(scope).await
+        self.reading().statuses(scope).await
     }
 
     async fn tags(&mut self, query: ListQuery) -> Result<Vocabulary, AppError> {
-        self.vocabulary(query).await
+        self.reading().tags(query).await
     }
 
     async fn lint(&mut self, scope: Scope) -> Result<LintReport, AppError> {
-        self.linted(scope).await
+        self.reading().lint(scope).await
     }
 
     async fn tag_schema(&mut self) -> Result<SchemaSummary, AppError> {
-        Ok(self.rules_for(None).await?.summary())
+        let rules = self.parts().projects.rules_for(None).await?;
+        Ok(rules.summary())
     }
 
     async fn permits(&mut self) -> Result<PermitList, AppError> {
-        let rules = self.rules_for(None).await?;
+        let rules = self.parts().projects.rules_for(None).await?;
         Ok(PermitList {
             closed: rules.closed(),
             patterns: rules.permits(),
@@ -733,165 +440,85 @@ where
     }
 }
 
-/// `value`, refused when it is given (`Some`) blank: a value given is never
-/// read as one left out. `field` names it in the refusal.
-pub(crate) fn given<T: AsRef<str>>(
-    value: Option<T>,
-    field: &'static str,
-) -> Result<Option<T>, AppError> {
-    match value {
-        Some(v) if v.as_ref().trim().is_empty() => Err(AppError::Blank { field }),
-        value => Ok(value),
-    }
-}
-
-/// The stream of the task `harp_id` names: its harp is its natural key.
-pub(crate) fn task_cover(harp_id: &str) -> Cover {
-    Cover::natural(TASK_DOMAIN, harp_id)
-}
-
-/// The task on the first of `harps` whose stream holds the add
-/// `command_id` sent (a keyed add's, answered DUPLICATE wherever it landed);
-/// `None` when none does.
-async fn own_add<S: Store + ReadStore>(
-    store: &S,
-    registry: &Registry,
-    harps: &[String],
-    command_id: &Uuid,
-) -> Result<Option<Task>, AppError> {
-    for harp_id in harps {
-        if caused(store, harp_id, command_id).await? {
-            let task = task_now(store, registry, harp_id).await?;
-            return task.map(Some).ok_or_else(|| AppError::Vanished {
-                harp_id: harp_id.clone(),
-            });
-        }
-    }
-    Ok(None)
-}
-
-/// `template` added on the first harp no task holds: of a keyed add's
-/// harps, in order, under its one command id (`keyed`, the key with its
-/// harps and id); unkeyed, of up to [`HARP_ATTEMPTS`] harps `names` mints,
-/// each under a fresh id. The task as the add left it, from its commit. A
-/// harp another task holds is refused ([`TaskRejection::TaskExists`]; a
-/// keyed add's own was looked for first, and would be answered
-/// DUPLICATE) and passed, never merged into its stream.
-async fn add_on_free<S, N, C, D>(
-    runner: &mut Runner<'_, C, D>,
-    names: &mut N,
-    store: &S,
-    template: &AddTask,
-    keyed: Option<Keyed>,
-) -> Result<Task, AppError>
+impl<I, S, N, C, D, G> PruneService for Service<I, S, N, C, D, G>
 where
-    S: Store,
-    N: Names,
-    C: Clock + CommandIds,
+    I: ProjectIdentity + Send,
+    S: TaskStores + Send,
+    N: Send,
+    C: Clock + CommandIds + Send,
     D: Delay + Jitter + Send,
+    G: Configuration + Send,
 {
-    let attempts = match keyed {
-        Some(_) => KEYED_PROBES,
-        None => HARP_ATTEMPTS,
-    };
-    for position in 0..attempts {
-        let (harp_id, command_id) = match &keyed {
-            Some(keyed) => (
-                keyed.harps[position as usize].clone(),
-                keyed.command_id.clone(),
-            ),
-            None => (names.task_id(), runner.clock.command_id()),
-        };
-        let add: TaskCommand = AddTask {
-            harp_id: harp_id.clone(),
-            ..template.clone()
-        }
-        .into();
-        let book = CommandBook::command_of(task_cover(&harp_id), &add);
-        match runner
-            .run::<TaskAggregate, _, _>(store, book, &command_id)
-            .await?
-        {
-            Ok(handled) => return task_after(store, runner.registry, &harp_id, &handled).await,
-            Err(Refusal {
-                rejection: Some(TaskRejection::TaskExists { .. }),
-                ..
-            }) => continue,
-            Err(refusal) => return Err(refusal.into()),
-        }
+    async fn prune(&mut self, request: PruneRequest) -> Result<Pruning, AppError> {
+        let pruning = self.pruner().prune(request).await;
+        carrying(pruning, &mut self.dead_letters)
     }
-    Err(match keyed {
-        Some(keyed) => AppError::AddRequestIdCollides {
-            request_id: keyed.request_id,
-            probes: KEYED_PROBES,
-        },
-        None => AppError::HarpsExhausted {
-            attempts: HARP_ATTEMPTS,
-        },
-    })
 }
 
-/// A keyed add: its request's key, the harps the key's order names, and
-/// the one command id every probe sends.
-struct Keyed {
-    request_id: String,
-    harps: Vec<String>,
-    command_id: Uuid,
+impl<I, S, N, C, D, G> PermitService for Service<I, S, N, C, D, G>
+where
+    I: ProjectIdentity + Send,
+    S: TaskStores + Send,
+    N: Send,
+    C: Clock + CommandIds + Send,
+    D: Delay + Jitter + Send,
+    G: Configuration + ConfigurationWriter + Send,
+{
+    async fn permit(&mut self, change: PermitChange) -> Result<Permitted, AppError> {
+        self.permitting().permit(change).await
+    }
+
+    async fn revoke(&mut self, change: PermitChange) -> Result<Permitted, AppError> {
+        self.permitting().revoke(change).await
+    }
+
+    async fn declare(&mut self, declaration: Declaration) -> Result<Declared, AppError> {
+        self.permitting().declare(declaration).await
+    }
+
+    async fn import_config(&mut self) -> Result<Declared, AppError> {
+        self.permitting().import_config().await
+    }
 }
 
-/// Whether the stream of the task `harp_id` names holds an event
-/// `command_id` caused, read in a read-only unit.
-async fn caused<S: ReadStore>(
-    store: &S,
-    harp_id: &str,
-    command_id: &Uuid,
-) -> Result<bool, AppError> {
-    let cover = task_cover(harp_id);
-    let stream = StreamRef::try_from(&cover).map_err(failed)?;
-    let mut reads = store.begin_read().await.map_err(failed)?;
-    let slice = reads.read(stream, 0, None).await.map_err(failed)?;
-    Ok(slice.pages.iter().any(|page| {
-        matches!(
-            page.meta.as_ref().and_then(|meta| meta.causation.as_ref()),
-            Some(Causation::CommandId(id)) if id == command_id
-        )
-    }))
+impl<I, S, N, C, D, G> SchemaService for Service<I, S, N, C, D, G>
+where
+    I: ProjectIdentity + Send,
+    S: TaskStores + Send,
+    N: Send,
+    C: Clock + CommandIds + Send,
+    D: Delay + Jitter + Send,
+    G: Configuration + Send,
+{
+    async fn schema_export(&mut self, project: Option<String>) -> Result<Vec<String>, AppError> {
+        schema::export(&mut self.writes(), project.as_deref()).await
+    }
+
+    async fn schema_check(
+        &mut self,
+        project: Option<String>,
+    ) -> Result<Vec<RuleFinding>, AppError> {
+        let rules = self.parts().projects.rules_for(project.as_deref()).await?;
+        Ok(rules.check())
+    }
 }
 
-/// The task `harp_id` names, as the store holds it now ([`Kernel::load`]);
-/// `None` when its stream holds no task.
-async fn task_now<S: Store>(
-    store: &S,
-    registry: &Registry,
-    harp_id: &str,
-) -> Result<Option<Task>, AppError> {
-    let (task, _) = Kernel::new(registry)
-        .load::<TaskAggregate, _>(store, &task_cover(harp_id))
-        .await
-        .map_err(|e| AppError::Failed(Report::of(&e)))?;
-    Ok(Task::existing(task.state().state()))
-}
+impl<I, S, N, C, D, G> WatchService for Service<I, S, N, C, D, G>
+where
+    I: ProjectIdentity + Send,
+    S: WatchedStores + Send,
+    N: Send,
+    C: Send,
+    D: Send,
+    G: Send,
+{
+    async fn watch(&mut self, request: WatchRequest) -> Result<Option<Watch>, AppError> {
+        self.watching().watch(request).await
+    }
 
-/// The task `harp_id` names as `handled` left it: from its commit itself,
-/// never read after it; a duplicate's, which recorded nothing, as the
-/// store holds it now ([`task_now`]). A stream holding no task after all
-/// (one emptied since) is [`AppError::Vanished`].
-async fn task_after<S: Store>(
-    store: &S,
-    registry: &Registry,
-    harp_id: &str,
-    handled: &Handled,
-) -> Result<Task, AppError> {
-    let committed = handled
-        .state::<TaskAggregate>(&task_cover(harp_id), registry)
-        .map_err(|e| AppError::Failed(Report::of(&e)))?;
-    let task = match committed {
-        Some(task) => Task::existing(task.state()),
-        None => task_now(store, registry, harp_id).await?,
-    };
-    task.ok_or_else(|| AppError::Vanished {
-        harp_id: harp_id.to_string(),
-    })
+    async fn poll(&mut self, watch: &mut Watch) -> Result<bool, AppError> {
+        self.watching().poll(watch).await
+    }
 }
 
 /// A store's failure, as the kernel reports one: its key and args.

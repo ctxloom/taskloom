@@ -17,7 +17,7 @@ use std::future::Future;
 
 use ports::{HeldToken, Project, ProjectIdentity, WatchedStores};
 
-use crate::{failed, AppError, Service};
+use crate::{failed, AppError};
 
 /// Which project to watch: `project` pins one, overriding resolution.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
@@ -61,16 +61,16 @@ pub trait WatchService {
     fn poll(&mut self, watch: &mut Watch) -> impl Future<Output = Result<bool, AppError>> + Send;
 }
 
-impl<I, S, N, C, D, G> WatchService for Service<I, S, N, C, D, G>
-where
-    I: ProjectIdentity + Send,
-    S: WatchedStores + Send,
-    N: Send,
-    C: Send,
-    D: Send,
-    G: Send,
-{
-    async fn watch(&mut self, request: WatchRequest) -> Result<Option<Watch>, AppError> {
+/// Watching over the two ports it needs: the project's resolution and its
+/// store's change token. Borrowed from the service for one call.
+pub(crate) struct Watching<'s, I, S> {
+    pub identity: &'s mut I,
+    pub stores: &'s mut S,
+}
+
+impl<I: ProjectIdentity, S: WatchedStores> Watching<'_, I, S> {
+    /// [`WatchService::watch`].
+    pub(crate) async fn watch(&mut self, request: WatchRequest) -> Result<Option<Watch>, AppError> {
         let Some(project) = self
             .identity
             .for_read(request.project.as_deref())
@@ -83,7 +83,8 @@ where
         Ok(Some(watch))
     }
 
-    async fn poll(&mut self, watch: &mut Watch) -> Result<bool, AppError> {
+    /// [`WatchService::poll`].
+    pub(crate) async fn poll(&mut self, watch: &mut Watch) -> Result<bool, AppError> {
         let Some(token) = self
             .stores
             .change_token(&watch.project)
