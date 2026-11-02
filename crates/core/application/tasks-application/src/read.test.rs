@@ -984,3 +984,44 @@ fn a_second_read_reads_only_what_was_written_since() {
         "the two first events seen, and the new stream's one event"
     );
 }
+
+// A stream the task list cannot fold (an event no task reads, as a newer
+// build could write) fails the read, and is handed again to the next,
+// which fails too: the list never skips it.
+#[test]
+fn a_stream_the_task_list_cannot_fold_fails_every_read() {
+    use angzarr_embedded::v1::{Cover, EventPage};
+    use angzarr_embedded::{Append, CoverExt, EventStore, StreamRef, Write};
+    let mut service = service(&["first", "second"]);
+    add(&mut service, "one", "To Do");
+    add(&mut service, "two", "To Do");
+    assert_eq!(
+        ready(service.list(ListQuery::default()))
+            .unwrap()
+            .rows
+            .len(),
+        2
+    );
+    let cover = Cover::natural(tasks::TASK_DOMAIN, "first");
+    let page = EventPage {
+        sequence: 1,
+        payload: Some(angzarr_embedded::Any {
+            type_url: "/ctxloom.tasks.v9.Unknown".to_string(),
+            value: Vec::new(),
+        }),
+        meta: None,
+    };
+    let write = Write {
+        events: Some(Append {
+            stream: StreamRef::try_from(&cover).unwrap(),
+            expected: 1,
+            pages: std::slice::from_ref(&page),
+        }),
+        ..Write::default()
+    };
+    ready(EventStore::write(service.stores.store.inner(), write)).unwrap();
+    for _ in 0..2 {
+        let error = ready(service.list(ListQuery::default())).unwrap_err();
+        assert!(matches!(error, AppError::Failed(_)), "{error:?}");
+    }
+}

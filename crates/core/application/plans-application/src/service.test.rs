@@ -544,3 +544,38 @@ fn the_plans_governing_each_task_are_answered_in_the_order_asked() {
         ]
     );
 }
+
+// The plan list is kept caught up across the service's reads: a read
+// after another reads each stream's first event (what tells a stream
+// written again from the one seen) and what was written since, never the
+// whole store again, and lists the same.
+#[test]
+fn a_second_list_reads_only_what_was_written_since() {
+    let tasks = FakeTasks::default();
+    let (files, mint) = (Files::default(), Counter::default());
+    let mut service = Service::new(&files, &tasks, &mint);
+    service.add(new("One")).unwrap();
+    service.add(new("Two")).unwrap();
+    let pages = |service: &Service<_, _, _>| service.0.borrow().stores.store.unit_pages();
+    let titles = |service: &Service<_, _, _>| {
+        let listed = service.list(&PlanQuery::default());
+        listed.into_iter().map(|p| p.title).collect::<Vec<_>>()
+    };
+
+    let before = pages(&service);
+    assert_eq!(titles(&service), ["One", "Two"]);
+    let first = pages(&service);
+    assert!(first > before, "the first list folds the streams");
+    assert_eq!(titles(&service), ["One", "Two"]);
+    let second = pages(&service);
+    assert_eq!(second - first, 2, "each stream's first event, once");
+
+    service.add(new("Three")).unwrap();
+    let before = pages(&service);
+    assert_eq!(titles(&service), ["One", "Two", "Three"]);
+    assert_eq!(
+        pages(&service) - before,
+        2 + 1,
+        "the two first events seen, and the new stream's one event"
+    );
+}
