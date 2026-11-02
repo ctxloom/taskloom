@@ -283,9 +283,8 @@ fn an_add_on_a_fresh_stream_records_task_added_at_the_sampled_instant() {
         "the event copies no instant: its page's recorded_at is its instant"
     );
     assert_eq!(
-        added.deferred_since,
-        Some(sampled),
-        "added deferred at that instant"
+        added.deferred_since, None,
+        "nor when it was deferred: that is its recorded_at too"
     );
     let pages = task.pages();
     assert_eq!(
@@ -295,6 +294,7 @@ fn an_add_on_a_fresh_stream_records_task_added_at_the_sampled_instant() {
     );
     let state = task.state();
     assert_eq!((state.created_at, state.status_set_at), (sampled, sampled));
+    assert_eq!(state.deferred_since, Some(sampled), "added deferred at it");
 }
 
 // A stream with history holds a task (or held one): its harp id is taken.
@@ -1119,8 +1119,9 @@ fn test_a_task_added_with_a_trigger_is_added_deferred() {
         panic!("{events:?}")
     };
     assert_eq!(added.status, DEFERRED);
-    assert_eq!(added.deferred_since, Some(at(101)));
+    assert_eq!(added.deferred_since, None, "an add copies no instant");
     assert_eq!(added.prior_status, TO_DO, "the status it returns to");
+    assert_eq!(task.state().deferred_since, Some(at(101)));
 }
 
 #[test]
@@ -1263,7 +1264,8 @@ fn test_an_add_takes_its_initial_and_deferring_statuses_from_the_command() {
         (added.status.as_str(), added.prior_status.as_str()),
         ("Parked", "Backlog")
     );
-    assert_eq!(added.deferred_since, Some(at(101)));
+    assert_eq!(added.deferred_since, None, "an add copies no instant");
+    assert_eq!(task.state().deferred_since, Some(at(101)));
 }
 
 #[test]
@@ -1653,6 +1655,78 @@ fn old_status_changes_are_read_at_the_deferred_since_they_carry() {
         replayed.deferred_since,
         Some(recorded_at(&task, 4)),
         "deferred anew: the new change's recorded_at"
+    );
+}
+
+// An add copies no deferred_since either (owner ruling 25): a task added
+// Deferred (holding a trigger) is deferred at the add's recorded_at, at
+// decide time as at replay, and one added otherwise has never been.
+#[test]
+fn new_adds_carry_no_deferred_since_and_derive_it_from_their_recorded_at() {
+    let mut deferred = probe();
+    let (decided, replayed) = decided_and_replayed(
+        &mut deferred,
+        AddTask {
+            trigger: Some("after v2".to_string()),
+            ..add("Revisit")
+        },
+    );
+    assert_eq!(decided, replayed, "the task decided is the task replayed");
+    assert_eq!(replayed.status, DEFERRED);
+    assert_eq!(
+        replayed.deferred_since,
+        Some(recorded_at(&deferred, 0)),
+        "deferred at the add's"
+    );
+    let mut open = probe();
+    let (decided, replayed) = decided_and_replayed(&mut open, add("Write the tour"));
+    assert_eq!(decided, replayed, "the task decided is the task replayed");
+    assert_eq!(replayed.deferred_since, None, "never deferred");
+    for page in deferred.pages().into_iter().chain(open.pages()) {
+        let TaskEvent::TaskAdded(added) =
+            TaskEvent::from_any(page.payload.as_ref().unwrap()).unwrap()
+        else {
+            panic!("an add")
+        };
+        assert_eq!(added.deferred_since, None, "{added:?} copies none");
+    }
+}
+
+// An add written before ruling 25 carries its deferred_since, read in
+// preference (here earlier than both its own `at` and its page's
+// recorded_at, so the three are told apart); a new change on such a stream
+// keeps it, and decides the task it replays.
+#[test]
+fn old_adds_are_read_at_the_deferred_since_they_carry() {
+    let mut task = probe();
+    task.given([TaskAdded {
+        harp_id: HARP.to_string(),
+        text: "Revisit".to_string(),
+        status: DEFERRED.to_string(),
+        trigger: "after the release".to_string(),
+        tags: Vec::new(),
+        origin_session: "calm-otter".to_string(),
+        at: Some(at(7)),
+        deferred_since: Some(at(6)),
+        prior_status: TO_DO.to_string(),
+    }
+    .into()]);
+    assert_ne!(
+        recorded_at(&task, 0),
+        at(7),
+        "the page's instant is another"
+    );
+    assert_eq!(
+        task.state().task.state().deferred_since,
+        Some(at(6)),
+        "the deferred_since the old add carries"
+    );
+    let (decided, replayed) = decided_and_replayed(&mut task, status(TO_DO, ""));
+    assert_eq!(decided, replayed, "the task decided is the task replayed");
+    assert_eq!(
+        replayed.deferred_since,
+        Some(at(6)),
+        "kept on leaving Deferred"
     );
 }
 
