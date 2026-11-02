@@ -335,8 +335,9 @@ weaken a gate to get through.
    process a test spawned whose stop a mutant broke) is killed and named
    in the gate's log; the verdict does not change. The last run's mutants.out (each
    mutant's log, outcomes.json) is kept in target/logs/mutants-push/. Red
-   tests bound for a branch other than the default one are not judged
-   (no mutant can be, against failing tests) and pass with a warning.
+   tests fail it on every branch (no mutant can be judged against failing
+   tests), as does a run that found mutants and tested fewer: a mutation
+   run that judged nothing has shown nothing.
    `just mutants-staged` runs the same judgement over the staged diff, by
    hand, before committing, and `just mutants-all` over the whole workspace
    at HEAD (the full pass; weekly in CI, `.github/workflows/mutation.yml`).
