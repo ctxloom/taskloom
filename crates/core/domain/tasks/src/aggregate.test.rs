@@ -276,7 +276,11 @@ fn an_add_on_a_fresh_stream_records_task_added_at_the_sampled_instant() {
     let [TaskEvent::TaskAdded(added)] = events.as_slice() else {
         panic!("one TaskAdded, not {events:?}");
     };
-    assert_eq!(added.at, sampled, "the event's instant is the sampled one");
+    assert_eq!(
+        added.at,
+        Some(sampled),
+        "the event's instant is the sampled one"
+    );
     assert_eq!(
         added.deferred_since,
         Some(sampled),
@@ -381,7 +385,7 @@ fn test_add_records_the_task_with_its_creation_time() {
             trigger: String::new(),
             tags: Vec::new(),
             origin_session: "calm-otter".to_string(),
-            at: at(101),
+            at: Some(at(101)),
             deferred_since: None,
             prior_status: String::new(),
         })]
@@ -460,7 +464,7 @@ fn test_set_status_moves_the_task_and_stamps_when() {
         vec![TaskEvent::StatusChanged(StatusChanged {
             status: "In Progress".to_string(),
             trigger: String::new(),
-            at: at(102),
+            at: Some(at(102)),
             deferred_since: None,
             prior_status: String::new(),
         })]
@@ -480,7 +484,7 @@ fn test_deferring_a_deferred_task_by_name_keeps_the_trigger_it_holds() {
         vec![TaskEvent::StatusChanged(StatusChanged {
             status: DEFERRED.to_string(),
             trigger: "after the release".to_string(),
-            at: at(103),
+            at: Some(at(103)),
             deferred_since: Some(at(103)),
             prior_status: TO_DO.to_string(),
         })],
@@ -513,7 +517,7 @@ fn test_leaving_deferred_clears_the_trigger_and_keeps_when_it_was_deferred() {
         vec![TaskEvent::StatusChanged(StatusChanged {
             status: TO_DO.to_string(),
             trigger: String::new(),
-            at: at(103),
+            at: Some(at(103)),
             deferred_since: Some(at(102)),
             prior_status: String::new(),
         })]
@@ -954,7 +958,7 @@ fn test_a_trigger_given_alone_defers_the_task_keeping_its_status_to_return_to() 
         vec![TaskEvent::StatusChanged(StatusChanged {
             status: DEFERRED.to_string(),
             trigger: "after v2".to_string(),
-            at: at(103),
+            at: Some(at(103)),
             deferred_since: Some(at(103)),
             prior_status: "In Progress".to_string(),
         })]
@@ -977,7 +981,7 @@ fn test_clearing_the_trigger_returns_the_task_to_the_status_it_was_deferred_from
         vec![TaskEvent::StatusChanged(StatusChanged {
             status: "In Progress".to_string(),
             trigger: String::new(),
-            at: at(104),
+            at: Some(at(104)),
             deferred_since: Some(at(103)),
             prior_status: String::new(),
         })],

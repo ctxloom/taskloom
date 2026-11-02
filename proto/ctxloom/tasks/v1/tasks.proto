@@ -176,7 +176,8 @@ message TaskAdded {
   // Normalized.
   repeated tagma.v1.Tag tags = 5;
   string origin_session = 6;
-  google.protobuf.Timestamp at = 7;
+  // The instant it was added (optional: owner ruling, 2026-11-01).
+  optional google.protobuf.Timestamp at = 7;
   // `at` when the task is added Deferred; absent otherwise.
   optional google.protobuf.Timestamp deferred_since = 8;
   // The status clearing its trigger returns it to, when it is added
@@ -190,7 +191,8 @@ message StatusChanged {
   string status = 1;
   // The trigger the task holds after the change, changed or not.
   string trigger = 2;
-  google.protobuf.Timestamp at = 3;
+  // The instant of the change (optional: owner ruling, 2026-11-01).
+  optional google.protobuf.Timestamp at = 3;
   // `at` when the task enters Deferred; otherwise the instant it last did,
   // absent if it never has.
   optional google.protobuf.Timestamp deferred_since = 4;

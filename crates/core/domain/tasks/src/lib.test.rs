@@ -88,7 +88,7 @@ fn test_an_event_round_trips_through_the_wire() {
     let event = TaskEvent::StatusChanged(StatusChanged {
         status: DEFERRED.to_string(),
         trigger: "after the release".to_string(),
-        at: at(5),
+        at: Some(at(5)),
         deferred_since: Some(at(5)),
         prior_status: String::new(),
     });

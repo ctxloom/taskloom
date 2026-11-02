@@ -49,15 +49,15 @@ pub(crate) fn apply(state: &mut TaskState, event: &TaskEvent) {
             state.trigger = added.trigger.clone();
             state.tags = added.tags.clone();
             state.origin_session = added.origin_session.clone();
-            state.created_at = added.at;
-            state.status_set_at = added.at;
+            state.created_at = added.at.unwrap_or_default();
+            state.status_set_at = added.at.unwrap_or_default();
             state.deferred_since = added.deferred_since;
             state.prior_status = added.prior_status.clone();
         }
         TaskEvent::StatusChanged(changed) => {
             state.status = changed.status.clone();
             state.trigger = changed.trigger.clone();
-            state.status_set_at = changed.at;
+            state.status_set_at = changed.at.unwrap_or_default();
             state.deferred_since = changed.deferred_since;
             state.prior_status = changed.prior_status.clone();
         }
@@ -100,7 +100,7 @@ fn task_added(
         trigger,
         tags: normalized(&add.tags).into_values().collect(),
         origin_session,
-        at,
+        at: Some(at),
         deferred_since: deferred.then_some(at),
         prior_status,
     })
@@ -120,7 +120,7 @@ fn status_changed(
     Ok(Some(StatusChanged {
         status: after.status,
         trigger: after.trigger,
-        at,
+        at: Some(at),
         deferred_since: match after.deferred {
             true => Some(at),
             false => held.deferred_since,
