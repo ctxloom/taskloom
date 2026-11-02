@@ -27,8 +27,8 @@ pub use tagma_core::{Code, Finding, Origin};
 
 use tasks::schema::SchemaState;
 
-use crate::semver::{Semver, SEMVER};
 use crate::{AppError, Shown, Tag};
+use tagma_core::semver::{Semver, SEMVER};
 
 /// The namespace taskloom's own schema tags are in: ranking formulas,
 /// which tagma's `check` would otherwise call an unknown facet. A task may
@@ -143,7 +143,7 @@ impl StoreRules {
         self.tags.contains(tag)
     }
 
-    /// tagma's rules over the tags, taskloom's `semver` comparator
+    /// tagma's rules over the tags, its `semver` comparator
     /// registered.
     pub(crate) fn rules(&self) -> tagma_core::Rules {
         let mut rules = tagma_core::Rules::from_tags(&self.tags);

@@ -42,7 +42,6 @@ mod read;
 mod request;
 mod rules;
 mod schema;
-mod semver;
 mod service;
 mod tags;
 mod task;
@@ -106,8 +105,9 @@ pub use rules::{
     TargetSummary, SEEDED_SCHEMA, TASKLOOM_NAMESPACE,
 };
 pub use schema::{Declaration, Declared, SchemaService};
-pub use semver::{Semver, Version, SEMVER};
 pub use service::{registry, NotConfigured, Service, TaskService};
+/// SemVer 2.0.0, as a `type=semver` target orders by: tagma's.
+pub use tagma_core::semver::{Semver, Version, SEMVER};
 /// A finding's tag is tagma's own type, as tagma reports it.
 pub use tagma_core::Tag as RuleTag;
 pub use tags::{

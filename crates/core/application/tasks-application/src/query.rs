@@ -20,8 +20,8 @@ use angzarr_diagnostic::{Arg, Diagnostic};
 use tagma_core::Index;
 
 use crate::rules::StoreRules;
-use crate::semver::{Semver, SEMVER};
 use crate::Tag;
+use tagma_core::semver::{Semver, SEMVER};
 
 /// The namespace of the presence tag every candidate carries. A task may
 /// hold a tag in it too, which changes nothing: the presence tag is on
