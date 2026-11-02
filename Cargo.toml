@@ -30,7 +30,7 @@ angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "e688
 
 # angzarr-embedded, angzarr's in-app runtime, taskloom's
 # (taskloom-on-angzarr-embedded.plan.md). Pinned by rev on
-# angzarr-embedded's main: 0bb53fc (router aeaff4f, angzarr core ab3e9b50
+# angzarr-embedded's main: 5b96c43 (router eea1af9, angzarr core ab3e9b50
 # for angzarr-proto, angzarr-ports and angzarr-diagnostic; angzarr-proto
 # core's messages alone, the protos four packages since decision 14.64,
 # none of which taskloom names beyond core's): the kernel at
@@ -46,12 +46,13 @@ angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "e688
 # answering `Result<_, Misconfigured>`, the registry's description its
 # read-only `Catalog`; and an applier handed, for the decision's own
 # events, the metadata the kernel stamps them with (`event_meta`), so the
-# state decided is the state replayed. angzarr-proto and
+# state decided is the state replayed; and G5's complexity gate, the
+# kernel's own code held to it. angzarr-proto and
 # angzarr-store-sqlite are reached through those re-exports
 # (`angzarr_embedded::angzarr_proto`, `angzarr_embedded::angzarr_store_sqlite`)
 # and not pinned here.
-angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "0bb53fc928bba9eb1fda43698b479e633e6ff2ec" }
-angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "0bb53fc928bba9eb1fda43698b479e633e6ff2ec" }
+angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "5b96c432018175a01055692638a4eb8c63b5c909" }
+angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "5b96c432018175a01055692638a4eb8c63b5c909" }
 # angzarr core's shared crates, at the core rev angzarr-embedded pins
 # (ab3e9b50), so the graph holds one of each. angzarr-diagnostic, the coded
 # error trait every error here implements, is pinned directly rather than
