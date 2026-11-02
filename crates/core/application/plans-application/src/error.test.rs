@@ -58,11 +58,7 @@ fn every_rejection_has_a_catalog_message_with_exactly_its_args() {
 #[test]
 fn every_code_is_prefixed_with_the_crates_name() {
     for sample in crate::diagnostic_samples() {
-        assert!(
-            sample.code().starts_with("plans-application-"),
-            "{}",
-            sample.code()
-        );
+        assert!(sample.code().starts_with(code!("")), "{}", sample.code());
     }
 }
 

@@ -8,7 +8,7 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
 use angzarr_ports::angzarr_proto::v1::event_meta::Causation;
 use angzarr_ports::angzarr_proto::v1::{EventMeta, EventPage, Uuid};
@@ -386,14 +386,14 @@ fn test_the_openers_futures_are_send_so_a_server_can_spawn_them() {
 // The owner's ruling D2 (taskloom-on-angzarr-embedded.plan.md): a store
 // written before taskloom moved onto angzarr-embedded (annals-store-sql's,
 // its events under annals' rules) is not migrated. Opened, it is refused,
-// keyed `task-store-sqlite-predates-embedded` with its path and the path
+// keyed `StoreOpenError::PredatesEmbedded` with its path and the path
 // to back it up to (`state.db.pre-embedded`), so the user moves it aside
 // and starts afresh; and it is left exactly as it was, never migrated in
 // place (angzarr-store-sqlite's open would migrate it, one way). Its
 // fixture is annals-store-sql's file, frozen in testdata.
 
 /// The key a store from before angzarr-embedded is refused with.
-const PREDATES: &str = "task-store-sqlite-predates-embedded";
+const PREDATES: &str = code!("predates-embedded");
 
 /// A store as taskloom wrote one before angzarr-embedded: annals-store-
 /// sql's (rev ed00923), holding one task stream of two events under
@@ -753,7 +753,7 @@ fn test_a_directory_that_cannot_be_made_fails_naming_it() {
     let error = block_on(stores.open(&project("jolly-mute-magma", path)))
         .map(drop)
         .unwrap_err();
-    let args = keyed(&error, "task-store-sqlite-create-dir").expect("refused naming it");
+    let args = keyed(&error, code!("create-dir")).expect("refused naming it");
     assert_eq!(args[0].0, "path");
     assert!(
         args[0].1.contains(&blocker.display().to_string()),
@@ -786,7 +786,7 @@ fn test_a_store_the_filesystem_cannot_place_is_refused_naming_it() {
     let path = PathBuf::from("/home/u/state.db");
     let project = project("jolly-mute-magma", path.clone());
     let unplaced = |error: StoreError| {
-        let args = keyed(&error, "task-store-sqlite-unplaced").expect("refused naming it");
+        let args = keyed(&error, code!("unplaced")).expect("refused naming it");
         assert_eq!(
             args,
             [
@@ -807,7 +807,7 @@ fn test_a_store_the_filesystem_cannot_place_is_refused_naming_it() {
             .unwrap_err(),
     );
     let checked = stores.check(&path).unwrap_err();
-    assert_eq!(checked.code(), "task-store-sqlite-unplaced");
+    assert_eq!(checked.code(), code!("unplaced"));
 }
 
 #[test]

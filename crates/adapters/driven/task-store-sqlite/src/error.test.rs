@@ -1,6 +1,6 @@
 //! The errors' keys and args, and the catalog.
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 
 use super::{diagnostic_samples, StoreOpenError};
 
@@ -21,11 +21,20 @@ fn test_each_error_displays_its_code_and_args_never_english() {
     assert_eq!(
         displayed,
         [
-            r#"task-store-sqlite-create-dir path=/home/u/.ctxloom/projects/jolly-mute-magma ext_err_txt="permission denied""#,
-            r#"task-store-sqlite-unplaced path=/home/u/.ctxloom/projects/jolly-mute-magma/state.db ext_err_txt="not an absolute path: C:state.db""#,
-            r#"task-store-sqlite-no-runtime ext_err_txt="too many open files""#,
-            "task-store-sqlite-predates-embedded path=/home/u/.ctxloom/projects/jolly-mute-magma/state.db \
-             backup=/home/u/.ctxloom/projects/jolly-mute-magma/state.db.pre-embedded",
+            concat!(
+                code!("create-dir"),
+                r#" path=/home/u/.ctxloom/projects/jolly-mute-magma ext_err_txt="permission denied""#
+            ),
+            concat!(
+                code!("unplaced"),
+                r#" path=/home/u/.ctxloom/projects/jolly-mute-magma/state.db ext_err_txt="not an absolute path: C:state.db""#
+            ),
+            concat!(code!("no-runtime"), r#" ext_err_txt="too many open files""#),
+            concat!(
+                code!("predates-embedded"),
+                " path=/home/u/.ctxloom/projects/jolly-mute-magma/state.db \
+             backup=/home/u/.ctxloom/projects/jolly-mute-magma/state.db.pre-embedded"
+            ),
         ]
     );
 }
@@ -39,7 +48,7 @@ fn test_the_catalog_says_a_store_predates_angzarr_embedded_with_its_path_and_bac
         .body
         .iter()
         .find_map(|e| match e {
-            Entry::Message(m) if m.id.name == "task-store-sqlite-predates-embedded" => Some(m),
+            Entry::Message(m) if m.id.name == code!("predates-embedded") => Some(m),
             _ => None,
         })
         .expect("a message for the key");
@@ -83,7 +92,10 @@ fn test_each_error_gives_its_args_values() {
         matches!(&error.args()[..], [("ext_err_txt", Arg::Str(d))] if d == "d"),
         "{error:?}"
     );
-    assert_eq!(error.code(), "task-store-sqlite-no-runtime");
+    assert!(
+        matches!(error, StoreOpenError::NoRuntime { .. }),
+        "{error:?}"
+    );
 }
 
 #[test]
@@ -137,4 +149,16 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
         args.sort_unstable();
         assert_eq!(used, args, "{}", sample.code());
     }
+}
+
+/// The catalog is exported under the crate's package name, and every code
+/// is under that name, with its message using exactly its args.
+#[test]
+fn test_every_code_is_under_the_crates_name_with_its_message() {
+    let (name, text) = crate::EN_US;
+    assert_eq!(name, env!("CARGO_PKG_NAME"));
+    assert_eq!(
+        angzarr_diagnostic::catalog::check(name, text, &crate::diagnostic_samples()),
+        []
+    );
 }

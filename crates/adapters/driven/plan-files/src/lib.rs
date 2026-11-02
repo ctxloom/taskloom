@@ -9,7 +9,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use angzarr_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 use file_system::{Fs, Kind, Open};
 use os::Mode;
 use ports::PlanFiles;
@@ -47,7 +47,7 @@ impl fmt::Display for PlanFilesError {
 impl Diagnostic for PlanFilesError {
     fn code(&self) -> &str {
         match self {
-            PlanFilesError::Create { .. } => "plan-files-create",
+            PlanFilesError::Create { .. } => code!("create"),
         }
     }
 
@@ -63,8 +63,8 @@ impl Diagnostic for PlanFilesError {
 
 /// This crate's en-US messages, its name first.
 pub const EN_US: (&str, &str) = (
-    "plan-files",
-    include_str!("../locales/en-US/plan-files.ftl"),
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
 );
 
 /// One value of every error, for the catalog test.

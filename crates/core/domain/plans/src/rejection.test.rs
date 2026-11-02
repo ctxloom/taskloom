@@ -1,6 +1,7 @@
 //! The catalog: every rejection has an en-US message using exactly its
 //! args, and every message a sample.
 
+use angzarr_diagnostic::code;
 use fluent_syntax::ast::{Entry, Expression, InlineExpression, PatternElement};
 
 #[test]
@@ -55,7 +56,7 @@ fn every_rejection_has_a_catalog_message_with_exactly_its_args() {
 #[test]
 fn every_code_is_prefixed_with_the_crates_name() {
     for sample in super::diagnostic_samples() {
-        assert!(sample.code().starts_with("plans-"), "{}", sample.code());
+        assert!(sample.code().starts_with(code!("")), "{}", sample.code());
     }
 }
 

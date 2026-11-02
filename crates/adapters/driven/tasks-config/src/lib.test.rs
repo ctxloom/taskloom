@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 angzarr_presentation::english_for!(&[crate::EN_US.1, angzarr_yaml::EN_US.1]);
 
-use angzarr_diagnostic::Diagnostic;
+use angzarr_diagnostic::{code, Diagnostic};
 use file_system::{Fs, Perms, Rooted};
 use os::Mode;
 use ports::Configuration;
@@ -172,7 +172,7 @@ fn test_every_layer_setting_a_moved_key_is_refused_naming_it() {
 fn test_through_the_port() {
     let dirs = Dirs::new(None, Some(ROOT));
     let error = dirs.config(&[]).moved().unwrap_err();
-    assert_eq!(error.code(), "tasks-config-key-moved");
+    assert_eq!(error.code(), code!("key-moved"));
     let nonsense = strings(&["nonsense"]);
     let error = TaskloomConfig::new(
         Arc::clone(&dirs.fs),
@@ -183,11 +183,7 @@ fn test_through_the_port() {
     )
     .moved()
     .unwrap_err();
-    assert_eq!(
-        error.code(),
-        "tasks-config-key-moved",
-        "the root's file first"
-    );
+    assert_eq!(error.code(), code!("key-moved"), "the root's file first");
     let dirs = Dirs::new(None, None);
     let error = TaskloomConfig::new(
         Arc::clone(&dirs.fs),
@@ -198,7 +194,7 @@ fn test_through_the_port() {
     )
     .moved()
     .unwrap_err();
-    assert_eq!(error.code(), "tasks-config-not-an-override");
+    assert_eq!(error.code(), code!("not-an-override"));
 }
 
 // The import alone reads the work root's file's tag_schema, as written,
@@ -346,7 +342,7 @@ fn test_go_written_config_files_load() {
             None => assert_eq!(got, Ok(()), "{}", fixture.name),
             Some(key) => assert_eq!(
                 got.map_err(|e| e.code().to_string()),
-                Err("tasks-config-key-moved".to_string()),
+                Err(code!("key-moved").to_string()),
                 "{}: {key}",
                 fixture.name
             ),
@@ -366,7 +362,7 @@ fn test_a_config_file_that_cannot_be_read_is_refused() {
         .create_dir_all(&dirs.root.join(".taskloom/config.yaml"), Mode::DIR)
         .unwrap();
     let error = moved(&dirs.config(&[]), &[]).unwrap_err();
-    assert_eq!(error.code(), "tasks-config-unreadable");
+    assert!(matches!(error, ConfigError::Unreadable { .. }), "{error:?}");
     assert!(
         error
             .to_string()
@@ -429,7 +425,7 @@ fn test_a_blank_item_in_a_config_files_list_is_refused() {
         let text = format!("schema_version: 1\ntag_schema:\n  - 'a'\n  - {item}\n");
         let dirs = Dirs::new(None, Some(&text));
         let error = dirs.config(&[]).tag_schema().unwrap_err();
-        assert_eq!(error.code(), "tasks-config-blank-item", "{item}");
+        assert_eq!(error.code(), code!("blank-item"), "{item}");
     }
     let dirs = Dirs::new(Some("schema_version: 1\ntag_schema:\n  - ''\n"), None);
     let error = moved(&dirs.config(&[]), &[]).unwrap_err();
@@ -590,7 +586,7 @@ mod permits {
         for (text, code) in [
             (
                 "tag_permits:\n  namespaces:\n    area: maybe\n",
-                "tasks-config-not-a-permit",
+                code!("not-a-permit"),
             ),
             ("tag_permits:\n  areas: {}\n", "angzarr-yaml-load-failed-at"),
             (
@@ -599,9 +595,9 @@ mod permits {
             ),
             (
                 "tag_permits:\n  namespaces:\n    area: ['cli', '']\n",
-                "tasks-config-blank-item",
+                code!("blank-item"),
             ),
-            ("tag_permits:\n  tags: ['']\n", "tasks-config-blank-item"),
+            ("tag_permits:\n  tags: ['']\n", code!("blank-item")),
         ] {
             let dirs = Dirs::new(None, Some(&format!("{STAMP}{text}")));
             let error = dirs.config(&[]).tag_permits().unwrap_err();
@@ -796,7 +792,7 @@ mod permits {
             Vec::new(),
         );
         let error = rootless.write_tag_permits(&usual()).unwrap_err();
-        assert_eq!(error.code(), "tasks-config-no-work-root");
+        assert_eq!(error.code(), code!("no-work-root"));
         assert!(
             dirs.fs
                 .read_to_string(&dirs.home.join(".taskloom/config.yaml"))

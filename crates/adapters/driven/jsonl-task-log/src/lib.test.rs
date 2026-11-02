@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 angzarr_presentation::english_for!(&[crate::EN_US.1]);
 
-use angzarr_diagnostic::Diagnostic;
+use angzarr_diagnostic::{code, Diagnostic};
 use file_system::{Fs, Perms, Rooted};
 use os::Mode;
 use ports::{JsonlOp, JsonlRecord, JsonlTaskLogs};
@@ -240,7 +240,7 @@ fn test_an_unreadable_directory_is_an_error() {
     home.mkdir(&home.path().join(".ctxloom"));
     home.write(&home.path().join(".ctxloom/tasks"), b"not a directory");
     let error = home.logs().projects().unwrap_err();
-    assert_eq!(error.code(), "jsonl-task-log-unreadable");
+    assert_eq!(error.code(), code!("unreadable"));
 }
 
 #[test]
@@ -262,14 +262,14 @@ fn test_a_log_that_cannot_be_read_is_an_error() {
     let (home, mut logs) = logs(&[]);
     home.mkdir(&home.path().join(".ctxloom/tasks/able-calm-fox.jsonl"));
     let error = logs.records("able-calm-fox").unwrap_err();
-    assert_eq!(error.code(), "jsonl-task-log-unreadable");
+    assert_eq!(error.code(), code!("unreadable"));
 }
 
 #[test]
 fn test_a_bad_log_reports_its_path() {
     let (home, mut logs) = logs(&[("able-calm-fox.jsonl", "{")]);
     let error = logs.records("able-calm-fox").unwrap_err();
-    assert_eq!(error.code(), "jsonl-task-log-malformed");
+    assert_eq!(error.code(), code!("malformed"));
     let path = home
         .path()
         .join(".ctxloom")
@@ -301,13 +301,10 @@ fn test_bytes_that_are_not_utf8_are_replaced_as_go_replaces_them() {
 fn test_without_a_home_every_read_says_so() {
     for home in [None, Some(Path::new(""))] {
         let mut logs = JsonlTaskLogDir::in_home(Home::new().fs(), home);
-        assert_eq!(
-            logs.projects().unwrap_err().code(),
-            "jsonl-task-log-no-home"
-        );
+        assert_eq!(logs.projects().unwrap_err().code(), code!("no-home"));
         assert_eq!(
             logs.records("able-calm-fox").unwrap_err().code(),
-            "jsonl-task-log-no-home"
+            code!("no-home")
         );
         // The variable read on this host: HOME, or USERPROFILE on Windows.
         let error = logs.projects().unwrap_err();

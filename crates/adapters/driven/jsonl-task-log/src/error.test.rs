@@ -1,6 +1,6 @@
 //! The errors' English and the catalog.
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 
 angzarr_presentation::english_for!(&[crate::EN_US.1]);
 
@@ -80,11 +80,11 @@ fn test_each_error_has_its_own_code() {
     assert_eq!(
         codes,
         [
-            "jsonl-task-log-no-home",
-            "jsonl-task-log-unreadable",
-            "jsonl-task-log-malformed",
-            "jsonl-task-log-no-op",
-            "jsonl-task-log-unknown-op",
+            code!("no-home"),
+            code!("unreadable"),
+            code!("malformed"),
+            code!("no-op"),
+            code!("unknown-op"),
         ]
     );
 }
@@ -140,4 +140,16 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
         args.sort_unstable();
         assert_eq!(used, args, "{}", sample.code());
     }
+}
+
+/// The catalog is exported under the crate's package name, and every code
+/// is under that name, with its message using exactly its args.
+#[test]
+fn test_every_code_is_under_the_crates_name_with_its_message() {
+    let (name, text) = crate::EN_US;
+    assert_eq!(name, env!("CARGO_PKG_NAME"));
+    assert_eq!(
+        angzarr_diagnostic::catalog::check(name, text, &crate::diagnostic_samples()),
+        []
+    );
 }

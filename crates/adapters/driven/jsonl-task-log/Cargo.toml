@@ -25,6 +25,11 @@ angzarr-presentation = { workspace = true, features = ["test-support"] }
 fluent-syntax.workspace = true
 os = { workspace = true, features = ["test-support"] }
 
+[build-dependencies]
+# The build writes the catalog's source under the crate's name
+# (angzarr_diagnostic::build): no catalog spells its crate's name.
+angzarr-diagnostic = { workspace = true, features = ["build"] }
+
 [features]
 # `diagnostic_samples`, for other crates' catalog tests: their
 # dev-dependency turns it on, and no build of a binary does.

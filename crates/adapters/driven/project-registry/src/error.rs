@@ -3,7 +3,7 @@
 use std::fmt;
 use std::path::Path;
 
-use angzarr_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 use angzarr_yaml::versioned::LoadError;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -70,19 +70,19 @@ impl fmt::Display for RegistryError {
 impl Diagnostic for RegistryError {
     fn code(&self) -> &str {
         match self {
-            RegistryError::NoHome { .. } => "project-registry-no-home",
-            RegistryError::Io { .. } => "project-registry-io",
-            RegistryError::InvalidId { .. } => "project-registry-invalid-id",
+            RegistryError::NoHome { .. } => code!("no-home"),
+            RegistryError::Io { .. } => code!("io"),
+            RegistryError::InvalidId { .. } => code!("invalid-id"),
             RegistryError::Load(e) => e.code(),
-            RegistryError::Exhausted { .. } => "project-registry-exhausted",
-            RegistryError::NoWorkingDirectory { .. } => "project-registry-no-cwd",
-            RegistryError::RelativePath { .. } => "project-registry-relative-path",
-            RegistryError::LockTimeout { .. } => "project-registry-lock-timeout",
-            RegistryError::LockReplaced { .. } => "project-registry-lock-replaced",
-            RegistryError::Changed => "project-registry-changed",
-            RegistryError::NotADatabase { .. } => "project-registry-not-a-database",
-            RegistryError::StaleWorktree { .. } => "project-registry-stale-worktree",
-            RegistryError::LockFailed { .. } => "project-registry-lock-failed",
+            RegistryError::Exhausted { .. } => code!("exhausted"),
+            RegistryError::NoWorkingDirectory { .. } => code!("no-cwd"),
+            RegistryError::RelativePath { .. } => code!("relative-path"),
+            RegistryError::LockTimeout { .. } => code!("lock-timeout"),
+            RegistryError::LockReplaced { .. } => code!("lock-replaced"),
+            RegistryError::Changed => code!("changed"),
+            RegistryError::NotADatabase { .. } => code!("not-a-database"),
+            RegistryError::StaleWorktree { .. } => code!("stale-worktree"),
+            RegistryError::LockFailed { .. } => code!("lock-failed"),
         }
     }
 
@@ -129,8 +129,8 @@ impl Diagnostic for RegistryError {
 /// This crate's en-US messages, its name first: what an edge's catalog
 /// embeds to render its diagnostics.
 pub const EN_US: (&str, &str) = (
-    "project-registry",
-    include_str!("../locales/en-US/project-registry.ftl"),
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
 );
 
 /// One value of every error, for the catalog test.

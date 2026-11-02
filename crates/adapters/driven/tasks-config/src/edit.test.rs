@@ -7,7 +7,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 angzarr_presentation::english_for!(&[crate::EN_US.1, angzarr_yaml::EN_US.1]);
 
-use angzarr_diagnostic::Diagnostic;
 use ports::{NamespacePermit, TagPermits};
 
 use super::verified;
@@ -68,7 +67,10 @@ fn test_an_edit_is_refused_unless_it_reads_back_as_meant() {
     ];
     for (why, after) in refused {
         let error = verified(PATH, BEFORE, &after, &meant(&["cli", "mcp"])).unwrap_err();
-        assert_eq!(error.code(), "tasks-config-edit-refused", "{why}");
+        assert!(
+            matches!(error, crate::ConfigError::EditRefused { .. }),
+            "{why}"
+        );
         assert!(error.english().starts_with(PATH), "{why}: {error}");
     }
 }
@@ -221,7 +223,10 @@ fn test_a_file_ending_without_a_line_break_is_followed_by_the_block() {
     );
     for source in ["# mine", ""] {
         let error = super::edited(PATH, source, &permits).unwrap_err();
-        assert_eq!(error.code(), "tasks-config-edit-refused", "{source:?}");
+        assert!(
+            matches!(error, crate::ConfigError::EditRefused { .. }),
+            "{source:?}"
+        );
     }
 }
 

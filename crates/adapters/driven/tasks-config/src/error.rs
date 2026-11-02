@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 use angzarr_yaml::versioned::LoadError;
 
 use crate::KEYS;
@@ -65,17 +65,17 @@ impl fmt::Display for ConfigError {
 impl Diagnostic for ConfigError {
     fn code(&self) -> &str {
         match self {
-            ConfigError::Unreadable { .. } => "tasks-config-unreadable",
-            ConfigError::Unwritable { .. } => "tasks-config-unwritable",
+            ConfigError::Unreadable { .. } => code!("unreadable"),
+            ConfigError::Unwritable { .. } => code!("unwritable"),
             ConfigError::Load(e) => e.code(),
-            ConfigError::NotAPermit { .. } => "tasks-config-not-a-permit",
-            ConfigError::Newer { .. } => "tasks-config-newer",
-            ConfigError::UnknownKey { .. } => "tasks-config-unknown-key",
-            ConfigError::NotAnOverride { .. } => "tasks-config-not-an-override",
-            ConfigError::BlankItem { .. } => "tasks-config-blank-item",
-            ConfigError::KeyMoved { .. } => "tasks-config-key-moved",
-            ConfigError::NoWorkRoot => "tasks-config-no-work-root",
-            ConfigError::EditRefused { .. } => "tasks-config-edit-refused",
+            ConfigError::NotAPermit { .. } => code!("not-a-permit"),
+            ConfigError::Newer { .. } => code!("newer"),
+            ConfigError::UnknownKey { .. } => code!("unknown-key"),
+            ConfigError::NotAnOverride { .. } => code!("not-an-override"),
+            ConfigError::BlankItem { .. } => code!("blank-item"),
+            ConfigError::KeyMoved { .. } => code!("key-moved"),
+            ConfigError::NoWorkRoot => code!("no-work-root"),
+            ConfigError::EditRefused { .. } => code!("edit-refused"),
         }
     }
 
@@ -124,8 +124,8 @@ impl Diagnostic for ConfigError {
 /// This crate's en-US messages, its name first: what an edge's catalog
 /// embeds to render its diagnostics.
 pub const EN_US: (&str, &str) = (
-    "tasks-config",
-    include_str!("../locales/en-US/tasks-config.ftl"),
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
 );
 
 /// One value of every error, for the catalog test.

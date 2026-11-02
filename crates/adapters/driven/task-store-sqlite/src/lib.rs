@@ -23,7 +23,7 @@
 //!   its own.
 //! - A store written before angzarr-embedded (annals-store-sql's, its
 //!   ledger only its first migration) is refused by both, keyed
-//!   `task-store-sqlite-predates-embedded` with its `path` and the
+//!   [`StoreOpenError::PredatesEmbedded`] with its `path` and the
 //!   `backup` to move it to (`state.db.pre-embedded`), and left exactly
 //!   as it was: never migrated in place (the owner's ruling D2). Its
 //!   ledger is read before either open ([`SqliteStore::ledger_at`]), which

@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum StoreOpenError {
@@ -35,10 +35,10 @@ impl StoreOpenError {
     /// Its key: a literal, so angzarr-ports' cause can hold it.
     fn key(&self) -> &'static str {
         match self {
-            StoreOpenError::CreateDir { .. } => "task-store-sqlite-create-dir",
-            StoreOpenError::Unplaced { .. } => "task-store-sqlite-unplaced",
-            StoreOpenError::NoRuntime { .. } => "task-store-sqlite-no-runtime",
-            StoreOpenError::PredatesEmbedded { .. } => "task-store-sqlite-predates-embedded",
+            StoreOpenError::CreateDir { .. } => code!("create-dir"),
+            StoreOpenError::Unplaced { .. } => code!("unplaced"),
+            StoreOpenError::NoRuntime { .. } => code!("no-runtime"),
+            StoreOpenError::PredatesEmbedded { .. } => code!("predates-embedded"),
         }
     }
 
@@ -87,8 +87,8 @@ impl StoreOpenError {
 /// This crate's en-US messages, its name first: what an edge's catalog
 /// embeds to render its diagnostics.
 pub const EN_US: (&str, &str) = (
-    "task-store-sqlite",
-    include_str!("../locales/en-US/task-store-sqlite.ftl"),
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
 );
 
 /// One value of every error, for the catalog test.

@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum LogError {
@@ -33,11 +33,11 @@ impl fmt::Display for LogError {
 impl Diagnostic for LogError {
     fn code(&self) -> &str {
         match self {
-            LogError::NoHome { .. } => "jsonl-task-log-no-home",
-            LogError::Unreadable { .. } => "jsonl-task-log-unreadable",
-            LogError::Malformed { .. } => "jsonl-task-log-malformed",
-            LogError::NoOp { .. } => "jsonl-task-log-no-op",
-            LogError::UnknownOp { .. } => "jsonl-task-log-unknown-op",
+            LogError::NoHome { .. } => code!("no-home"),
+            LogError::Unreadable { .. } => code!("unreadable"),
+            LogError::Malformed { .. } => code!("malformed"),
+            LogError::NoOp { .. } => code!("no-op"),
+            LogError::UnknownOp { .. } => code!("unknown-op"),
         }
     }
 
@@ -68,8 +68,8 @@ impl Diagnostic for LogError {
 /// This crate's en-US messages, its name first: what an edge's catalog
 /// embeds to render its diagnostics.
 pub const EN_US: (&str, &str) = (
-    "jsonl-task-log",
-    include_str!("../locales/en-US/jsonl-task-log.ftl"),
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
 );
 
 /// One value of every error, for the catalog test.

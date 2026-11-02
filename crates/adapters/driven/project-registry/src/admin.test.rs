@@ -1,7 +1,7 @@
 //! The survey and its changes over a filesystem of the test's own: a home
 //! and work tree; and over the real one where git makes the repositories.
 
-use angzarr_diagnostic::Diagnostic;
+use angzarr_diagnostic::{code, Diagnostic};
 use ports::{Change, IdSource, ProjectAdmin, Registered, Survey};
 
 use crate::index;
@@ -146,7 +146,7 @@ fn test_a_survey_fails_on_a_projects_directory_it_cannot_list() {
     world.chmod(&world.projects(), 0o300);
     let error = world.registry(&[]).survey(None).unwrap_err();
     world.chmod(&world.projects(), 0o700);
-    assert_eq!(error.code(), "project-registry-io");
+    assert_eq!(error.code(), code!("io"));
     assert!(error.to_string().contains("projects"), "{error}");
 }
 
@@ -229,7 +229,7 @@ fn test_a_stale_survey_changes_nothing() {
             path: text(&world.tree()),
         }],
     );
-    assert_eq!(refused.unwrap_err().code(), "project-registry-changed");
+    assert_eq!(refused.unwrap_err().code(), code!("changed"));
     assert!(world.index().projects.is_empty());
 }
 
@@ -250,7 +250,7 @@ fn test_a_change_naming_an_invalid_id_is_refused() {
         let refused = world.apply(std::slice::from_ref(&change));
         assert_eq!(
             refused.unwrap_err().code(),
-            "project-registry-invalid-id",
+            code!("invalid-id"),
             "{change:?}"
         );
     }
@@ -285,15 +285,11 @@ fn test_removing_what_is_not_a_database_directory_is_refused() {
         let mut registry = world.registry(&[]);
         let seen = registry.survey(None).unwrap();
         let refused = registry.apply(&seen, &[Change::RemoveDatabase { id: s(id) }]);
-        assert_eq!(
-            refused.unwrap_err().code(),
-            "project-registry-not-a-database",
-            "{id}"
-        );
+        assert_eq!(refused.unwrap_err().code(), code!("not-a-database"), "{id}");
     }
     assert!(world.exists(&target.join("keep")));
     let missing = world.apply(&[Change::RemoveDatabase { id: s("no-such") }]);
-    assert_eq!(missing.unwrap_err().code(), "project-registry-io");
+    assert_eq!(missing.unwrap_err().code(), code!("io"));
 }
 
 #[test]
@@ -310,7 +306,7 @@ fn test_a_change_is_made_under_the_registry_lock() {
         path: s("/p"),
     }];
     let refused = registry.apply(&seen, &change);
-    assert_eq!(refused.unwrap_err().code(), "project-registry-lock-timeout");
+    assert_eq!(refused.unwrap_err().code(), code!("lock-timeout"));
     assert!(world.index().projects.is_empty());
     drop(held);
     // A change waits as it does in use: a child forked by another thread

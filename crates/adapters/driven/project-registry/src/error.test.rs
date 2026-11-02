@@ -1,6 +1,6 @@
 //! The errors' English and the catalog.
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 
 angzarr_presentation::english_for!(&[crate::EN_US.1, file_lock::EN_US.1, angzarr_yaml::EN_US.1]);
 
@@ -119,7 +119,7 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
     // This crate's own codes: the reader's are in its catalog.
     let samples: Vec<_> = diagnostic_samples()
         .into_iter()
-        .filter(|s| s.code().starts_with("project-registry-"))
+        .filter(|s| s.code().starts_with(code!("")))
         .collect();
     let mut catalog: Vec<&str> = resource
         .body
@@ -165,4 +165,18 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
         args.sort_unstable();
         assert_eq!(used, args, "{}", sample.code());
     }
+}
+
+/// The catalog is exported under the crate's package name, and every code
+/// is under that name, with its message using exactly its args. The
+/// samples angzarr-yaml's errors forward are angzarr-yaml's to check.
+#[test]
+fn test_every_code_is_under_the_crates_name_with_its_message() {
+    let (name, text) = crate::EN_US;
+    assert_eq!(name, env!("CARGO_PKG_NAME"));
+    let ours: Vec<_> = crate::diagnostic_samples()
+        .into_iter()
+        .filter(|d| d.code().starts_with(code!("")))
+        .collect();
+    assert_eq!(angzarr_diagnostic::catalog::check(name, text, &ours), []);
 }

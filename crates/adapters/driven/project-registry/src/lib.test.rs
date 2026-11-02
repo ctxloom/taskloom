@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use angzarr_diagnostic::Diagnostic;
+use angzarr_diagnostic::{code, Diagnostic};
 use file_system::{Fs, Os, Perms, Rooted};
 use os::Mode;
 use ports::{Names, ProjectIdentity};
@@ -286,7 +286,7 @@ fn test_a_working_directory_that_cannot_be_read_is_an_error() {
         names(&["fresh-new-id"]),
     );
     let error = registry.for_write(None).unwrap_err();
-    assert_eq!(error.code(), "project-registry-no-cwd");
+    assert_eq!(error.code(), code!("no-cwd"));
     assert!(error.to_string().contains("os error 2"), "{error}");
     assert_eq!(registry.names.minted, 0);
     env.root = Some(world.tree());
@@ -362,7 +362,7 @@ fn test_a_pinned_call_resolves_from_a_working_directory_that_is_gone() {
     let mut registry = ProjectRegistry::new(world.fs_without_cwd(), env, names(&[]));
     assert_eq!(registry.for_read(None).unwrap().unwrap().id, "env-proj-id");
     let error = world_unpinned(&world).for_read(None).unwrap_err();
-    assert_eq!(error.code(), "project-registry-no-cwd");
+    assert_eq!(error.code(), code!("no-cwd"));
 }
 
 fn world_unpinned(world: &World) -> ProjectRegistry<Scripted> {
@@ -389,10 +389,10 @@ fn test_an_empty_pinned_id_is_refused_not_read_as_unpinned() {
     env.project_id = Some("from-env".to_string());
     let mut registry = ProjectRegistry::new(world.fs(), env, names(&["minted-id"]));
     let error = registry.for_read(Some("")).unwrap_err();
-    assert_eq!(error.code(), "project-registry-invalid-id");
+    assert_eq!(error.code(), code!("invalid-id"));
     assert!(error.to_string().contains("--project"), "{error}");
     let error = registry.for_write(Some("")).unwrap_err();
-    assert_eq!(error.code(), "project-registry-invalid-id");
+    assert_eq!(error.code(), code!("invalid-id"));
     assert!(world.index().projects.is_empty(), "nothing bound");
 }
 
@@ -412,7 +412,7 @@ fn test_an_invalid_pinned_id_is_refused_naming_where_it_came_from() {
         .registry(&[])
         .for_write(Some("../escape"))
         .unwrap_err();
-    assert_eq!(error.code(), "project-registry-invalid-id");
+    assert_eq!(error.code(), code!("invalid-id"));
     assert!(error.to_string().contains("--project"), "{error}");
     let mut env = world.env();
     env.project_id = Some("a/b".to_string());
@@ -445,7 +445,7 @@ fn test_an_invalid_marker_is_refused() {
     let world = World::new();
     world.write(&world.tree().join(".project-id"), "../../etc\n");
     let error = world.registry(&[]).for_read(None).unwrap_err();
-    assert_eq!(error.code(), "project-registry-invalid-id");
+    assert_eq!(error.code(), code!("invalid-id"));
 }
 
 #[test]
@@ -453,7 +453,7 @@ fn test_an_unreadable_marker_fails() {
     let world = World::new();
     world.mkdir(&world.tree().join(".project-id"));
     let error = world.registry(&[]).for_read(None).unwrap_err();
-    assert_eq!(error.code(), "project-registry-io");
+    assert_eq!(error.code(), code!("io"));
 }
 
 #[test]
@@ -616,7 +616,7 @@ fn test_a_mint_gives_up_when_every_id_is_taken() {
     world.save(&index);
     let mut registry = world.registry(&[]);
     let error = registry.for_write(None).unwrap_err();
-    assert_eq!(error.code(), "project-registry-exhausted");
+    assert_eq!(error.code(), code!("exhausted"));
     assert_eq!(registry.names.minted, MINT_ATTEMPTS);
 }
 
@@ -644,7 +644,7 @@ fn test_a_custom_lock_wait_is_the_one_a_write_waits_for() {
     let started = std::time::Instant::now();
     let error = registry.for_write(None).unwrap_err();
     let waited = started.elapsed();
-    assert_eq!(error.code(), "project-registry-lock-timeout");
+    assert_eq!(error.code(), code!("lock-timeout"));
     assert!(waited >= wait, "it waited its wait: {waited:?}");
     assert!(
         waited < index::LOCK_WAIT / 2,
@@ -663,7 +663,7 @@ fn test_without_a_home_there_is_no_store_and_no_registry() {
         let error = ProjectRegistry::new(world.fs(), env, names(&[]))
             .for_write(Some("pinned"))
             .unwrap_err();
-        assert_eq!(error.code(), "project-registry-no-home");
+        assert_eq!(error.code(), code!("no-home"));
         // The variable read on this host: HOME, or USERPROFILE on Windows.
         assert_eq!(named_var(&error), os::host().flavor().home_var());
     }
@@ -931,7 +931,7 @@ fn test_every_project_without_a_home_fails() {
     let error = ProjectRegistry::new(world.fs(), env, names(&[]))
         .every_project()
         .unwrap_err();
-    assert_eq!(error.code(), "project-registry-no-home");
+    assert_eq!(error.code(), code!("no-home"));
     assert_eq!(named_var(&error), os::host().flavor().home_var());
 }
 
@@ -968,5 +968,5 @@ fn test_rootlessness_with_no_working_directory_fails() {
     let error = ProjectRegistry::new(world.fs_without_cwd(), env, names(&[]))
         .rootless_directory()
         .unwrap_err();
-    assert_eq!(error.code(), "project-registry-no-cwd");
+    assert_eq!(error.code(), code!("no-cwd"));
 }
