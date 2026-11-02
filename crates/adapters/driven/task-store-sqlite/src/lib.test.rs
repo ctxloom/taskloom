@@ -438,8 +438,11 @@ fn test_a_store_that_predates_angzarr_embedded_is_refused_naming_its_backup() {
 
 // ------------------------------------------------------------ purging
 
+/// A purge never touches a position on the stream (angzarr decision 14.68):
+/// the positions are a driver's record of what its handler processed, which
+/// finds the stream gone by its listing and forgets it itself.
 #[test]
-fn test_purge_removes_a_stream_and_every_position_on_it_and_it_starts_again_at_0() {
+fn test_purge_removes_a_stream_but_no_position_on_it_and_it_starts_again_at_0() {
     let home = Home::new();
     let project = project("p", store_in(home.path(), "p"));
     let mut stores = home.stores();
@@ -465,7 +468,7 @@ fn test_purge_removes_a_stream_and_every_position_on_it_and_it_starts_again_at_0
         );
         let slice = store.read(stream(1), 0, None).await.unwrap();
         assert_eq!((slice.next_sequence, slice.pages), (0, Vec::new()));
-        assert_eq!(store.position(list).await.unwrap(), 0, "its positions too");
+        assert_eq!(store.position(list).await.unwrap(), 2, "its positions kept");
         assert_eq!(pages(store, stream(2)).await, [event(0, 3)], "only it");
         let again = store
             .write(Write::append(stream(1), 0, &[event(0, 4)]))

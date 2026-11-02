@@ -11,7 +11,7 @@ publish.workspace = true
 angzarr-diagnostic.workspace = true
 clap.workspace = true
 plans-application.workspace = true
-presentation.workspace = true
+angzarr-presentation.workspace = true
 serde.workspace = true
 
 [dev-dependencies]

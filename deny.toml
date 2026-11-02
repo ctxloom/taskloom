@@ -35,9 +35,13 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
-  # angzarr's wire contract (angzarr-proto) and store contract
-  # (angzarr-ports): angzarr core's shared crates.
+  # angzarr's wire contract (angzarr-proto), store contract
+  # (angzarr-ports), configs (angzarr-yaml) and presentation
+  # (angzarr-presentation): angzarr core's shared crates.
   "https://github.com/angzarr-io/angzarr",
+  # os, file-system and file-lock: the platform crates every adapter
+  # builds on.
+  "https://github.com/angzarr-io/angzarr-platform",
   # angzarr-build: the Rust domain layer generated from protos.
   "https://github.com/angzarr-io/angzarr-cli",
   # angzarr-embedded: angzarr's in-app runtime, its markup, diagnostics and

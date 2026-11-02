@@ -3,11 +3,10 @@
 # lint` checks they match.
 excessive-nesting-threshold = 6
 
-# All file I/O goes through the file-system seam
-# (crates/adapters/platform/file-system): an `Fs`, the real `Os` in
-# production and a temp-rooted `Rooted` in tests, so a test's files, its
-# SQLite databases and its lock files land under a root of its own. The
-# seam crate alone may call these (its `#![allow]` says so). The Windows
+# All file I/O goes through the file-system seam (angzarr-platform's
+# file-system): an `Fs`, the real `Os` in production and a temp-rooted
+# `Rooted` in tests, so a test's files, its SQLite databases and its lock
+# files land under a root of its own. Nothing in this workspace calls these. The Windows
 # paths do not resolve on other targets, hence `allow-invalid`.
 disallowed-methods = [
   { path = "std::fs::read", reason = "file I/O goes through the file-system seam: Fs::read" },

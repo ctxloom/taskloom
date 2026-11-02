@@ -10,7 +10,7 @@ publish.workspace = true
 [dependencies]
 angzarr-diagnostic.workspace = true
 clap.workspace = true
-presentation.workspace = true
+angzarr-presentation.workspace = true
 serde.workspace = true
 tasks-application.workspace = true
 # The plans governing each task `show` shows: the plans', which the tasks
@@ -21,8 +21,9 @@ tasks-presentation.workspace = true
 [dev-dependencies]
 # The test support's block_on_ready.
 angzarr-embedded = { workspace = true, features = ["test-support"] }
-# Rendering catalogs' English, for the tests that hold it to Go's.
-fluent-bundle.workspace = true
+# Rendering catalogs' English (`english_for!`), for the tests that hold it
+# to Go's.
+angzarr-presentation = { workspace = true, features = ["test-support"] }
 fluent-syntax.workspace = true
 serde_json.workspace = true
 # Its `dead_letter_sample`, a letter for the tests to say.

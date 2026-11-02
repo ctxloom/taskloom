@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-crate::english_for!(&[crate::EN_US.1]);
+angzarr_presentation::english_for!(&[crate::EN_US.1]);
 
 use angzarr_diagnostic::{Arg, Diagnostic};
 use prost_types::Timestamp;

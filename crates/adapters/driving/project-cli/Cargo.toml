@@ -10,13 +10,14 @@ publish.workspace = true
 [dependencies]
 angzarr-diagnostic.workspace = true
 clap.workspace = true
-presentation.workspace = true
+angzarr-presentation.workspace = true
 project-application.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
-# Rendering catalogs' English, for the tests that hold it to Go's.
-fluent-bundle.workspace = true
+# Rendering catalogs' English (`english_for!`), for the tests that hold it
+# to Go's.
+angzarr-presentation = { workspace = true, features = ["test-support"] }
 fluent-syntax.workspace = true
 serde_json.workspace = true
 project-application = { workspace = true, features = ["test-support"] }

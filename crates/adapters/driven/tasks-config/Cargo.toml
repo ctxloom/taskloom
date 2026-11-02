@@ -16,8 +16,9 @@ ports.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
-# Rendering catalogs' English, for the tests that hold it to Go's.
-fluent-bundle.workspace = true
+# Rendering catalogs' English (`english_for!`), for the tests that hold it
+# to Go's.
+angzarr-presentation = { workspace = true, features = ["test-support"] }
 fluent-syntax.workspace = true
 os = { workspace = true, features = ["test-support"] }
 

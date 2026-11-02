@@ -16,8 +16,8 @@ mod render;
 
 use std::io::{self, Write};
 
+use angzarr_presentation::{Catalog, Format};
 use clap::Subcommand;
-use presentation::{Catalog, Format};
 use project_application::{ProjectAdmin, Projects, StoreCheck};
 
 #[cfg(any(test, feature = "test-support"))]
@@ -128,7 +128,7 @@ fn report(
     err: &mut dyn Write,
 ) -> io::Result<()> {
     match settings.format {
-        Format::Json => presentation::write_json(err, &catalog.envelope(error)),
+        Format::Json => angzarr_presentation::write_json(err, &catalog.envelope(error)),
         Format::Text => writeln!(err, "{}: {}", settings.prog, catalog.message(error)),
     }
 }
@@ -156,11 +156,11 @@ fn answer<A: ProjectAdmin, C: StoreCheck>(
             let shown = projects
                 .show(settings.project.as_deref())
                 .map_err(CliError::Project)?;
-            presentation::render(out, settings.format, &Show(&shown, catalog))
+            angzarr_presentation::render(out, settings.format, &Show(&shown, catalog))
         }
         ProjectCommand::Heal { yes } => {
             let plan = projects.heal(yes).map_err(CliError::Project)?;
-            presentation::render(out, settings.format, &Planned(&plan, catalog))
+            angzarr_presentation::render(out, settings.format, &Planned(&plan, catalog))
         }
         ProjectCommand::Repoint {
             project_id,
@@ -170,11 +170,11 @@ fn answer<A: ProjectAdmin, C: StoreCheck>(
             let plan = projects
                 .repoint(&project_id, share, yes)
                 .map_err(CliError::Project)?;
-            presentation::render(out, settings.format, &Planned(&plan, catalog))
+            angzarr_presentation::render(out, settings.format, &Planned(&plan, catalog))
         }
         ProjectCommand::Orphans { action: None } => {
             let orphans = projects.orphans().map_err(CliError::Project)?;
-            presentation::render(out, settings.format, &Orphans(&orphans))
+            angzarr_presentation::render(out, settings.format, &Orphans(&orphans))
         }
         ProjectCommand::Orphans {
             action: Some(OrphansAction::Remove { project_ids, yes }),
@@ -182,7 +182,7 @@ fn answer<A: ProjectAdmin, C: StoreCheck>(
             let plan = projects
                 .remove_orphans(&project_ids, yes)
                 .map_err(CliError::Project)?;
-            presentation::render(out, settings.format, &Planned(&plan, catalog))
+            angzarr_presentation::render(out, settings.format, &Planned(&plan, catalog))
         }
     };
     wrote.map_err(output_failed)
@@ -197,7 +197,3 @@ fn output_failed(error: io::Error) -> CliError {
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "../../../../adapters/driving/presentation/src/english.test.rs"]
-mod english;

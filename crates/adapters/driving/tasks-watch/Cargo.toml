@@ -13,7 +13,7 @@ clap.workspace = true
 # Flavor: what the help says stops the watch (Ctrl-C and SIGTERM, or on
 # Windows Ctrl-C, Ctrl-Break and the console's close, logoff or shutdown).
 os.workspace = true
-presentation.workspace = true
+angzarr-presentation.workspace = true
 serde.workspace = true
 tasks-application.workspace = true
 tokio.workspace = true
@@ -21,8 +21,9 @@ tokio.workspace = true
 [dev-dependencies]
 # The test support's block_on_ready.
 angzarr-embedded = { workspace = true, features = ["test-support"] }
-# Rendering catalogs' English, for the tests that hold it to Go's.
-fluent-bundle.workspace = true
+# Rendering catalogs' English (`english_for!`), for the tests that hold it
+# to Go's.
+angzarr-presentation = { workspace = true, features = ["test-support"] }
 fluent-syntax.workspace = true
 serde_json.workspace = true
 

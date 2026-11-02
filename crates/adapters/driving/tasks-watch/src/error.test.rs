@@ -3,7 +3,7 @@
 use angzarr_diagnostic::Diagnostic;
 use tasks_application::AppError;
 
-crate::english_for!(&[crate::EN_US.1]);
+angzarr_presentation::english_for!(&[crate::EN_US.1]);
 
 use super::{diagnostic_samples, WatchError};
 
@@ -82,7 +82,7 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
 
 #[test]
 fn test_each_diagnostic_renders_its_catalog_message_and_displays_as_its_key() {
-    let catalog = presentation::Catalog::en_us(&[crate::EN_US]).expect("the catalog loads");
+    let catalog = angzarr_presentation::Catalog::en_us(&[crate::EN_US]).expect("the catalog loads");
     for sample in diagnostic_samples() {
         let message = catalog.render(&*sample).expect("a catalog message");
         assert!(!message.is_empty(), "{}", sample.code());

@@ -74,7 +74,7 @@ pub const HEADLINE_WIDTH: usize = 80;
 /// The first line of `text` as a listing shows it: [`HEADLINE_WIDTH`]
 /// characters at most.
 pub fn headline(text: &str) -> String {
-    presentation::text::headline(text, HEADLINE_WIDTH)
+    angzarr_presentation::text::headline(text, HEADLINE_WIDTH)
 }
 
 /// `dir (id)`: the project a command ran in; its id alone where its

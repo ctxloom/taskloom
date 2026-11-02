@@ -26,8 +26,9 @@ uuid.workspace = true
 # the clock and the delay).
 angzarr-embedded = { workspace = true, features = ["test-support"] }
 ports = { workspace = true, features = ["test-support"] }
-# Rendering the catalogs' English, for the tests that hold it to Go's.
-fluent-bundle.workspace = true
+# Rendering catalogs' English (`english_for!`), for the tests that hold it
+# to Go's.
+angzarr-presentation = { workspace = true, features = ["test-support"] }
 fluent-syntax.workspace = true
 mutants.workspace = true
 

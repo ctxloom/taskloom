@@ -14,7 +14,9 @@
 use std::collections::BTreeMap;
 
 use angzarr_diagnostic::Report;
-use angzarr_embedded::{CatchUp, ListPositions, ProjectorHandler, ReadStore, Registry, Store};
+use angzarr_embedded::{
+    CatchUp, ListStreams, Processed, ProjectorHandler, ReadStore, Registry, Store,
+};
 use ports::Project;
 
 /// Each project's list `P`, by project id, as last caught up.
@@ -40,7 +42,7 @@ impl<P: ProjectorHandler> ProjectLists<P> {
     /// `registry`, the list's domain's) now: every stream handed what it
     /// is owed. Or why not: the store's failure, or the first stream the
     /// list failed (held where it was, so the next read hands it again).
-    pub async fn caught_up<S: ReadStore + Store + ListPositions>(
+    pub async fn caught_up<S: ReadStore + Store + Processed + ListStreams>(
         &mut self,
         project: &Project,
         store: &S,

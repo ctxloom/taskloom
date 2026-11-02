@@ -33,9 +33,6 @@ the architecture; there is no other table of crates.
   cases), and `kernel-runner`, the one way every context runs a command
   through the kernel and catches a project's list up (`ProjectLists`).
 - `adapters/driven`: port implementations (stores, clock, git).
-- `adapters/platform`: libraries adapters build on (`os`, everything that
-  differs between operating systems; the `file-system` seam over it; and
-  `file-lock`'s advisory locks over both); they implement no port.
 - `adapters/driving`: the CLI (and later gRPC): translation only.
   taskloom serves no MCP: agents and people alike use the CLI.
 - `root/lib`: the composition root's wiring as a library (`tasks-lib`):
@@ -100,14 +97,20 @@ clippy reads the nearest `clippy.toml`. A crate's own `clippy.toml` would
 replace it, so none has one. It repeats the root `clippy.toml`'s settings,
 and `just lint` refuses to run if they disagree.
 
+The libraries adapters build on are angzarr-platform's
+(https://github.com/angzarr-io/angzarr-platform, pinned by commit, moved
+there from this repository by decision 36): `os`, everything that differs
+between operating systems; the `file-system` seam over it; and
+`file-lock`'s advisory locks over both. They implement no port.
+
 All file I/O goes through the `file-system` seam: an `Arc<dyn Fs>`, the
 real `Os` in the binary, a temp-rooted `Rooted` in tests (`Rooted::temp`;
 where a real process must see the files, an `Os` under a directory a
 `Rooted` owns). SQLite and lock files take their path from it
 (`Fs::real_path`, `Fs::open`), so a test's databases are sandboxed too.
 The root `clippy.toml` disallows `std::fs`, `Path`'s filesystem methods
-and `tempfile` everywhere else, tests included; only the seam crate
-allows them.
+and `tempfile` everywhere, tests included; only the seam crate, in
+angzarr-platform, calls them.
 
 Everything that differs between operating systems is in the `os` crate:
 `Flavor` (Unix | Windows), the logic (PATH and PATHEXT, environment
@@ -115,13 +118,13 @@ names, the home variable, path display and comparison keys, lock-file
 records) as pure functions both flavors test on every host; and the `Os`
 trait, the host's syscalls (modes, directory links, file identity,
 directory sync, advisory locks, the stop signal), made once by
-`os::host()` and reached through the seam (`Fs::os`). Nothing else names
+`os::host()` and reached through the seam (`Fs::os`). Nothing here names
 an OS: no `cfg(unix|windows|target_os|target_family)`, `cfg!(`,
 `std::os::`, `split_paths` or target-specific dependency, tests included
 (a test that needs a unix tool asks `os::host().flavor()` at run time).
 `just lint-os` checks it, with an allowlist (`scripts/os-cfg-allow.txt`),
-and `just lint` runs it. `just check-windows` compiles the crates that use
-it for Windows, a quick check from Linux; CI (`.github/workflows/ci.yml`)
+and `just lint` runs it. `just check-windows` compiles the adapters that use
+it, with it, for Windows, a quick check from Linux; CI (`.github/workflows/ci.yml`)
 builds and tests the whole workspace natively on a Windows runner. So a
 test names a path that must be absolute through `os::fixture` (`/tree`,
 `C:\tree` on Windows; os's `test-support` feature, on through a
@@ -143,14 +146,14 @@ Dependencies point inward; a review refuses a change that breaks these:
   links more: `task-priority` evaluates the tag schema's priority formulas with
   expr-lang (the Rust port of the language Go's taskloom evaluates them
   in), which is computation and nothing else.
-- A platform crate depends on no other workspace crate but another
-  platform crate (`file-lock` on `file-system` and `os`); a driven adapter
-  may depend on one (that is not one adapter depending on another).
+- A driven adapter may depend on a platform crate (angzarr-platform's;
+  that is not one adapter depending on another).
 - A driven adapter sees only ports (and wire types), never a use case. A
   driving adapter sees only the application layer, never a domain's
   internals. Adapters never depend on each other, with one exception:
-  driving adapters share the presentation crates, `presentation`
-  (domain-free; its tests keep it so) and a domain's own, such as
+  driving adapters share the presentation crates, angzarr core's
+  `angzarr-presentation` (domain-free; moved there from this repository by
+  decision 36) and a domain's own, such as
   `tasks-presentation` (the task JSON the CLI writes).
 - A domain never depends on a read model (the write side reads no
   projection); a read model never depends on the application layer (a query
@@ -233,7 +236,8 @@ text value quoted where it would not parse back), a third party's text
 (the OS's, a parser's, clap's, Fluent's) is the arg `ext_err_txt`, and
 presentation shows a diagnostic no catalog knows as its code and args.
 English is the catalogs' alone: a test that holds it to Go's renders it
-from them (presentation's `english.test.rs`, included by path). A new
+from them (angzarr-presentation's `english_for!`, behind its
+`test-support` feature, on through a dev-dependency). A new
 variant needs a stable code (prefixed with
 the crate's name), an en-US message in `locales/en-US/<crate>.ftl` using
 exactly its args, and a sample in the crate's `diagnostic_samples()`. The
@@ -254,10 +258,10 @@ crate's `test-support` feature when another crate's do (os's `fixture`,
 
 Each crate with diagnostics exports its embedded en-US catalog as `EN_US`
 (its name and its `.ftl`). The composition root assembles the binary's
-catalog from every crate's `EN_US` (presentation's `Catalog`), and the
+catalog from every crate's `EN_US` (angzarr-presentation's `Catalog`), and the
 driving adapters render with it: a diagnostic's catalog message in text,
-its `{code, args, message}` envelope in JSON. A new core, driven or
-platform crate's `EN_US` joins tasks-lib's `catalog()` (beside
+its `{code, args, message}` envelope in JSON. A new core or driven
+crate's `EN_US` (or a platform crate's) joins tasks-lib's `catalog()` (beside
 angzarr-embedded's, the angzarr-ports errors it forwards and
 angzarr-store-sqlite's), and its samples tasks-lib's and the binary's
 every-diagnostic catalog tests; a driving adapter's joins the frontends

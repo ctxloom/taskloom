@@ -3,7 +3,7 @@
 use angzarr_diagnostic::{Arg, Diagnostic};
 use project_application::ProjectError;
 
-crate::english_for!(&[crate::EN_US.1]);
+angzarr_presentation::english_for!(&[crate::EN_US.1]);
 
 use super::{diagnostic_samples, CliError};
 
@@ -59,7 +59,7 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
 
 #[test]
 fn test_each_diagnostic_renders_its_catalog_message_and_displays_as_its_key() {
-    let catalog = presentation::Catalog::en_us(&[project_application::EN_US, crate::EN_US])
+    let catalog = angzarr_presentation::Catalog::en_us(&[project_application::EN_US, crate::EN_US])
         .expect("the catalog loads");
     let samples = diagnostic_samples()
         .into_iter()

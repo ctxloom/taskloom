@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-crate::english_for!(&[crate::EN_US.1, angzarr_yaml::EN_US.1]);
+angzarr_presentation::english_for!(&[crate::EN_US.1, angzarr_yaml::EN_US.1]);
 
 use angzarr_diagnostic::Diagnostic;
 use file_system::{Fs, Perms, Rooted};

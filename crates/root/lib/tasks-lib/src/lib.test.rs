@@ -10,7 +10,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-crate::english_for!(&[crate::EN_US.1]);
+angzarr_presentation::english_for!(&[crate::EN_US.1]);
 
 use angzarr_diagnostic::Diagnostic;
 use file_system::{CwdError, Entry, Meta, Open, Perms, Rooted};

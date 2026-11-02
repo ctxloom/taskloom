@@ -17,7 +17,7 @@
 //! listing's reach, hidden counts and priority notes, a write's project,
 //! a watch's changes), from the application crates, which a caller
 //! depends on directly: this crate re-exports none of them, nor
-//! presentation's catalog types, and adds no shape of its own, and none
+//! angzarr-presentation's catalog types, and adds no shape of its own, and none
 //! of any one transport's. Rendering them is each frontend's, with the
 //! catalog [`catalog`] assembles.
 
@@ -83,11 +83,11 @@ pub type Projects = project_application::Projects<ProjectRegistry<()>, SqliteSto
 /// angzarr-store-sqlite's, the use cases', every driven and platform
 /// adapter's), then
 /// `frontends'`, each frontend's own (the CLI's, watch's, ...),
-/// which only the frontend knows. The types are presentation's, which a
+/// which only the frontend knows. The types are angzarr-presentation's, which a
 /// caller depends on directly.
 pub fn catalog(
-    frontends: &[presentation::Source],
-) -> Result<presentation::Catalog, presentation::CatalogError> {
+    frontends: &[angzarr_presentation::Source],
+) -> Result<angzarr_presentation::Catalog, angzarr_presentation::CatalogError> {
     let mut sources = vec![
         EN_US,
         angzarr_embedded::angzarr_proto::REASONS_EN_US,
@@ -109,7 +109,7 @@ pub fn catalog(
         tasks_config::EN_US,
     ]);
     sources.extend_from_slice(frontends);
-    presentation::Catalog::en_us(&sources)
+    angzarr_presentation::Catalog::en_us(&sources)
 }
 
 /// The wiring: what the default adapters read from the process, the
@@ -388,7 +388,3 @@ fn var<'a>(flavor: Flavor, vars: &'a [(OsString, OsString)], name: &str) -> Opti
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "../../../../adapters/driving/presentation/src/english.test.rs"]
-mod english;

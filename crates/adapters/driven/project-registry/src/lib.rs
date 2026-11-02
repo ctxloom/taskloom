@@ -332,7 +332,3 @@ pub(crate) fn write_marker(fs: &dyn Fs, root: &Path, id: &str) -> Result<(), Reg
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "../../../../adapters/driving/presentation/src/english.test.rs"]
-mod english;

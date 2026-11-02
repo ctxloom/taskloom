@@ -29,8 +29,8 @@ use std::pin::pin;
 use std::task::Poll;
 use std::time::Duration;
 
+use angzarr_presentation::{Catalog, Format};
 use clap::Subcommand;
-use presentation::{Catalog, Format};
 use serde::Serialize;
 use tasks_application::{WatchRequest, WatchService};
 
@@ -218,7 +218,7 @@ async fn stream<W: WatchService>(
         .ok_or(WatchError::NoProject)?;
     let project = watch.project.id.clone();
     let emit = |out: &mut dyn Write| {
-        presentation::write_json_line(out, &ChangeLine::of(&project)).map_err(|e| {
+        angzarr_presentation::write_json_line(out, &ChangeLine::of(&project)).map_err(|e| {
             WatchError::Output {
                 detail: e.to_string(),
             }
@@ -257,7 +257,7 @@ fn report(
     err: &mut dyn Write,
 ) -> io::Result<()> {
     match settings.format {
-        Format::Json => presentation::write_json(err, &catalog.envelope(error)),
+        Format::Json => angzarr_presentation::write_json(err, &catalog.envelope(error)),
         Format::Text => writeln!(err, "{}: {}", settings.prog, catalog.message(error)),
     }
 }
@@ -265,7 +265,3 @@ fn report(
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "../../../../adapters/driving/presentation/src/english.test.rs"]
-mod english;

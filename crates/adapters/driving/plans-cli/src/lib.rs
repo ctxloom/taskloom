@@ -24,9 +24,9 @@ mod render;
 
 use std::io::{self, Write};
 
+use angzarr_presentation::{Catalog, Format, Render};
 use clap::{Args, Subcommand};
 use plans_application::{Link, NewPlan, PlanQuery, PlanStatus, PlanView};
-use presentation::{Catalog, Format, Render};
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
@@ -182,7 +182,7 @@ fn report(
     err: &mut dyn Write,
 ) -> io::Result<()> {
     match settings.format {
-        Format::Json => presentation::write_json(err, &catalog.envelope(error)),
+        Format::Json => angzarr_presentation::write_json(err, &catalog.envelope(error)),
         Format::Text => writeln!(err, "{}: {}", settings.prog, catalog.message(error)),
     }
 }
@@ -194,7 +194,7 @@ fn status(name: &str) -> Result<PlanStatus, CliError> {
 }
 
 fn rendered(out: &mut dyn Write, format: Format, view: &impl Render) -> Result<(), CliError> {
-    presentation::render(out, format, view).map_err(|e| CliError::Output {
+    angzarr_presentation::render(out, format, view).map_err(|e| CliError::Output {
         detail: e.to_string(),
     })
 }

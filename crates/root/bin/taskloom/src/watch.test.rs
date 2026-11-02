@@ -477,7 +477,7 @@ mod ticked {
                 }
             });
             let settings = Settings {
-                format: presentation::Format::Json,
+                format: angzarr_presentation::Format::Json,
                 project: None,
                 prog: "taskloom",
             };

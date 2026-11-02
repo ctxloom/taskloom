@@ -4,9 +4,9 @@
 use std::io::{self, Write};
 
 use angzarr_diagnostic::Diagnostic;
+use angzarr_presentation::{Catalog, Format};
 use clap::Args;
 use plans_application::Governing;
-use presentation::{Catalog, Format};
 use tasks_application::{
     AppError, Declaration, ListQuery, Listing, NewTask, PermitChange, PermitService, PruneRequest,
     PruneService, Reach, SchemaService, Scope, ShowQuery, StatusChange, TagChange, TaskService,
@@ -320,7 +320,7 @@ pub(crate) async fn list(
                 listing: &listing,
                 compact: args.compact,
             };
-            presentation::render(out, ctx.format, &view)
+            angzarr_presentation::render(out, ctx.format, &view)
         })
         .map_err(output_failed)
 }
@@ -363,7 +363,7 @@ pub(crate) async fn show(
         governing: &governing,
     };
     read_in(&details.reach, ctx.catalog, err)
-        .and_then(|()| presentation::render(out, ctx.format, &view))
+        .and_then(|()| angzarr_presentation::render(out, ctx.format, &view))
         .map_err(output_failed)
 }
 
@@ -390,7 +390,7 @@ pub(crate) async fn permit(
         permitted: &permitted,
         revoked: false,
     };
-    presentation::render(out, ctx.format, &view).map_err(output_failed)
+    angzarr_presentation::render(out, ctx.format, &view).map_err(output_failed)
 }
 
 /// Revoke `args.permit` and say so: in text, `revoked <permit>`; in JSON,
@@ -409,7 +409,7 @@ pub(crate) async fn revoke(
         permitted: &permitted,
         revoked: true,
     };
-    presentation::render(out, ctx.format, &view).map_err(output_failed)
+    angzarr_presentation::render(out, ctx.format, &view).map_err(output_failed)
 }
 
 /// List what the project permits: in text, its namespaces (open, or
@@ -421,7 +421,7 @@ pub(crate) async fn permits(
     out: &mut dyn Write,
 ) -> Result<(), CliError> {
     let list = service.permits().await.map_err(CliError::App)?;
-    presentation::render(out, ctx.format, &Permits(&list)).map_err(output_failed)
+    angzarr_presentation::render(out, ctx.format, &Permits(&list)).map_err(output_failed)
 }
 
 #[derive(Args, Debug)]
@@ -478,7 +478,7 @@ pub(crate) async fn schema(
     match args.action {
         None | Some(SchemaAction::Show) => {
             let schema = service.tag_schema().await.map_err(CliError::App)?;
-            presentation::render(out, format, &Schema(&schema)).map_err(output_failed)
+            angzarr_presentation::render(out, format, &Schema(&schema)).map_err(output_failed)
         }
         // Printed in its own format, tagma's syntax, whatever is asked,
         // as `loadout` is in yaml: it is what tagma reads back.
@@ -487,14 +487,15 @@ pub(crate) async fn schema(
                 .schema_export(ctx.project)
                 .await
                 .map_err(CliError::App)?;
-            presentation::render(out, Format::Text, &Exported(&tags)).map_err(output_failed)
+            angzarr_presentation::render(out, Format::Text, &Exported(&tags)).map_err(output_failed)
         }
         Some(SchemaAction::Check) => {
             let findings = service
                 .schema_check(ctx.project)
                 .await
                 .map_err(CliError::App)?;
-            presentation::render(out, format, &Checked(&findings)).map_err(output_failed)?;
+            angzarr_presentation::render(out, format, &Checked(&findings))
+                .map_err(output_failed)?;
             match findings.len() {
                 0 => Ok(()),
                 count => Err(CliError::SchemaFindings { count }),
@@ -506,11 +507,13 @@ pub(crate) async fn schema(
                 remove: declare.remove,
             };
             let declared = service.declare(declaration).await.map_err(CliError::App)?;
-            presentation::render(out, format, &DeclaredView(&declared)).map_err(output_failed)
+            angzarr_presentation::render(out, format, &DeclaredView(&declared))
+                .map_err(output_failed)
         }
         Some(SchemaAction::ImportConfig) => {
             let declared = service.import_config().await.map_err(CliError::App)?;
-            presentation::render(out, format, &DeclaredView(&declared)).map_err(output_failed)
+            angzarr_presentation::render(out, format, &DeclaredView(&declared))
+                .map_err(output_failed)
         }
     }
 }
@@ -544,7 +547,7 @@ pub(crate) async fn summary(
         .await
         .map_err(CliError::App)?;
     reached(&summary.reach, catalog, err)
-        .and_then(|()| presentation::render(out, format, &Summed(&summary)))
+        .and_then(|()| angzarr_presentation::render(out, format, &Summed(&summary)))
         .map_err(output_failed)
 }
 
@@ -567,7 +570,7 @@ pub(crate) async fn statuses(
         Reach::Project(_) | Reach::NoProject => Ok(()),
     };
     noticed
-        .and_then(|()| presentation::render(out, format, &Taxonomy(&statuses)))
+        .and_then(|()| angzarr_presentation::render(out, format, &Taxonomy(&statuses)))
         .map_err(output_failed)
 }
 
@@ -606,7 +609,7 @@ pub(crate) async fn tags(
     };
     let vocabulary = service.tags(query).await.map_err(CliError::App)?;
     reached(&vocabulary.reach, ctx.catalog, err)
-        .and_then(|()| presentation::render(out, ctx.format, &Counted(&vocabulary)))
+        .and_then(|()| angzarr_presentation::render(out, ctx.format, &Counted(&vocabulary)))
         .map_err(output_failed)
 }
 
@@ -626,7 +629,7 @@ pub(crate) async fn lint(
         catalog,
     };
     reached(&report.reach, catalog, err)
-        .and_then(|()| presentation::render(out, format, &view))
+        .and_then(|()| angzarr_presentation::render(out, format, &view))
         .map_err(output_failed)?;
     if report.checked_targets == 0 {
         return Err(CliError::LintCheckedNothing);
@@ -679,7 +682,7 @@ pub(crate) async fn prune(
         notify(&Notice::NothingToPrune, catalog, err).map_err(output_failed)?;
     }
     dead_lettered(&pruning.dead_letters, err).map_err(output_failed)?;
-    presentation::render(out, format, &PruneReport(&pruning)).map_err(output_failed)?;
+    angzarr_presentation::render(out, format, &PruneReport(&pruning)).map_err(output_failed)?;
     if pruning.applied || pruning.pruned.is_empty() {
         return Ok(());
     }

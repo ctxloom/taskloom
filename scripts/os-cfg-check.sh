@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Decision 4 (passthrough-os-review.plan.md): what differs between operating
-# systems lives in crates/adapters/platform/os alone. Fail on a cfg (or
+# systems lives in angzarr-platform's os crate alone. Fail on a cfg (or
 # cfg_attr) naming an OS, `cfg!(`, `std::os::` or `split_paths` anywhere
-# else under crates/, tests included, and on a crate outside os with
-# target-specific dependencies. The exceptions are the allowlist,
+# under crates/, tests included, and on a crate with target-specific
+# dependencies. The exceptions are the allowlist,
 # scripts/os-cfg-allow.txt (one per line: `<file> | <text on the line> |
 # <why>`), so each carries its reason and a new one is seen in review; an
 # entry that no longer matches anything fails too, so the list stays true.
@@ -34,7 +34,6 @@ for _ in "${files[@]}"; do used+=(0); done
 found=0
 while IFS= read -r hit; do
   file=${hit%%:*}
-  [[ $file == crates/adapters/platform/os/* ]] && continue
   rest=${hit#*:}
   line=${rest#*:}
   allowed=0
@@ -49,7 +48,6 @@ while IFS= read -r hit; do
 done < <(grep -rnE --include='*.rs' "$pattern" crates || true)
 
 while IFS= read -r hit; do
-  [[ $hit == crates/adapters/platform/os/* ]] && continue
   echo "$hit"
   found=$((found + 1))
 done < <(grep -nE "^\[target\." crates/*/*/*/Cargo.toml || true)
@@ -63,7 +61,7 @@ for i in "${!files[@]}"; do
 done
 
 if [ "$found" -gt 0 ]; then
-  echo "FAIL lint-os: $found OS-specific lines outside crates/adapters/platform/os (decision 4): move them onto the os crate (its Flavor or Os), or list an allowed one in $allow_file with why" >&2
+  echo "FAIL lint-os: $found OS-specific lines (decision 4): move them onto angzarr-platform's os crate (its Flavor or Os), or list an allowed one in $allow_file with why" >&2
   exit 1
 fi
 if [ "$stale" -gt 0 ]; then

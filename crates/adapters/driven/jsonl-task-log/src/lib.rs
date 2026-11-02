@@ -212,7 +212,3 @@ fn instant(text: &str) -> Result<Timestamp, String> {
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "../../../../adapters/driving/presentation/src/english.test.rs"]
-mod english;

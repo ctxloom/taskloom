@@ -6,7 +6,7 @@ use tasks_application::{ImportReport, Lost, ProjectImport, Why};
 
 use super::{text, ImportJson};
 
-fn catalog() -> presentation::Catalog {
+fn catalog() -> angzarr_presentation::Catalog {
     crate::catalog(&[]).expect("the catalog loads")
 }
 

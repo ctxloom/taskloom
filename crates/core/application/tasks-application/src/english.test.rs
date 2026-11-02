@@ -3,38 +3,11 @@
 //! hold the English to Go's. A code no catalog has is its key and args, as
 //! an edge shows it.
 
-use angzarr_diagnostic::{Arg, Diagnostic};
-use fluent_bundle::{FluentArgs, FluentBundle, FluentResource, FluentValue};
+use angzarr_diagnostic::Diagnostic;
 
-/// `d`'s en-US message.
+/// `d`'s en-US message, rendered as angzarr-presentation renders it.
 pub fn english(d: &dyn Diagnostic) -> String {
-    let mut bundle = FluentBundle::new(vec!["en-US".parse().expect("a locale")]);
-    bundle.set_use_isolating(false);
-    for (_, ftl) in crate::CATALOGS {
-        let resource = FluentResource::try_new(ftl.to_string()).expect("the catalog parses");
-        bundle.add_resource(resource).expect("no message twice");
-    }
-    render(&bundle, d)
-}
-
-fn render(bundle: &FluentBundle<FluentResource>, d: &dyn Diagnostic) -> String {
-    let Some(pattern) = bundle.get_message(d.code()).and_then(|m| m.value()) else {
-        return d.to_string();
-    };
-    let mut args = FluentArgs::new();
-    for (name, arg) in d.args() {
-        let value: FluentValue = match arg {
-            Arg::Int(n) => (n as f64).into(),
-            Arg::Uint(n) => (n as f64).into(),
-            Arg::Str(s) => s.into(),
-            Arg::Nested(cause) => render(bundle, &*cause).into(),
-        };
-        args.set(name, value);
-    }
-    let mut errors = Vec::new();
-    let text = bundle.format_pattern(pattern, Some(&args), &mut errors);
-    assert!(errors.is_empty(), "{}: {errors:?}", d.code());
-    text.into_owned()
+    angzarr_presentation::english::english_in(&crate::CATALOGS.map(|(_, ftl)| ftl), d)
 }
 
 /// [`english`], as a method of every diagnostic.

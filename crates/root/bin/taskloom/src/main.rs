@@ -20,7 +20,7 @@ use tasks_lib::Taskloom;
 
 /// The binary's en-US catalog: every diagnostic the wiring can raise
 /// (tasks-lib's), then each frontend's own.
-fn catalog() -> Result<presentation::Catalog, presentation::CatalogError> {
+fn catalog() -> Result<angzarr_presentation::Catalog, angzarr_presentation::CatalogError> {
     tasks_lib::catalog(&[
         tasks_cli::EN_US,
         project_cli::EN_US,
@@ -66,8 +66,8 @@ fn import(
     runtime: &tokio::runtime::Runtime,
     taskloom: &Taskloom,
     project: Option<String>,
-    format: presentation::Format,
-    catalog: &presentation::Catalog,
+    format: angzarr_presentation::Format,
+    catalog: &angzarr_presentation::Catalog,
 ) -> ExitCode {
     let mut importer = taskloom.importer();
     ExitCode::from(runtime.block_on(tasks_cli::run_import(
@@ -87,7 +87,7 @@ fn watch<W: tasks_application::WatchService>(
     os: &dyn os::Os,
     service: &mut W,
     settings: &tasks_watch::Settings,
-    catalog: &presentation::Catalog,
+    catalog: &angzarr_presentation::Catalog,
 ) -> ExitCode {
     let code = runtime.block_on(async {
         // SIGINT or SIGTERM (on Windows Ctrl-C, Ctrl-Break, or the
@@ -123,7 +123,7 @@ fn project_group(
     taskloom: &Taskloom,
     group: project_cli::Group,
     settings: &project_cli::Settings,
-    catalog: &presentation::Catalog,
+    catalog: &angzarr_presentation::Catalog,
 ) -> ExitCode {
     let mut projects = taskloom.projects();
     ExitCode::from(project_cli::run(
@@ -144,7 +144,7 @@ fn plan_group(
     group: plans_cli::Group,
     project: Option<String>,
     settings: &plans_cli::Settings,
-    catalog: &presentation::Catalog,
+    catalog: &angzarr_presentation::Catalog,
 ) -> ExitCode {
     let mut plans = taskloom.plans(project);
     ExitCode::from(runtime.block_on(plans_cli::run(

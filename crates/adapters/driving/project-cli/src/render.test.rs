@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use angzarr_diagnostic::Report;
-use presentation::Catalog;
+use angzarr_presentation::Catalog;
 use project_application::{Change, IdSource, Plan, Problem, Shown, Survey};
 
 use super::{change_line, orphans_json, orphans_text, plan_text, problem_line, show_text};

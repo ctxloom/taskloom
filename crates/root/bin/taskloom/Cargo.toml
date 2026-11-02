@@ -12,7 +12,7 @@ clap.workspace = true
 file-lock.workspace = true
 os.workspace = true
 plans-cli.workspace = true
-presentation.workspace = true
+angzarr-presentation.workspace = true
 project-cli.workspace = true
 tasks-application.workspace = true
 tasks-cli.workspace = true
@@ -51,7 +51,7 @@ tasks-watch = { workspace = true, features = ["test-support"] }
 tasks-cli = { workspace = true, features = ["test-support"] }
 file-lock = { workspace = true, features = ["test-support"] }
 os = { workspace = true, features = ["test-support"] }
-presentation = { workspace = true, features = ["test-support"] }
+angzarr-presentation = { workspace = true, features = ["test-support"] }
 tasks-application = { workspace = true, features = ["test-support"] }
 plans = { workspace = true, features = ["test-support"] }
 plans-application = { workspace = true, features = ["test-support"] }

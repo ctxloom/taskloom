@@ -5,7 +5,7 @@ use std::ffi::OsString;
 use std::io::Write;
 use std::path::PathBuf;
 
-crate::english_for!(&[crate::EN_US.1]);
+angzarr_presentation::english_for!(&[crate::EN_US.1]);
 
 use angzarr_diagnostic::Report;
 use tasks_application::{
@@ -17,7 +17,7 @@ use tasks_application::{
     Vocabulary, Written,
 };
 
-use presentation::Catalog;
+use angzarr_presentation::Catalog;
 
 use super::{parse, run, run_import, Command, Context, Globals, ImportGroup, UseCases};
 
@@ -2132,6 +2132,26 @@ fn test_yaml_is_only_the_loadout_s() {
             "{args:?}"
         );
     }
+}
+
+/// What a program reading the JSON sees for a format no command speaks:
+/// angzarr-presentation's code (the owner's move of presentation into
+/// angzarr core, decision 36), pinned as the user-visible output it is.
+#[test]
+fn test_a_format_no_command_speaks_is_angzarr_presentation_s_code_in_json() {
+    let ran = run_on(&mut Fake::default(), false, &["list", "--format", "yaml"]);
+    assert_eq!(ran.code, 1);
+    assert_eq!(ran.out, "");
+    let envelope: serde_json::Value =
+        serde_json::from_str(&ran.err).unwrap_or_else(|e| panic!("{e}: {}", ran.err));
+    assert_eq!(
+        envelope,
+        serde_json::json!({
+            "code": "angzarr-presentation-unknown-format",
+            "args": {"value": "yaml"},
+            "message": "the format yaml is not one of text or json",
+        })
+    );
 }
 
 fn tag(key: &str) -> tasks_application::Tag {

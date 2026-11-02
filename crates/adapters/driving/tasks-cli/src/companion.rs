@@ -7,7 +7,7 @@
 use std::io::{self, Write};
 use std::str::FromStr;
 
-use presentation::{Format, Render, UnknownFormat};
+use angzarr_presentation::{Format, Render, UnknownFormat};
 use serde::Serialize;
 
 use crate::{output_failed, CliError};

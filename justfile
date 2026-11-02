@@ -72,17 +72,17 @@ lint:
     exec just --justfile {{TOP}}/justfile _run lint workspace cargo \
         cargo clippy "${terse[@]}" --manifest-path {{TOP}}/Cargo.toml --workspace --all-targets -- -D warnings
 
-# Nothing outside crates/adapters/platform/os names an operating system
-# (decision 4): no cfg naming one, `cfg!(`, `std::os::`, `split_paths` or
+# Nothing in this workspace names an operating system (decision 4): that is
+# angzarr-platform's os crate's alone: no cfg naming one, `cfg!(`, `std::os::`, `split_paths` or
 # target-specific dependency, tests included, but the allowlist's
 # (scripts/os-cfg-allow.txt). `just lint` runs it first.
 [no-exit-message]
 lint-os:
     @{{TOP}}/scripts/os-cfg-check.sh
 
-# The platform crates' Windows implementors (os, and the seams over it),
-# and the driven adapters that use them, compiled for a Windows target but
-# not run: the quick check a Linux host can make of them before CI's Windows
+# The driven adapters that use the platform crates (angzarr-platform's os,
+# and the seams over it), with those crates' Windows implementors, compiled
+# for a Windows target but not run: the quick check a Linux host can make of them before CI's Windows
 # runner builds and tests the whole workspace natively (decision 5; see
 # .github/workflows/ci.yml). Needs the x86_64-pc-windows-gnu target (`rustup target
 # add`); no linker, since nothing is linked. The rest of the workspace is
@@ -95,7 +95,7 @@ check-windows:
     [ "${VERBOSE:-}" = 1 ] && terse=()
     exec just --justfile {{TOP}}/justfile _run check-windows platform cargo \
         cargo check "${terse[@]}" --manifest-path {{TOP}}/Cargo.toml --target x86_64-pc-windows-gnu \
-        -p os -p file-system -p file-lock -p tasks-config -p project-registry --all-targets
+        -p tasks-config -p project-registry --all-targets
 
 # Where `just install` puts the Rust taskloom, the global taskloom since the
 # owner's switch (2026-10-31): a cargo root of its own, the binary in

@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use presentation::{render, Format};
+use angzarr_presentation::{render, Format};
 use tasks_application::{Dangling, Project, Pruned, Pruning, Shown, Task, Timestamp, Via};
 
 use super::{apply_command, shell_word, PruneReport};

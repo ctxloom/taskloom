@@ -20,55 +20,56 @@ prost-types = "0.14"
 # commit, so a fresh clone builds with no sibling checkouts; bumps are
 # deliberate commits. To build against local checkouts while changing them
 # together, see "Co-developing angzarr-cli or tagma" in CLAUDE.md. At
-# e688e18, on angzarr core ab3e9b50, the rev the crates below pin, so the
-# graph holds one angzarr-proto and one angzarr-diagnostic even counting
-# build dependencies; the code it generates names the kernel's crate root
-# (no `next::`) and `::angzarr_embedded::angzarr_diagnostic`, and each
-# component's command and event enums carry their `Payload`, and its
-# `register` answers `Result`.
-angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "e688e184aef03378c4258cf09515cd8b97767781" }
+# cdd2237, on angzarr-embedded 14b6070 and angzarr core 4d7ef357, the revs
+# the crates below pin, so the graph holds one angzarr-proto and one
+# angzarr-diagnostic even counting build dependencies.
+angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "cdd2237244c702bc2144561825742a6782a4c6d1" }
 
 # angzarr-embedded, angzarr's in-app runtime, taskloom's
 # (taskloom-on-angzarr-embedded.plan.md). Pinned by rev on
-# angzarr-embedded's main: 5b96c43 (router eea1af9, angzarr core ab3e9b50
-# for angzarr-proto, angzarr-ports and angzarr-diagnostic; angzarr-proto
-# core's messages alone, the protos four packages since decision 14.64,
-# none of which taskloom names beyond core's): the kernel at
-# its crate root (`next` flattened, its codes `angzarr-embedded-*`, a
-# condition the spec keys coded under its key; decision 14.60), each
-# call answering the dead letters it wrote, the SQLite store keeping them
-# (its migration 0006: owner ruling Q5), and
-# angzarr-proto, angzarr-ports, angzarr-diagnostic and, behind its
-# `sqlite` feature, angzarr-store-sqlite re-exported, so the graph holds
-# one of each; and, behind its `test-support` feature, the test support
-# the tests share (`angzarr_embedded::testing`: block_on_ready, Samples,
-# the aggregate Harness, angzarr-ports' FaultyStore); every registration
-# answering `Result<_, Misconfigured>`, the registry's description its
-# read-only `Catalog`; and an applier handed, for the decision's own
-# events, the metadata the kernel stamps them with (`event_meta`), so the
-# state decided is the state replayed; and G5's complexity gate, the
-# kernel's own code held to it. angzarr-proto and
-# angzarr-store-sqlite are reached through those re-exports
-# (`angzarr_embedded::angzarr_proto`, `angzarr_embedded::angzarr_store_sqlite`)
-# and not pinned here.
-angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "5b96c432018175a01055692638a4eb8c63b5c909" }
-angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "5b96c432018175a01055692638a4eb8c63b5c909" }
+# angzarr-embedded's main: 14b6070 (router cbc6752, angzarr core 4d7ef357
+# for angzarr-proto, angzarr-ports and angzarr-diagnostic): the kernel at
+# its crate root, its codes `angzarr-embedded-*` and a condition the spec
+# keys coded under its key; and angzarr-proto, angzarr-ports,
+# angzarr-diagnostic and, behind its `sqlite` feature, angzarr-store-sqlite
+# re-exported, so the graph holds one of each; and, behind its
+# `test-support` feature, the test support the tests share
+# (`angzarr_embedded::testing`). angzarr-proto and angzarr-store-sqlite are
+# reached through those re-exports (`angzarr_embedded::angzarr_proto`,
+# `angzarr_embedded::angzarr_store_sqlite`) and not pinned here.
+angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "14b607091155bbc0c7ee6cebec365c36c2fd3391" }
+angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "14b607091155bbc0c7ee6cebec365c36c2fd3391" }
 # angzarr core's shared crates, at the core rev angzarr-embedded pins
-# (ab3e9b50), so the graph holds one of each. angzarr-diagnostic, the coded
+# (4d7ef357), so the graph holds one of each. angzarr-diagnostic, the coded
 # error trait every error here implements, is pinned directly rather than
 # through angzarr-embedded's re-export so the crates that have no use for
-# the kernel (the platform crates, presentation) do not link it.
+# the kernel do not link it; with its `build` feature, it is every crate's
+# build dependency that writes the crate's catalog under its name.
 # angzarr-ports, angzarr's storage contract, is pinned directly for its
 # `memory` feature (the in-memory store the tests run on), which the
 # re-export cannot turn on.
-angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "ab3e9b50ab777f1c4d7269f2744b0a42bc3a6845" }
-angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "ab3e9b50ab777f1c4d7269f2744b0a42bc3a6845" }
+angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "4d7ef3573aad114d789a9c30f9cd702d7bb5c213" }
+angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "4d7ef3573aad114d789a9c30f9cd702d7bb5c213" }
 # angzarr-yaml, the one reader for every Rust config (owner ruling,
 # 2026-10-31): versioned documents (`schema_version`, migrated on read,
 # a newer one refused), a strict serde decode with key paths, and edits in
 # place that keep comments. tasks-config and project-registry read through
 # it. Its only dependencies are angzarr-diagnostic and serde.
-angzarr-yaml = { git = "https://github.com/angzarr-io/angzarr", rev = "ab3e9b50ab777f1c4d7269f2744b0a42bc3a6845" }
+angzarr-yaml = { git = "https://github.com/angzarr-io/angzarr", rev = "4d7ef3573aad114d789a9c30f9cd702d7bb5c213" }
+# angzarr-presentation, presentation at the driving edge for any domain
+# (JSON or UTF-8 text, diagnostics rendered from the crates' catalogs,
+# display-width text helpers), moved from this repository into angzarr core
+# (decision 36, 2026-11-02); its codes are `angzarr-presentation-*`. Its
+# `test-support` feature renders a diagnostic's English from catalogs
+# (`english_for!`), for the tests that hold it to an expected text.
+angzarr-presentation = { git = "https://github.com/angzarr-io/angzarr", rev = "4d7ef3573aad114d789a9c30f9cd702d7bb5c213" }
+# The platform crates, moved from this repository into angzarr-platform
+# (decision 36): `os` (everything that differs between operating systems),
+# `file-system` (the seam all file I/O goes through) and `file-lock`
+# (advisory locks over both). On angzarr core 4d7ef357, as the crates above.
+os = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "656a780bbde168dfc61d7ea3cb119e96fa0766a2" }
+file-system = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "656a780bbde168dfc61d7ea3cb119e96fa0766a2" }
+file-lock = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "656a780bbde168dfc61d7ea3cb119e96fa0766a2" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
 plans-proto = { path = "crates/core/wire/plans-proto" }
 tasks = { path = "crates/core/domain/tasks" }
@@ -87,13 +88,9 @@ task-store-sqlite = { path = "crates/adapters/driven/task-store-sqlite" }
 jsonl-task-log = { path = "crates/adapters/driven/jsonl-task-log" }
 tasks-config = { path = "crates/adapters/driven/tasks-config" }
 plan-files = { path = "crates/adapters/driven/plan-files" }
-file-system = { path = "crates/adapters/platform/file-system" }
-file-lock = { path = "crates/adapters/platform/file-lock" }
-os = { path = "crates/adapters/platform/os" }
 system = { path = "crates/adapters/driven/system" }
 tasks-cli = { path = "crates/adapters/driving/tasks-cli" }
 tasks-lib = { path = "crates/root/lib/tasks-lib" }
-presentation = { path = "crates/adapters/driving/presentation" }
 tasks-presentation = { path = "crates/adapters/driving/tasks-presentation" }
 tasks-watch = { path = "crates/adapters/driving/tasks-watch" }
 project-cli = { path = "crates/adapters/driving/project-cli" }
@@ -111,8 +108,7 @@ harp-core = { git = "https://github.com/benjaminabbitt/harp", rev = "e27196f5a42
 
 # Third-party, for the adapters and the composition root.
 clap = { version = "4.5", features = ["derive", "string"] }
-# The edge's message catalogs: Fluent's standard runtime and its language ids.
-fluent-bundle = "0.15"
+# The catalogs' tests read each catalog's messages and variables.
 fluent-syntax = "0.11"
 fs4 = "1.1"
 # `#[mutants::skip]`, for a mutant judged equivalent. The core takes it as a
@@ -122,33 +118,13 @@ rand = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
-tempfile = "3"
-# The file-system seam on Windows: directory links as junctions (as Go's
-# ctxloom makes them), and file identity by volume and file index. Pinned
-# exactly: junction at 2.1.0 (2026-09-24), the newest release at least two
-# weeks old when chosen (2026-10-22); same-file at 1.0.6 (2020-01-11).
-junction = "=2.1.0"
-same-file = "=1.0.6"
-# The os crate's Windows console calls (a Ctrl-Break sent to a child's
-# process group, in tests). Pinned exactly, at 0.61.2 (2025-10-06), the
-# version tokio already brings in.
-windows-sys = "=0.61.2"
-# The os crate's path logic for every flavor on every host: Windows paths
-# parsed on Linux, so their display and comparison keys are tested here.
-# Pinned exactly, at 0.12.3 (2026-02-11): 0.12.4 and 0.13.0 (2026-10-20)
-# were under two weeks old when it was chosen (2026-10-26). MIT OR
-# Apache-2.0; no dependencies.
-typed-path = "=0.12.3"
 time = { version = "0.3", features = ["formatting", "parsing"] }
 tokio = { version = "1", features = ["rt", "time"] }
-unic-langid = "0.9"
 # Priority's formula evaluator: expr-lang's Rust port, so the formulas Go's
 # expr-lang evaluates mean the same here. Pinned exactly, at 2.1.0
 # (2026-08-21). No default features: the formulas are arithmetic, and the
 # rest (time zones, JSON, regex) would link crates they never use.
 expr-lang = { version = "=2.1.0", default-features = false }
-# Display-width columns in text output.
-unicode-width = "0.2"
 uuid = { version = "1", features = ["v5", "v7"] }
 
 [workspace.lints.clippy]

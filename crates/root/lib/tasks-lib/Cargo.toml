@@ -19,7 +19,7 @@ jsonl-task-log.workspace = true
 os.workspace = true
 plan-files.workspace = true
 plans-application.workspace = true
-presentation.workspace = true
+angzarr-presentation.workspace = true
 project-application.workspace = true
 project-registry.workspace = true
 system.workspace = true
@@ -28,8 +28,9 @@ tasks-application.workspace = true
 tasks-config.workspace = true
 
 [dev-dependencies]
-# Rendering catalogs' English, for the tests that hold it to Go's.
-fluent-bundle.workspace = true
+# Rendering catalogs' English (`english_for!`), for the tests that hold it
+# to Go's.
+angzarr-presentation = { workspace = true, features = ["test-support"] }
 # The runtime's and its store's keys, for the catalog's test.
 angzarr-ports.workspace = true
 fluent-syntax.workspace = true
