@@ -56,6 +56,7 @@ use tasks::{
     TaskRejection,
 };
 
+use crate::calendar::rfc3339_nano;
 use crate::tags::{self, Tag, TagRefusal};
 use crate::view::{DEFERS, INITIAL};
 use crate::DeadLetter;
@@ -665,45 +666,6 @@ pub fn anomaly_key(record: &JsonlRecord) -> String {
         record.session,
         rfc3339_nano(record.ts)
     ))
-}
-
-/// `at` in UTC in RFC 3339 with nanoseconds: the fraction's trailing zeros
-/// dropped, and the fraction too when it is zero.
-pub fn rfc3339_nano(at: Timestamp) -> String {
-    let (year, month, day) = civil(at.seconds.div_euclid(86_400));
-    let second = at.seconds.rem_euclid(86_400);
-    let mut text = format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}",
-        second / 3600,
-        second % 3600 / 60,
-        second % 60
-    );
-    if at.nanos != 0 {
-        let fraction = format!("{:09}", at.nanos);
-        text.push('.');
-        text.push_str(fraction.trim_end_matches('0'));
-    }
-    text.push('Z');
-    text
-}
-
-/// The proleptic Gregorian date `days` after 1970-01-01: Howard Hinnant's
-/// `civil_from_days`.
-fn civil(days: i64) -> (i64, i64, i64) {
-    let days = days + 719_468;
-    let era = days.div_euclid(146_097);
-    let of_era = days.rem_euclid(146_097);
-    let year_of_era = (of_era - of_era / 1460 + of_era / 36_524 - of_era / 146_096) / 365;
-    let of_year = of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let shifted_month = (5 * of_year + 2) / 153;
-    let day = of_year - (153 * shifted_month + 2) / 5 + 1;
-    let month = if shifted_month < 10 {
-        shifted_month + 3
-    } else {
-        shifted_month - 9
-    };
-    let year = year_of_era + era * 400 + i64::from(month <= 2);
-    (year, month, day)
 }
 
 #[cfg(test)]

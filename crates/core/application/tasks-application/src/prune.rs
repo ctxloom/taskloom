@@ -37,6 +37,7 @@ use tasks::{
     STATUS_CLASS_SIGIL,
 };
 
+use crate::calendar::date;
 use crate::lists::Lists;
 use crate::request::given;
 use crate::task::task_cover;
@@ -652,48 +653,6 @@ fn duration(text: &str) -> Option<i128> {
         rest = after;
     }
     Some(sign * total)
-}
-
-/// `text` as a date, `YYYY-MM-DD`, at midnight UTC.
-fn date(text: &str) -> Option<Timestamp> {
-    let bytes = text.as_bytes();
-    let digits = |range: std::ops::Range<usize>| -> Option<i64> {
-        let part = text.get(range)?;
-        part.bytes()
-            .all(|b| b.is_ascii_digit())
-            .then(|| part.parse().ok())?
-    };
-    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
-        return None;
-    }
-    let (year, month, day) = (digits(0..4)?, digits(5..7)?, digits(8..10)?);
-    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
-    let days_in_month = match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if leap => 29,
-        2 => 28,
-        _ => return None,
-    };
-    if !(1..=days_in_month).contains(&day) {
-        return None;
-    }
-    Some(Timestamp {
-        seconds: days_from_civil(year, month, day) * SECONDS_PER_DAY,
-        nanos: 0,
-    })
-}
-
-/// Days since 1970-01-01 of a proleptic Gregorian date (Howard Hinnant's
-/// `days_from_civil`).
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let year = if month <= 2 { year - 1 } else { year };
-    let era = year.div_euclid(400);
-    let year_of_era = year - era * 400;
-    let month_from_march = (month + 9) % 12;
-    let day_of_year = (153 * month_from_march + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * 146_097 + day_of_era - 719_468
 }
 
 #[cfg(test)]

@@ -12,7 +12,7 @@ use ports::Timestamp;
 use ports::{JsonlOp, JsonlRecord, JsonlTaskLogs};
 use tasks::{TaskAggregate, TaskState};
 
-use super::{anomaly_key, record_command_id, rfc3339_nano, Step};
+use super::{anomaly_key, record_command_id, Step};
 use crate::fakes::{ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores, Fault};
 use crate::{
     task_cover, ImportReport, ImportRequest, ImportService, Importer, Lost, NewTask, ProjectImport,
@@ -971,29 +971,6 @@ fn test_the_anomaly_key_is_gos() {
     record.session = String::new();
     record.ts.nanos = 0;
     assert_eq!(anomaly_key(&record), "f44d6594623d");
-}
-
-#[test]
-fn test_instants_are_written_as_gos_rfc3339_nano() {
-    let cases = [
-        (-62_135_596_800, 0, "0001-01-01T00:00:00Z"),
-        (951_868_799, 5, "2000-02-29T23:59:59.000000005Z"),
-        (-86_400, 100_000_000, "1969-12-31T00:00:00.1Z"),
-        (0, 0, "1970-01-01T00:00:00Z"),
-        (-2_203_977_600, 0, "1900-02-28T00:00:00Z"),
-        (-2_203_891_200, 0, "1900-03-01T00:00:00Z"),
-        (4_107_542_400, 0, "2100-03-01T00:00:00Z"),
-        (1_709_164_800, 0, "2024-02-29T00:00:00Z"),
-        (1_677_628_800, 0, "2023-03-01T00:00:00Z"),
-        (1_704_067_199, 999_999_999, "2023-12-31T23:59:59.999999999Z"),
-        (1_775_046_645, 123_456_000, "2026-04-01T12:30:45.123456Z"),
-        (951_782_400, 0, "2000-02-29T00:00:00Z"),
-        (951_868_800, 0, "2000-03-01T00:00:00Z"),
-        (978_307_199, 0, "2000-12-31T23:59:59Z"),
-    ];
-    for (seconds, nanos, go) in cases {
-        assert_eq!(rfc3339_nano(Timestamp { seconds, nanos }), go, "{seconds}");
-    }
 }
 
 #[test]

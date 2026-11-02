@@ -27,6 +27,7 @@
 //! I/O, keeps no clock and starts no runtime.
 
 mod add;
+mod calendar;
 mod change;
 mod error;
 mod import;
