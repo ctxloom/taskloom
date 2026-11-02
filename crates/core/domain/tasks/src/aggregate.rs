@@ -16,8 +16,9 @@
 //!   args, never English, business-fatal. A stream with history refuses an
 //!   add (`tasks-task-exists`), by the router's `had_prior_events`;
 //! - one `#[applies]` per event, assigning what the event carries, an add's
-//!   and a status change's instant its page's `recorded_at` (or an old
-//!   event's `at`): at decide time the kernel hands the decision's own
+//!   and a status change's instant, and when it deferred the task, its
+//!   page's `recorded_at` (or an old event's `at` and `deferred_since`): at
+//!   decide time the kernel hands the decision's own
 //!   events the metadata it stamps them with, so the task decided is the
 //!   task replayed;
 //! - no snapshot: a task's stream is short, and every load replays it.
@@ -64,7 +65,7 @@ impl TaskAggregate {
     #[handles_cmd(AddTask, rooted_by = harp_id)]
     fn add_task(&self, cmd: AddTask, ctx: &Context) -> Result<TaskAdded, Failed<TaskRejection>> {
         let taken = ctx.command.had_prior_events;
-        Ok(task_added(&self.task, taken, &cmd, ctx.recorded_at())?)
+        Ok(task_added(&self.task, taken, &cmd)?)
     }
 
     /// Change the status, the trigger, or both; `None` when it changes

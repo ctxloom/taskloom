@@ -42,11 +42,12 @@ pub const STATUS_CLASS_SIGIL: char = '@';
 /// `EventMeta.recorded_at`), into `state`: what the aggregate's appliers
 /// do, one place. An add's or a status change's instant is `recorded_at`,
 /// or the `at` an event written before the owner's ruling (2026-11-01)
-/// carries, read in preference; new events carry none. So is a status
-/// change's `deferred_since` (ruling R4, 2026-11-01): a change that
-/// defers the task (it holds a trigger after it, which a task does
-/// exactly while Deferred) defers it at its instant, and any other keeps
-/// the one the task holds; an old change's own is read in preference.
+/// carries, read in preference; new events carry none. So is the task's
+/// `deferred_since` (rulings R4 and 25, 2026-11-01): an add or a status
+/// change that leaves the task deferred (holding a trigger, which a task
+/// does exactly while Deferred) defers it at its instant; any other
+/// change keeps the one the task holds, and any other add leaves it never
+/// deferred. An old event's own is read in preference.
 /// Pure: the same state, event and instant always give the same result.
 pub(crate) fn apply(state: &mut TaskState, event: &TaskEvent, recorded_at: Timestamp) {
     match event {
@@ -60,7 +61,7 @@ pub(crate) fn apply(state: &mut TaskState, event: &TaskEvent, recorded_at: Times
             state.origin_session = added.origin_session.clone();
             state.created_at = at;
             state.status_set_at = at;
-            state.deferred_since = added.deferred_since;
+            state.deferred_since = deferred_since(added.deferred_since, &added.trigger, at, None);
             state.prior_status = added.prior_status.clone();
         }
         TaskEvent::StatusChanged(changed) => {
@@ -68,11 +69,12 @@ pub(crate) fn apply(state: &mut TaskState, event: &TaskEvent, recorded_at: Times
             state.trigger = changed.trigger.clone();
             let at = changed.at.unwrap_or(recorded_at);
             state.status_set_at = at;
-            state.deferred_since = match (changed.deferred_since, changed.trigger.is_empty()) {
-                (Some(old), _) => Some(old),
-                (None, false) => Some(at),
-                (None, true) => state.deferred_since,
-            };
+            state.deferred_since = deferred_since(
+                changed.deferred_since,
+                &changed.trigger,
+                at,
+                state.deferred_since,
+            );
             state.prior_status = changed.prior_status.clone();
         }
         TaskEvent::TextEdited(edited) => state.text = edited.text.clone(),
@@ -81,17 +83,29 @@ pub(crate) fn apply(state: &mut TaskState, event: &TaskEvent, recorded_at: Times
     }
 }
 
-/// What an add to the task `held` records, at `at` (the handler's
-/// `recorded_at`, the instant its event is recorded at, which it does not
-/// copy: only `deferred_since` names it): refused when the stream is
-/// `taken` (its harp id is). That the add's harp id is the one
-/// its stream derives from is the aggregate's `rooted_by`.
-fn task_added(
-    held: &TaskState,
-    taken: bool,
-    add: &AddTask,
+/// The task's `deferred_since` after an event at `at` that leaves it
+/// holding `trigger`: the one an event written before the rulings carries
+/// (`written`), else `at` when the trigger defers the task, else the one it
+/// `held` (an add holds none).
+fn deferred_since(
+    written: Option<Timestamp>,
+    trigger: &str,
     at: Timestamp,
-) -> Result<TaskAdded, TaskRejection> {
+    held: Option<Timestamp>,
+) -> Option<Timestamp> {
+    match (written, trigger.is_empty()) {
+        (Some(old), _) => Some(old),
+        (None, false) => Some(at),
+        (None, true) => held,
+    }
+}
+
+/// What an add to the task `held` records: refused when the stream is
+/// `taken` (its harp id is). It copies no instant: its own, and the task's
+/// `deferred_since` when it is added deferred, are its `recorded_at`
+/// ([`apply`]). That the add's harp id is the one
+/// its stream derives from is the aggregate's `rooted_by`.
+fn task_added(held: &TaskState, taken: bool, add: &AddTask) -> Result<TaskAdded, TaskRejection> {
     if taken {
         return Err(TaskRejection::TaskExists {
             harp_id: held.harp_id.clone(),
@@ -107,7 +121,6 @@ fn task_added(
         trigger,
         origin_session,
         prior_status,
-        deferred,
     } = added(add)?;
     Ok(TaskAdded {
         harp_id: harp_id.to_string(),
@@ -117,7 +130,7 @@ fn task_added(
         tags: normalized(&add.tags).into_values().collect(),
         origin_session,
         at: None,
-        deferred_since: deferred.then_some(at),
+        deferred_since: None,
         prior_status,
     })
 }
@@ -199,8 +212,6 @@ struct Added {
     trigger: String,
     origin_session: String,
     prior_status: String,
-    /// Whether it is added deferred.
-    deferred: bool,
 }
 
 /// An add's text trimmed; its status (`initial` when it gives none, and
@@ -235,7 +246,6 @@ fn added(add: &AddTask) -> Result<Added, TaskRejection> {
             true => statuses.initial.to_string(),
             false => String::new(),
         },
-        deferred,
     })
 }
 
