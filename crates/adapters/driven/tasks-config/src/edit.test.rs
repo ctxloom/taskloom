@@ -209,8 +209,9 @@ fn test_what_the_block_lacks_is_added() {
 
 // A file ending without a line break is followed by the block whole, and
 // still ends without one, as the editor keeps a file's endings. One
-// of comments alone, or an empty one, is no mapping to edit (though the
-// reader reads it, as current), so it is refused, never written.
+// of comments alone, or an empty one, is no mapping to edit, so it is
+// refused here, never written: a write stamps such a file first, as it
+// does a file it makes (`to_edit`), so it never reaches the editor so.
 #[test]
 fn test_a_file_ending_without_a_line_break_is_followed_by_the_block() {
     let permits = of(open(&["relates"]), &[]);

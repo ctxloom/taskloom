@@ -238,19 +238,13 @@ impl TaskloomConfig {
 
     /// `permits` written to the work root's config file by the fewest
     /// edits ([`edit::edited`]), the file and its directory made when
-    /// there is none; nothing written when it already permits exactly
-    /// them.
+    /// there is none ([`to_edit`]); nothing written when it already
+    /// permits exactly them.
     fn write_permits(&self, permits: &TagPermits) -> Result<(), ConfigError> {
         let dir = self.work_root().ok_or(ConfigError::NoWorkRoot)?.join(DIR);
         let path = dir.join(FILE);
         let shown = path.display().to_string();
-        // A file made is stamped, so it reads back.
-        let source = text_of(&*self.fs, &path)?.unwrap_or_else(|| {
-            format!(
-                "{}: {SCHEMA_VERSION}\n",
-                angzarr_yaml::versioned::DEFAULT_KEY
-            )
-        });
+        let source = to_edit(text_of(&*self.fs, &path)?);
         // The file must read as taskloom's before it is edited.
         parsed(&path, &source)?;
         let edited = edit::edited(&shown, &source, permits)?;
@@ -267,6 +261,27 @@ impl TaskloomConfig {
         self.fs
             .write_atomic(&path, edited.as_bytes(), Perms::KeepOr(Mode::FILE))
             .map_err(unwritable)
+    }
+}
+
+/// What a permits write edits, of the config file holding `text` (none:
+/// no file). A file holding nothing, missing, empty or of comments alone
+/// (all missing, and current, by the config-versioning rule), is written
+/// as a file made is: stamped, so it reads back (Go's taskloom refuses a
+/// file without a stamp), after whatever comments it has, kept as
+/// written. Any other is edited as it is.
+fn to_edit(text: Option<String>) -> String {
+    let stamp = format!(
+        "{}: {SCHEMA_VERSION}\n",
+        angzarr_yaml::versioned::DEFAULT_KEY
+    );
+    let text = text.unwrap_or_default();
+    if !matches!(angzarr_yaml::parse(&text), Ok(angzarr_yaml::Value::Null)) {
+        return text;
+    }
+    match text.is_empty() || text.ends_with('\n') {
+        true => format!("{text}{stamp}"),
+        false => format!("{text}\n{stamp}"),
     }
 }
 
