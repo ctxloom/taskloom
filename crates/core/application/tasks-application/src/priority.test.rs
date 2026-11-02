@@ -3,7 +3,7 @@
 //! and the warnings a ranking that means little earns.
 
 use crate::english::English;
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 use ports::Timestamp;
 use task_priority::{Diagnostics, Ranking, TargetCoverage, MAX};
 
@@ -231,7 +231,7 @@ fn test_warnings_are_attributed_to_their_project_when_asked() {
         .iter()
         .all(|n| n.project.as_deref() == Some("a")));
     let first = &attributed.notes[0];
-    assert_eq!(first.code(), "tasks-application-priority-in-project");
+    assert_eq!(first.code(), code!("priority-in-project"));
     assert!(first.english().starts_with("project a: "), "{first}");
 }
 
@@ -350,7 +350,7 @@ fn test_each_warning_renders_go_s_english() {
         project: None,
         warning: PriorityWarning::AllTied { scored: 1, live: 4 },
     };
-    assert_eq!(bare.code(), "tasks-application-priority-all-tied");
+    assert_eq!(bare.code(), code!("priority-all-tied"));
     assert_eq!(bare.english(), bare.warning.english());
     assert_eq!(bare.args().len(), 2);
 }

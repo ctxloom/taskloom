@@ -44,7 +44,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::future::Future;
 
-use angzarr_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 use angzarr_embedded::v1::{CommandBook, Uuid};
 use angzarr_embedded::{ids, CommandBookExt, EventStore, Registry, StreamRef};
 use ports::{
@@ -162,10 +162,10 @@ impl fmt::Display for Why {
 impl Diagnostic for Why {
     fn code(&self) -> &str {
         match self {
-            Why::Displaced => "tasks-application-import-displaced",
+            Why::Displaced => code!("import-displaced"),
             Why::Refused(rejection) => rejection.code(),
-            Why::HarpTaken => "tasks-application-import-harp-taken",
-            Why::TaskNotImported => "tasks-application-import-task-not-imported",
+            Why::HarpTaken => code!("import-harp-taken"),
+            Why::TaskNotImported => code!("import-task-not-imported"),
             Why::Tag(refusal) => refusal.code(),
         }
     }
@@ -194,7 +194,7 @@ impl fmt::Display for NoJsonlLog {
 
 impl Diagnostic for NoJsonlLog {
     fn code(&self) -> &str {
-        "tasks-application-no-jsonl-log"
+        code!("no-jsonl-log")
     }
 
     fn args(&self) -> Vec<(&str, Arg)> {

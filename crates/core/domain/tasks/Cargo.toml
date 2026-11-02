@@ -19,6 +19,9 @@ tagma-proto.workspace = true
 tasks-proto.workspace = true
 
 [build-dependencies]
+# The build writes the catalog's source under the crate's name
+# (angzarr_diagnostic::build): no catalog spells its crate's name.
+angzarr-diagnostic = { workspace = true, features = ["build"] }
 angzarr-build.workspace = true
 # Only for the directory tagma/v1/tag.proto is imported from.
 tagma-proto.workspace = true

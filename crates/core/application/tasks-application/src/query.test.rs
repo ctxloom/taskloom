@@ -7,7 +7,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use angzarr_diagnostic::Diagnostic;
+use angzarr_diagnostic::{code, Diagnostic};
 
 use super::{check, select, QueryError, QUERY_GRAMMAR};
 use crate::rules::StoreRules;
@@ -120,7 +120,7 @@ fn test_every_query_answers_as_go_taskloom_answers() {
 #[test]
 fn test_a_malformed_query_is_refused_with_the_grammar() {
     let error = check(Some("and")).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-tag-query");
+    assert_eq!(error.code(), code!("tag-query"));
     assert!(error.to_string().contains(QUERY_GRAMMAR), "{error}");
     assert!(error.to_string().contains("and"), "{error}");
     let names: Vec<&str> = error.args().into_iter().map(|(n, _)| n).collect();
@@ -140,7 +140,7 @@ fn test_an_infix_query_is_refused_as_malformed_postfix() {
         "(urgent or release) and not level=3",
     ] {
         let error = check(Some(query)).unwrap_err();
-        assert_eq!(error.code(), "tasks-application-tag-query");
+        assert_eq!(error.code(), code!("tag-query"));
         let postfix = tagma_core::Index::new().query_postfix(query).unwrap_err();
         assert_eq!(error.postfix, postfix, "{query}");
         let shown = error.to_string();

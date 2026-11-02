@@ -58,3 +58,15 @@ fn every_code_is_prefixed_with_the_crates_name() {
         assert!(sample.code().starts_with("plans-"), "{}", sample.code());
     }
 }
+
+/// The catalog is exported under the crate's package name, and every code
+/// is under that name, with its message using exactly its args.
+#[test]
+fn test_every_code_is_under_the_crates_name_with_its_message() {
+    let (name, text) = crate::EN_US;
+    assert_eq!(name, env!("CARGO_PKG_NAME"));
+    assert_eq!(
+        angzarr_diagnostic::catalog::check(name, text, &crate::diagnostic_samples()),
+        []
+    );
+}

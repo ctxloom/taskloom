@@ -29,8 +29,8 @@ message SchemaState {
 
 // Add and remove schema tags in one change, as a task's Retag: the adds
 // first, then the removes, so a tag named in both ends up removed. Refused
-// when it names no tag (tasks-schema-tag-required), and when a tag is
-// outside `tagma.*` and `taskloom.*` (tasks-schema-not-config): a task's
+// when it names no tag (SchemaRejection::TagRequired), and when a tag is
+// outside `tagma.*` and `taskloom.*` (SchemaRejection::NotConfig): a task's
 // tag, not a rule. A malformed config tag is recorded: `taskloom schema
 // check` (tagma's check) reports it.
 message Declare {

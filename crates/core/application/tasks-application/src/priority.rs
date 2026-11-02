@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use angzarr_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 use ports::Timestamp;
 use task_priority::{Candidate, Diagnostics, Formulas};
 
@@ -168,10 +168,10 @@ impl fmt::Display for PriorityWarning {
 impl Diagnostic for PriorityWarning {
     fn code(&self) -> &str {
         match self {
-            PriorityWarning::NoPriorityFn => "tasks-application-priority-no-priority-fn",
-            PriorityWarning::AllTied { .. } => "tasks-application-priority-all-tied",
-            PriorityWarning::Inert { .. } => "tasks-application-priority-inert",
-            PriorityWarning::Thin { .. } => "tasks-application-priority-thin",
+            PriorityWarning::NoPriorityFn => code!("priority-no-priority-fn"),
+            PriorityWarning::AllTied { .. } => code!("priority-all-tied"),
+            PriorityWarning::Inert { .. } => code!("priority-inert"),
+            PriorityWarning::Thin { .. } => code!("priority-thin"),
         }
     }
 
@@ -208,7 +208,7 @@ impl fmt::Display for PriorityNote {
 impl Diagnostic for PriorityNote {
     fn code(&self) -> &str {
         match self.project {
-            Some(_) => "tasks-application-priority-in-project",
+            Some(_) => code!("priority-in-project"),
             None => self.warning.code(),
         }
     }

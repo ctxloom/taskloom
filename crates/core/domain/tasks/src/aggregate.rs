@@ -12,9 +12,9 @@
 //! - a status change and a retag return `Option`: a change that changes
 //!   nothing records nothing;
 //! - every refusal is message-only, a [`TaskRejection`] as a
-//!   `Failed::Rejected` (FAILED_PRECONDITION): a key (`tasks-*`) and its
+//!   `Failed::Rejected` (FAILED_PRECONDITION): a key (`code!(...)`, under the crate's name) and its
 //!   args, never English, business-fatal. A stream with history refuses an
-//!   add (`tasks-task-exists`), by the router's `had_prior_events`;
+//!   add ([`TaskRejection::TaskExists`]), by the router's `had_prior_events`;
 //! - one `#[applies]` per event, assigning what the event carries, an add's
 //!   and a status change's instant, and when it deferred the task, its
 //!   page's `recorded_at` (or an old event's `at` and `deferred_since`): at

@@ -4,7 +4,7 @@
 
 use crate::english::English;
 use crate::fakes::{read_from, At};
-use angzarr_diagnostic::Diagnostic;
+use angzarr_diagnostic::{code, Diagnostic};
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use ports::Timestamp;
 use tasks::{RemovalReason, RemoveTask, SetStatus, TaskCommand};
@@ -372,7 +372,7 @@ fn test_a_prune_with_no_status_is_refused() {
     let mut none = request(false);
     none.statuses = Vec::new();
     let error = prune(&mut service, none).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-prune-no-status");
+    assert_eq!(error.code(), code!("prune-no-status"));
 }
 
 // A status given blank is given: refused, never left out of the set.
@@ -393,7 +393,13 @@ fn test_a_status_class_is_refused_as_a_list_refuses_it() {
     let mut class = request(false);
     class.statuses = vec!["@terminal".to_string()];
     let error = prune(&mut service, class).unwrap_err();
-    assert_eq!(error.code(), "tasks-status-reserved");
+    assert_eq!(
+        error.code(),
+        tasks::TaskRejection::StatusReserved {
+            status: String::new()
+        }
+        .code()
+    );
 }
 
 #[test]
@@ -402,7 +408,7 @@ fn test_a_malformed_age_or_tag_query_is_refused_before_anything_is_read() {
     let mut aged = request(true);
     aged.older_than = "soon".to_string();
     let error = prune(&mut service, aged).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-prune-age-unreadable");
+    assert_eq!(error.code(), code!("prune-age-unreadable"));
     assert_eq!(
         error.english(),
         "the age soon is neither an offset (30d, 12w, 720h) nor a date (2026-01-01)"
@@ -411,7 +417,7 @@ fn test_a_malformed_age_or_tag_query_is_refused_before_anything_is_read() {
     let mut queried = request(true);
     queried.tag_query = Some("and".to_string());
     let error = prune(&mut service, queried).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-tag-query");
+    assert_eq!(error.code(), code!("tag-query"));
     assert_eq!(
         service.stores.store.attempts(),
         1 + 4,
@@ -829,7 +835,7 @@ fn test_a_blank_tag_query_given_is_refused_not_read_as_none() {
             ..request(true)
         };
         let error = prune(&mut service, asked).unwrap_err();
-        assert_eq!(error.code(), "tasks-application-blank");
+        assert!(matches!(error, AppError::Blank { .. }), "{error:?}");
     }
     assert_eq!(listed(&mut service).len(), 4, "nothing pruned");
 }
@@ -864,7 +870,7 @@ fn test_a_failed_prune_carries_the_dead_letters_written_while_it_ran() {
     };
     let error = prune(&mut service, refused.clone()).unwrap_err();
     assert_eq!(error.dead_letters(), [crate::dead_letter_sample("prune")]);
-    assert_eq!(error.code(), "tasks-application-prune-age-unreadable");
+    assert_eq!(error.code(), code!("prune-age-unreadable"));
     let error = prune(&mut service, refused).unwrap_err();
     assert!(error.dead_letters().is_empty(), "each is carried once");
 }

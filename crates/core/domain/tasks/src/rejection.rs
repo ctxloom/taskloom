@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum TaskRejection {
@@ -48,18 +48,18 @@ impl fmt::Display for TaskRejection {
 impl Diagnostic for TaskRejection {
     fn code(&self) -> &str {
         match self {
-            TaskRejection::HarpIdRequired => "tasks-harp-id-required",
-            TaskRejection::TaskExists { .. } => "tasks-task-exists",
-            TaskRejection::NoTask => "tasks-no-task",
-            TaskRejection::Removed { .. } => "tasks-removed",
-            TaskRejection::TextRequired => "tasks-text-required",
-            TaskRejection::StatusRequired => "tasks-status-required",
-            TaskRejection::StatusReserved { .. } => "tasks-status-reserved",
-            TaskRejection::TriggerRequired => "tasks-trigger-required",
-            TaskRejection::TagRequired => "tasks-tag-required",
-            TaskRejection::Blank { .. } => "tasks-blank",
-            TaskRejection::TriggerWithStatus { .. } => "tasks-trigger-with-status",
-            TaskRejection::Unresolved { .. } => "tasks-unresolved",
+            TaskRejection::HarpIdRequired => code!("harp-id-required"),
+            TaskRejection::TaskExists { .. } => code!("task-exists"),
+            TaskRejection::NoTask => code!("no-task"),
+            TaskRejection::Removed { .. } => code!("removed"),
+            TaskRejection::TextRequired => code!("text-required"),
+            TaskRejection::StatusRequired => code!("status-required"),
+            TaskRejection::StatusReserved { .. } => code!("status-reserved"),
+            TaskRejection::TriggerRequired => code!("trigger-required"),
+            TaskRejection::TagRequired => code!("tag-required"),
+            TaskRejection::Blank { .. } => code!("blank"),
+            TaskRejection::TriggerWithStatus { .. } => code!("trigger-with-status"),
+            TaskRejection::Unresolved { .. } => code!("unresolved"),
         }
     }
 
@@ -83,7 +83,10 @@ impl Diagnostic for TaskRejection {
 
 /// This crate's en-US messages, its name first: what an edge's catalog
 /// embeds to render its diagnostics.
-pub const EN_US: (&str, &str) = ("tasks", include_str!("../locales/en-US/tasks.ftl"));
+pub const EN_US: (&str, &str) = (
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
+);
 
 /// One value of every rejection, a task's and the schema's, for the
 /// catalog test.

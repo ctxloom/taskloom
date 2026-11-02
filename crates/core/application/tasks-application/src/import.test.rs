@@ -6,7 +6,7 @@ use crate::fakes::{failing, read_from};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use angzarr_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 use angzarr_embedded::Stream;
 use ports::Timestamp;
 use ports::{JsonlOp, JsonlRecord, JsonlTaskLogs};
@@ -18,6 +18,10 @@ use crate::{
     task_cover, ImportReport, ImportRequest, ImportService, Importer, Lost, NewTask, ProjectImport,
     Service, TaskService, Why,
 };
+
+/// A port's failure, as a fake answers it: its code names no crate, since
+/// the use case passes any port's failure on as it is.
+const PORT_FAILURE: &str = "a-port-failed";
 
 const PROJECT: &str = "jolly-mute-magma";
 const HARP: &str = "swift-amber";
@@ -467,7 +471,7 @@ fn test_a_logged_tag_outside_the_grammar_is_reported_and_the_rest_imported() {
     assert!(project
         .lost
         .iter()
-        .all(|l| l.why.code() == "tasks-application-tag-unparseable"));
+        .all(|l| l.why.code() == code!("tag-unparseable")));
     let named: Vec<&str> = project.lost[0]
         .why
         .args()
@@ -516,8 +520,8 @@ fn test_a_logged_tag_in_tagmas_namespace_is_reported_and_left_out() {
     assert_eq!(
         lost,
         [
-            (1, "tasks-application-tag-reserved-namespace"),
-            (4, "tasks-application-tag-reserved-namespace"),
+            (1, code!("tag-reserved-namespace")),
+            (4, code!("tag-reserved-namespace")),
         ]
     );
     assert_eq!(
@@ -561,8 +565,8 @@ fn test_a_logged_operator_word_tag_is_reported_and_left_out() {
     assert_eq!(
         lost,
         [
-            (1, "tasks-application-tag-operator-word"),
-            (2, "tasks-application-tag-operator-word"),
+            (1, code!("tag-operator-word")),
+            (2, code!("tag-operator-word")),
         ]
     );
     assert_eq!(project.applied, 2, "the add, and the tag of y");
@@ -677,7 +681,7 @@ fn test_a_record_to_a_task_that_was_not_imported_is_reported() {
     let Why::Refused(refused) = why[0].1 else {
         panic!("refused: {why:?}");
     };
-    assert_eq!(refused.code(), "tasks-text-required");
+    assert_eq!(refused.code(), tasks::TaskRejection::TextRequired.code());
     assert_eq!(
         why[1..],
         [
@@ -708,9 +712,15 @@ fn test_a_record_the_domain_refuses_is_reported_and_the_task_goes_on() {
             other => panic!("{other:?}"),
         })
         .collect();
+    let reserved = tasks::TaskRejection::StatusReserved {
+        status: "@open".to_string(),
+    };
     assert_eq!(
         codes,
-        [(2, "tasks-trigger-required"), (3, "tasks-status-reserved")]
+        [
+            (2, tasks::TaskRejection::TriggerRequired.code()),
+            (3, reserved.code())
+        ]
     );
     let task = state(&mut service, HARP).unwrap();
     assert_eq!(
@@ -780,7 +790,7 @@ fn test_an_import_that_stopped_part_way_resumes() {
     let stopped = only(&first);
     assert_eq!(
         stopped.failed.as_ref().map(|r| r.code()),
-        Some("tasks-application-gave-up")
+        Some(code!("gave-up"))
     );
     assert_eq!(stopped.applied, 0);
     assert!(!first.complete());
@@ -887,7 +897,7 @@ fn test_a_named_project_without_a_log_fails() {
     };
     let report = ready(service.import(request)).unwrap();
     let failed = only(&report).failed.clone().expect("failed");
-    assert_eq!(failed.code(), "tasks-application-no-jsonl-log");
+    assert_eq!(failed.code(), code!("no-jsonl-log"));
     assert_eq!(
         failed.english(),
         "Go taskloom has no task log for project tpyo"
@@ -910,19 +920,19 @@ fn test_an_empty_log_opens_no_store() {
 #[test]
 fn test_logs_that_cannot_be_listed_fail_the_import() {
     let mut service = service(Vec::new());
-    service.jsonl_logs.projects_fail = Some(Report::new("jsonl-task-log-unreadable"));
+    service.jsonl_logs.projects_fail = Some(Report::new(PORT_FAILURE));
     let error = ready(service.import(ImportRequest::default())).unwrap_err();
-    assert_eq!(error.code(), "jsonl-task-log-unreadable");
+    assert_eq!(error.code(), PORT_FAILURE);
 }
 
 #[test]
 fn test_a_log_that_cannot_be_read_fails_its_project() {
     let mut service = service(vec![add(HARP, "One", 1)]);
-    service.jsonl_logs.records_fail = Some(Report::new("jsonl-task-log-malformed"));
+    service.jsonl_logs.records_fail = Some(Report::new(PORT_FAILURE));
     let report = import(&mut service);
     assert_eq!(
         only(&report).failed.as_ref().map(|r| r.code()),
-        Some("jsonl-task-log-malformed")
+        Some(PORT_FAILURE)
     );
     assert!(service.stores.opened.is_empty());
 }
@@ -930,11 +940,11 @@ fn test_a_log_that_cannot_be_read_fails_its_project() {
 #[test]
 fn test_a_project_that_cannot_resolve_fails() {
     let mut service = service(vec![add(HARP, "One", 1)]);
-    service.identity.fails = Some(Report::new("project-registry-invalid-id"));
+    service.identity.fails = Some(Report::new(PORT_FAILURE));
     let report = import(&mut service);
     assert_eq!(
         only(&report).failed.as_ref().map(|r| r.code()),
-        Some("project-registry-invalid-id")
+        Some(PORT_FAILURE)
     );
 }
 
@@ -1002,12 +1012,15 @@ fn test_each_reason_renders_its_english_and_a_refusal_is_its_rejection() {
             "its task was not imported",
         ]
     );
-    let refused = Why::Refused(Report::new("tasks-status-reserved").arg("status", "@x"));
+    let reserved = tasks::TaskRejection::StatusReserved {
+        status: "@x".to_string(),
+    };
+    let refused = Why::Refused(Report::of(&reserved));
     assert_eq!(
         refused.english(),
         "the status @x is not allowed: '@' is reserved for status classes"
     );
-    assert_eq!(refused.code(), "tasks-status-reserved");
+    assert_eq!(refused.code(), reserved.code());
     assert_eq!(refused.args().len(), 1);
     assert!(Why::Displaced.args().is_empty());
 }

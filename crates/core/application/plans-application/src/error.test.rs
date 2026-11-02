@@ -1,6 +1,7 @@
 //! The catalog: every rejection has an en-US message using exactly its
 //! args, and every message a sample.
 
+use angzarr_diagnostic::code;
 use fluent_syntax::ast::{Entry, Expression, InlineExpression, PatternElement};
 
 #[test]
@@ -71,13 +72,14 @@ fn a_wrapper_is_its_causes_diagnostic() {
 
     use crate::{PathError, PlanError, PlanRejection};
 
-    let rejected = PlanError::Rejected(PlanRejection::NotGoverned("t".into()));
-    assert_eq!(rejected.code(), "plans-not-governed");
-    assert_eq!(rejected.to_string(), "plans-not-governed task=t");
+    let rejection = PlanRejection::NotGoverned("t".into());
+    let rejected = PlanError::Rejected(rejection.clone());
+    assert_eq!(rejected.code(), rejection.code());
+    assert_eq!(rejected.to_string(), rejection.to_string());
     let path = PlanError::Path(PathError::NotAPlanFile("x.md".into()));
     assert_eq!(
         path.to_string(),
-        "plans-application-not-a-plan-file path=x.md"
+        concat!(code!("not-a-plan-file"), " path=x.md")
     );
     let report = angzarr_diagnostic::Report::new("x-busy");
     for wrapper in [
@@ -89,4 +91,16 @@ fn a_wrapper_is_its_causes_diagnostic() {
     ] {
         assert_eq!(wrapper.code(), "x-busy");
     }
+}
+
+/// The catalog is exported under the crate's package name, and every code
+/// is under that name, with its message using exactly its args.
+#[test]
+fn test_every_code_is_under_the_crates_name_with_its_message() {
+    let (name, text) = crate::EN_US;
+    assert_eq!(name, env!("CARGO_PKG_NAME"));
+    assert_eq!(
+        angzarr_diagnostic::catalog::check(name, text, &crate::diagnostic_samples()),
+        []
+    );
 }

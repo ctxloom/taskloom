@@ -26,7 +26,7 @@ use std::fmt;
 use std::future::Future;
 
 use crate::DeadLetter;
-use angzarr_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 use angzarr_embedded::v1::Cover;
 use angzarr_embedded::{Kernel, KernelError, Purge, Recovery, Registry, Store, StreamRef};
 use ports::{
@@ -160,10 +160,10 @@ impl fmt::Display for PruneRefusal {
 impl Diagnostic for PruneRefusal {
     fn code(&self) -> &str {
         match self {
-            PruneRefusal::NoStatus => "tasks-application-prune-no-status",
-            PruneRefusal::AgeRequired => "tasks-application-prune-age-required",
-            PruneRefusal::AgeNotPositive { .. } => "tasks-application-prune-age-not-positive",
-            PruneRefusal::AgeUnreadable { .. } => "tasks-application-prune-age-unreadable",
+            PruneRefusal::NoStatus => code!("prune-no-status"),
+            PruneRefusal::AgeRequired => code!("prune-age-required"),
+            PruneRefusal::AgeNotPositive { .. } => code!("prune-age-not-positive"),
+            PruneRefusal::AgeUnreadable { .. } => code!("prune-age-unreadable"),
         }
     }
 

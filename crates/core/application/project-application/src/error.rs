@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 
 /// Why a project use case did not complete. [`ProjectError::Port`] is the
 /// port's own diagnostic: its code, args and English.
@@ -29,9 +29,9 @@ impl Diagnostic for ProjectError {
     fn code(&self) -> &str {
         match self {
             ProjectError::Port(cause) => cause.code(),
-            ProjectError::UnknownProject { .. } => "project-application-unknown-project",
-            ProjectError::InUse { .. } => "project-application-in-use",
-            ProjectError::NotOrphan { .. } => "project-application-not-orphan",
+            ProjectError::UnknownProject { .. } => code!("unknown-project"),
+            ProjectError::InUse { .. } => code!("in-use"),
+            ProjectError::NotOrphan { .. } => code!("not-orphan"),
         }
     }
 
@@ -51,8 +51,8 @@ impl Diagnostic for ProjectError {
 /// This crate's en-US messages, its name first: what an edge's catalog
 /// embeds to render its diagnostics.
 pub const EN_US: (&str, &str) = (
-    "project-application",
-    include_str!("../locales/en-US/project-application.ftl"),
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
 );
 
 /// One value of every error this crate defines (not the wrapper), for the

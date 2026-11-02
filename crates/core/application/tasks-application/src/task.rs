@@ -31,7 +31,7 @@ pub struct Written {
 impl Written {
     /// tagma's `Existing` findings on the task written: what was wrong
     /// before the write and still is. A write is never refused for these
-    /// (an `Introduced` finding refuses it, `tasks-application-tag-rules`),
+    /// (an `Introduced` finding refuses it, a `RulesRefusal`),
     /// and the edge prints them on stderr, or in the JSON document.
     pub fn warnings(&self) -> &[Finding] {
         &self.warnings

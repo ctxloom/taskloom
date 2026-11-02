@@ -2,7 +2,7 @@
 //! payloads on the wire; the catalog. The rules a stream decides are
 //! `aggregate.test.rs`'s, through angzarr-embedded's kernel.
 
-use angzarr_diagnostic::Diagnostic;
+use angzarr_diagnostic::{code, Diagnostic};
 use angzarr_embedded::{Payload, PayloadError, Timestamp};
 
 use crate::{
@@ -214,11 +214,11 @@ fn test_a_rejection_displays_as_its_key_and_args() {
             harp_id: HARP.to_string()
         }
         .to_string(),
-        "tasks-task-exists harp_id=swift-amber"
+        concat!(code!("task-exists"), " harp_id=swift-amber")
     );
     assert_eq!(
         TaskRejection::TriggerRequired.to_string(),
-        "tasks-trigger-required"
+        code!("trigger-required")
     );
 }
 
@@ -284,5 +284,17 @@ fn test_the_schema_payloads_round_trip_under_their_own_type_urls() {
     assert_eq!(
         SchemaEvent::type_urls(),
         ["/ctxloom.tasks.v1.SchemaRetagged"]
+    );
+}
+
+/// The catalog is exported under the crate's package name, and every code
+/// is under that name, with its message using exactly its args.
+#[test]
+fn test_every_code_is_under_the_crates_name_with_its_message() {
+    let (name, text) = crate::EN_US;
+    assert_eq!(name, env!("CARGO_PKG_NAME"));
+    assert_eq!(
+        angzarr_diagnostic::catalog::check(name, text, &crate::diagnostic_samples()),
+        []
     );
 }

@@ -13,7 +13,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 
 pub use tasks::Tag;
 
@@ -65,11 +65,11 @@ impl fmt::Display for TagRefusal {
 impl Diagnostic for TagRefusal {
     fn code(&self) -> &str {
         match self {
-            TagRefusal::Blank => "tasks-application-tag-blank",
-            TagRefusal::Unparseable { .. } => "tasks-application-tag-unparseable",
-            TagRefusal::OperatorWord { .. } => "tasks-application-tag-operator-word",
-            TagRefusal::ReservedNamespace { .. } => "tasks-application-tag-reserved-namespace",
-            TagRefusal::Retired { .. } => "tasks-application-tag-retired",
+            TagRefusal::Blank => code!("tag-blank"),
+            TagRefusal::Unparseable { .. } => code!("tag-unparseable"),
+            TagRefusal::OperatorWord { .. } => code!("tag-operator-word"),
+            TagRefusal::ReservedNamespace { .. } => code!("tag-reserved-namespace"),
+            TagRefusal::Retired { .. } => code!("tag-retired"),
         }
     }
 

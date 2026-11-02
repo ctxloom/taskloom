@@ -182,7 +182,7 @@ pub trait Jitter {
 /// Synchronous, and it blocks on the filesystem, as [`ProjectIdentity`]
 /// does.
 pub trait Configuration {
-    /// Refused (`tasks-config-key-moved`, naming `taskloom schema
+    /// Refused (tasks-config's `ConfigError::KeyMoved`, naming `taskloom schema
     /// import-config`) where any layer still sets a key that moved into the
     /// store: a config file's `tag_schema` or `tag_permits`, the
     /// `TASKLOOM_CONFIG_TAG_SCHEMA` variable, a `--config-set` of either.

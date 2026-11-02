@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 use angzarr_embedded::markup::Rejection;
 use angzarr_embedded::testing::{Harness, Samples};
 use angzarr_embedded::v1::Cover;
@@ -187,7 +187,7 @@ fn a_refusal_through_the_kernel_is_its_code_and_args_and_records_nothing() {
     assert_eq!(
         said(&refused),
         (
-            "plans-transition".to_string(),
+            code!("transition").to_string(),
             vec![
                 ("from".to_string(), "draft".to_string()),
                 ("to".to_string(), "done".to_string())
@@ -202,7 +202,7 @@ fn a_second_add_to_a_stream_is_refused_as_already_added() {
     let mut plans = Plans::new();
     plans.run(HARP, add(HARP)).unwrap();
     let refused = plans.run(HARP, add(HARP)).unwrap_err();
-    assert_eq!(said(&refused).0, "plans-already-added");
+    assert_eq!(said(&refused).0, code!("already-added"));
 }
 
 #[test]
@@ -226,7 +226,7 @@ fn an_add_naming_another_harp_than_its_stream_is_refused() {
 fn a_command_to_an_empty_stream_is_refused_as_no_such_plan() {
     let mut plans = Plans::new();
     let refused = plans.run(HARP, PlanCommand::Reinstate).unwrap_err();
-    assert_eq!(said(&refused).0, "plans-no-such-plan");
+    assert_eq!(said(&refused).0, code!("no-such-plan"));
 }
 
 #[test]
@@ -300,7 +300,7 @@ fn a_status_left_unspecified_on_the_wire_is_an_invalid_payload() {
 fn a_rejections_display_is_its_code_and_args() {
     assert_eq!(
         PlanRejection::AlreadyGoverns("swift-amber".into()).to_string(),
-        "plans-already-governs task=swift-amber"
+        concat!(code!("already-governs"), " task=swift-amber")
     );
 }
 

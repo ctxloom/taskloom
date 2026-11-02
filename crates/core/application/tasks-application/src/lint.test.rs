@@ -86,7 +86,11 @@ fn test_a_value_outside_its_enum_is_a_violation_whatever_the_tasks_status() {
         )]
     );
     assert_eq!(checked, 1);
-    assert_eq!(found[0].finding.code(), "tasks-application-lint-rule");
+    assert!(
+        matches!(found[0].finding, Finding::Rule { .. }),
+        "{:?}",
+        found[0].finding
+    );
 }
 
 #[test]

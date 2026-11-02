@@ -14,7 +14,7 @@
 
 use std::collections::BTreeMap;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 use angzarr_embedded::angzarr_router::error::RouterReason;
 use angzarr_embedded::markup::{Context, Emit, Failed, PageContext};
 use angzarr_embedded::testing::{Harness, Ready, Samples};
@@ -311,10 +311,10 @@ fn an_add_on_a_stream_with_history_is_refused_task_exists() {
             harp_id: HARP.to_string()
         })
     );
-    assert_eq!(refusal.code(), "tasks-task-exists");
+    assert_eq!(refusal.code(), code!("task-exists"));
     assert_eq!(
         refusal.to_string(),
-        "tasks-task-exists harp_id=swift-amber",
+        concat!(code!("task-exists"), " harp_id=swift-amber"),
         "its key and args, never English"
     );
     assert_eq!(refusal.refusal_object(), None, "message-only");
@@ -333,7 +333,7 @@ fn a_deferral_without_a_trigger_is_refused() {
     let mut task = Task::added("Revisit");
     let refusal = task.refusal(status(DEFERRED, ""));
     assert_eq!(said(&refusal), said(&TaskRejection::TriggerRequired));
-    assert_eq!(refusal.to_string(), "tasks-trigger-required");
+    assert_eq!(refusal.to_string(), code!("trigger-required"));
     assert_eq!(task.state().status, TO_DO, "not deferred");
 
     let refusal = Task::new().refusal(AddTask {

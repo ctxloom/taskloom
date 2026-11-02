@@ -8,7 +8,7 @@
 //! intersection, introduced/existing) works through taskloom because
 //! tagma's does; no file layer is read for them.
 
-use angzarr_diagnostic::{Diagnostic, Report};
+use angzarr_diagnostic::{code, Diagnostic, Report};
 use ports::TagPermits;
 
 use crate::fakes::{ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores};
@@ -188,11 +188,11 @@ fn test_a_write_introducing_a_tagma_finding_is_refused_naming_its_code() {
     declare(&mut service, &[r#"tagma.enum:"area:x"=a"#], &[]);
     let error = add(&mut service, &["area:x=b"]).unwrap_err();
     let (code, shown) = refusal(&error);
-    assert_eq!(code, "tasks-application-tag-rules");
+    assert_eq!(code, code!("tag-rules"));
     assert!(shown.contains("not-in-enum"), "{shown}");
     assert!(shown.contains("area:x=b"), "{shown}");
     let error = tag(&mut service, "swift-amber", &["area:x=b"], &[]).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-tag-rules");
+    assert_eq!(error.code(), code!("tag-rules"));
     assert!(add(&mut service, &["area:x=a"]).is_ok());
 }
 
@@ -253,7 +253,7 @@ fn test_a_write_adding_a_second_key_to_an_already_over_namespace_is_refused() {
     add(&mut service, &["lang:en", "lang:fr"]).unwrap();
     declare(&mut service, &["tagma.keys-per-item:lang=1"], &[]);
     let error = tag(&mut service, "swift-amber", &["lang:de"], &[]).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-tag-rules");
+    assert_eq!(error.code(), code!("tag-rules"));
 }
 
 // ONE_KEY is gone: one area and one repo a task is the seeded
@@ -282,7 +282,7 @@ fn test_lint_reports_an_existing_two_areas_through_tagmas_finding() {
         .iter()
         .map(|v| (v.harp_id.as_str(), v.finding.code()))
         .collect();
-    assert_eq!(found, [("calm-otter", "tasks-application-lint-rule")]);
+    assert_eq!(found, [("calm-otter", code!("lint-rule"))]);
     assert!(report.violations[0]
         .finding
         .to_string()
@@ -317,11 +317,7 @@ fn test_a_task_may_carry_no_tag_in_the_taskloom_namespace() {
         "taskloom.sub:y",
     ] {
         let error = add(&mut service, &[reserved]).unwrap_err();
-        assert_eq!(
-            error.code(),
-            "tasks-application-tag-reserved-namespace",
-            "{reserved}"
-        );
+        assert_eq!(error.code(), code!("tag-reserved-namespace"), "{reserved}");
     }
     assert!(add(&mut service, &["taskloomish:x"]).is_ok());
 }
@@ -356,9 +352,10 @@ fn test_a_declare_of_a_tasks_tag_is_refused() {
         remove: vec![],
     }))
     .unwrap_err();
+    let not_config = tasks::schema::SchemaRejection::NotConfig { tag: String::new() };
     assert!(
-        error.to_string().contains("tasks-schema-not-config"),
-        "{error}"
+        matches!(&error, AppError::Rejected(r) if r.code() == not_config.code()),
+        "{error:?}"
     );
 }
 

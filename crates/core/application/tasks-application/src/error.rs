@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 
 use crate::DeadLetter;
 
@@ -95,6 +95,13 @@ impl AppError {
         }
     }
 
+    /// Whether this is the domain's refusal of a task that is not there
+    /// (`tasks::TaskRejection::NoTask`), with dead letters or without: what
+    /// a driving adapter asks, which sees no domain.
+    pub fn is_no_task(&self) -> bool {
+        self.code() == tasks::TaskRejection::NoTask.code()
+    }
+
     /// This error, carrying `dead_letters` when there are any.
     fn with_dead_letters(self, dead_letters: Vec<DeadLetter>) -> AppError {
         match dead_letters.is_empty() {
@@ -171,20 +178,20 @@ impl Diagnostic for AppError {
             | AppError::Prune(cause)
             | AppError::Priority(cause) => cause.code(),
             AppError::DeadLettered { error, .. } => error.code(),
-            AppError::GaveUp { .. } => "tasks-application-gave-up",
-            AppError::HarpsExhausted { .. } => "tasks-application-harps-exhausted",
-            AppError::Vanished { .. } => "tasks-application-vanished",
-            AppError::NoProject => "tasks-application-no-project",
-            AppError::UnknownStatusClass { .. } => "tasks-application-unknown-status-class",
-            AppError::UnknownSort { .. } => "tasks-application-unknown-sort",
-            AppError::Blank { .. } => "tasks-application-blank",
-            AppError::TriggerAndClear => "tasks-application-trigger-and-clear",
-            AppError::AddRequestIdCollides { .. } => "tasks-application-add-request-id-collides",
-            AppError::NotFound { .. } => "tasks-application-not-found",
-            AppError::Ambiguous { .. } => "tasks-application-ambiguous",
-            AppError::PermitMalformed { .. } => "tasks-application-permit-malformed",
-            AppError::PermitNotDeclared { .. } => "tasks-application-permit-not-declared",
-            AppError::PermitInUse { .. } => "tasks-application-permit-in-use",
+            AppError::GaveUp { .. } => code!("gave-up"),
+            AppError::HarpsExhausted { .. } => code!("harps-exhausted"),
+            AppError::Vanished { .. } => code!("vanished"),
+            AppError::NoProject => code!("no-project"),
+            AppError::UnknownStatusClass { .. } => code!("unknown-status-class"),
+            AppError::UnknownSort { .. } => code!("unknown-sort"),
+            AppError::Blank { .. } => code!("blank"),
+            AppError::TriggerAndClear => code!("trigger-and-clear"),
+            AppError::AddRequestIdCollides { .. } => code!("add-request-id-collides"),
+            AppError::NotFound { .. } => code!("not-found"),
+            AppError::Ambiguous { .. } => code!("ambiguous"),
+            AppError::PermitMalformed { .. } => code!("permit-malformed"),
+            AppError::PermitNotDeclared { .. } => code!("permit-not-declared"),
+            AppError::PermitInUse { .. } => code!("permit-in-use"),
         }
     }
 
@@ -238,8 +245,8 @@ impl Diagnostic for AppError {
 /// This crate's en-US messages, its name first: what an edge's catalog
 /// embeds to render its diagnostics.
 pub const EN_US: (&str, &str) = (
-    "tasks-application",
-    include_str!("../locales/en-US/tasks-application.ftl"),
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
 );
 
 /// The en-US catalogs of every diagnostic a use case returns but its

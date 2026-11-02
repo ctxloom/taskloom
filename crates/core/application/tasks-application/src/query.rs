@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::Arc;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 use tagma_core::Index;
 
 use crate::rules::StoreRules;
@@ -51,7 +51,7 @@ impl fmt::Display for QueryError {
 
 impl Diagnostic for QueryError {
     fn code(&self) -> &str {
-        "tasks-application-tag-query"
+        code!("tag-query")
     }
 
     fn args(&self) -> Vec<(&str, Arg)> {

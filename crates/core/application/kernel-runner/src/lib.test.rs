@@ -272,8 +272,10 @@ fn test_a_rejection_is_answered_not_retried() {
         "the domain's own rejection, typed"
     );
     assert_eq!(
-        refusal.report.to_string(),
-        "tasks-task-exists harp_id=swift-amber",
+        refusal.report,
+        Report::of(&TaskRejection::TaskExists {
+            harp_id: "swift-amber".to_string()
+        }),
         "its key and args"
     );
     assert_eq!(

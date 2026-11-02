@@ -1,5 +1,6 @@
 //! RED (red/self-hosted-schema): the schema stream's decide and apply.
 
+use angzarr_diagnostic::code;
 use angzarr_embedded::ids;
 
 use super::{
@@ -83,7 +84,7 @@ fn test_a_declare_of_nothing_is_refused() {
     assert_eq!(refused, SchemaRejection::TagRequired);
     assert_eq!(
         angzarr_diagnostic::Diagnostic::code(&refused),
-        "tasks-schema-tag-required"
+        code!("schema-tag-required")
     );
 }
 
@@ -169,7 +170,7 @@ fn test_a_removal_of_every_rule_still_leaves_the_stream_declared() {
 
 mod on_the_kernel {
 
-    use angzarr_diagnostic::Diagnostic;
+    use angzarr_diagnostic::{code, Diagnostic};
     use angzarr_embedded::angzarr_ports::memory::MemoryStore;
     use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
     use angzarr_embedded::{
@@ -302,14 +303,14 @@ mod on_the_kernel {
         let mut schema = Schema::new();
         assert_eq!(
             schema.run(Declare::default()),
-            Err("tasks-schema-tag-required".to_string())
+            Err(code!("schema-tag-required").to_string())
         );
         assert_eq!(
             schema.run(Declare {
                 add: tags(&["area:cli"]),
                 remove: vec![],
             }),
-            Err("tasks-schema-not-config".to_string())
+            Err(code!("schema-not-config").to_string())
         );
         assert!(!schema.state().declared, "nothing recorded");
     }
@@ -322,7 +323,7 @@ mod on_the_kernel {
                 add: vec![],
                 remove: tags(&["area:cli"]),
             }),
-            Err("tasks-schema-not-config".to_string())
+            Err(code!("schema-not-config").to_string())
         );
     }
 

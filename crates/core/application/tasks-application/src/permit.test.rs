@@ -10,13 +10,17 @@
 //! rather than ignored, one area a task as `tagma.keys-per-item`) is said
 //! where it changed.
 
-use angzarr_diagnostic::{Diagnostic, Report};
+use angzarr_diagnostic::{code, Diagnostic, Report};
 
 use crate::fakes::{ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores};
 use crate::{
     AppError, Declaration, NewTask, PermitChange, PermitService, Permitted, SchemaService, Scope,
     Service, StatusChange, TagChange, TaskService, Written,
 };
+
+/// The configuration's refusal of keys moved into the store, as the fake
+/// answers it: its code names no crate, since the use case passes it on.
+const KEY_MOVED: &str = "a-key-moved";
 
 /// A configuration no use case here may read the moved keys of, or write:
 /// the permits are the store's.
@@ -157,9 +161,7 @@ fn spelled(written: &Written) -> Vec<String> {
 /// Whether `error` is tagma's `not-permitted` of `tag`.
 fn not_permitted(error: &AppError, tag: &str) -> bool {
     let shown = error.to_string();
-    error.code() == "tasks-application-tag-rules"
-        && shown.contains("not-permitted")
-        && shown.contains(tag)
+    error.code() == code!("tag-rules") && shown.contains("not-permitted") && shown.contains(tag)
 }
 
 // ------------------------------------------------------------ admission
@@ -494,11 +496,7 @@ fn test_a_permit_not_spelled_as_one_is_refused_and_nothing_declared() {
         let mut service = under(&USUAL);
         let before = export(&mut service);
         let error = permit(&mut service, spelled).unwrap_err();
-        assert_eq!(
-            error.code(),
-            "tasks-application-permit-malformed",
-            "{spelled}"
-        );
+        assert_eq!(error.code(), code!("permit-malformed"), "{spelled}");
         assert_eq!(export(&mut service), before, "{spelled}");
     }
     let mut service = under(&USUAL);
@@ -563,7 +561,7 @@ fn test_a_finished_task_still_carrying_a_permit_blocks_its_revoke() {
     add(&mut service, &["area:mcp"]).unwrap();
     moved(&mut service, "swift-amber", "Done");
     let error = revoke(&mut service, "area:mcp").unwrap_err();
-    assert_eq!(error.code(), "tasks-application-permit-in-use");
+    assert!(matches!(error, AppError::PermitInUse { .. }), "{error:?}");
 }
 
 // A revoke of what is not among the permits is refused: a pattern never
@@ -583,7 +581,10 @@ fn test_a_revoke_of_what_is_not_among_the_permits_is_refused() {
     }
     let mut service = under(&[]);
     let error = revoke(&mut service, "area:cli").unwrap_err();
-    assert_eq!(error.code(), "tasks-application-permit-not-declared");
+    assert!(
+        matches!(error, AppError::PermitNotDeclared { .. }),
+        "{error:?}"
+    );
 }
 
 // Where there is no project yet, nothing is declared, so there is nothing
@@ -599,7 +600,10 @@ fn test_a_revoke_where_there_is_no_project_yet_is_not_declared() {
     )
     .with_configuration(FakeConfig::default());
     let error = revoke(&mut service, "area:cli").unwrap_err();
-    assert_eq!(error.code(), "tasks-application-permit-not-declared");
+    assert!(
+        matches!(error, AppError::PermitNotDeclared { .. }),
+        "{error:?}"
+    );
     assert!(service.identity.bound.is_none(), "no project bound");
 }
 
@@ -729,7 +733,7 @@ impl ports::Configuration for OldConfig {
     fn moved(&mut self) -> Result<(), Report> {
         match self.schema.is_empty() && self.permits.is_none() {
             true => Ok(()),
-            false => Err(Report::new("tasks-config-key-moved")),
+            false => Err(Report::new(KEY_MOVED)),
         }
     }
 
@@ -788,11 +792,7 @@ fn test_the_import_moves_the_old_declarations_into_tagmas_facets() {
         ..OldConfig::default()
     });
     let error = ready(service.list(crate::ListQuery::default())).unwrap_err();
-    assert_eq!(
-        error.code(),
-        "tasks-config-key-moved",
-        "refused before the import"
-    );
+    assert_eq!(error.code(), KEY_MOVED, "refused before the import");
     let imported = ready(service.import_config()).unwrap();
     assert!(imported.changed);
     for tag in [
@@ -868,7 +868,7 @@ fn test_the_import_refuses_a_declaration_that_is_no_tag() {
         ..OldConfig::default()
     });
     let error = ready(service.import_config()).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-tag-unparseable");
+    assert_eq!(error.code(), code!("tag-unparseable"));
     assert_eq!(service.configuration.retired, 0);
 }
 

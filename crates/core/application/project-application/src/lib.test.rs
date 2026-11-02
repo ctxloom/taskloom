@@ -306,7 +306,7 @@ fn test_show_finds_orphaned_databases_but_not_its_own() {
 
 #[test]
 fn test_a_failing_survey_fails_each_use_case_as_the_ports_error() {
-    let report = Report::new("project-registry-no-home");
+    let report = Report::new("a-port-no-home");
     let mut projects = projects(survey());
     projects.admin.refuse = Some(report.clone());
     let refused = ProjectError::Port(report);

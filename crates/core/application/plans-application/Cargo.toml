@@ -30,6 +30,11 @@ fluent-syntax.workspace = true
 # `#[cfg_attr(test, mutants::skip)]`, for a mutant judged equivalent.
 mutants.workspace = true
 
+[build-dependencies]
+# The build writes the catalog's source under the crate's name
+# (angzarr_diagnostic::build): no catalog spells its crate's name.
+angzarr-diagnostic = { workspace = true, features = ["build"] }
+
 [features]
 # `diagnostic_samples` and `dead_letter_sample`, for other crates' tests:
 # their dev-dependency turns it on, and no build of a binary does.

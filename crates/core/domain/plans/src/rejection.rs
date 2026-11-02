@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 
 use crate::PlanStatus;
 
@@ -47,20 +47,20 @@ impl fmt::Display for PlanRejection {
 impl Diagnostic for PlanRejection {
     fn code(&self) -> &str {
         match self {
-            PlanRejection::AlreadyAdded => "plans-already-added",
-            PlanRejection::NoSuchPlan => "plans-no-such-plan",
-            PlanRejection::EmptyTitle => "plans-empty-title",
-            PlanRejection::InitialStatus(_) => "plans-initial-status",
-            PlanRejection::StatusUnchanged(_) => "plans-status-unchanged",
-            PlanRejection::Transition { .. } => "plans-transition",
-            PlanRejection::SupersededBySupersedeOnly => "plans-superseded-by-supersede-only",
-            PlanRejection::AlreadyGoverns(_) => "plans-already-governs",
-            PlanRejection::NotGoverned(_) => "plans-not-governed",
-            PlanRejection::SupersedesItself => "plans-supersedes-itself",
-            PlanRejection::AlreadySupersedes(_) => "plans-already-supersedes",
-            PlanRejection::NotSuperseded(_) => "plans-not-superseded",
-            PlanRejection::HashUnchanged => "plans-hash-unchanged",
-            PlanRejection::BadHash(_) => "plans-bad-hash",
+            PlanRejection::AlreadyAdded => code!("already-added"),
+            PlanRejection::NoSuchPlan => code!("no-such-plan"),
+            PlanRejection::EmptyTitle => code!("empty-title"),
+            PlanRejection::InitialStatus(_) => code!("initial-status"),
+            PlanRejection::StatusUnchanged(_) => code!("status-unchanged"),
+            PlanRejection::Transition { .. } => code!("transition"),
+            PlanRejection::SupersededBySupersedeOnly => code!("superseded-by-supersede-only"),
+            PlanRejection::AlreadyGoverns(_) => code!("already-governs"),
+            PlanRejection::NotGoverned(_) => code!("not-governed"),
+            PlanRejection::SupersedesItself => code!("supersedes-itself"),
+            PlanRejection::AlreadySupersedes(_) => code!("already-supersedes"),
+            PlanRejection::NotSuperseded(_) => code!("not-superseded"),
+            PlanRejection::HashUnchanged => code!("hash-unchanged"),
+            PlanRejection::BadHash(_) => code!("bad-hash"),
         }
     }
 
@@ -92,7 +92,10 @@ impl Diagnostic for PlanRejection {
 
 /// This crate's en-US messages, its name first: what an edge's catalog
 /// embeds to render its diagnostics.
-pub const EN_US: (&str, &str) = ("plans", include_str!("../locales/en-US/plans.ftl"));
+pub const EN_US: (&str, &str) = (
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
+);
 
 /// One value of every rejection, for the catalog test.
 #[cfg(any(test, feature = "test-support"))]

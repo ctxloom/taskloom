@@ -19,7 +19,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 use tagma_core::Code;
 
 use crate::read::Scan;
@@ -63,8 +63,8 @@ impl fmt::Display for Finding {
 impl Diagnostic for Finding {
     fn code(&self) -> &str {
         match self {
-            Finding::Rule { .. } => "tasks-application-lint-rule",
-            Finding::FormulaEnum { .. } => "tasks-application-lint-formula-enum",
+            Finding::Rule { .. } => code!("lint-rule"),
+            Finding::FormulaEnum { .. } => code!("lint-formula-enum"),
         }
     }
 

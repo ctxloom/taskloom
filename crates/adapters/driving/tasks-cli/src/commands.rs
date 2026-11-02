@@ -3,7 +3,6 @@
 
 use std::io::{self, Write};
 
-use angzarr_diagnostic::Diagnostic;
 use angzarr_presentation::{Catalog, Format};
 use clap::Args;
 use plans_application::Governing;
@@ -169,7 +168,7 @@ async fn reversed(
     let Some(status) = status else {
         return CliError::App(error);
     };
-    if error.code() != "tasks-no-task" {
+    if !error.is_no_task() {
         return CliError::App(error);
     }
     let query = ShowQuery {

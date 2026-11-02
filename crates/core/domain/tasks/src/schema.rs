@@ -19,7 +19,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 use angzarr_embedded::markup::{Context, Failed};
 use angzarr_embedded::v1::Uuid;
 use angzarr_embedded::{ids, WireError};
@@ -95,8 +95,8 @@ impl fmt::Display for SchemaRejection {
 impl Diagnostic for SchemaRejection {
     fn code(&self) -> &str {
         match self {
-            SchemaRejection::TagRequired => "tasks-schema-tag-required",
-            SchemaRejection::NotConfig { .. } => "tasks-schema-not-config",
+            SchemaRejection::TagRequired => code!("schema-tag-required"),
+            SchemaRejection::NotConfig { .. } => code!("schema-not-config"),
         }
     }
 

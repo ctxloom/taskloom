@@ -56,7 +56,7 @@ message TaskState {
 // names none: `defers`, the status a trigger defers a task to, the one
 // that needs a trigger; and `initial`, the status a task gets when none is
 // given (and returns to, cleared of the trigger it was added Deferred
-// with). Both are required (refused empty: tasks-unresolved).
+// with). Both are required (refused empty: TaskRejection::Unresolved).
 
 // Create the task. The harp id is minted by the caller (minting is random,
 // and decide is deterministic); a stream that already holds a task refuses
@@ -73,7 +73,7 @@ message AddTask {
   optional string status = 3;
   // Given (never blank), the task is added `defers`, returning to `initial`
   // when the trigger is cleared. Required when status is `defers`; refused
-  // with any other status (tasks-trigger-with-status).
+  // with any other status (TaskRejection::TriggerWithStatus).
   optional string trigger = 4;
   repeated tagma.v1.Tag tags = 5;
   // Left out, none. Given, never blank.
@@ -89,11 +89,11 @@ message AddTask {
 // A trigger given (never blank) defers the task, replacing any held: its
 // status becomes Deferred, and the status it held is kept to return to (a
 // Deferred task keeps the one it has). Given with a status, the status
-// must be Deferred (tasks-trigger-with-status).
+// must be Deferred (TaskRejection::TriggerWithStatus).
 //
 // A trigger given EMPTY clears the one held: a Deferred task returns to the
 // status it was deferred from, or to `status`,
-// when one is given (Deferred is refused: tasks-trigger-required).
+// when one is given (Deferred is refused: TaskRejection::TriggerRequired).
 // Clearing a trigger the task does not hold changes nothing.
 //
 // A trigger left out keeps the one held while the task stays Deferred.

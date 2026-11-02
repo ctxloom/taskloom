@@ -141,7 +141,7 @@ fn test_a_watch_whose_project_does_not_resolve_says_why() {
         .err()
         .expect("an error");
     assert!(matches!(failed, AppError::Identity(_)));
-    assert_eq!(failed.code(), "tasks-application-no-project");
+    assert_eq!(failed.code(), AppError::NoProject.code());
 }
 
 /// Add `harp` to `store` directly, as another process would.

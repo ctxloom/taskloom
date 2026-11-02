@@ -366,7 +366,10 @@ fn test_a_formula_that_does_not_compile_refuses_the_sort() {
         &[seeded_priority_fn()],
     );
     let error = ready(service.list(by_priority())).unwrap_err();
-    assert_eq!(error.code(), "task-priority-malformed");
+    assert!(
+        matches!(&error, AppError::Priority(r) if r.code() == malformed().code()),
+        "{error:?}"
+    );
     assert!(
         ready(service.list(ListQuery::default())).is_ok(),
         "only the sort reads it"
@@ -700,7 +703,7 @@ fn test_show_across_projects_fails_on_an_id_two_hold_naming_them() {
 fn test_show_where_there_is_no_project_finds_nothing() {
     let mut service = service(&[]);
     let error = ready(service.show(asked(&["swift-amber"]))).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-not-found");
+    assert!(matches!(error, AppError::NotFound { .. }), "{error:?}");
 }
 
 // ------------------------------------------------------------ summary
@@ -1023,5 +1026,16 @@ fn a_stream_the_task_list_cannot_fold_fails_every_read() {
     for _ in 0..2 {
         let error = ready(service.list(ListQuery::default())).unwrap_err();
         assert!(matches!(error, AppError::Failed(_)), "{error:?}");
+    }
+}
+
+/// task-priority's refusal of a formula that does not parse: its code,
+/// whatever the formula.
+fn malformed() -> task_priority::PriorityError {
+    task_priority::PriorityError::Malformed {
+        facet: task_priority::Facet::PriorityFn,
+        target: String::new(),
+        formula: String::new(),
+        reason: String::new(),
     }
 }

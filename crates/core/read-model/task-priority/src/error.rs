@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 
 use crate::{builtins, Facet};
 
@@ -55,13 +55,13 @@ impl fmt::Display for PriorityError {
 impl Diagnostic for PriorityError {
     fn code(&self) -> &str {
         match self {
-            PriorityError::Malformed { .. } => "task-priority-malformed",
-            PriorityError::UnknownBuiltin { .. } => "task-priority-unknown-builtin",
-            PriorityError::Ambiguous { .. } => "task-priority-ambiguous",
-            PriorityError::Unevaluable { .. } => "task-priority-unevaluable",
-            PriorityError::NotANumber { .. } => "task-priority-not-a-number",
-            PriorityError::NonFinite { .. } => "task-priority-non-finite",
-            PriorityError::NoCreatedAt { .. } => "task-priority-no-created-at",
+            PriorityError::Malformed { .. } => code!("malformed"),
+            PriorityError::UnknownBuiltin { .. } => code!("unknown-builtin"),
+            PriorityError::Ambiguous { .. } => code!("ambiguous"),
+            PriorityError::Unevaluable { .. } => code!("unevaluable"),
+            PriorityError::NotANumber { .. } => code!("not-a-number"),
+            PriorityError::NonFinite { .. } => code!("non-finite"),
+            PriorityError::NoCreatedAt { .. } => code!("no-created-at"),
         }
     }
 
@@ -130,8 +130,8 @@ fn known(facet: Facet) -> String {
 
 /// This crate's en-US messages, its name first.
 pub const EN_US: (&str, &str) = (
-    "task-priority",
-    include_str!("../locales/en-US/task-priority.ftl"),
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
 );
 
 /// One of every error, for the catalog test.

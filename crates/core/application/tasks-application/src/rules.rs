@@ -2,7 +2,7 @@
 //! tagma config tags, which the store's schema stream holds
 //! ([`crate::schema`]) and ONLY tagma interprets. Every add or tag is
 //! judged by `tagma_core::Rules::validate` ([`judged`]: refused on an
-//! `Introduced` finding, `tasks-application-tag-rules`; warned on an
+//! `Introduced` finding, a [`RulesRefusal`]; warned on an
 //! `Existing` one, [`crate::Written::warnings`]), and `taskloom schema
 //! check` is `tagma_core::Rules::check`. Pure: what the store holds is
 //! read elsewhere, and handed in.
@@ -21,7 +21,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 
-use angzarr_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 
 pub use tagma_core::{Code, Finding, Origin};
 
@@ -344,7 +344,7 @@ impl fmt::Display for RulesRefusal {
 
 impl Diagnostic for RulesRefusal {
     fn code(&self) -> &str {
-        "tasks-application-tag-rules"
+        code!("tag-rules")
     }
 
     fn args(&self) -> Vec<(&str, Arg)> {
@@ -364,7 +364,7 @@ impl fmt::Display for RuleWarning {
 
 impl Diagnostic for RuleWarning {
     fn code(&self) -> &str {
-        "tasks-application-tag-rule-warning"
+        code!("tag-rule-warning")
     }
 
     fn args(&self) -> Vec<(&str, Arg)> {

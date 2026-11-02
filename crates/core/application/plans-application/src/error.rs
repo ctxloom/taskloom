@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{Arg, Diagnostic, Report};
+use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 
 use crate::PlanRejection;
 
@@ -77,9 +77,9 @@ impl fmt::Display for PathError {
 impl Diagnostic for PathError {
     fn code(&self) -> &str {
         match self {
-            PathError::OutsideWorkRoot(_) => "plans-application-outside-work-root",
-            PathError::NotAPlanFile(_) => "plans-application-not-a-plan-file",
-            PathError::Empty => "plans-application-empty-path",
+            PathError::OutsideWorkRoot(_) => code!("outside-work-root"),
+            PathError::NotAPlanFile(_) => code!("not-a-plan-file"),
+            PathError::Empty => code!("empty-path"),
         }
     }
 
@@ -134,15 +134,15 @@ impl Diagnostic for PlanError {
             return wrapped.code();
         }
         match self {
-            PlanError::NoSuchPlan(_) => "plans-application-no-such-plan",
-            PlanError::NoSuchTask(_) => "plans-application-no-such-task",
-            PlanError::SupersedeCycle { .. } => "plans-application-supersede-cycle",
-            PlanError::AlreadySuperseded { .. } => "plans-application-already-superseded",
-            PlanError::FileMissing(_) => "plans-application-file-missing",
-            PlanError::FileExists(_) => "plans-application-file-exists",
-            PlanError::AlreadyRegistered { .. } => "plans-application-already-registered",
-            PlanError::HarpsExhausted { .. } => "plans-application-harps-exhausted",
-            PlanError::GaveUp { .. } => "plans-application-gave-up",
+            PlanError::NoSuchPlan(_) => code!("no-such-plan"),
+            PlanError::NoSuchTask(_) => code!("no-such-task"),
+            PlanError::SupersedeCycle { .. } => code!("supersede-cycle"),
+            PlanError::AlreadySuperseded { .. } => code!("already-superseded"),
+            PlanError::FileMissing(_) => code!("file-missing"),
+            PlanError::FileExists(_) => code!("file-exists"),
+            PlanError::AlreadyRegistered { .. } => code!("already-registered"),
+            PlanError::HarpsExhausted { .. } => code!("harps-exhausted"),
+            PlanError::GaveUp { .. } => code!("gave-up"),
             _ => unreachable!("a wrapper's code is its cause's"),
         }
     }
@@ -178,8 +178,8 @@ impl Diagnostic for PlanError {
 /// This crate's en-US messages, its name first: what an edge's catalog
 /// embeds to render its diagnostics.
 pub const EN_US: (&str, &str) = (
-    "plans-application",
-    include_str!("../locales/en-US/plans-application.ftl"),
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
 );
 
 /// Every catalog the plans use cases' diagnostics come from: the domain's
