@@ -190,7 +190,7 @@ fn a_store_that_cannot_say_is_retried_by_the_kernel_alone() {
         .link("plan-1", Link::Governs("task-a".into()))
         .unwrap_err();
     assert!(
-        matches!(&error, PlanError::GaveUp { attempts: 3, error } if error.code() == "angzarr-ports-store-unavailable"),
+        matches!(&error, PlanError::GaveUp { attempts: 3, error } if error.code() == store_unavailable()),
         "{error:?}"
     );
     {
@@ -648,4 +648,13 @@ fn a_stream_the_plan_list_cannot_fold_fails_every_read() {
         let error = ready(service.0.borrow_mut().list(&PlanQuery::default())).unwrap_err();
         assert!(matches!(error, PlanError::Failed(_)), "{error:?}");
     }
+}
+
+/// angzarr-ports' code for a store that could not say: its code, whatever
+/// the cause.
+fn store_unavailable() -> String {
+    use angzarr_embedded::angzarr_ports::{Cause, StoreError};
+    StoreError::Unavailable(Cause::new("", []))
+        .code()
+        .to_string()
 }

@@ -139,7 +139,7 @@ fn test_schema_declare_answers_the_tags_after_and_whether_they_changed() {
         .contains(&json!("tagma.keys-per-item:repo=1")));
     assert_eq!(env.run(&args).json()["changed"], false);
     let ran = env.run(&["schema", "declare", "--add", "area:cli", "--json"]);
-    assert_eq!(code(&ran.stderr), "tasks-schema-not-config");
+    assert_eq!(code(&ran.stderr), super::codes::schema_not_config());
 }
 
 // ------------------------------------------------- the write path
@@ -157,7 +157,7 @@ fn test_a_write_is_refused_on_an_introduced_finding_and_warned_on_an_existing() 
         "area:core",
     ]);
     assert!(!ran.ok);
-    assert_eq!(code(&ran.stderr), "tasks-application-tag-rules");
+    assert_eq!(code(&ran.stderr), super::codes::tag_rules());
     assert!(ran.stderr.contains("too-many-keys"), "{}", ran.stderr);
 
     let ran = env.run(&[
@@ -186,10 +186,7 @@ fn test_a_task_may_carry_no_taskloom_namespace_tag() {
     let env = Env::new("calm-otter-fox");
     let ran = env.run(&["add", "Ship it", "--json", "--tag", "taskloom:x"]);
     assert!(!ran.ok);
-    assert_eq!(
-        code(&ran.stderr),
-        "tasks-application-tag-reserved-namespace"
-    );
+    assert_eq!(code(&ran.stderr), super::codes::tag_reserved_namespace());
 }
 
 // ------------------------------------------ the file layers are gone
@@ -206,7 +203,7 @@ fn test_no_environment_or_override_affects_tag_rules_and_each_is_refused() {
         &["add", "Ship it", "--json", "--tag", "triage:level=4"],
         &narrow,
     );
-    assert_eq!(code(&ran.stderr), "tasks-config-key-moved");
+    assert_eq!(code(&ran.stderr), super::codes::key_moved());
     let ran = env.run(&[
         "add",
         "Ship it",
@@ -214,7 +211,7 @@ fn test_no_environment_or_override_affects_tag_rules_and_each_is_refused() {
         "--config-set",
         r#"tag_schema=tagma.range:"triage:level"="1,2""#,
     ]);
-    assert_eq!(code(&ran.stderr), "tasks-config-key-moved");
+    assert_eq!(code(&ran.stderr), super::codes::key_moved());
     assert!(
         env.run(&["add", "Ship it", "--json", "--tag", "triage:level=4"])
             .ok
@@ -242,7 +239,7 @@ fn test_a_config_file_setting_tag_schema_or_tag_permits_is_refused_naming_the_im
         configure(dir, yaml);
         let ran = env.run(&["list", "--json"]);
         assert!(!ran.ok, "{yaml}");
-        assert_eq!(code(&ran.stderr), "tasks-config-key-moved", "{yaml}");
+        assert_eq!(code(&ran.stderr), super::codes::key_moved(), "{yaml}");
         assert!(
             ran.stderr.contains("schema import-config"),
             "{}",
@@ -344,12 +341,12 @@ fn test_permit_and_revoke_edit_the_stores_schema_and_never_a_file() {
     assert!(lines.iter().any(|l| l == r#"tagma.permit:"*:*"=false"#));
     assert!(lines.iter().any(|l| l == r#"tagma.permit:"area:*"=true"#));
     let ran = env.run(&["add", "Ship it", "--json", "--tag", "lang:en"]);
-    assert_eq!(code(&ran.stderr), "tasks-application-tag-rules");
+    assert_eq!(code(&ran.stderr), super::codes::tag_rules());
     assert!(ran.stderr.contains("not-permitted"), "{}", ran.stderr);
     let carrying = env.run(&["add", "Ship it", "--json", "--tag", "area:cli"]);
     assert!(carrying.ok, "{}", carrying.stderr);
     let harp = carrying.json()["harp_id"].as_str().unwrap().to_string();
     let ran = env.run(&["revoke", "area:", "--json"]);
-    assert_eq!(code(&ran.stderr), "tasks-application-permit-in-use");
+    assert_eq!(code(&ran.stderr), super::codes::permit_in_use());
     assert!(ran.stderr.contains(&harp), "names the task: {}", ran.stderr);
 }

@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use angzarr_diagnostic::{code, Arg, Diagnostic};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum BuildError {
@@ -22,7 +22,7 @@ impl std::error::Error for BuildError {}
 impl Diagnostic for BuildError {
     fn code(&self) -> &str {
         match self {
-            BuildError::RelativeCwd { .. } => "tasks-lib-relative-cwd",
+            BuildError::RelativeCwd { .. } => code!("relative-cwd"),
         }
     }
 
@@ -35,7 +35,10 @@ impl Diagnostic for BuildError {
 
 /// This crate's en-US messages, its name first: what an edge's catalog
 /// embeds to render its diagnostics.
-pub const EN_US: (&str, &str) = ("tasks-lib", include_str!("../locales/en-US/tasks-lib.ftl"));
+pub const EN_US: (&str, &str) = (
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
+);
 
 /// One value of every error, for the catalog test.
 #[cfg(any(test, feature = "test-support"))]

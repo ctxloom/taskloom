@@ -239,27 +239,28 @@ fn test_a_file_that_is_not_taskloom_config_is_refused() {
     for (text, shown_as) in [
         (
             "schema_version: 1\nhomeing: home\n",
-            "problem=angzarr-yaml-decode-unknown-key problem.key_path=homeing problem.expected=schema_version,homing,tag_schema,tag_permits problem.found=homeing",
+            &yaml("decode-unknown-key problem.key_path=homeing problem.expected=schema_version,homing,tag_schema,tag_permits problem.found=homeing"),
         ),
         (
             "schema_version: 1\ntag_schema: not-a-list\n",
-            "problem=angzarr-yaml-decode-type problem.key_path=tag_schema",
+            &yaml("decode-type problem.key_path=tag_schema"),
         ),
         (
             "schema_version: 1\ntag_permits:\n  areas: {}\n",
-            "problem=angzarr-yaml-decode-unknown-key problem.key_path=tag_permits.areas",
+            &yaml("decode-unknown-key problem.key_path=tag_permits.areas"),
         ),
-        ("[unclosed\n", "problem=angzarr-yaml-"),
-        ("schema_version: 0\n", "problem=angzarr-yaml-too-old problem.found=0 problem.oldest=1"),
-        ("schema_version: one\n", "problem=angzarr-yaml-version-not-an-integer"),
+        ("[unclosed\n", &yaml("")),
+        ("schema_version: 0\n", &yaml("too-old problem.found=0 problem.oldest=1")),
+        ("schema_version: one\n", &yaml("version-not-an-integer")),
     ] {
         let dirs = Dirs::new(None, Some(text));
         let error = moved(&dirs.config(&[]), &[]).unwrap_err();
         let display = error.to_string();
-        assert_eq!(error.code(), "angzarr-yaml-load-failed-at", "{text:?}: {display}");
+        assert_eq!(error.code(), load_failed_at(), "{text:?}: {display}");
         assert!(
             display.starts_with(&format!(
-                "angzarr-yaml-load-failed-at kind=taskloom-config source={}",
+                "{} kind=taskloom-config source={}",
+                load_failed_at(),
                 angzarr_diagnostic::quote(&shown("/tree/.taskloom/config.yaml"))
             )),
             "{text:?}: {display}"
@@ -588,11 +589,8 @@ mod permits {
                 "tag_permits:\n  namespaces:\n    area: maybe\n",
                 code!("not-a-permit"),
             ),
-            ("tag_permits:\n  areas: {}\n", "angzarr-yaml-load-failed-at"),
-            (
-                "tag_permits:\n  tags: urgent\n",
-                "angzarr-yaml-load-failed-at",
-            ),
+            ("tag_permits:\n  areas: {}\n", load_failed_at().as_str()),
+            ("tag_permits:\n  tags: urgent\n", load_failed_at().as_str()),
             (
                 "tag_permits:\n  namespaces:\n    area: ['cli', '']\n",
                 code!("blank-item"),
@@ -800,4 +798,19 @@ mod permits {
             "the home's config is never written"
         );
     }
+}
+
+/// angzarr-yaml's code `suffix` as a display shows a load's problem: under
+/// angzarr-yaml's own name, read from the crate.
+fn yaml(suffix: &str) -> String {
+    format!("problem={}-{suffix}", angzarr_yaml::EN_US.0)
+}
+
+/// angzarr-yaml's code for a file it could not load, read from a load it
+/// refuses.
+fn load_failed_at() -> String {
+    let refused = crate::loader()
+        .load_into::<crate::File>(Some("c.yaml"), "schema_version: 1\nhomeing: home\n")
+        .expect_err("an unknown key is refused");
+    angzarr_diagnostic::Diagnostic::code(&refused).to_string()
 }

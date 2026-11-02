@@ -42,7 +42,7 @@ fn test_the_rules_are_the_stores_seeded_until_declared_otherwise() {
     // The seeded rules: triage:level is 1-5.
     let ran = add("triage:level=7");
     assert!(!ran.ok);
-    assert_eq!(code(&ran.stderr), "tasks-application-tag-rules");
+    assert_eq!(code(&ran.stderr), super::codes::tag_rules());
     assert!(ran.stderr.contains("out-of-range"), "{}", ran.stderr);
 
     // Widened in the store: the seeded range replaced, an enum declared.
@@ -87,7 +87,7 @@ fn test_a_malformed_configuration_refuses_the_command_and_says_where() {
     );
     configure(env.project.path(), "schema_version: 1\nhoming: home\n");
     let ran = env.run(&["add", "Ship it", "--json", "--config-set", "nonsense"]);
-    assert_eq!(code(&ran.stderr), "tasks-config-not-an-override");
+    assert_eq!(code(&ran.stderr), super::codes::not_an_override());
 }
 
 #[test]
@@ -152,7 +152,7 @@ fn test_list_selects_by_a_postfix_tag_query_and_refuses_infix() {
     for refused in ["urgent/and", "urgent or release"] {
         let ran = env.run(&["list", "--json", "--tag-query", refused]);
         assert!(!ran.ok, "{refused}");
-        assert_eq!(code(&ran.stderr), "tasks-application-tag-query");
+        assert_eq!(code(&ran.stderr), super::codes::tag_query());
     }
 }
 

@@ -328,9 +328,9 @@ fn test_an_add_retries_its_one_command_id_through_store_failures() {
 #[test]
 fn test_an_add_that_cannot_resolve_its_project_fails_with_why() {
     let mut service = service(&["swift-amber"]);
-    service.identity.fails = Some(Report::new("project-registry-x"));
+    service.identity.fails = Some(Report::new("a-port-failed"));
     let error = add(&mut service, new_task("Ship it")).unwrap_err();
-    assert_eq!(error, AppError::Identity(Report::new("project-registry-x")));
+    assert_eq!(error, AppError::Identity(Report::new("a-port-failed")));
     assert!(service.stores.opened.is_empty());
 }
 
@@ -339,7 +339,7 @@ fn test_an_add_whose_store_does_not_open_fails() {
     let mut service = service(&["swift-amber"]);
     service.stores.open_fails = true;
     let error = add(&mut service, new_task("Ship it")).unwrap_err();
-    assert_eq!(error.code(), "angzarr-ports-store-unavailable");
+    assert_eq!(error.code(), store_unavailable());
 }
 
 // ------------------------------------------------------------ tag
@@ -859,7 +859,7 @@ fn test_a_tag_that_gives_up_says_so() {
     // The kernel's retries spent, it answered the tag, its caller waiting,
     // and dead-lettered nothing (angzarr's owner ruling, 2026-10-31).
     assert!(
-        matches!(&error, AppError::GaveUp { attempts: 2, error } if error.code() == "angzarr-ports-store-unavailable"),
+        matches!(&error, AppError::GaveUp { attempts: 2, error } if error.code() == store_unavailable()),
         "{error:?}"
     );
     assert!(error.dead_letters().is_empty(), "{error:?}");
@@ -868,9 +868,9 @@ fn test_a_tag_that_gives_up_says_so() {
 #[test]
 fn test_a_tag_whose_project_does_not_resolve_fails_with_why() {
     let mut service = service(&[]);
-    service.identity.fails = Some(Report::new("project-registry-x"));
+    service.identity.fails = Some(Report::new("a-port-failed"));
     let error = ready(service.tag(change("swift-amber", &["x"], &[]))).unwrap_err();
-    assert_eq!(error.code(), "project-registry-x");
+    assert_eq!(error.code(), "a-port-failed");
 }
 
 #[test]
@@ -879,7 +879,7 @@ fn test_a_tag_whose_store_does_not_open_fails() {
     service.identity.bound = Some(project());
     service.stores.open_fails = true;
     let error = ready(service.tag(change("swift-amber", &["x"], &[]))).unwrap_err();
-    assert_eq!(error.code(), "angzarr-ports-store-unavailable");
+    assert_eq!(error.code(), store_unavailable());
 }
 
 // ------------------------------------------------------------ status
@@ -1353,9 +1353,9 @@ fn test_a_list_opens_its_store_to_read() {
 #[test]
 fn test_a_list_whose_project_does_not_resolve_fails_with_why() {
     let mut service = service(&[]);
-    service.identity.fails = Some(Report::new("project-registry-x"));
+    service.identity.fails = Some(Report::new("a-port-failed"));
     let error = ready(service.list(ListQuery::default())).unwrap_err();
-    assert_eq!(error.code(), "project-registry-x");
+    assert_eq!(error.code(), "a-port-failed");
 }
 
 #[test]
@@ -1364,7 +1364,7 @@ fn test_a_list_whose_store_does_not_open_fails() {
     service.identity.bound = Some(project());
     service.stores.open_fails = true;
     let error = ready(service.list(ListQuery::default())).unwrap_err();
-    assert_eq!(error.code(), "angzarr-ports-store-unavailable");
+    assert_eq!(error.code(), store_unavailable());
 }
 
 #[test]
@@ -1924,4 +1924,13 @@ fn trigger_with_status() -> tasks::TaskRejection {
         status: String::new(),
         defers: String::new(),
     }
+}
+
+/// angzarr-ports' code for a store that could not say: its code, whatever
+/// the cause.
+fn store_unavailable() -> String {
+    use angzarr_embedded::angzarr_ports::{Cause, StoreError};
+    StoreError::Unavailable(Cause::new("", []))
+        .code()
+        .to_string()
 }

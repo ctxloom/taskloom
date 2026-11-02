@@ -269,7 +269,7 @@ fn check(go: &Value, home: &Path, report: &Value) -> BTreeMap<String, Compared> 
             .collect();
         let reported_displaced: Vec<String> = lost(ours)
             .into_iter()
-            .filter(|(_, _, why)| why == "tasks-application-import-displaced")
+            .filter(|(_, _, why)| *why == super::codes::import_displaced())
             .map(|(_, harp, _)| harp)
             .collect();
         assert_eq!(reported_displaced, displaced, "{project}: displaced adds");
@@ -328,22 +328,21 @@ fn test_the_import_agrees_with_gos_fold_of_every_fixture() {
     // why: each record the tasks domain refuses, and every later record to
     // its task.
     let refusals = reported(&report, "domain-refusals");
-    let code = |c: &str| c.to_string();
     let harp = |h: &str| h.to_string();
     assert_eq!(
         lost(refusals),
         [
-            (1, harp("brisk-heron"), code("tasks-text-required")),
+            (1, harp("brisk-heron"), super::codes::text_required()),
             (
                 2,
                 harp("brisk-heron"),
-                code("tasks-application-import-task-not-imported")
+                super::codes::import_task_not_imported()
             ),
-            (3, harp("quiet-maple"), code("tasks-trigger-required")),
-            (5, harp("tidy-otter"), code("tasks-status-reserved")),
-            (6, harp("tidy-otter"), code("tasks-trigger-required")),
-            (7, harp("tidy-otter"), code("tasks-text-required")),
-            (10, harp(""), code("tasks-harp-id-required")),
+            (3, harp("quiet-maple"), super::codes::trigger_required()),
+            (5, harp("tidy-otter"), super::codes::status_reserved()),
+            (6, harp("tidy-otter"), super::codes::trigger_required()),
+            (7, harp("tidy-otter"), super::codes::text_required()),
+            (10, harp(""), super::codes::harp_id_required()),
         ]
     );
     assert_eq!(
@@ -365,22 +364,14 @@ fn test_the_import_agrees_with_gos_fold_of_every_fixture() {
     assert_eq!(
         lost(collisions),
         [
-            (
-                2,
-                harp("brisk-heron"),
-                code("tasks-application-import-displaced")
-            ),
-            (
-                6,
-                harp("quiet-maple"),
-                code("tasks-application-import-displaced")
-            ),
+            (2, harp("brisk-heron"), super::codes::import_displaced()),
+            (6, harp("quiet-maple"), super::codes::import_displaced()),
         ]
     );
     // A logged tag outside tagma's grammar is reported, record by record,
     // and left out; the rest of the record imports, and `k="v"` is `k=v`.
     let unparseable = reported(&report, "unparseable-tags");
-    let tag = code("tasks-application-tag-unparseable");
+    let tag = super::codes::tag_unparseable();
     let heron = || harp("brisk-heron");
     assert_eq!(
         lost(unparseable),
@@ -411,8 +402,8 @@ fn test_the_import_agrees_with_gos_fold_of_every_fixture() {
         "no store for it"
     );
     let failed = |p: &str| reported(&report, p)["failed"]["code"].clone();
-    assert_eq!(failed("malformed"), "jsonl-task-log-malformed");
-    assert_eq!(failed("unknown-op"), "jsonl-task-log-unknown-op");
+    assert_eq!(failed("malformed"), super::codes::log_malformed());
+    assert_eq!(failed("unknown-op"), super::codes::log_unknown_op());
     assert!(
         !disk::exists(home.path().join(".ctxloom/projects/index.yaml")),
         "an import binds no directory to a project"
@@ -520,9 +511,9 @@ fn test_the_import_agrees_with_gos_fold_of_real_logs() {
     assert!(
         all_lost
             .iter()
-            .all(|why| why == "tasks-application-tag-unparseable"
-                || why == "tasks-application-tag-operator-word"
-                || why == "tasks-application-tag-reserved-namespace"),
+            .all(|why| *why == super::codes::tag_unparseable()
+                || *why == super::codes::tag_operator_word()
+                || *why == super::codes::tag_reserved_namespace()),
         "everything else imported: {}",
         ran.stderr
     );

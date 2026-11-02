@@ -237,11 +237,21 @@ text value quoted where it would not parse back), a third party's text
 presentation shows a diagnostic no catalog knows as its code and args.
 English is the catalogs' alone: a test that holds it to Go's renders it
 from them (angzarr-presentation's `english_for!`, behind its
-`test-support` feature, on through a dev-dependency). A new
-variant needs a stable code (prefixed with
-the crate's name), an en-US message in `locales/en-US/<crate>.ftl` using
-exactly its args, and a sample in the crate's `diagnostic_samples()`. The
-crate's catalog test checks messages and samples both ways.
+`test-support` feature, on through a dev-dependency). No code
+spells its crate's name (the owner's ruling, 2026-11-02: names by
+reflection): a code is written `code!("suffix")` (angzarr-diagnostic's
+macro, which prefixes `CARGO_PKG_NAME` and a dash), so a renamed crate's
+codes follow it. A new variant needs a stable code, an en-US message in
+the crate's `locales/en-US/messages.ftl` under the code's suffix alone,
+using exactly its args, and a sample in the crate's `diagnostic_samples()`.
+The crate's `build.rs` calls `angzarr_diagnostic::build::catalogs()` (a
+build-dependency on angzarr-diagnostic with its `build` feature), which
+writes the catalog to `OUT_DIR` with every id under the package name. The
+crate's catalog tests check messages and samples both ways, and that every
+code is under its name (`angzarr_diagnostic::catalog::check`). A test asks
+which error it has by its typed variant (`matches!`), or by the code of a
+typed error of another crate's (`TaskRejection::NoTask.code()`), never by
+a code spelled out.
 
 `diagnostic_samples()` is test-only API, so it is no part of a binary:
 `#[cfg(any(test, feature = "test-support"))]` on the function and its
@@ -256,8 +266,9 @@ crate's `test-support` feature when another crate's do (os's `fixture`,
 `Mode::PRIVATE_DIR`, `Flavor::program_file`, `Flavor::startup_vars`,
 `own_group` and `ctrl_break`).
 
-Each crate with diagnostics exports its embedded en-US catalog as `EN_US`
-(its name and its `.ftl`). The composition root assembles the binary's
+Each crate with diagnostics exports its embedded en-US catalog as `EN_US`:
+`(env!("CARGO_PKG_NAME"), include_str!(concat!(env!("OUT_DIR"),
+"/en-US.ftl")))`, its name and the generated catalog. The composition root assembles the binary's
 catalog from every crate's `EN_US` (angzarr-presentation's `Catalog`), and the
 driving adapters render with it: a diagnostic's catalog message in text,
 its `{code, args, message}` envelope in JSON. A new core or driven

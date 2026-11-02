@@ -179,8 +179,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             git_dir: "/work/main/.git/worktrees/linked".to_string(),
         }),
         Box::new(RegistryError::LockFailed {
-            cause: Report::new("file-lock-not-regular")
-                .arg("path", "/h/.ctxloom/projects/index.yaml.lock"),
+            cause: Report::of(&file_lock::LockError::NotRegular {
+                path: "/h/.ctxloom/projects/index.yaml.lock".to_string(),
+            }),
         }),
     ]
 }

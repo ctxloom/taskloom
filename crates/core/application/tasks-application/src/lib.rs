@@ -95,7 +95,9 @@ pub use change::{StatusChange, TagChange, TextEdit};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{AppError, CATALOGS, EN_US};
-pub use import::{ImportReport, ImportRequest, ImportService, Importer, Lost, ProjectImport, Why};
+pub use import::{
+    ImportReport, ImportRequest, ImportService, Importer, Lost, NoJsonlLog, ProjectImport, Why,
+};
 pub use lint::{Finding, LintReport, Violation};
 pub use permit::{PermitChange, PermitList, PermitService, Permitted};
 pub use ports::Timestamp;
@@ -105,6 +107,7 @@ pub use prune::{
     Dangling, PruneRefusal, PruneRequest, PruneService, Pruned, Pruning, Via, DEFAULT_OLDER_THAN,
     DEFAULT_PRUNE_STATUSES,
 };
+pub use query::QueryError;
 pub use read::{
     Details, Hidden, ListQuery, Listing, Reach, Scope, ShowQuery, Statuses, Summary, TagCount,
     Vocabulary,
@@ -122,7 +125,7 @@ pub use tagma_core::semver::{Semver, Version, SEMVER};
 pub use tagma_core::Tag as RuleTag;
 pub use tags::{
     is_retired as tag_is_retired, parse as parse_tag, schema_free as schema_free_tag, Tag,
-    RETIRED_TAG,
+    TagRefusal, RETIRED_TAG,
 };
 pub use task::Written;
 pub use view::{text_hash, Row, Shown, StatusInfo, Task};
@@ -131,7 +134,6 @@ pub use watch::{Watch, WatchRequest, WatchService};
 // Used across the crate's modules by these paths; nothing outside uses them.
 #[cfg(test)]
 pub(crate) use add::HARP_ATTEMPTS;
-pub(crate) use tags::TagRefusal;
 pub(crate) use task::task_cover;
 pub(crate) use view::DONE;
 

@@ -460,7 +460,7 @@ fn test_a_prune_whose_store_does_not_open_fails() {
     let mut service = seeded();
     service.stores.open_fails = true;
     let error = prune(&mut service, request(false)).unwrap_err();
-    assert_eq!(error.code(), "angzarr-ports-store-unavailable");
+    assert_eq!(error.code(), store_unavailable());
 }
 
 #[test]
@@ -713,7 +713,15 @@ fn test_a_purge_that_no_retry_mends_fails_the_prune() {
         .store
         .fail([Fault::Sound, Fault::Discontinuous]);
     let error = prune(&mut service, request(true)).unwrap_err();
-    assert_eq!(error.code(), "angzarr-ports-store-discontinuous");
+    assert_eq!(
+        error.code(),
+        angzarr_embedded::angzarr_ports::StoreError::Discontinuous {
+            stream: Box::default(),
+            expected: 0,
+            found: 0
+        }
+        .code()
+    );
     assert!(
         !listed(&mut service).contains(&"done-one".to_string()),
         "removed, though not purged"
@@ -1039,7 +1047,24 @@ fn test_a_purge_gives_up_once_its_attempts_are_spent() {
         panic!("gave up");
     };
     assert_eq!(attempts, 5);
-    assert_eq!(error.code(), "angzarr-ports-store-conflict");
+    assert_eq!(
+        error.code(),
+        angzarr_embedded::angzarr_ports::StoreError::Conflict {
+            stream: Box::default(),
+            expected: 0,
+            actual: 0
+        }
+        .code()
+    );
     assert_eq!(runner.delay.slept.len(), 4);
     assert_eq!(events(&store), 2, "nothing purged");
+}
+
+/// angzarr-ports' code for a store that could not say: its code, whatever
+/// the cause.
+fn store_unavailable() -> String {
+    use angzarr_embedded::angzarr_ports::{Cause, StoreError};
+    StoreError::Unavailable(Cause::new("", []))
+        .code()
+        .to_string()
 }

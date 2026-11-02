@@ -73,7 +73,8 @@ fn refused(text: &str) -> String {
     let shown = error.to_string();
     assert!(
         shown.starts_with(&format!(
-            "angzarr-yaml-load-failed-at kind=project-registry source={}",
+            "{}-load-failed-at kind=project-registry source={}",
+            angzarr_yaml::EN_US.0,
             angzarr_diagnostic::quote(&file.display().to_string())
         )),
         "{shown}"
@@ -118,13 +119,14 @@ fn test_a_registry_go_wrote_is_read_with_each_entry() {
 fn test_a_key_this_version_does_not_know_is_refused() {
     let entry = GO_WRITTEN.replace("  path: /work/main\n", "  path: /work/main\n  note: kept\n");
     assert!(
-        refused(&entry)
-            .contains("problem=angzarr-yaml-decode-unknown-key problem.key_path=projects[1].note"),
+        refused(&entry).contains(&yaml(
+            "decode-unknown-key problem.key_path=projects[1].note"
+        )),
         "{entry}"
     );
     let root = format!("{GO_WRITTEN}later: field\n");
     assert!(
-        refused(&root).contains("problem=angzarr-yaml-decode-unknown-key problem.key_path=later"),
+        refused(&root).contains(&yaml("decode-unknown-key problem.key_path=later")),
         "{root}"
     );
 }
@@ -135,13 +137,11 @@ fn test_a_key_this_version_does_not_know_is_refused() {
 #[test]
 fn test_a_version_this_registry_does_not_read_is_refused() {
     let newer = GO_WRITTEN.replace("schema_version: 1", "schema_version: 2");
-    assert!(
-        refused(&newer).contains("problem=angzarr-yaml-too-new problem.found=2 problem.current=1")
-    );
+    assert!(refused(&newer).contains(&yaml("too-new problem.found=2 problem.current=1")));
     let older = GO_WRITTEN.replace("schema_version: 1", "schema_version: 0");
-    assert!(refused(&older).contains("problem=angzarr-yaml-too-old problem.found=0"));
+    assert!(refused(&older).contains(&yaml("too-old problem.found=0")));
     let word = GO_WRITTEN.replace("schema_version: 1", "schema_version: one");
-    assert!(refused(&word).contains("problem=angzarr-yaml-version-not-an-integer"));
+    assert!(refused(&word).contains(&yaml("version-not-an-integer")));
 }
 
 // The config-versioning rule (owner, 2026-10-31): a registry with no
@@ -357,8 +357,15 @@ fn test_a_lock_file_that_is_not_a_file_is_the_locks_failure_naming_it() {
     assert_eq!(
         refused,
         Err(RegistryError::LockFailed {
-            cause: angzarr_diagnostic::Report::new("file-lock-not-regular")
-                .arg("path", lock_path.display().to_string()),
+            cause: angzarr_diagnostic::Report::of(&file_lock::LockError::NotRegular {
+                path: lock_path.display().to_string(),
+            }),
         })
     );
+}
+
+/// angzarr-yaml's code `suffix` as a display shows a load's problem: under
+/// angzarr-yaml's own name, read from the crate.
+fn yaml(suffix: &str) -> String {
+    format!("problem={}-{suffix}", angzarr_yaml::EN_US.0)
 }

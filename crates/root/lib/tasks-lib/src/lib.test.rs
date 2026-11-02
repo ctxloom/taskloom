@@ -323,10 +323,7 @@ fn test_the_configuration_reads_the_variables_given() {
         )])
         .build()
         .unwrap();
-    assert_eq!(
-        add_level_seven(&wide).unwrap_err().code(),
-        "tasks-config-key-moved"
-    );
+    assert_eq!(add_level_seven(&wide).unwrap_err().code(), key_moved());
 }
 
 // The `--config-set` overrides, bound once at composition, are the
@@ -341,10 +338,7 @@ fn test_the_configuration_applies_the_overrides_given() {
         ])
         .build()
         .unwrap();
-    assert_eq!(
-        add_level_seven(&wide).unwrap_err().code(),
-        "tasks-config-key-moved"
-    );
+    assert_eq!(add_level_seven(&wide).unwrap_err().code(), key_moved());
 }
 
 // Building the tasks use cases does no I/O: no work root is searched for
@@ -426,7 +420,10 @@ fn test_a_relative_working_directory_is_refused_as_a_catalogued_diagnostic() {
             cwd: "relative".to_string()
         }
     );
-    assert_eq!(refused.code(), "tasks-lib-relative-cwd");
+    assert!(
+        matches!(refused, BuildError::RelativeCwd { .. }),
+        "{refused:?}"
+    );
     assert_eq!(
         catalog(&[]).unwrap().render(&refused).unwrap(),
         "the working directory is not an absolute path: relative"
@@ -459,7 +456,7 @@ fn test_an_unreadable_working_directory_fails_only_what_needs_it() {
     let report = block_on(taskloom.importer().import(ImportRequest::default())).unwrap();
     assert!(report.complete(), "{report:?}");
     let refused = block_on(taskloom.tasks().list(ListQuery::default())).unwrap_err();
-    assert_eq!(refused.code(), "project-registry-no-cwd");
+    assert_eq!(refused.code(), no_cwd());
     assert_eq!(
         catalog(&[]).unwrap().render(&refused).unwrap(),
         format!("the working directory cannot be read: {}", no_such_file())
@@ -484,7 +481,7 @@ fn test_the_configuration_skips_a_variable_that_is_not_utf8() {
         .unwrap();
     assert_eq!(
         add_level_seven(&wide).unwrap_err().code(),
-        "tasks-config-key-moved",
+        key_moved(),
         "the rest still read"
     );
 }
@@ -609,7 +606,7 @@ fn test_a_root_given_is_the_work_root_the_configuration_reads() {
         .unwrap();
     assert_eq!(
         add_level_seven(&rooted).unwrap_err().code(),
-        "tasks-config-key-moved",
+        key_moved(),
         "the root's config read, and its moved key refused"
     );
 }
@@ -665,7 +662,7 @@ fn test_a_projects_permits_refuse_a_tag_until_it_is_permitted() {
     };
     assert!(permit("urgent").changed);
     let error = block_on(taskloom.tasks().add(task())).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-tag-rules");
+    assert_eq!(error.code(), tag_rules());
     assert!(error.to_string().contains("not-permitted"), "{error}");
     assert!(permit("area:cli").changed);
     assert!(
@@ -705,7 +702,7 @@ fn test_taskloom_s_proposed_permits_refuse_an_invented_area_and_admit_a_declared
         ..new_task("Harden the host")
     };
     let error = block_on(taskloom.tasks().add(tagged(&["area:host-hardening"]))).unwrap_err();
-    assert_eq!(error.code(), "tasks-application-tag-rules");
+    assert_eq!(error.code(), tag_rules());
     assert!(
         catalog(&[])
             .unwrap()
@@ -734,4 +731,31 @@ fn test_taskloom_s_proposed_permits_refuse_an_invented_area_and_admit_a_declared
         .read_to_string(&os::fixture("/project/.taskloom/config.yaml"))
         .unwrap();
     assert!(!file.contains("tag_permits"), "{file}");
+}
+
+/// tasks-config's refusal of a key that moved into the store: its code.
+fn key_moved() -> String {
+    let moved = tasks_config::ConfigError::KeyMoved {
+        source: String::new(),
+        key: String::new(),
+    };
+    moved.code().to_string()
+}
+
+/// project-registry's refusal of a working directory it cannot read: its
+/// code.
+fn no_cwd() -> String {
+    let unread = project_registry::RegistryError::NoWorkingDirectory {
+        detail: String::new(),
+    };
+    unread.code().to_string()
+}
+
+/// tasks-application's refusal of a write the store's tag rules refuse: its
+/// code.
+fn tag_rules() -> String {
+    let refused = tasks_application::RulesRefusal {
+        findings: String::new(),
+    };
+    refused.code().to_string()
 }

@@ -133,6 +133,6 @@ fn test_a_refused_prune_is_an_envelope_and_leaves_stdout_empty() {
     assert!(!ran.ok);
     assert_eq!(ran.stdout, "");
     let envelope = one_document(&ran.stderr);
-    assert_eq!(envelope["code"], "tasks-application-prune-age-unreadable");
+    assert_eq!(envelope["code"], super::codes::prune_age_unreadable());
     assert_eq!(envelope["args"]["age"], "soon");
 }

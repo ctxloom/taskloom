@@ -9,11 +9,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
-use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
+use angzarr_embedded::angzarr_store_sqlite::{SqlError, SqliteStore};
 use angzarr_ports::angzarr_proto::v1::event_meta::Causation;
 use angzarr_ports::angzarr_proto::v1::{EventMeta, EventPage, Uuid};
 use angzarr_ports::{
-    EventStore, PositionKey, PositionStore, Purge, StoreError, StreamRef, Watch, Write,
+    Cause, EventStore, PositionKey, PositionStore, Purge, StoreError, StreamRef, Watch, Write,
 };
 use file_system::{Fs, Os, Perms, Rooted};
 use os::Mode;
@@ -570,7 +570,7 @@ fn test_damage_is_reported_as_the_stores_key_and_args_and_left_as_it_was() {
     let Ok(Checked::Damaged(damage)) = home.stores().check(&copy) else {
         panic!("the damage went unseen");
     };
-    assert_eq!(damage.code(), "angzarr-store-sqlite-damaged");
+    assert_eq!(damage.code(), damaged());
     let said = args(&damage);
     assert_eq!(
         said.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
@@ -584,7 +584,7 @@ fn test_damage_is_reported_as_the_stores_key_and_args_and_left_as_it_was() {
     assert!(
         damage
             .to_string()
-            .starts_with("angzarr-store-sqlite-damaged first=\""),
+            .starts_with(&format!("{} first=\"", damaged())),
         "its Display is its key and args, the problem quoted, never English: {damage}"
     );
     assert_eq!(home.read(&copy), before, "never repaired");
@@ -603,7 +603,14 @@ fn test_a_file_too_damaged_to_open_is_damage_with_sqlites_text_as_ext_err_txt() 
     let Ok(Checked::Damaged(damage)) = home.stores().check(&path) else {
         panic!("damage, not a failure to check");
     };
-    assert_eq!(damage.code(), "angzarr-store-sqlite-damaged-file");
+    assert_eq!(
+        damage.code(),
+        SqlError::DamagedFile {
+            errno: 0,
+            detail: String::new()
+        }
+        .code()
+    );
     assert_eq!(
         args(&damage),
         [
@@ -621,7 +628,10 @@ fn test_a_check_that_cannot_run_fails_with_the_stores_error_the_drivers_text_as_
     let path = home.path().join("state.db");
     home.mkdir(&path);
     let failed = home.stores().check(&path).unwrap_err();
-    assert_eq!(failed.code(), "angzarr-ports-store-unavailable");
+    assert_eq!(
+        failed.code(),
+        StoreError::Unavailable(Cause::new("", [])).code()
+    );
     let cause = failed.args().into_iter().find_map(|(name, arg)| match arg {
         Arg::Nested(cause) if name == "cause" => Some(cause),
         _ => None,
@@ -632,7 +642,7 @@ fn test_a_check_that_cannot_run_fails_with_the_stores_error_the_drivers_text_as_
         .map(|found| found.is_some())
         .unwrap_err();
     let direct = keyed(&direct, cause.code()).expect("the same cause");
-    assert_eq!(cause.code(), "angzarr-store-sqlite-unavailable");
+    assert_eq!(cause.code(), sqlite_unavailable());
     assert_eq!(args(cause.as_ref()), direct);
     assert!(
         args(cause.as_ref())
@@ -772,7 +782,7 @@ fn test_a_database_that_does_not_open_fails_with_the_stores_error() {
         .map(drop)
         .unwrap_err();
     assert!(
-        matches!(&error, StoreError::Unavailable(cause) if cause.code == "angzarr-store-sqlite-unavailable"),
+        matches!(&error, StoreError::Unavailable(cause) if cause.code == sqlite_unavailable()),
         "the store's: {error}"
     );
 }
@@ -1098,5 +1108,19 @@ fn test_a_page_beyond_reading_is_damage_not_a_failure_to_check() {
     let Ok(Checked::Damaged(damage)) = home.stores().check(&copy) else {
         panic!("the damage went unseen");
     };
-    assert_eq!(damage.code(), "angzarr-store-sqlite-damaged");
+    assert_eq!(damage.code(), damaged());
+}
+
+/// angzarr-store-sqlite's code for a damaged database.
+fn damaged() -> &'static str {
+    angzarr_embedded::angzarr_store_sqlite::damage_sample().code()
+}
+
+/// angzarr-store-sqlite's code for SQLite's own failure, its errno given.
+fn sqlite_unavailable() -> &'static str {
+    SqlError::Unavailable {
+        errno: Some(0),
+        detail: String::new(),
+    }
+    .code()
 }

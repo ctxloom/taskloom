@@ -528,29 +528,23 @@ fn test_a_value_given_empty_is_refused_never_read_as_left_out() {
     let done = env.run(&["status", &harp, "Done", "--json"]);
     assert!(done.ok, "{}", done.stderr);
     for (args, code) in [
-        (vec!["add", "x", "--status", ""], "tasks-application-blank"),
-        (
-            vec!["add", "x", "--trigger", " "],
-            "tasks-application-blank",
-        ),
-        (vec!["add", "x", "--tag", ""], "tasks-application-tag-blank"),
-        (
-            vec!["--project", "", "add", "x"],
-            "project-registry-invalid-id",
-        ),
+        (vec!["add", "x", "--status", ""], codes::blank()),
+        (vec!["add", "x", "--trigger", " "], codes::blank()),
+        (vec!["add", "x", "--tag", ""], codes::tag_blank()),
+        (vec!["--project", "", "add", "x"], codes::invalid_id()),
         (
             vec!["status", &harp, "Deferred", "--trigger", ""],
-            "tasks-application-blank",
+            codes::blank(),
         ),
         (
             vec!["tag", &harp, "--add", "ok", "--remove", ""],
-            "tasks-application-tag-blank",
+            codes::tag_blank(),
         ),
-        (vec!["list", "--term", ""], "tasks-application-blank"),
-        (vec!["list", "--tag-query", ""], "tasks-application-blank"),
-        (vec!["list", "--sort", ""], "tasks-application-blank"),
-        (vec!["tags", "--tag-query", ""], "tasks-application-blank"),
-        (vec!["--project", "", "list"], "project-registry-invalid-id"),
+        (vec!["list", "--term", ""], codes::blank()),
+        (vec!["list", "--tag-query", ""], codes::blank()),
+        (vec!["list", "--sort", ""], codes::blank()),
+        (vec!["tags", "--tag-query", ""], codes::blank()),
+        (vec!["--project", "", "list"], codes::invalid_id()),
         (
             vec![
                 "prune",
@@ -560,7 +554,7 @@ fn test_a_value_given_empty_is_refused_never_read_as_left_out() {
                 "",
                 "--yes",
             ],
-            "tasks-application-blank",
+            codes::blank(),
         ),
     ] {
         let mut args = args.clone();
@@ -690,7 +684,11 @@ fn test_a_relative_path_is_never_resolved_against_the_top_when_the_cwd_is_gone()
         added
             .stderr
             .contains("taskloom-relative-home/.ctxloom/projects/jolly-mute-magma")
-            && added.stderr.contains("file-system-no-cwd"),
+            && added.stderr.contains(angzarr_diagnostic::Diagnostic::code(
+                &file_system::CwdError {
+                    reason: String::new()
+                }
+            )),
         "{}",
         added.stderr
     );
@@ -950,10 +948,7 @@ fn test_in_json_each_command_writes_one_document_and_errors_an_envelope() {
     let unread = env.run(&["list", "--tag-query", "x/and", "--json"]);
     assert!(!unread.ok);
     assert_eq!(unread.stdout, "", "an error leaves stdout empty");
-    assert_eq!(
-        one_document(&unread.stderr)["code"],
-        "tasks-application-tag-query"
-    );
+    assert_eq!(one_document(&unread.stderr)["code"], codes::tag_query());
 
     let failed = env.run(&["tag", "no-such-task", "--add", "x", "--json"]);
     assert!(!failed.ok);
@@ -965,7 +960,7 @@ fn test_in_json_each_command_writes_one_document_and_errors_an_envelope() {
 
     let usage = env.run(&["frobnicate", "--json"]);
     assert!(!usage.ok);
-    assert_eq!(one_document(&usage.stderr)["code"], "tasks-cli-usage");
+    assert_eq!(one_document(&usage.stderr)["code"], codes::usage());
 
     let logs = env.home.path().join(".ctxloom/tasks");
     disk::create_dir_all(&logs).unwrap();
@@ -983,11 +978,11 @@ fn test_in_json_each_command_writes_one_document_and_errors_an_envelope() {
     let report = one_document(&incomplete.stdout);
     assert_eq!(
         report["projects"][0]["failed"]["code"],
-        "tasks-application-no-jsonl-log"
+        codes::no_jsonl_log()
     );
     assert_eq!(
         one_document(&incomplete.stderr)["code"],
-        "tasks-cli-import-incomplete"
+        codes::import_incomplete()
     );
 }
 
@@ -1051,7 +1046,7 @@ fn test_in_json_each_change_writes_one_document_and_errors_an_envelope() {
     );
     jq.refused(
         &["status", harp, "Done", "--trigger", "later", "--json"],
-        "tasks-trigger-with-status",
+        &codes::trigger_with_status(),
     );
     jq.refused(
         &[
@@ -1062,24 +1057,24 @@ fn test_in_json_each_change_writes_one_document_and_errors_an_envelope() {
             "--clear-trigger",
             "--json",
         ],
-        "tasks-application-trigger-and-clear",
+        &codes::trigger_and_clear(),
     );
     jq.ok(&["status", harp, "To Do", "--json"]);
     jq.refused(
         &["status", harp, "@open", "--json"],
-        "tasks-status-reserved",
+        &codes::status_reserved(),
     );
     jq.refused(
         &["status", "no-such-task", "Done", "--json"],
-        "tasks-no-task",
+        &codes::no_task(),
     );
     let task = jq.ok(&["edit", harp, "Ship", "it", "today", "--json"]);
     assert_eq!(
         (&task["text"], &task["status"]),
         (&"Ship it today".into(), &"To Do".into())
     );
-    jq.refused(&["edit", harp, " ", "--json"], "tasks-text-required");
-    jq.refused(&["tag", harp, "--json"], "tasks-tag-required");
+    jq.refused(&["edit", harp, " ", "--json"], &codes::text_required());
+    jq.refused(&["tag", harp, "--json"], &codes::tag_required());
     let tagged = jq.ok(&[
         "tag",
         harp,
@@ -1138,7 +1133,7 @@ fn test_a_write_retried_under_its_request_id_applies_once() {
     assert_eq!(jq.ok(&editing)["text"], "Second");
     jq.refused(
         &["status", harp, "Done", "--request-id", " ", "--json"],
-        "tasks-application-blank",
+        &codes::blank(),
     );
     let adding = ["add", "Again", "--request-id", "r-2", "--json"];
     let added = jq.ok(&adding);
@@ -1167,7 +1162,7 @@ fn test_in_json_each_read_writes_one_document_and_errors_an_envelope() {
     assert_eq!(jq.ok(&["list", "--global", "--json"])[0]["harp_id"], harp);
     jq.refused(
         &["list", "--status", "@done", "--json"],
-        "tasks-application-unknown-status-class",
+        &codes::unknown_status_class(),
     );
 
     assert_eq!(jq.ok(&["show", harp, "--json"])["text"], "Ship it");
@@ -1175,7 +1170,7 @@ fn test_in_json_each_read_writes_one_document_and_errors_an_envelope() {
     assert_eq!(twice.as_array().map(Vec::len), Some(2));
     jq.refused(
         &["show", harp, "no-such-task", "--json"],
-        "tasks-application-not-found",
+        &codes::not_found(),
     );
 
     for args in [
@@ -1211,7 +1206,7 @@ fn test_in_json_each_read_writes_one_document_and_errors_an_envelope() {
     }
     jq.refused(
         &["tags", "--tag-query", "x/and", "--json"],
-        "tasks-application-tag-query",
+        &codes::tag_query(),
     );
 
     let linted = jq.ok(&["lint", "--json"]);
@@ -1233,10 +1228,7 @@ fn test_in_json_each_read_writes_one_document_and_errors_an_envelope() {
     assert!(!ran.ok, "a violation exits 1");
     let report = one_document(&ran.stdout);
     assert_eq!(report["violations"][0]["harp_id"], harp);
-    assert_eq!(
-        one_document(&ran.stderr)["code"],
-        "tasks-cli-lint-violations"
-    );
+    assert_eq!(one_document(&ran.stderr)["code"], codes::lint_violations());
 }
 
 #[test]
@@ -1305,7 +1297,7 @@ fn test_in_json_each_project_command_writes_one_document_and_errors_an_envelope(
     assert_eq!(refused.stdout, "", "an error leaves stdout empty");
     assert_eq!(
         one_document(&refused.stderr)["code"],
-        "project-application-unknown-project"
+        codes::unknown_project()
     );
 }
 
@@ -1364,6 +1356,9 @@ fn test_a_read_of_a_store_an_older_build_wrote_migrates_it_and_lists_its_tasks()
     );
 }
 
+#[path = "codes.test.rs"]
+mod codes;
+
 #[path = "companion.test.rs"]
 mod companion;
 
@@ -1418,7 +1413,7 @@ fn test_status_takes_the_harp_then_the_status_and_says_so_when_reversed() {
     let reversed = env.run(&["status", "To Do", &harp, "--json"]);
     assert!(!reversed.ok, "{}", reversed.stdout);
     let envelope = one_document(&reversed.stderr);
-    assert_eq!(envelope["code"], "tasks-cli-status-reversed", "{envelope}");
+    assert_eq!(envelope["code"], codes::status_reversed(), "{envelope}");
     let message = envelope["message"].as_str().unwrap();
     assert!(
         message.contains(&format!("taskloom status {harp} \"To Do\"")),

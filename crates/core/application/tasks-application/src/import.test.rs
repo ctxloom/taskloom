@@ -955,7 +955,7 @@ fn test_a_store_that_does_not_open_fails_the_project() {
     let report = import(&mut service);
     assert_eq!(
         only(&report).failed.as_ref().map(|r| r.code()),
-        Some("angzarr-ports-store-unavailable")
+        Some(store_unavailable().as_str())
     );
 }
 
@@ -1042,4 +1042,13 @@ fn test_an_import_returns_the_dead_letters_written_while_it_ran() {
     let report = import(&mut service);
     assert_eq!(report.dead_letters, [crate::dead_letter_sample("import")]);
     assert!(import(&mut service).dead_letters.is_empty(), "each once");
+}
+
+/// angzarr-ports' code for a store that could not say: its code, whatever
+/// the cause.
+fn store_unavailable() -> String {
+    use angzarr_embedded::angzarr_ports::{Cause, StoreError};
+    StoreError::Unavailable(Cause::new("", []))
+        .code()
+        .to_string()
 }

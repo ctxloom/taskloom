@@ -167,7 +167,12 @@ fn test_a_removal_without_a_reason_is_an_invalid_payload() {
     let Err(PayloadError::Invalid { reason, .. }) = TaskCommand::from_any(&unspecified) else {
         panic!("an unspecified reason is no domain value");
     };
-    assert_eq!(reason.code(), "angzarr-embedded-wire-unknown-enum");
+    let unknown = angzarr_embedded::WireError::UnknownEnum {
+        message: "",
+        field: "",
+        value: 0,
+    };
+    assert_eq!(reason.code(), unknown.code());
 }
 
 #[test]

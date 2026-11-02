@@ -693,7 +693,7 @@ fn test_add_naming_another_harp_than_its_stream_is_refused() {
             ..add("Ship it")
         }),
         Err((
-            "angzarr-embedded-not-its-stream".to_string(),
+            not_its_stream(),
             [
                 ("domain".to_string(), "tasks".to_string()),
                 ("key".to_string(), "other-harp".to_string())
@@ -1786,4 +1786,13 @@ fn an_import_on_a_clock_pinned_at_the_records_instant_folds_at_it() {
             other => panic!("an add and status changes, not {other:?}"),
         }
     }
+}
+
+/// angzarr-embedded's refusal of a command naming another stream: its code.
+fn not_its_stream() -> String {
+    let refused = angzarr_embedded::markup::NotItsStream {
+        domain: String::new(),
+        key: String::new(),
+    };
+    refused.code().to_string()
 }

@@ -539,7 +539,10 @@ fn test_an_unreadable_registry_fails_a_read() {
     let path = index::path(&world.home());
     world.write(&path, "schema_version: 1\nprojects: [");
     let error = world.registry(&[]).for_read(None).unwrap_err();
-    assert_eq!(error.code(), "angzarr-yaml-load-failed-at");
+    assert_eq!(
+        error.code(),
+        format!("{}-load-failed-at", angzarr_yaml::EN_US.0)
+    );
 }
 
 // ------------------------------------------------------------ minting

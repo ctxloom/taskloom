@@ -211,7 +211,10 @@ fn test_watch_where_there_is_no_project_says_so_and_binds_none() {
     let ran = env.run(&["watch", "--json"]);
     assert!(!ran.ok);
     assert_eq!(ran.stdout, "", "an error leaves stdout empty");
-    assert_eq!(one_document(&ran.stderr)["code"], "tasks-watch-no-project");
+    assert_eq!(
+        one_document(&ran.stderr)["code"],
+        super::codes::watch_no_project()
+    );
 }
 
 #[test]

@@ -240,7 +240,7 @@ fn test_the_attempts_run_out_and_it_gives_up_with_the_last_failure() {
     assert_eq!(attempts, 3);
     assert_eq!(store.attempts(), 3);
     assert_eq!(delay.slept.len(), 2, "no wait after the last attempt");
-    assert_eq!(error.code(), "angzarr-ports-store-unavailable");
+    assert_eq!(error.code(), store_unavailable());
     assert_eq!(events(&store), 0);
 }
 
@@ -251,7 +251,15 @@ fn test_a_failure_no_retry_mends_is_not_retried() {
     let Err(Unrun::Failed(error)) = run(&mut store, &mut delay, 5) else {
         panic!("failed");
     };
-    assert_eq!(error.code(), "angzarr-ports-store-discontinuous");
+    assert_eq!(
+        error.code(),
+        angzarr_embedded::angzarr_ports::StoreError::Discontinuous {
+            stream: Box::default(),
+            expected: 0,
+            found: 0
+        }
+        .code()
+    );
     assert_eq!(store.attempts(), 1);
     assert!(delay.slept.is_empty());
 }
@@ -312,7 +320,7 @@ fn test_a_store_that_never_answers_is_given_up_at_the_kernels_cap_under_its_key(
         panic!("gave up");
     };
     assert_eq!(attempts, 4);
-    assert_eq!(error.code(), "angzarr-ports-store-unavailable");
+    assert_eq!(error.code(), store_unavailable());
     assert_eq!(store.attempts(), 4, "the kernel's tries, taskloom's none");
     let letters = dead_letters;
     assert!(letters.is_empty(), "{letters:?}");
@@ -568,4 +576,13 @@ fn test_again_stops_when_the_attempts_are_spent_or_a_retry_will_not_mend_it() {
     );
     assert_eq!(fresh, 0, "not counted");
     assert_eq!(runner.delay.slept.len(), 2, "not waited");
+}
+
+/// angzarr-ports' code for a store that could not say: its code, whatever
+/// the cause.
+fn store_unavailable() -> String {
+    use angzarr_embedded::angzarr_ports::{Cause, StoreError};
+    StoreError::Unavailable(Cause::new("", []))
+        .code()
+        .to_string()
 }

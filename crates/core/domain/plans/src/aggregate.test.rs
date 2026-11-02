@@ -212,7 +212,7 @@ fn an_add_naming_another_harp_than_its_stream_is_refused() {
     assert_eq!(
         said(&refused),
         (
-            "angzarr-embedded-not-its-stream".to_string(),
+            not_its_stream(),
             vec![
                 ("domain".to_string(), "plans".to_string()),
                 ("key".to_string(), "calm-dusty-heron".to_string())
@@ -378,4 +378,13 @@ fn a_status_change_replays_into_the_next_command() {
         Ok(1)
     );
     assert_eq!(plans.state(HARP).status, PlanStatus::Done);
+}
+
+/// angzarr-embedded's refusal of a command naming another stream: its code.
+fn not_its_stream() -> String {
+    let refused = angzarr_embedded::markup::NotItsStream {
+        domain: String::new(),
+        key: String::new(),
+    };
+    angzarr_diagnostic::Diagnostic::code(&refused).to_string()
 }

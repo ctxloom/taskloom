@@ -91,7 +91,7 @@ fn checked(survey: Survey, found: Result<Checked, Report>) -> Projects<Fake, Fak
 }
 
 fn damage() -> Report {
-    Report::new("angzarr-store-sqlite-damaged")
+    Report::new("a-store-damaged")
         .arg("first", "row 2 missing from index i")
         .arg("more", 0u64)
 }
