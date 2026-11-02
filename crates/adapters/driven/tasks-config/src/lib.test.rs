@@ -761,6 +761,30 @@ mod permits {
         assert_eq!(file(&dirs), "schema_version: 1\ntag_permits: {}\n");
     }
 
+    // An empty or comment-only file is missing, not corrupt (the
+    // config-versioning rule): a write goes into it as into a file made,
+    // stamped so it reads back, every comment kept as written.
+    #[test]
+    fn test_writing_tag_permits_into_a_file_holding_nothing_stamps_it_and_keeps_its_comments() {
+        for (before, kept) in [
+            ("", ""),
+            ("# mine\n", "# mine\n"),
+            ("# mine", "# mine\n"),
+            ("\n# ours\n\n  # indented\n", "\n# ours\n\n  # indented\n"),
+        ] {
+            let dirs = Dirs::new(None, Some(before));
+            dirs.config(&[])
+                .write_tag_permits(&usual())
+                .unwrap_or_else(|e| panic!("{before:?}: {e}"));
+            assert_eq!(file(&dirs), format!("{kept}{STAMP}{PERMITS}"), "{before:?}");
+            assert_eq!(
+                dirs.config(&[]).tag_permits(),
+                Ok(Some(usual())),
+                "{before:?}"
+            );
+        }
+    }
+
     #[test]
     fn test_writing_tag_permits_with_no_work_root_is_refused() {
         let dirs = Dirs::new(None, None);
