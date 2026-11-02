@@ -75,7 +75,8 @@ impl TaskAggregate {
         cmd: SetStatus,
         ctx: &Context,
     ) -> Result<Option<StatusChanged>, Failed<TaskRejection>> {
-        Ok(status_changed(&self.task, &cmd, ctx.recorded_at())?)
+        let _ = ctx;
+        Ok(status_changed(&self.task, &cmd)?)
     }
 
     /// Replace the text whole.

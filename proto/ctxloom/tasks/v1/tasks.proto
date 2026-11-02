@@ -162,9 +162,11 @@ enum RemovalReason {
 // led there: apply assigns them and computes nothing, so folding an event
 // needs no rule and no prior state, and a consumer reads it whole.
 //
-// Every timestamp an event carries is the instant it was recorded
-// (`Tx::recorded_at`), copied in because apply never sees the event's
-// metadata and the state keeps these instants.
+// An event's instant is its page's `EventMeta.recorded_at`, which apply
+// is handed, so a new event copies none of it: `at` and StatusChanged's
+// `deferred_since` are written only by events recorded before the owner's
+// rulings (2026-11-01), and read in preference where present. TaskAdded's
+// `deferred_since` is still written, its `recorded_at` copied in.
 
 message TaskAdded {
   option (io.angzarr.v1.event) = {component: "ctxloom.tasks.v1.TaskState"};
@@ -202,8 +204,13 @@ message StatusChanged {
   // preference. A binary older than the ruling cannot read an event
   // without it.
   optional google.protobuf.Timestamp at = 3;
-  // The instant of the change (its `recorded_at`) when the task enters
-  // Deferred; otherwise the instant it last did, absent if it never has.
+  // Written only by events recorded before ruling R4 (2026-11-01): the
+  // instant of the change when the task entered Deferred, otherwise the
+  // instant it last did, absent if it never had. Later events leave it out
+  // and the task's is derived from event time: a change leaving the task
+  // holding a trigger (so Deferred) defers it at its `EventMeta.recorded_at`,
+  // and any other keeps the one the task holds. When present it is read in
+  // preference.
   optional google.protobuf.Timestamp deferred_since = 4;
   // The status the task returns to when its trigger is cleared, after the
   // change: empty unless it is Deferred.

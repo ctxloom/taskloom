@@ -42,8 +42,12 @@ pub const STATUS_CLASS_SIGIL: char = '@';
 /// `EventMeta.recorded_at`), into `state`: what the aggregate's appliers
 /// do, one place. An add's or a status change's instant is `recorded_at`,
 /// or the `at` an event written before the owner's ruling (2026-11-01)
-/// carries, read in preference; new events carry none. Pure: the same
-/// state, event and instant always give the same result.
+/// carries, read in preference; new events carry none. So is a status
+/// change's `deferred_since` (ruling R4, 2026-11-01): a change that
+/// defers the task (it holds a trigger after it, which a task does
+/// exactly while Deferred) defers it at its instant, and any other keeps
+/// the one the task holds; an old change's own is read in preference.
+/// Pure: the same state, event and instant always give the same result.
 pub(crate) fn apply(state: &mut TaskState, event: &TaskEvent, recorded_at: Timestamp) {
     match event {
         TaskEvent::TaskAdded(added) => {
@@ -62,8 +66,13 @@ pub(crate) fn apply(state: &mut TaskState, event: &TaskEvent, recorded_at: Times
         TaskEvent::StatusChanged(changed) => {
             state.status = changed.status.clone();
             state.trigger = changed.trigger.clone();
-            state.status_set_at = changed.at.unwrap_or(recorded_at);
-            state.deferred_since = changed.deferred_since;
+            let at = changed.at.unwrap_or(recorded_at);
+            state.status_set_at = at;
+            state.deferred_since = match (changed.deferred_since, changed.trigger.is_empty()) {
+                (Some(old), _) => Some(old),
+                (None, false) => Some(at),
+                (None, true) => state.deferred_since,
+            };
             state.prior_status = changed.prior_status.clone();
         }
         TaskEvent::TextEdited(edited) => state.text = edited.text.clone(),
@@ -113,13 +122,13 @@ fn task_added(
     })
 }
 
-/// What a status change to the task `held` records, at `at` (the
-/// handler's `recorded_at`, which it does not copy: only `deferred_since`
-/// names it): `None` when it changes nothing.
+/// What a status change to the task `held` records: `None` when it
+/// changes nothing. It copies no instant: its own, and the task's
+/// `deferred_since` when it defers the task, are its `recorded_at`
+/// ([`apply`]).
 fn status_changed(
     held: &TaskState,
     set: &SetStatus,
-    at: Timestamp,
 ) -> Result<Option<StatusChanged>, TaskRejection> {
     let held = live(held)?;
     let Some(after) = moved(held, &changed(set)?)? else {
@@ -129,10 +138,7 @@ fn status_changed(
         status: after.status,
         trigger: after.trigger,
         at: None,
-        deferred_since: match after.deferred {
-            true => Some(at),
-            false => held.deferred_since,
-        },
+        deferred_since: None,
         prior_status: after.prior_status,
     }))
 }
@@ -318,8 +324,6 @@ struct Moved {
     status: String,
     trigger: String,
     prior_status: String,
-    /// Whether it defers the task, now.
-    deferred: bool,
 }
 
 /// What `change` makes of the task `held`: `None` when it changes nothing
@@ -338,7 +342,6 @@ fn moved(held: &TaskState, change: &Change<'_>) -> Result<Option<Moved>, TaskRej
         status: defers.to_string(),
         trigger,
         prior_status: to_return_to(),
-        deferred: true,
     };
     let after = match (&change.status, &change.trigger) {
         (_, Trigger::Set(trigger)) => deferring(trigger.clone()),
@@ -349,7 +352,6 @@ fn moved(held: &TaskState, change: &Change<'_>) -> Result<Option<Moved>, TaskRej
             status: status.clone().unwrap_or_else(|| held.prior_status.clone()),
             trigger: String::new(),
             prior_status: String::new(),
-            deferred: false,
         },
         (Some(status), Trigger::Kept) if status == defers => match held.trigger.as_str() {
             "" => return Err(TaskRejection::TriggerRequired),
@@ -359,7 +361,6 @@ fn moved(held: &TaskState, change: &Change<'_>) -> Result<Option<Moved>, TaskRej
             status: status.clone(),
             trigger: String::new(),
             prior_status: String::new(),
-            deferred: false,
         },
         (None, Trigger::Kept) => unreachable!("a change giving nothing is refused (changed)"),
     };
