@@ -216,9 +216,11 @@ fn a_stream_handed_from_its_start_replaces_what_the_list_held_of_it() {
         0,
         &[added("calm-heron"), governed],
         2,
-    ));
+    ))
+    .unwrap();
     assert_eq!(list.governing("swift-amber").len(), 1);
-    list.project(&plan_book("calm-heron", 0, &[added("calm-heron")], 1));
+    list.project(&plan_book("calm-heron", 0, &[added("calm-heron")], 1))
+        .unwrap();
     assert!(list.get("calm-heron").unwrap().governs.is_empty());
     assert!(list.governing("swift-amber").is_empty(), "no old governing");
 }
@@ -228,12 +230,14 @@ fn a_stream_handed_from_its_start_replaces_what_the_list_held_of_it() {
 #[test]
 fn a_gone_stream_takes_its_plan_with_it() {
     let mut list = PlanList::new();
-    list.project(&plan_book("calm-heron", 0, &[added("calm-heron")], 1));
-    list.project(&plan_book("brisk-otter", 0, &[added("brisk-otter")], 1));
-    list.project(&plan_book("calm-heron", 0, &[], 0));
+    list.project(&plan_book("calm-heron", 0, &[added("calm-heron")], 1))
+        .unwrap();
+    list.project(&plan_book("brisk-otter", 0, &[added("brisk-otter")], 1))
+        .unwrap();
+    list.project(&plan_book("calm-heron", 0, &[], 0)).unwrap();
     let plans: Vec<&str> = list.plans().iter().map(|p| p.harp_id.as_str()).collect();
     assert_eq!(plans, ["brisk-otter"]);
-    list.project(&plan_book("brisk-otter", 1, &[], 1));
+    list.project(&plan_book("brisk-otter", 1, &[], 1)).unwrap();
     assert_eq!(
         list.plans().len(),
         1,

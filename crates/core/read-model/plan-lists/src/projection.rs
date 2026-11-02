@@ -5,7 +5,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use angzarr_embedded::angzarr_router::error::CodedError;
 use angzarr_embedded::v1::{EventBook, Projection};
-use angzarr_embedded::{CatchUp, Payload, ProjectorHandler};
+use angzarr_embedded::{CatchUp, Payload, PayloadError, ProjectorHandler};
 use plans::{messages, PlanEvent, PLAN_DOMAIN};
 
 use crate::PlanList;
@@ -23,15 +23,25 @@ impl PlanList {
     /// it, as the projector port hands it, each through [`PlanList::fold`]:
     /// a book from sequence 0 starts the stream afresh, and a book with no
     /// event at 0 says the stream is gone; either way, what the list held
-    /// of a plan on that stream leaves it first. An event this crate's
-    /// plans cannot read is no plan's change.
-    pub fn project(&mut self, book: &EventBook) {
+    /// of a plan on that stream leaves it first. An event the plans domain
+    /// cannot read is the book's error, as the task list's is, and the
+    /// list keeps nothing of the book: a catch-up holds the stream where it
+    /// was, so every later read fails on it too, never skipping it.
+    pub fn project(&mut self, book: &EventBook) -> Result<(), PayloadError> {
         let root = book
             .cover
             .as_ref()
             .and_then(|cover| cover.root.as_ref())
             .map(|r| r.value.to_vec())
             .unwrap_or_default();
+        let events = book
+            .pages
+            .iter()
+            .map(|page| {
+                let payload = page.payload.clone().unwrap_or_default();
+                messages::PlanEvent::from_any(&payload).map(PlanEvent::from)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         if book
             .pages
             .first()
@@ -40,18 +50,15 @@ impl PlanList {
         {
             self.forget(&root);
         }
-        for page in &book.pages {
-            let payload = page.payload.clone().unwrap_or_default();
-            let Ok(event) = messages::PlanEvent::from_any(&payload).map(PlanEvent::from) else {
-                continue;
-            };
-            if let PlanEvent::PlanAdded(add) = &event {
+        for event in &events {
+            if let PlanEvent::PlanAdded(add) = event {
                 self.streams.insert(root.clone(), add.harp_id.clone());
             }
             if let Some(harp) = self.streams.get(&root).cloned() {
-                self.fold(&harp, &event);
+                self.fold(&harp, event);
             }
         }
+        Ok(())
     }
 }
 
@@ -73,7 +80,7 @@ impl ProjectorHandler for PlanLists {
     }
 
     async fn dispatch(&self, events: &EventBook) -> Result<Projection, CodedError> {
-        self.list().project(events);
+        self.list().project(events).map_err(|error| bug(&error))?;
         Ok(Projection {
             cover: events.cover.clone(),
             projector: self.name().to_string(),
@@ -81,6 +88,21 @@ impl ProjectorHandler for PlanLists {
             projection: None,
         })
     }
+}
+
+/// `error`, an event the list cannot read, as the projector port's bug:
+/// its code, and its text args (the type URL it names), as the task
+/// list reports one.
+fn bug(error: &PayloadError) -> CodedError {
+    use angzarr_embedded::angzarr_diagnostic::{Arg, Diagnostic as _};
+    let args = error
+        .args()
+        .into_iter()
+        .filter_map(|(name, arg)| match arg {
+            Arg::Str(value) => Some((name.to_string(), value)),
+            _ => None,
+        });
+    CodedError::bug(error.code(), args)
 }
 
 #[cfg(test)]
