@@ -46,8 +46,16 @@ impl<P: ProjectorHandler> ProjectLists<P> {
         store: &S,
         registry: &Registry,
     ) -> Result<&P, Report> {
-        let _ = (self.start, &self.held, project, store, registry);
-        todo!("item 4: the shared catch-up")
+        let start = self.start;
+        let catch_up = self.held.entry(project.id.clone()).or_insert_with(start);
+        let caught = catch_up
+            .step(store, registry.catalog())
+            .await
+            .map_err(|error| Report::of(&error))?;
+        if let Some((_, error)) = caught.failures().first() {
+            return Err(Report::of(error));
+        }
+        Ok(catch_up.projector())
     }
 }
 

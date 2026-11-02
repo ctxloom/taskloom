@@ -31,6 +31,9 @@
 //!
 //! The dead letters each kernel call answers are gathered for the use
 //! case to return with its result (angzarr-embedded's [`DeadLetter`]).
+//!
+//! **A read's list is caught up per project** ([`ProjectLists`]): the
+//! shared half of a read, as [`Runner`] is of a write.
 
 use std::future::Future;
 use std::pin::Pin;

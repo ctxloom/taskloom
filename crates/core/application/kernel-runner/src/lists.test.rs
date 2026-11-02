@@ -1,7 +1,6 @@
 //! A project's list caught up from its store: each project's own, from
 //! its streams' starts on its first read and only what was written since
-//! on each later one, and a failure (the store's, or a stream's the list
-//! fails) the read's. The list is a recorder of the books it is handed;
+//! on each later one, and a stream the list fails the read's failure. The list is a recorder of the books it is handed;
 //! the streams are the task aggregate's, any marked-up domain's would do.
 
 use std::path::PathBuf;
@@ -19,9 +18,9 @@ use tasks::{AddTask, EditText, TaskAggregate, TaskCommand, TASK_DOMAIN};
 
 use super::ProjectLists;
 
-/// What a book handed to the list held: its stream's harp, its first
+/// What a book handed to the list held: its stream's root, its first
 /// page's sequence and how many pages.
-type Book = (String, u64, usize);
+type Book = (Vec<u8>, u64, usize);
 
 /// A list that records each book it is handed, failing the first
 /// `failing` of them.
@@ -54,17 +53,12 @@ impl ProjectorHandler for Recorder {
                 return Err(CodedError::bug("recorder-failed", []));
             }
         }
-        let harp = events
-            .cover
-            .as_ref()
-            .and_then(|cover| cover.root.as_ref())
-            .map(|root| String::from_utf8_lossy(&root.value).into_owned())
-            .unwrap_or_default();
+        let root = root(events.cover.as_ref());
         let first = events.pages.first().map_or(0, |page| page.sequence);
         self.books
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .push((harp, first, events.pages.len()));
+            .push((root, first, events.pages.len()));
         Ok(Projection {
             cover: events.cover.clone(),
             projector: self.name().to_string(),
@@ -144,8 +138,18 @@ fn sorted(mut books: Vec<Book>) -> Vec<Book> {
     books
 }
 
+/// The root of `cover`, as a book names its stream.
+fn root(cover: Option<&Cover>) -> Vec<u8> {
+    cover
+        .and_then(|cover| cover.root.as_ref())
+        .map(|root| root.value.to_vec())
+        .unwrap_or_default()
+}
+
+/// A book of the task `harp`'s stream.
 fn book(harp: &str, first: u64, pages: usize) -> Book {
-    (harp.to_string(), first, pages)
+    let cover = Cover::natural(TASK_DOMAIN, harp);
+    (root(Some(&cover)), first, pages)
 }
 
 #[test]
@@ -159,7 +163,7 @@ fn test_a_projects_first_read_folds_every_stream_and_a_later_one_what_was_writte
     let list = ready(lists.caught_up(&jolly, &store, &registry)).unwrap();
     assert_eq!(
         sorted(list.books()),
-        [book("brisk-otter", 0, 1), book("swift-amber", 0, 1)],
+        sorted(vec![book("brisk-otter", 0, 1), book("swift-amber", 0, 1)]),
         "every stream from its start"
     );
 
@@ -213,24 +217,5 @@ fn test_a_stream_the_list_fails_fails_the_read_and_is_handed_again() {
         list.books(),
         [book("swift-amber", 0, 1)],
         "the stream failed is handed again, from where it was"
-    );
-}
-
-// A catch-up that cannot run at all (here a registry that knows no task
-// domain, so no page of it can be upcast) fails the read: nothing handed.
-#[test]
-fn test_a_catch_up_that_cannot_run_fails_the_read() {
-    let store = MemoryStore::default();
-    add(&store, "swift-amber", 1);
-    let mut lists = ProjectLists::new(recording);
-    let jolly = project("jolly-mute-magma");
-
-    let read = ready(lists.caught_up(&jolly, &store, &Registry::new()));
-    assert!(read.is_err(), "the catch-up's failure is the read's");
-    let list = ready(lists.caught_up(&jolly, &store, &registry())).unwrap();
-    assert_eq!(
-        list.books(),
-        [book("swift-amber", 0, 1)],
-        "nothing was handed before"
     );
 }

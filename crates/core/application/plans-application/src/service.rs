@@ -25,10 +25,9 @@ use std::collections::BTreeMap;
 use angzarr_diagnostic::Report;
 use angzarr_embedded::v1::{CommandBook, Cover};
 use angzarr_embedded::{
-    CatchUp, CommandBookExt, CoverExt, DeadLetter, Kernel, KernelError, OnRetryable, Registry,
-    StoreError,
+    CommandBookExt, CoverExt, DeadLetter, Kernel, KernelError, OnRetryable, Registry, StoreError,
 };
-use kernel_runner::{Refusal, Runner, KERNEL_RETRY};
+use kernel_runner::{ProjectLists, Refusal, Runner, KERNEL_RETRY};
 use plan_lists::{PlanList, PlanLists, PlanRow};
 use plans::{AddPlan, PlanAggregate, PlanCommand, PlanRejection, PlanState, PLAN_DOMAIN};
 use ports::{
@@ -73,11 +72,9 @@ pub struct PlanService<I, S, F, T, M, C, D> {
     /// `--project`: the project to act on, overriding the work root's.
     pub project: Option<String>,
     registry: Registry,
-    /// Each project's plan list, by project id, kept caught up across the
-    /// service's reads: its positions held in memory, so the first read
-    /// of a project folds every plan stream from its start, and each later
-    /// one only what was written since.
-    lists: BTreeMap<String, CatchUp<PlanLists>>,
+    /// Each project's plan list, kept caught up across the service's
+    /// reads (kernel-runner's [`ProjectLists`]).
+    lists: ProjectLists<PlanLists>,
     /// The dead letters the use cases' kernel calls answered, kept until
     /// taken ([`Plans::dead_letters`]).
     dead_letters: Vec<DeadLetter>,
@@ -96,7 +93,7 @@ impl<I, S, F, T, M, C, D> PlanService<I, S, F, T, M, C, D> {
             retry: KERNEL_RETRY,
             project: None,
             registry: registry(),
-            lists: BTreeMap::new(),
+            lists: ProjectLists::new(PlanList::catch_up),
             dead_letters: Vec::new(),
         }
     }
@@ -202,19 +199,8 @@ where
         let Some(store) = self.stores.open_existing(project).await.map_err(failed)? else {
             return Ok(PlanList::new());
         };
-        let held = self.lists.entry(project.id.clone());
-        let catch_up = held.or_insert_with(PlanList::catch_up);
-        let failed =
-            |error: &dyn angzarr_diagnostic::Diagnostic| PlanError::Failed(Report::of(error));
-        let caught = catch_up
-            .step(store, self.registry.catalog())
-            .await
-            .map_err(|e| failed(&e))?;
-        if let Some((_, error)) = caught.failures().first() {
-            return Err(failed(error));
-        }
-        let list = catch_up.projector().list().clone();
-        Ok(list)
+        let lists = self.lists.caught_up(project, store, &self.registry).await;
+        Ok(lists.map_err(PlanError::Failed)?.list().clone())
     }
 
     /// The plan `harp_id` as its stream holds it now; `None` when it holds

@@ -31,7 +31,7 @@ the architecture; there is no other table of crates.
 - `core/ports`: traits the core needs from outside.
 - `core/application`: command and query handlers (a context's use
   cases), and `kernel-runner`, the one way every context runs a command
-  through the kernel.
+  through the kernel and catches a project's list up (`ProjectLists`).
 - `adapters/driven`: port implementations (stores, clock, git).
 - `adapters/platform`: libraries adapters build on (`os`, everything that
   differs between operating systems; the `file-system` seam over it; and
@@ -70,8 +70,8 @@ tasks-application is the example:
   key), `write.rs` (`Writes`: `Projects` and kernel-runner's `Runner`,
   with seeding, declaring and a commit answered with the task it left),
   `task.rs` (a task's stream), `lists.rs` (the task list caught up per
-  project), and pure rules (`rules.rs`, `tags.rs`, `query.rs`,
-  `priority.rs`, `calendar.rs`).
+  project, through kernel-runner's `ProjectLists`), and pure rules
+  (`rules.rs`, `tags.rs`, `query.rs`, `priority.rs`, `calendar.rs`).
 - **`service.rs`**: the `Service`, which owns the ports once and
   implements the traits a driving adapter calls (`TaskService`,
   `PruneService`, ...) by lending each call's unit its share
