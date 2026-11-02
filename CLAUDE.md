@@ -29,7 +29,9 @@ the architecture; there is no other table of crates.
 - `core/domain`: aggregates (decide, apply): the write side.
 - `core/read-model`: projectors: the query side.
 - `core/ports`: traits the core needs from outside.
-- `core/application`: command and query handlers.
+- `core/application`: command and query handlers (a context's use
+  cases), and `kernel-runner`, the one way every context runs a command
+  through the kernel.
 - `adapters/driven`: port implementations (stores, clock, git).
 - `adapters/platform`: libraries adapters build on (`os`, everything that
   differs between operating systems; the `file-system` seam over it; and
@@ -46,6 +48,44 @@ composes. ctxloom depends on those crates by git (pinned by commit), so a
 crate here is named for its domain or role, and the binaries under
 `root/bin` compose the same core, application and adapters. Below
 `root/bin`, a crate is named for its domain or role, never for a binary.
+
+### A context's application crate (the template ctxloom-rs copies)
+
+A context's application crate is its use cases, each a unit of its own
+over only the ports it uses, and one `Service` composing them.
+tasks-application is the example:
+
+- **A unit per use case**, in a module of its own, beside its request and
+  answer types: `add.rs` (`Adding`: the project, the kernel and the harp
+  mint), `change.rs` (`Changing`: a status change, deferring and reviving
+  among them, an edit, a retag), `read.rs` (`Reading`: no kernel),
+  `prune.rs` (`Pruner`), `permit.rs` (`Permitting`), `watch.rs`
+  (`Watching`: the identity and the change token alone), `schema.rs`
+  (the schema stream and its reads), and `import.rs` (`Importer`, a
+  service of its own: only it holds the JSONL logs). A unit borrows its
+  ports from the service for one call; its `impl` names only the bounds
+  it needs.
+- **Shared collaborators**, not a shared god type: `project.rs`
+  (`Projects`: resolve, open, read the store's rules, refuse a moved
+  key), `write.rs` (`Writes`: `Projects` and kernel-runner's `Runner`,
+  with seeding, declaring and a commit answered with the task it left),
+  `task.rs` (a task's stream), `lists.rs` (the task list caught up per
+  project), and pure rules (`rules.rs`, `tags.rs`, `query.rs`,
+  `priority.rs`, `calendar.rs`).
+- **`service.rs`**: the `Service`, which owns the ports once and
+  implements the traits a driving adapter calls (`TaskService`,
+  `PruneService`, ...) by lending each call's unit its share
+  (`Parts`). lib.rs is the crate's map and its published names.
+- **One crate per context**, not per use case: a diagnostic's code is
+  prefixed with its crate's name and is public (the CLI's JSON carries
+  it), so the use cases share the context's `AppError` and codes.
+
+The domain crates keep their hand-written markup (`aggregate.rs` beside
+the rules in `lib.rs`) rather than blackjack's generated adapter over a
+pure domain crate (owner ruling Q8): angzarr-build's Rust adapter has no
+natural-key root (`rooted_by`) and hands an applier no `PageContext`, and
+the task aggregate needs both (its harp is its root; its instants are its
+pages' `recorded_at`). The move waits on the generator.
 
 `crates/core/clippy.toml` holds the core's purity rules (no I/O, clock, env,
 threads or hash-ordered collections) and reaches every core crate, because

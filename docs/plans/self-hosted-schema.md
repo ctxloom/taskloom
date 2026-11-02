@@ -61,7 +61,7 @@ and `Finding::ManyKeys`; `Configuration::{tag_schema, tag_permits}`,
 
 - **Kept, not deleted:** `ports::Configuration::{tag_schema, tag_permits}`,
   `ConfigurationWriter::write_tag_permits`, `TagPermits` and
-  `NamespacePermit`. The reviewed `store_schema.test.rs` implements them in
+  `NamespacePermit`. The reviewed `schema.test.rs` (once `store_schema.test.rs`) implements them in
   its fixture (to show no use case reads them), and the import reads the
   moved keys through them; they go with the import. `Configuration` gained
   `moved()` (the `tasks-config-key-moved` refusal every use case but the

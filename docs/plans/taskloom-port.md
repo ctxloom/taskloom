@@ -62,7 +62,10 @@ cutover ("What remains").
   a server can spawn them; project identity is synchronous and blocks on
   the registry's lock, so an async server calls it through
   `spawn_blocking`.
-- `core/application/tasks-application`: add, status, edit, tag, list,
+- `core/application/tasks-application` (since Phase F, each use case a
+  unit over only its ports, composed by one `Service`: see CLAUDE.md, "A
+  context's application crate"; its commands run through
+  `kernel-runner`): add, status, edit, tag, list,
   show, summary, statuses, tags, lint, prune and import, and the tag schema
   (which `tag_schema` answers, resolving no project), write-time
   admission and tag queries. An add mints a harp and re-mints on

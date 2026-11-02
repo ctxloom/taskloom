@@ -54,7 +54,9 @@ nothing, exits 2. List JSON keeps VS Code's `path` (absolute), `name`,
 `plan show` follows the CLI's convention (ruling c): JSON off a terminal
 (the plan and its `content`); its text is the markdown, raw, which the VS
 Code extension asks for with `--format text`. `taskloom show <task>` names
-the plans governing the task on a `plans:` line (text only).
+the plans governing the task on a `plans:` line (text only): tasks-cli
+composes it from the tasks' `show` and plans-application's `Governing`
+query, since the tasks know no plan.
 
 **Migration.** `plan import` groups `ctxloom:plan` values by resolved file.
 Each readable `.plan.md` becomes one active plan that governs its tasks;
@@ -63,7 +65,8 @@ outside the root is copied into `.taskloom/plans/<id>.plan.md` and the copy
 registered, the original left as it was (ruling b). The tags it migrates
 are removed. Dead paths and non-plan files are reported and their tags
 kept, and the command exits 1. `ctxloom:plan` is retired: tag admission
-refuses it (`plans::tag_is_retired`). Reruns add nothing.
+refuses it (tasks-application's `tag_is_retired`, the tasks' own rule;
+the import reads its `RETIRED_TAG`). Reruns add nothing.
 
 **Not done.** Windows paths (a plan path is `/`-separated and the work
 root is compared as text); a `plans` field in `taskloom show`'s JSON (its
