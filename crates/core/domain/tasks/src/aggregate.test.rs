@@ -486,7 +486,7 @@ fn test_deferring_a_deferred_task_by_name_keeps_the_trigger_it_holds() {
             status: DEFERRED.to_string(),
             trigger: "after the release".to_string(),
             at: None,
-            deferred_since: Some(at(103)),
+            deferred_since: None,
             prior_status: TO_DO.to_string(),
         })],
         "the event carries the trigger held, unchanged or not, and the status to return to"
@@ -519,7 +519,7 @@ fn test_leaving_deferred_clears_the_trigger_and_keeps_when_it_was_deferred() {
             status: TO_DO.to_string(),
             trigger: String::new(),
             at: None,
-            deferred_since: Some(at(102)),
+            deferred_since: None,
             prior_status: String::new(),
         })]
     );
@@ -960,11 +960,12 @@ fn test_a_trigger_given_alone_defers_the_task_keeping_its_status_to_return_to() 
             status: DEFERRED.to_string(),
             trigger: "after v2".to_string(),
             at: None,
-            deferred_since: Some(at(103)),
+            deferred_since: None,
             prior_status: "In Progress".to_string(),
         })]
     );
     let state = task.state();
+    assert_eq!(state.deferred_since, Some(at(103)), "its recorded_at");
     assert_eq!(
         (state.status.as_str(), state.prior_status.as_str()),
         (DEFERRED, "In Progress")
@@ -983,12 +984,17 @@ fn test_clearing_the_trigger_returns_the_task_to_the_status_it_was_deferred_from
             status: "In Progress".to_string(),
             trigger: String::new(),
             at: None,
-            deferred_since: Some(at(103)),
+            deferred_since: None,
             prior_status: String::new(),
         })],
-        "the trigger and the status to return to are gone; when it was deferred is kept"
+        "the trigger and the status to return to are gone"
     );
     assert_eq!(task.state().status, "In Progress");
+    assert_eq!(
+        task.state().deferred_since,
+        Some(at(103)),
+        "when it was deferred is kept"
+    );
 }
 
 #[test]
@@ -1280,7 +1286,11 @@ fn test_a_status_change_defers_to_and_needs_a_trigger_for_the_commands_deferring
         (changed.status.as_str(), changed.prior_status.as_str()),
         ("Parked", DEFERRED)
     );
-    assert_eq!(changed.deferred_since, Some(at(104)));
+    assert_eq!(
+        changed.deferred_since, None,
+        "a status change copies no instant"
+    );
+    assert_eq!(task.state().deferred_since, Some(at(104)));
     assert_eq!(
         task.run(set_parked(Some(DEFERRED), Some("after v3"))),
         refused(TaskRejection::TriggerWithStatus {
@@ -1546,6 +1556,103 @@ fn old_events_are_folded_at_the_instant_they_carry() {
         replayed.deferred_since,
         Some(at(9)),
         "kept on leaving Deferred"
+    );
+}
+
+// A status change copies no deferred_since (ruling R4, 2026-11-01): the
+// task's is derived from event time, the recorded_at of the change that
+// last deferred it, at decide time as at replay.
+#[test]
+fn new_status_changes_carry_no_deferred_since_and_derive_it_from_their_recorded_at() {
+    let mut task = probe();
+    decided_and_replayed(&mut task, add("Revisit"));
+    let (decided, replayed) =
+        decided_and_replayed(&mut task, status(DEFERRED, "after the release"));
+    assert_eq!(decided, replayed, "the task decided is the task replayed");
+    assert_eq!(
+        replayed.deferred_since,
+        Some(recorded_at(&task, 1)),
+        "deferred at the change's"
+    );
+    let (decided, replayed) = decided_and_replayed(&mut task, status(DEFERRED, "when CI is green"));
+    assert_eq!(decided, replayed, "the task decided is the task replayed");
+    assert_eq!(
+        replayed.deferred_since,
+        Some(recorded_at(&task, 2)),
+        "deferred again: the newer change's"
+    );
+    let (decided, replayed) = decided_and_replayed(&mut task, status(TO_DO, ""));
+    assert_eq!(decided, replayed, "the task decided is the task replayed");
+    assert_eq!(
+        replayed.deferred_since,
+        Some(recorded_at(&task, 2)),
+        "kept on leaving Deferred"
+    );
+    let (decided, replayed) = decided_and_replayed(&mut task, status("In Progress", ""));
+    assert_eq!(decided, replayed, "the task decided is the task replayed");
+    assert_eq!(
+        replayed.deferred_since,
+        Some(recorded_at(&task, 2)),
+        "kept while it stays out of Deferred"
+    );
+    for page in task.pages() {
+        if let TaskEvent::StatusChanged(changed) =
+            TaskEvent::from_any(page.payload.as_ref().unwrap()).unwrap()
+        {
+            assert_eq!(changed.deferred_since, None, "{changed:?} copies none");
+        }
+    }
+}
+
+// A status change written before ruling R4 carries its deferred_since,
+// read in preference (here earlier than its page's recorded_at, so the
+// two are told apart), entering Deferred or leaving it; a new change on
+// such a stream derives its own, and decides the task it replays.
+#[test]
+fn old_status_changes_are_read_at_the_deferred_since_they_carry() {
+    let mut task = probe();
+    let old_change = |status: &str, trigger: &str, seconds: i64, prior: &str| StatusChanged {
+        status: status.to_string(),
+        trigger: trigger.to_string(),
+        at: Some(at(seconds)),
+        deferred_since: Some(at(9)),
+        prior_status: prior.to_string(),
+    };
+    task.given([
+        TaskAdded {
+            harp_id: HARP.to_string(),
+            text: "Revisit".to_string(),
+            status: TO_DO.to_string(),
+            trigger: String::new(),
+            tags: Vec::new(),
+            origin_session: "calm-otter".to_string(),
+            at: Some(at(7)),
+            deferred_since: None,
+            prior_status: String::new(),
+        }
+        .into(),
+        old_change(DEFERRED, "after the release", 9, TO_DO).into(),
+        old_change(TO_DO, "", 11, "").into(),
+    ]);
+    assert_ne!(
+        recorded_at(&task, 1),
+        at(9),
+        "the page's instant is another"
+    );
+    assert_eq!(
+        task.state().task.state().deferred_since,
+        Some(at(9)),
+        "the instant the old events carry"
+    );
+    let (decided, replayed) = decided_and_replayed(&mut task, status("In Progress", ""));
+    assert_eq!(decided, replayed, "the task decided is the task replayed");
+    assert_eq!(replayed.deferred_since, Some(at(9)), "kept out of Deferred");
+    let (decided, replayed) = decided_and_replayed(&mut task, status(DEFERRED, "after v2"));
+    assert_eq!(decided, replayed, "the task decided is the task replayed");
+    assert_eq!(
+        replayed.deferred_since,
+        Some(recorded_at(&task, 4)),
+        "deferred anew: the new change's recorded_at"
     );
 }
 
