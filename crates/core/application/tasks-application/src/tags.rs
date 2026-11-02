@@ -5,7 +5,7 @@
 //! a write is refused at the first that is not, with the reason. What the
 //! store's rules say of a tag (its value, its arity, its namespace's keys,
 //! whether it is permitted) is tagma's to judge, over the tag set the
-//! write leaves (`crate::store_schema`), never this module's.
+//! write leaves (`crate::rules`), never this module's.
 //!
 //! The value a scalar target is given displaces the one held before the
 //! retag is sent ([`collapse`]): decide never reads the schema.
@@ -17,7 +17,7 @@ use angzarr_diagnostic::{Arg, Diagnostic};
 
 pub use tasks::Tag;
 
-use crate::store_schema::{StoreRules, TAGMA_NAMESPACE, TASKLOOM_NAMESPACE};
+use crate::rules::{StoreRules, TAGMA_NAMESPACE, TASKLOOM_NAMESPACE};
 
 /// The words tagma's query grammar reads as operators, in any case: a tag
 /// spelled as one could never be matched.

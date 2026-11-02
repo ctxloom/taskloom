@@ -301,7 +301,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(crate::Why::TaskNotImported),
     ];
     samples.extend(tags.map(|t| Box::new(t) as Box<dyn Diagnostic>));
-    samples.extend(crate::store_schema::samples());
+    samples.extend(crate::rules::samples());
     samples.extend(
         crate::lint::samples()
             .into_iter()

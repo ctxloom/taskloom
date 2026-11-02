@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use angzarr_diagnostic::Diagnostic;
 
 use super::{check, select, QueryError, QUERY_GRAMMAR};
-use crate::store_schema::StoreRules;
+use crate::rules::StoreRules;
 use crate::tags::parse;
 use crate::Tag;
 

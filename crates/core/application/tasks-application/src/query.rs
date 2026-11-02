@@ -19,8 +19,8 @@ use std::sync::Arc;
 use angzarr_diagnostic::{Arg, Diagnostic};
 use tagma_core::Index;
 
+use crate::rules::StoreRules;
 use crate::semver::{Semver, SEMVER};
-use crate::store_schema::StoreRules;
 use crate::Tag;
 
 /// The namespace of the presence tag every candidate carries. A task may

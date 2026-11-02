@@ -10,7 +10,7 @@ use angzarr_diagnostic::{Arg, Diagnostic, Report};
 use ports::Timestamp;
 use task_priority::{Candidate, Diagnostics, Formulas};
 
-use crate::store_schema::StoreRules;
+use crate::rules::StoreRules;
 use crate::view::{is_terminal, Row};
 use crate::AppError;
 

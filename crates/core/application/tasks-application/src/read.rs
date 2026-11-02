@@ -14,7 +14,7 @@ use ports::{Clock, Configuration, ProjectIdentity, TaskStores};
 
 use crate::lint::{self, LintReport};
 use crate::priority::{self, PriorityNote};
-use crate::store_schema::StoreRules;
+use crate::rules::StoreRules;
 use crate::view::{
     is_active, is_terminal, Row, StatusInfo, Task, DEFAULT_STATUSES, IN_PROGRESS, OPEN,
     STATUS_CLASSES, TERMINAL,
@@ -295,7 +295,7 @@ where
             rows_in(list, project)
         });
         rows.extend(listed.await?);
-        let held = crate::store_schema::rules_in(store, &self.registry).await?;
+        let held = crate::schema::rules_in(store, &self.registry).await?;
         rules.insert(project.id.clone(), held);
         Ok(true)
     }

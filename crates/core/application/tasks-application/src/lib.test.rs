@@ -431,7 +431,7 @@ fn test_a_tag_spelled_another_way_is_the_same_tag() {
 // ------------------------------------------------------------ schema
 //
 // The store's rules are its schema stream's, judged by tagma
-// (store_schema.test.rs pins the boundary). The configuration is asked
+// (schema.test.rs pins the boundary). The configuration is asked
 // only whether a layer still sets a moved key ("unreadable": it fails).
 
 /// What the configuration answers, and how often it was asked.

@@ -23,8 +23,9 @@ mod prune;
 mod query;
 mod read;
 mod request;
+mod rules;
+mod schema;
 mod semver;
-mod store_schema;
 mod tags;
 mod view;
 mod watch;
@@ -41,7 +42,7 @@ use angzarr_embedded::{
 use error::carrying;
 use kernel_runner::{Refusal, Runner, KERNEL_RETRY};
 use ports::{Clock, CommandIds, Configuration, Delay, Jitter, Names, ProjectIdentity, TaskStores};
-use store_schema::judged;
+use rules::judged;
 use tasks::schema::SchemaAggregate;
 use tasks::{
     AddTask, EditText, Retag, SetStatus, TaskAggregate, TaskCommand, TaskRejection, TASK_DOMAIN,
@@ -90,11 +91,12 @@ pub use prune::{
 };
 pub use read::{Details, Hidden, Listing, Reach, Statuses, Summary, TagCount, Vocabulary};
 pub use request::{request_command_id, REQUEST_NAMESPACE};
-pub use semver::{Semver, Version, SEMVER};
-pub use store_schema::{
-    Code as RuleCode, Declaration, Declared, Finding as RuleFinding, Origin, RuleWarning,
-    RulesRefusal, SchemaService, SchemaSummary, TargetSummary, SEEDED_SCHEMA, TASKLOOM_NAMESPACE,
+pub use rules::{
+    Code as RuleCode, Finding as RuleFinding, Origin, RuleWarning, RulesRefusal, SchemaSummary,
+    TargetSummary, SEEDED_SCHEMA, TASKLOOM_NAMESPACE,
 };
+pub use schema::{Declaration, Declared, SchemaService};
+pub use semver::{Semver, Version, SEMVER};
 /// A finding's tag is tagma's own type, as tagma reports it.
 pub use tagma_core::Tag as RuleTag;
 pub use tags::{
@@ -265,6 +267,16 @@ pub struct Written {
     pub dead_letters: Vec<DeadLetter>,
     /// tagma's `Existing` findings on the task written ([`Written::warnings`]).
     pub warnings: Vec<RuleFinding>,
+}
+
+impl Written {
+    /// tagma's `Existing` findings on the task written: what was wrong
+    /// before the write and still is. A write is never refused for these
+    /// (an `Introduced` finding refuses it, `tasks-application-tag-rules`),
+    /// and the edge prints them on stderr, or in the JSON document.
+    pub fn warnings(&self) -> &[RuleFinding] {
+        &self.warnings
+    }
 }
 
 /// The use cases, as a driving adapter calls them. Their futures are
@@ -500,7 +512,7 @@ where
             retry: self.retry,
             dead_letters: &mut self.dead_letters,
         };
-        let rules = store_schema::seed_in(&mut runner, store).await?;
+        let rules = schema::seed_in(&mut runner, store).await?;
         let (tags, _) = tags::collapse(&rules, &[], tags);
         let warnings = judged(rules.validate(&[], &tags, &[]))?;
         let template = AddTask { tags, ..template };

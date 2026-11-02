@@ -444,7 +444,7 @@ struct Selection<'a> {
     statuses: &'a [String],
     before: Timestamp,
     tag_query: Option<&'a str>,
-    rules: &'a crate::store_schema::StoreRules,
+    rules: &'a crate::rules::StoreRules,
 }
 
 impl Selection<'_> {

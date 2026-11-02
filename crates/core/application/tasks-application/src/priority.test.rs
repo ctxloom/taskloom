@@ -8,7 +8,7 @@ use ports::Timestamp;
 use task_priority::{Diagnostics, Ranking, TargetCoverage, MAX};
 
 use super::{candidate, formulas, rank_rows, warnings, PriorityNote, PriorityWarning};
-use crate::store_schema::StoreRules;
+use crate::rules::StoreRules;
 use crate::view::{text_hash, Row, Task};
 use crate::Project;
 

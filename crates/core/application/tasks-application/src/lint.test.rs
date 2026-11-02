@@ -11,7 +11,7 @@ use crate::view::{Row, Task};
 use std::collections::BTreeMap;
 
 use crate::read::{Reach, Scan};
-use crate::store_schema::StoreRules;
+use crate::rules::StoreRules;
 use crate::Project;
 
 fn project(id: &str) -> Project {

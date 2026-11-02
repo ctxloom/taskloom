@@ -79,10 +79,10 @@ fn test_a_refusal_renders_its_english() {
 //
 // What every task's tag must pass whatever the store's rules. What a
 // value may be (enum, range, type), how many a target holds and whether a
-// tag is permitted are tagma's to judge (store_schema.test.rs).
+// tag is permitted are tagma's to judge (schema.test.rs).
 
 use super::{admit, admit_all, collapse};
-use crate::store_schema::StoreRules;
+use crate::rules::StoreRules;
 
 fn refused(spelled: &str) -> Option<TagRefusal> {
     match parse(spelled)? {

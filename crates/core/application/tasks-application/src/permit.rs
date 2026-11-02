@@ -22,7 +22,8 @@ use std::future::Future;
 use ports::{Clock, CommandIds, Configuration, ConfigurationWriter, ProjectIdentity, TaskStores};
 use tasks::schema::Declare;
 
-use crate::store_schema::{closing, permit_tag, Declared, StoreRules};
+use crate::rules::{closing, permit_tag, StoreRules};
+use crate::schema::Declared;
 use crate::{tags, AppError, Declaration, Service, Tag};
 
 /// A permit to grant or revoke, spelled as above. It is the work root's
@@ -278,8 +279,8 @@ fn imported(spelled: &str) -> Result<Vec<tagma_core::Tag>, AppError> {
             )],
             None => vec![tag],
         },
-        (Some("tagma.priority_fn"), value) => vec![with(crate::store_schema::PRIORITY_FN, value)],
-        (Some("tagma.decay_fn"), value) => vec![with(crate::store_schema::DECAY_FN, value)],
+        (Some("tagma.priority_fn"), value) => vec![with(crate::rules::PRIORITY_FN, value)],
+        (Some("tagma.decay_fn"), value) => vec![with(crate::rules::DECAY_FN, value)],
         _ => vec![tag],
     })
 }
