@@ -218,6 +218,42 @@ fn test_status_changes_keep_the_logged_instants() {
     assert_eq!(task.created_at, at(1));
 }
 
+// An import runs each record on a clock stopped at the record's instant:
+// its events are recorded at it and copy none of it into their payloads
+// (the owner's ruling, 2026-11-01), and the task replayed keeps the log's
+// instants.
+#[test]
+fn test_imported_events_carry_no_instant_and_are_recorded_at_the_records() {
+    use angzarr_embedded::Payload as _;
+    use tasks::TaskEvent;
+
+    let mut service = service(vec![
+        add(HARP, "Revisit", 1),
+        status(HARP, "Deferred", "after the release", 5),
+        status(HARP, "In Progress", "", 9),
+    ]);
+    import(&mut service);
+    let slice = ready(read_from(&service.stores.store, &task_cover(HARP), 0))
+        .unwrap()
+        .expect("imported");
+    let mut recorded = Vec::new();
+    for page in &slice.pages {
+        let at = match TaskEvent::from_any(page.payload.as_ref().unwrap()).unwrap() {
+            TaskEvent::TaskAdded(added) => added.at,
+            TaskEvent::StatusChanged(changed) => changed.at,
+            other => panic!("an add and status changes, not {other:?}"),
+        };
+        assert_eq!(at, None, "no instant copied into the payload");
+        recorded.push(page.meta.as_ref().and_then(|meta| meta.recorded_at));
+    }
+    assert_eq!(recorded, [Some(at(1)), Some(at(5)), Some(at(9))]);
+    let task = state(&mut service, HARP).unwrap();
+    assert_eq!(
+        (task.created_at, task.status_set_at, task.deferred_since),
+        (at(1), at(9), Some(at(5)))
+    );
+}
+
 // Go's empty string is a value left out: an add's status, trigger and
 // session, and a status change's trigger.
 #[test]

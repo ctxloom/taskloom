@@ -16,12 +16,14 @@ use std::collections::BTreeMap;
 
 use angzarr_diagnostic::{Arg, Diagnostic};
 use angzarr_embedded::angzarr_router::error::RouterReason;
+use angzarr_embedded::markup::{Context, Emit, Failed, PageContext};
 use angzarr_embedded::testing::{Harness, Ready, Samples};
 use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::{
     ids, pack, Any, CommandBookExt, CoverExt, Domain, Failure, Handled, Kernel, KernelError,
     OnRetryable, Payload, Recovery, Registry, Rejected, Sampled, Timestamp,
 };
+use angzarr_embedded_macros::{aggregate, applies, handles_cmd};
 
 use crate::{
     check, AddTask, EditText, RemovalReason, RemoveTask, Retag, Retagged, SetStatus, StatusChanged,
@@ -277,9 +279,8 @@ fn an_add_on_a_fresh_stream_records_task_added_at_the_sampled_instant() {
         panic!("one TaskAdded, not {events:?}");
     };
     assert_eq!(
-        added.at,
-        Some(sampled),
-        "the event's instant is the sampled one"
+        added.at, None,
+        "the event copies no instant: its page's recorded_at is its instant"
     );
     assert_eq!(
         added.deferred_since,
@@ -385,7 +386,7 @@ fn test_add_records_the_task_with_its_creation_time() {
             trigger: String::new(),
             tags: Vec::new(),
             origin_session: "calm-otter".to_string(),
-            at: Some(at(101)),
+            at: None,
             deferred_since: None,
             prior_status: String::new(),
         })]
@@ -464,7 +465,7 @@ fn test_set_status_moves_the_task_and_stamps_when() {
         vec![TaskEvent::StatusChanged(StatusChanged {
             status: "In Progress".to_string(),
             trigger: String::new(),
-            at: Some(at(102)),
+            at: None,
             deferred_since: None,
             prior_status: String::new(),
         })]
@@ -484,7 +485,7 @@ fn test_deferring_a_deferred_task_by_name_keeps_the_trigger_it_holds() {
         vec![TaskEvent::StatusChanged(StatusChanged {
             status: DEFERRED.to_string(),
             trigger: "after the release".to_string(),
-            at: Some(at(103)),
+            at: None,
             deferred_since: Some(at(103)),
             prior_status: TO_DO.to_string(),
         })],
@@ -517,7 +518,7 @@ fn test_leaving_deferred_clears_the_trigger_and_keeps_when_it_was_deferred() {
         vec![TaskEvent::StatusChanged(StatusChanged {
             status: TO_DO.to_string(),
             trigger: String::new(),
-            at: Some(at(103)),
+            at: None,
             deferred_since: Some(at(102)),
             prior_status: String::new(),
         })]
@@ -958,7 +959,7 @@ fn test_a_trigger_given_alone_defers_the_task_keeping_its_status_to_return_to() 
         vec![TaskEvent::StatusChanged(StatusChanged {
             status: DEFERRED.to_string(),
             trigger: "after v2".to_string(),
-            at: Some(at(103)),
+            at: None,
             deferred_since: Some(at(103)),
             prior_status: "In Progress".to_string(),
         })]
@@ -981,7 +982,7 @@ fn test_clearing_the_trigger_returns_the_task_to_the_status_it_was_deferred_from
         vec![TaskEvent::StatusChanged(StatusChanged {
             status: "In Progress".to_string(),
             trigger: String::new(),
-            at: Some(at(104)),
+            at: None,
             deferred_since: Some(at(103)),
             prior_status: String::new(),
         })],
@@ -1339,5 +1340,269 @@ fn test_a_command_without_its_statuses_is_refused() {
             refused(rejection),
             "the aggregate {command:?}"
         );
+    }
+}
+
+// ------------------------------------------------ the event's instant
+//
+// An event's instant is its page's `recorded_at` (the owner's ruling,
+// 2026-11-01): a new event copies none into its payload. An event written
+// before the ruling carries its `at`, read in preference. At decide time
+// the kernel hands an applier the metadata it stamps the decision's own
+// events with, so the task decided is the task replayed, for old events
+// and new ones alike.
+
+/// A task aggregate deciding with the task's own handlers and folding with
+/// its own applier, its continuation keeping the task it decided
+/// ([`DECIDED`]): the task as the kernel folds it at decide time.
+#[derive(Clone, Debug, Default)]
+struct Probe {
+    task: TaskAggregate,
+}
+
+std::thread_local! {
+    /// Each task a probe's decision left, its events folded at decide time.
+    static DECIDED: std::cell::RefCell<Vec<TaskState>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Keep `probe`'s task as the decision left it.
+fn keep(probe: &Probe, _: &Context) -> Result<Option<TaskAdded>, Failed<TaskRejection>> {
+    DECIDED.with(|decided| decided.borrow_mut().push(probe.task.state().clone()));
+    Ok(None)
+}
+
+/// The task's applier, as the kernel calls it: `event` and its page.
+fn fold(probe: &mut Probe, event: impl Into<TaskEvent>, page: &PageContext) {
+    <TaskAggregate as Domain>::apply(&mut probe.task, &event.into(), page);
+}
+
+#[aggregate(domain = "tasks", command = TaskCommand, event = TaskEvent)]
+impl Probe {
+    #[handles_cmd(AddTask, rooted_by = harp_id)]
+    fn add_task(&self, cmd: AddTask, ctx: &Context) -> Result<Emit<Self>, Failed<TaskRejection>> {
+        Ok(Emit::of(self.task.add_task(cmd, ctx)?).then(keep))
+    }
+
+    #[handles_cmd(SetStatus)]
+    fn set_status(
+        &self,
+        cmd: SetStatus,
+        ctx: &Context,
+    ) -> Result<Emit<Self>, Failed<TaskRejection>> {
+        Ok(Emit::of(self.task.set_status(cmd, ctx)?).then(keep))
+    }
+
+    #[handles_cmd(EditText)]
+    fn edit_text(&self, cmd: EditText, ctx: &Context) -> Result<Emit<Self>, Failed<TaskRejection>> {
+        Ok(Emit::of(self.task.edit_text(cmd, ctx)?).then(keep))
+    }
+
+    #[applies(TaskAdded)]
+    fn task_added(&mut self, event: TaskAdded, page: &PageContext) {
+        fold(self, event, page);
+    }
+
+    #[applies(StatusChanged)]
+    fn status_changed(&mut self, event: StatusChanged, page: &PageContext) {
+        fold(self, event, page);
+    }
+
+    #[applies(TextEdited)]
+    fn text_edited(&mut self, event: TextEdited, page: &PageContext) {
+        fold(self, event, page);
+    }
+
+    #[applies(Retagged)]
+    fn retagged(&mut self, event: Retagged, page: &PageContext) {
+        fold(self, event, page);
+    }
+
+    #[applies(TaskRemoved)]
+    fn task_removed(&mut self, event: TaskRemoved, page: &PageContext) {
+        fold(self, event, page);
+    }
+}
+
+/// The task's stream, decided by a [`Probe`]: each command one second
+/// after the last (from second 101), as [`Task`]'s.
+fn probe() -> Harness<Probe> {
+    let mut registry = Registry::new();
+    registry.aggregate::<Probe>(Probe::default).unwrap();
+    Harness::new(registry, cover()).with_samples(Samples::starting_at(100))
+}
+
+/// `command` decided on `probe`'s stream: the task its decision left, its
+/// events folded at decide time, and the task replayed from the store
+/// after.
+fn decided_and_replayed(
+    probe: &mut Harness<Probe>,
+    command: impl Into<TaskCommand>,
+) -> (TaskState, TaskState) {
+    DECIDED.with(|decided| decided.borrow_mut().clear());
+    probe.when(command).events();
+    let decided = DECIDED.with(|decided| decided.take());
+    let [decided] = <[TaskState; 1]>::try_from(decided).expect("one decision");
+    (decided, probe.state().task.state().clone())
+}
+
+/// The `recorded_at` of `probe`'s stored page at `sequence`.
+fn recorded_at(probe: &Harness<Probe>, sequence: usize) -> Timestamp {
+    probe.pages()[sequence]
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.recorded_at)
+        .expect("a stored page is stamped")
+}
+
+// A new event copies no instant: the task's times are its page's
+// recorded_at, at decide time as at replay.
+#[test]
+fn new_events_carry_no_instant_and_are_folded_at_their_recorded_at() {
+    let mut task = probe();
+    let (decided, replayed) = decided_and_replayed(&mut task, add("Write the tour"));
+    assert_eq!(decided, replayed, "the task decided is the task replayed");
+    assert_eq!(
+        (replayed.created_at, replayed.status_set_at),
+        (recorded_at(&task, 0), recorded_at(&task, 0))
+    );
+    let (decided, replayed) =
+        decided_and_replayed(&mut task, status(DEFERRED, "after the release"));
+    assert_eq!(decided, replayed, "the task decided is the task replayed");
+    assert_eq!(replayed.status_set_at, recorded_at(&task, 1));
+    assert_eq!(
+        replayed.deferred_since,
+        Some(replayed.status_set_at),
+        "deferred at the instant its status was set"
+    );
+    assert_eq!(replayed.created_at, recorded_at(&task, 0));
+    for page in task.pages() {
+        match TaskEvent::from_any(page.payload.as_ref().unwrap()).unwrap() {
+            TaskEvent::TaskAdded(added) => assert_eq!(added.at, None),
+            TaskEvent::StatusChanged(changed) => assert_eq!(changed.at, None),
+            other => panic!("an add and a status change, not {other:?}"),
+        }
+    }
+}
+
+// An event written before the ruling carries its instant, read in
+// preference to its page's (here a later one, so the two are told apart);
+// a new decision on such a stream decides the task it replays.
+#[test]
+fn old_events_are_folded_at_the_instant_they_carry() {
+    let mut task = probe();
+    task.given([
+        TaskAdded {
+            harp_id: HARP.to_string(),
+            text: "Revisit".to_string(),
+            status: TO_DO.to_string(),
+            trigger: String::new(),
+            tags: Vec::new(),
+            origin_session: "calm-otter".to_string(),
+            at: Some(at(7)),
+            deferred_since: None,
+            prior_status: String::new(),
+        }
+        .into(),
+        StatusChanged {
+            status: DEFERRED.to_string(),
+            trigger: "after the release".to_string(),
+            at: Some(at(9)),
+            deferred_since: Some(at(9)),
+            prior_status: TO_DO.to_string(),
+        }
+        .into(),
+    ]);
+    assert_ne!(
+        recorded_at(&task, 0),
+        at(7),
+        "the page's instant is another"
+    );
+    let held = task.state().task.state().clone();
+    assert_eq!(
+        (held.created_at, held.status_set_at, held.deferred_since),
+        (at(7), at(9), Some(at(9))),
+        "the instants the events carry"
+    );
+    let (decided, replayed) = decided_and_replayed(
+        &mut task,
+        EditText {
+            text: "Revisit soon".to_string(),
+        },
+    );
+    assert_eq!(decided, replayed, "the task decided is the task replayed");
+    assert_eq!(
+        (replayed.created_at, replayed.status_set_at),
+        (at(7), at(9))
+    );
+    let (decided, replayed) = decided_and_replayed(&mut task, status("In Progress", ""));
+    assert_eq!(decided, replayed, "the task decided is the task replayed");
+    assert_eq!(replayed.created_at, at(7), "the old add's instant");
+    assert_eq!(
+        replayed.status_set_at,
+        recorded_at(&task, 3),
+        "the new change's"
+    );
+    assert_eq!(
+        replayed.deferred_since,
+        Some(at(9)),
+        "kept on leaving Deferred"
+    );
+}
+
+// An import decides each record on a clock stopped at the record's
+// instant: its events are recorded at it, carry none of it, and the task
+// decided is the task replayed.
+#[test]
+fn an_import_on_a_clock_pinned_at_the_records_instant_folds_at_it() {
+    let task = probe();
+    let pinned = |seconds: i64, command: TaskCommand| {
+        let sampled = Sampled {
+            now: at(seconds),
+            command_id: Samples::command_id(u32::try_from(seconds).unwrap()),
+        };
+        (sampled, CommandBook::command_of(cover(), &command))
+    };
+    let records = [
+        pinned(1, add("Revisit").into()),
+        pinned(5, status(DEFERRED, "after the release").into()),
+        pinned(9, status("In Progress", "").into()),
+    ];
+    for (sampled, book) in records {
+        DECIDED.with(|decided| decided.borrow_mut().clear());
+        Kernel::new(task.registry())
+            .handle::<Probe, _>(task.store(), book, &sampled)
+            .ready()
+            .unwrap_or_else(|failure| panic!("applied, not {failure:?}"));
+        let decided = DECIDED.with(|decided| decided.take());
+        assert_eq!(
+            decided,
+            [task.state().task.state().clone()],
+            "the task decided is the task replayed"
+        );
+    }
+    let replayed = task.state().task.state().clone();
+    assert_eq!(
+        (
+            replayed.created_at,
+            replayed.status_set_at,
+            replayed.deferred_since
+        ),
+        (at(1), at(9), Some(at(5))),
+        "the records' instants"
+    );
+    assert_eq!(
+        (
+            recorded_at(&task, 0),
+            recorded_at(&task, 1),
+            recorded_at(&task, 2)
+        ),
+        (at(1), at(5), at(9))
+    );
+    for page in task.pages() {
+        match TaskEvent::from_any(page.payload.as_ref().unwrap()).unwrap() {
+            TaskEvent::TaskAdded(added) => assert_eq!(added.at, None),
+            TaskEvent::StatusChanged(changed) => assert_eq!(changed.at, None),
+            other => panic!("an add and status changes, not {other:?}"),
+        }
     }
 }
