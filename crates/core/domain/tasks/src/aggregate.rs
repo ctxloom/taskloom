@@ -15,10 +15,14 @@
 //!   `Failed::Rejected` (FAILED_PRECONDITION): a key (`tasks-*`) and its
 //!   args, never English, business-fatal. A stream with history refuses an
 //!   add (`tasks-task-exists`), by the router's `had_prior_events`;
-//! - one `#[applies]` per event, assigning what the event carries;
+//! - one `#[applies]` per event, assigning what the event carries, an add's
+//!   and a status change's instant its page's `recorded_at` (or an old
+//!   event's `at`): at decide time the kernel hands the decision's own
+//!   events the metadata it stamps them with, so the task decided is the
+//!   task replayed;
 //! - no snapshot: a task's stream is short, and every load replays it.
 
-use angzarr_embedded::markup::{Context, Failed};
+use angzarr_embedded::markup::{Context, Failed, PageContext};
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd};
 
 use crate::{
@@ -40,9 +44,13 @@ impl TaskAggregate {
     }
 }
 
-/// `event`, folded into the task ([`crate::apply`]).
-fn fold(task: &mut TaskState, event: TaskEvent) {
-    crate::apply(task, &event);
+/// `event`, folded into the task at its page's `recorded_at`
+/// ([`crate::apply`]). Every page the kernel hands an applier is stamped,
+/// the decision's own events' included; one with no metadata is folded at
+/// the epoch.
+fn fold(task: &mut TaskState, event: TaskEvent, page: &PageContext) {
+    let recorded_at = page.meta.and_then(|meta| meta.recorded_at);
+    crate::apply(task, &event, recorded_at.unwrap_or_default());
 }
 
 // The domain is TASK_DOMAIN, spelled as the markup takes it, a literal
@@ -96,28 +104,28 @@ impl TaskAggregate {
     }
 
     #[applies(TaskAdded)]
-    fn task_added(&mut self, event: TaskAdded) {
-        fold(&mut self.task, event.into());
+    fn task_added(&mut self, event: TaskAdded, page: &PageContext) {
+        fold(&mut self.task, event.into(), page);
     }
 
     #[applies(StatusChanged)]
-    fn status_changed(&mut self, event: StatusChanged) {
-        fold(&mut self.task, event.into());
+    fn status_changed(&mut self, event: StatusChanged, page: &PageContext) {
+        fold(&mut self.task, event.into(), page);
     }
 
     #[applies(TextEdited)]
-    fn text_edited(&mut self, event: TextEdited) {
-        fold(&mut self.task, event.into());
+    fn text_edited(&mut self, event: TextEdited, page: &PageContext) {
+        fold(&mut self.task, event.into(), page);
     }
 
     #[applies(Retagged)]
-    fn retagged(&mut self, event: Retagged) {
-        fold(&mut self.task, event.into());
+    fn retagged(&mut self, event: Retagged, page: &PageContext) {
+        fold(&mut self.task, event.into(), page);
     }
 
     #[applies(TaskRemoved)]
-    fn task_removed(&mut self, event: TaskRemoved) {
-        fold(&mut self.task, event.into());
+    fn task_removed(&mut self, event: TaskRemoved, page: &PageContext) {
+        fold(&mut self.task, event.into(), page);
     }
 }
 

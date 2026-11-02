@@ -176,9 +176,14 @@ message TaskAdded {
   // Normalized.
   repeated tagma.v1.Tag tags = 5;
   string origin_session = 6;
-  // The instant it was added (optional: owner ruling, 2026-11-01).
+  // The instant it was added, written only by events recorded before the
+  // owner's ruling (2026-11-01): later ones leave it out, and their instant
+  // is their `EventMeta.recorded_at`. When present it is read in
+  // preference. A binary older than the ruling cannot read an event
+  // without it.
   optional google.protobuf.Timestamp at = 7;
-  // `at` when the task is added Deferred; absent otherwise.
+  // The instant it was added (its `recorded_at`) when the task is added
+  // Deferred; absent otherwise.
   optional google.protobuf.Timestamp deferred_since = 8;
   // The status clearing its trigger returns it to, when it is added
   // Deferred; empty otherwise.
@@ -191,10 +196,14 @@ message StatusChanged {
   string status = 1;
   // The trigger the task holds after the change, changed or not.
   string trigger = 2;
-  // The instant of the change (optional: owner ruling, 2026-11-01).
+  // The instant of the change, written only by events recorded before the
+  // owner's ruling (2026-11-01): later ones leave it out, and their instant
+  // is their `EventMeta.recorded_at`. When present it is read in
+  // preference. A binary older than the ruling cannot read an event
+  // without it.
   optional google.protobuf.Timestamp at = 3;
-  // `at` when the task enters Deferred; otherwise the instant it last did,
-  // absent if it never has.
+  // The instant of the change (its `recorded_at`) when the task enters
+  // Deferred; otherwise the instant it last did, absent if it never has.
   optional google.protobuf.Timestamp deferred_since = 4;
   // The status the task returns to when its trigger is cleared, after the
   // change: empty unless it is Deferred.
