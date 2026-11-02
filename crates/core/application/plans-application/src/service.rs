@@ -56,6 +56,8 @@ pub trait Plans {
     fn import(&mut self, dry_run: bool) -> impl Future<Output = Result<ImportReport, PlanError>>;
     /// The dead letters the kernel's calls answered since the last call:
     /// almost certainly bugs, for the driving adapter to say loudly.
+    // Equivalent: `vec![]` is the empty list this returns.
+    #[cfg_attr(test, mutants::skip)]
     fn dead_letters(&mut self) -> Vec<DeadLetter> {
         Vec::new()
     }

@@ -27,6 +27,8 @@ tasks-application.workspace = true
 angzarr-embedded = { workspace = true, features = ["test-support"] }
 ports = { workspace = true, features = ["test-support"] }
 fluent-syntax.workspace = true
+# `#[cfg_attr(test, mutants::skip)]`, for a mutant judged equivalent.
+mutants.workspace = true
 
 [features]
 # `diagnostic_samples` and `dead_letter_sample`, for other crates' tests:

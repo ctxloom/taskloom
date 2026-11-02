@@ -1457,6 +1457,7 @@ dependencies = [
  "angzarr-embedded",
  "fluent-syntax",
  "kernel-runner",
+ "mutants",
  "plan-lists",
  "plans",
  "ports",
