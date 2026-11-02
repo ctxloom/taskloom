@@ -89,6 +89,31 @@ fn kinds(problems: &Value) -> Vec<&str> {
         .collect()
 }
 
+// A checkout above the trees (TMPDIR inside a worktree's target/) is no
+// project of theirs: each tree is its own work root, and the checkout's
+// marker is neither read nor healed.
+#[test]
+fn test_a_checkout_above_the_trees_is_not_their_project() {
+    let world = World::new();
+    let above = disk::canonicalize(world.trees.path()).unwrap();
+    disk::create_dir_all(above.join(".git")).unwrap();
+    disk::write(above.join(".project-id"), "jolly-mute-magma\n").unwrap();
+    let tree = world.tree("tree");
+    let id = world.add(&tree, "in the tree");
+    assert_ne!(id, "jolly-mute-magma");
+    let shown = world.json(&tree, &["project", "show"]);
+    assert_eq!(shown["work_root"], tree.display().to_string(), "{shown}");
+    assert_eq!(
+        world.json(&tree, &["project", "heal"])["changes"],
+        Value::Array(vec![])
+    );
+    assert_eq!(
+        disk::read_to_string(above.join(".project-id")).unwrap(),
+        "jolly-mute-magma\n",
+        "the checkout's marker is untouched"
+    );
+}
+
 #[test]
 fn test_a_second_clone_with_the_committed_marker_shares_the_project_by_design() {
     // Clones share by default (decided 2026-10-21): the committed

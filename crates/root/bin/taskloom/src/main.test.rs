@@ -714,6 +714,40 @@ fn test_a_read_spans_every_project_when_asked_or_outside_any_work_root() {
     assert!(!disk::exists(empty_repo.path().join(".project-id")));
 }
 
+// Where the temporary directory is decides nothing. With TMPDIR inside a
+// worktree's target/, the worktree (and its committed marker) was every
+// test's project, and a watch that should have found none watched it
+// forever. A directory a test runs the binary in is its own work root,
+// whatever checkout is above it.
+#[test]
+fn test_a_checkout_above_a_tests_directory_is_not_its_project() {
+    let env = Env::new("enclosed-harp");
+    let checkout = Temp::new();
+    disk::create_dir_all(checkout.path().join(".git")).unwrap();
+    disk::write(checkout.path().join(".project-id"), "jolly-mute-magma\n").unwrap();
+    let dir = checkout.path().join("target").join("tmp");
+    disk::create_dir_all(&dir).unwrap();
+
+    let listed = env.run_in(&dir, &["list", "--json"], &[]);
+    assert!(
+        listed.stderr.contains("no project here yet"),
+        "{}",
+        listed.stderr
+    );
+    let added = env.run_in(&dir, &["add", "enclosed", "--json"], &[]);
+    assert!(added.ok, "{}", added.stderr);
+    let shown = env.run_in(&dir, &["project", "show", "--json"], &[]);
+    assert!(shown.ok, "{}", shown.stderr);
+    let shown = shown.json();
+    assert_ne!(shown["project_id"], "jolly-mute-magma", "{shown}");
+    assert_eq!(shown["work_root"], dir.display().to_string(), "{shown}");
+    assert_eq!(
+        disk::read_to_string(checkout.path().join(".project-id")).unwrap(),
+        "jolly-mute-magma\n",
+        "the checkout's marker is untouched"
+    );
+}
+
 #[test]
 fn test_every_diagnostic_of_every_crate_renders_from_the_binarys_catalog() {
     let catalog = super::catalog().expect("every catalog loads, no message twice");
