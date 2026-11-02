@@ -7,16 +7,16 @@
 //! project in a process folds every stream of its store from its start
 //! (the lists are not persisted, so there is nothing to resume from), and
 //! every later read in the same process only what was written since (a
-//! long-lived service's: a watch's, or ctxloom's). A catch-up reads one
-//! moment of the store, per stream only; a stream purged, or purged and
-//! written again, is told by the catch-up.
+//! long-lived service's: a watch's, or ctxloom's). A catch-up's step reads
+//! one moment of the store, its read unit, purges included: a stream
+//! purged, or purged and written again, is told by the catch-up from the
+//! covers that same read listed, so a purge landing mid-step is the next
+//! step's, as every other write landing then is.
 
 use std::collections::BTreeMap;
 
 use angzarr_diagnostic::Report;
-use angzarr_embedded::{
-    CatchUp, ListStreams, Processed, ProjectorHandler, ReadStore, Registry, Store,
-};
+use angzarr_embedded::{CatchUp, Processed, ProjectorHandler, ReadStore, Registry, Store};
 use ports::Project;
 
 /// Each project's list `P`, by project id, as last caught up.
@@ -42,7 +42,7 @@ impl<P: ProjectorHandler> ProjectLists<P> {
     /// `registry`, the list's domain's) now: every stream handed what it
     /// is owed. Or why not: the store's failure, or the first stream the
     /// list failed (held where it was, so the next read hands it again).
-    pub async fn caught_up<S: ReadStore + Store + Processed + ListStreams>(
+    pub async fn caught_up<S: ReadStore + Store + Processed>(
         &mut self,
         project: &Project,
         store: &S,

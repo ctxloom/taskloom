@@ -58,7 +58,7 @@ source = "git+https://github.com/angzarr-io/angzarr?rev=4d7ef3573aad114d789a9c30
 [[package]]
 name = "angzarr-embedded"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=14b607091155bbc0c7ee6cebec365c36c2fd3391#14b607091155bbc0c7ee6cebec365c36c2fd3391"
+source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=9bd1d2ccef26d20a7832dfb98fac3fd7afeec5da#9bd1d2ccef26d20a7832dfb98fac3fd7afeec5da"
 dependencies = [
  "angzarr-diagnostic",
  "angzarr-ports",
@@ -81,7 +81,7 @@ dependencies = [
 [[package]]
 name = "angzarr-embedded-macros"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=14b607091155bbc0c7ee6cebec365c36c2fd3391#14b607091155bbc0c7ee6cebec365c36c2fd3391"
+source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=9bd1d2ccef26d20a7832dfb98fac3fd7afeec5da#9bd1d2ccef26d20a7832dfb98fac3fd7afeec5da"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -139,7 +139,7 @@ dependencies = [
 [[package]]
 name = "angzarr-store-sqlite"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=14b607091155bbc0c7ee6cebec365c36c2fd3391#14b607091155bbc0c7ee6cebec365c36c2fd3391"
+source = "git+https://github.com/angzarr-io/angzarr-embedded?rev=9bd1d2ccef26d20a7832dfb98fac3fd7afeec5da#9bd1d2ccef26d20a7832dfb98fac3fd7afeec5da"
 dependencies = [
  "angzarr-diagnostic",
  "angzarr-ports",

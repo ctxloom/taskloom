@@ -3,7 +3,7 @@
 //! store whenever it is read (kernel-runner's [`ProjectLists`], as every
 //! context's list is).
 
-use angzarr_embedded::{ListStreams, Processed, ReadStore, Registry, Store};
+use angzarr_embedded::{Processed, ReadStore, Registry, Store};
 use kernel_runner::ProjectLists;
 use task_lists::{TaskList, TaskLists};
 
@@ -26,7 +26,7 @@ impl Default for Lists {
 impl Lists {
     /// What `read` reads of `project`'s task list, caught up from `store`
     /// (its store, under `registry`, the tasks domain's) now.
-    pub(crate) async fn tasks<S: ReadStore + Store + Processed + ListStreams, R>(
+    pub(crate) async fn tasks<S: ReadStore + Store + Processed, R>(
         &mut self,
         project: &Project,
         store: &S,
@@ -39,7 +39,7 @@ impl Lists {
 
     /// The live tasks of `project`'s task list, caught up from `store`
     /// now, in the order they were added.
-    pub(crate) async fn rows<S: ReadStore + Store + Processed + ListStreams>(
+    pub(crate) async fn rows<S: ReadStore + Store + Processed>(
         &mut self,
         project: &Project,
         store: &S,
