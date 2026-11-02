@@ -9,6 +9,7 @@ use angzarr_diagnostic::Report;
 
 use super::*;
 use crate::fakes::Service;
+use tasks_application::RETIRED_TAG;
 
 const ROOT: &str = "/tree";
 
@@ -227,13 +228,6 @@ fn plan_name_is_the_base_name_without_the_suffix() {
         "brisk-cedar-otter"
     );
     assert_eq!(plan_name("/home/b/s/v1-removal.plan.md"), "v1-removal");
-}
-
-#[test]
-fn the_ctxloom_plan_tag_is_retired_and_no_other() {
-    assert!(tag_is_retired("ctxloom:plan"));
-    assert!(!tag_is_retired("ctxloom:session"));
-    assert!(!tag_is_retired("plan"));
 }
 
 // ---- add ----

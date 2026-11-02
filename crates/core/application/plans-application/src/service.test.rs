@@ -16,7 +16,8 @@ use ports::{Mint, PlanFiles, Tasks, Timestamp, Uuid};
 
 use super::registry;
 use crate::fakes::{ready, At, Fault, Service};
-use crate::{content_hash, Link, NewPlan, PlanError, PlanQuery, PlanStatus, Plans, RETIRED_TAG};
+use crate::{content_hash, Link, NewPlan, PlanError, PlanQuery, PlanStatus, Plans};
+use tasks_application::RETIRED_TAG;
 
 #[derive(Default)]
 struct Files(RefCell<BTreeMap<String, Vec<u8>>>);

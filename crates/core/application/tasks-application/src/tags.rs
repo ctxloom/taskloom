@@ -28,6 +28,18 @@ pub const OPERATOR_WORDS: [&str; 3] = ["and", "or", "not"];
 /// carries it, and taskloom's, the store's formulas.
 pub const RESERVED_NAMESPACES: [&str; 2] = [TAGMA_NAMESPACE, TASKLOOM_NAMESPACE];
 
+/// The task tag retired: `ctxloom:plan="<path>"`, whose work plans and
+/// their governs links now do (`plan import` turns each into a plan and
+/// its links, and takes the tag off). A write adding one is refused
+/// ([`retired`]); a task may still carry one an import kept.
+pub const RETIRED_TAG: &str = "ctxloom:plan";
+
+/// Whether a task tag's target `target` (`namespace:key`) is retired:
+/// [`RETIRED_TAG`]'s, and no other.
+pub fn is_retired(target: &str) -> bool {
+    target == RETIRED_TAG
+}
+
 /// Why a tag given to a write was refused.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum TagRefusal {
@@ -139,12 +151,12 @@ pub(crate) fn is_reserved(namespace: &str) -> bool {
     })
 }
 
-/// Refused when `tag`'s target is retired ([`plans::tag_is_retired`]): a
+/// Refused when `tag`'s target is retired ([`is_retired`]): a
 /// write never adds one, though a task may still carry one an import kept
 /// (`plan import` migrates them).
 pub fn retired(tag: &Tag) -> Result<(), TagRefusal> {
     let target = tag.target();
-    match plans::tag_is_retired(&target) {
+    match is_retired(&target) {
         true => Err(TagRefusal::Retired {
             tag: tag.to_string(),
             target,

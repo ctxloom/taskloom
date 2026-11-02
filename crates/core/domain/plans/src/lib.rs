@@ -46,17 +46,6 @@ pub use rejection::{PlanRejection, EN_US};
 /// The plans domain's name: every plan stream's `Cover.domain`.
 pub const PLAN_DOMAIN: &str = "plans";
 
-/// The task tag plans replace: `ctxloom:plan="<path>"`, which `plan import`
-/// turns into plans and their governs links. Retired: a write adding it is
-/// refused ([`tag_is_retired`]).
-pub const RETIRED_TAG: &str = "ctxloom:plan";
-
-/// Whether a task tag keyed `key` (`namespace:key`) is retired, so a write
-/// adding it is refused: `ctxloom:plan`, whose work plans now do.
-pub fn tag_is_retired(key: &str) -> bool {
-    key == RETIRED_TAG
-}
-
 /// A plan's status. A new plan is [`PlanStatus::Draft`] unless the add says
 /// [`PlanStatus::Active`].
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]

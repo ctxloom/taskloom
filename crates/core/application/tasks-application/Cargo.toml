@@ -12,8 +12,7 @@ angzarr-embedded.workspace = true
 angzarr-diagnostic.workspace = true
 # Each command run through the kernel, as every context runs one.
 kernel-runner.workspace = true
-# The tag plans retired (`plans::tag_is_retired`), refused at admission;
-# and the plans governing a task `show` shows, from the plan list.
+# The plans governing a task `show` shows, from the plan list.
 plan-lists.workspace = true
 plans.workspace = true
 ports.workspace = true

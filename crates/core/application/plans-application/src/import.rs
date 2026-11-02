@@ -19,10 +19,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use plan_lists::PlanList;
-use plans::{AddPlan, PlanCommand, PlanRejection, PlanStatus, RETIRED_TAG};
+use plans::{AddPlan, PlanCommand, PlanRejection, PlanStatus};
 use ports::{
     Clock, CommandIds, Delay, Jitter, Mint, PlanFiles, Project, ProjectIdentity, TaskStores, Tasks,
 };
+use tasks_application::RETIRED_TAG;
 
 use crate::rules::{locate, title_of, Located};
 use crate::{

@@ -97,7 +97,10 @@ pub use store_schema::{
 };
 /// A finding's tag is tagma's own type, as tagma reports it.
 pub use tagma_core::Tag as RuleTag;
-pub use tags::{parse as parse_tag, schema_free as schema_free_tag, Tag};
+pub use tags::{
+    is_retired as tag_is_retired, parse as parse_tag, schema_free as schema_free_tag, Tag,
+    RETIRED_TAG,
+};
 pub use view::{text_hash, Row, Shown, StatusInfo, Task};
 
 // Used across the crate's modules by these paths; nothing outside uses them.

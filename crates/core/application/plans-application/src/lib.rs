@@ -27,7 +27,7 @@ mod tasks;
 
 /// A dead letter, as the kernel answers it: angzarr-embedded's.
 pub use angzarr_embedded::{dead_letter_line, DeadLetter};
-pub use plans::{tag_is_retired, PlanRejection, PlanStatus, RETIRED_TAG};
+pub use plans::{PlanRejection, PlanStatus};
 pub use ports::{Mint, PlanFiles, Tasks};
 
 /// A dead letter as the kernel answers one, from `component`, about the

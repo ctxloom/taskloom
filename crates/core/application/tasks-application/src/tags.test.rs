@@ -272,3 +272,14 @@ fn test_the_retired_plan_tag_is_refused_and_no_other() {
     .english();
     assert!(english.contains("plan link"), "{english}");
 }
+
+// Only `ctxloom:plan` is retired: another key of the namespace, or the
+// same key elsewhere, is not.
+#[test]
+fn test_only_the_plan_tag_is_retired() {
+    use super::{is_retired, RETIRED_TAG};
+    assert_eq!(RETIRED_TAG, "ctxloom:plan");
+    assert!(is_retired("ctxloom:plan"));
+    assert!(!is_retired("ctxloom:session"));
+    assert!(!is_retired("plan"));
+}
