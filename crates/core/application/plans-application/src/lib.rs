@@ -6,8 +6,8 @@
 //! [`PlanService`] resolves the project through [`ProjectIdentity`], opens
 //! its store through [`TaskStores`] (a project's plans live in the store its
 //! tasks do), and runs each command through angzarr-embedded's kernel, at
-//! the head it read, the kernel retrying it under the tasks' [`Backoff`]
-//! ([`KERNEL_RETRY`]); a list is the plan-list
+//! the head it read, the kernel retrying it as every taskloom command is
+//! retried (kernel-runner's `KERNEL_RETRY`); a list is the plan-list
 //! projector caught up from the store. The ports are the only way out: this
 //! crate does no I/O, keeps no clock and starts no runtime.
 //!
@@ -25,11 +25,32 @@ mod rules;
 mod service;
 mod tasks;
 
+/// A dead letter, as the kernel answers it: angzarr-embedded's.
+pub use angzarr_embedded::{dead_letter_line, DeadLetter};
 pub use plans::{tag_is_retired, PlanRejection, PlanStatus, RETIRED_TAG};
 pub use ports::{Mint, PlanFiles, Tasks};
+
+/// A dead letter as the kernel answers one, from `component`, about the
+/// plan brisk-cedar's stream, its line `DEAD_LETTER <component>:
+/// ROUTER_REASON_UNHANDLED_HANDLER_ERROR`: for a test that hands a use
+/// case, or a driving adapter, a letter a kernel call answered.
 #[cfg(any(test, feature = "test-support"))]
-pub use tasks_application::dead_letter_sample;
-pub use tasks_application::{dead_letter_line, Backoff, DeadLetter, Ported, KERNEL_RETRY};
+pub fn dead_letter_sample(component: &str) -> DeadLetter {
+    use angzarr_embedded::v1::{AngzarrDeadLetter, Diagnostic};
+    use angzarr_embedded::CoverExt;
+    DeadLetter {
+        stream: angzarr_embedded::v1::Cover::natural(plans::PLAN_DOMAIN, "brisk-cedar"),
+        at: angzarr_embedded::DeadLetterAt::Sequence(0),
+        letter: AngzarrDeadLetter {
+            source_component: component.to_string(),
+            reason: Some(Diagnostic {
+                code: "ROUTER_REASON_UNHANDLED_HANDLER_ERROR".to_string(),
+                args: Default::default(),
+            }),
+            ..AngzarrDeadLetter::default()
+        },
+    }
+}
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;

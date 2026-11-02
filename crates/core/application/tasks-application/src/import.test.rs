@@ -768,7 +768,11 @@ fn test_an_import_that_stopped_part_way_resumes() {
         status(HARP, "Done", "", 3),
     ];
     let mut service = service(records);
-    service.backoff.attempts = 1;
+    service.retry = kernel_runner::backoff(
+        kernel_runner::KERNEL_RETRY.initial_backoff,
+        kernel_runner::KERNEL_RETRY.max_backoff,
+        1,
+    );
     // The add lands, but its answer is lost and no retry is allowed: the
     // import stops there.
     service.stores.store = failing(&[Fault::LandsThenFails]);

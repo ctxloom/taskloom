@@ -7,8 +7,9 @@
 //!
 //! Each resolves its project through [`ProjectIdentity`], opens the
 //! project's store through [`TaskStores`], and runs its command through
-//! angzarr-embedded's kernel, which retries it ([`KERNEL_RETRY`]: the
-//! kernel owns race re-runs, its waits taskloom's ports); a list is the task-list projector caught up from the
+//! angzarr-embedded's kernel through kernel-runner's [`Runner`], which
+//! retries it ([`KERNEL_RETRY`]: the kernel owns race re-runs, its waits
+//! taskloom's ports); a list is the task-list projector caught up from the
 //! store. The ports are the only way out: this crate does no I/O, keeps no
 //! clock and starts no runtime.
 
@@ -22,7 +23,6 @@ mod prune;
 mod query;
 mod read;
 mod request;
-mod retry;
 mod semver;
 mod store_schema;
 mod tags;
@@ -39,8 +39,8 @@ use angzarr_embedded::{
     StoreError, StreamRef,
 };
 use error::carrying;
+use kernel_runner::{Refusal, Runner, KERNEL_RETRY};
 use ports::{Clock, CommandIds, Configuration, Delay, Jitter, Names, ProjectIdentity, TaskStores};
-use retry::Refusal;
 use store_schema::judged;
 use tasks::schema::SchemaAggregate;
 use tasks::{
@@ -90,7 +90,6 @@ pub use prune::{
 };
 pub use read::{Details, Hidden, Listing, Reach, Statuses, Summary, TagCount, Vocabulary};
 pub use request::{request_command_id, REQUEST_NAMESPACE};
-pub use retry::{answered, Backoff, Ported, DRAW_SCALE, KERNEL_RETRY};
 pub use semver::{Semver, Version, SEMVER};
 pub use store_schema::{
     Code as RuleCode, Declaration, Declared, Finding as RuleFinding, Origin, RuleWarning,
@@ -318,8 +317,9 @@ pub struct Service<I, S, N, C, D, G = NotConfigured> {
     pub clock: C,
     pub delay: D,
     pub configuration: G,
-    pub backoff: Backoff,
-    registry: Registry,
+    /// How the kernel retries a command ([`KERNEL_RETRY`]).
+    pub retry: angzarr_embedded::OnRetryable,
+    pub(crate) registry: Registry,
     /// Each project's task and plan lists, kept caught up across the
     /// service's reads.
     pub(crate) lists: lists::Lists,
@@ -361,7 +361,7 @@ impl<I, S, N, C, D> Service<I, S, N, C, D> {
             clock,
             delay,
             configuration: NotConfigured,
-            backoff: Backoff::DEFAULT,
+            retry: KERNEL_RETRY,
             registry: registry(),
             lists: lists::Lists::default(),
             dead_letters: Vec::new(),
@@ -379,7 +379,7 @@ impl<I, S, N, C, D, G> Service<I, S, N, C, D, G> {
             clock: self.clock,
             delay: self.delay,
             configuration,
-            backoff: self.backoff,
+            retry: self.retry,
             registry: self.registry,
             lists: self.lists,
             dead_letters: self.dead_letters,
@@ -420,7 +420,7 @@ where
     }
 
     /// Run `command` on the task `harp_id` in `project`'s store, under
-    /// `command_id`, retried by the kernel ([`retry::Runner`]); the task after it. A command
+    /// `command_id`, retried by the kernel ([`Runner`]); the task after it. A command
     /// already applied under `command_id` is answered DUPLICATE and
     /// applies nothing: the task is answered as it stands.
     async fn commit(
@@ -433,11 +433,11 @@ where
         let store = self.stores.open(project).await.map_err(failed)?;
         let cover = task_cover(harp_id);
         let book = CommandBook::command_of(cover.clone(), &command);
-        let mut runner = retry::Runner {
+        let mut runner = Runner {
             registry: &self.registry,
             clock: &mut self.clock,
             delay: &mut self.delay,
-            backoff: self.backoff,
+            retry: self.retry,
             dead_letters: &mut self.dead_letters,
         };
         let handled = runner
@@ -490,11 +490,11 @@ where
             .for_write(task.project.as_deref())
             .map_err(AppError::Identity)?;
         let store = self.stores.open(&project).await.map_err(failed)?;
-        let mut runner = retry::Runner {
+        let mut runner = Runner {
             registry: &self.registry,
             clock: &mut self.clock,
             delay: &mut self.delay,
-            backoff: self.backoff,
+            retry: self.retry,
             dead_letters: &mut self.dead_letters,
         };
         let rules = store_schema::seed_in(&mut runner, store).await?;
@@ -572,11 +572,11 @@ where
         };
         let command_id = self.command_id("tag", request_id.as_deref());
         let store = self.stores.open(&project).await.map_err(failed)?;
-        let mut runner = retry::Runner {
+        let mut runner = Runner {
             registry: &self.registry,
             clock: &mut self.clock,
             delay: &mut self.delay,
-            backoff: self.backoff,
+            retry: self.retry,
             dead_letters: &mut self.dead_letters,
         };
         let cover = task_cover(&change.harp_id);
@@ -763,7 +763,7 @@ async fn own_add<S: Store + ReadStore>(
 /// keyed add's own was looked for first, and would be answered
 /// DUPLICATE) and passed, never merged into its stream.
 async fn add_on_free<S, N, C, D>(
-    runner: &mut retry::Runner<'_, C, D>,
+    runner: &mut Runner<'_, C, D>,
     names: &mut N,
     store: &S,
     template: &AddTask,

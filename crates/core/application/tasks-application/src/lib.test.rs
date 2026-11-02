@@ -714,11 +714,11 @@ fn add_unchecked(service: &mut Configured, tag: &str) {
         defers: tasks::DEFERRED.to_string(),
         initial: tasks::TO_DO.to_string(),
     };
-    let mut runner = crate::retry::Runner {
+    let mut runner = kernel_runner::Runner {
         registry: &service.registry,
         clock: &mut service.clock,
         delay: &mut service.delay,
-        backoff: service.backoff,
+        retry: service.retry,
         dead_letters: &mut service.dead_letters,
     };
     let book = CommandBook::command_of(
@@ -832,7 +832,11 @@ fn test_a_tag_retries_through_store_failures() {
 fn test_a_tag_that_gives_up_says_so() {
     let mut service = service(&["swift-amber"]);
     add(&mut service, new_task("Ship it")).unwrap();
-    service.backoff.attempts = 2;
+    service.retry = kernel_runner::backoff(
+        kernel_runner::KERNEL_RETRY.initial_backoff,
+        kernel_runner::KERNEL_RETRY.max_backoff,
+        2,
+    );
     service
         .stores
         .store
@@ -1823,7 +1827,7 @@ fn seeded_meanwhile(store: &angzarr_embedded::angzarr_ports::memory::MemoryStore
     };
     ready(
         Kernel::new(&registry)
-            .on_retryable(crate::KERNEL_RETRY)
+            .on_retryable(kernel_runner::KERNEL_RETRY)
             .handle::<tasks::schema::SchemaAggregate, _>(store, book, &sampled),
     )
     .unwrap_or_else(|failure| panic!("{failure:?}"));

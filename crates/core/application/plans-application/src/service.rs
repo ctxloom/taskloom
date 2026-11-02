@@ -6,10 +6,10 @@
 //! as the kernel loads it; its refusal comes back typed, the plan's own
 //! [`PlanRejection`]. A write landing between the kernel's load and its
 //! write is the kernel's race to run again, on the new head; a store that
-//! could not say is the kernel's to retry ([`Backoff::on_retryable`]), its
-//! waits the tasks' [`Backoff`] over the [`Delay`] and [`Jitter`] ports
-//! ([`Ported`]); one it hands back has had its retries, and is given up
-//! on. A retry re-sends the same command id, so an attempt that landed
+//! could not say is the kernel's to retry, under kernel-runner's
+//! [`KERNEL_RETRY`] over the [`Delay`] and [`Jitter`] ports, as the tasks'
+//! commands are ([`Runner`]); one it hands back has had its retries, and is
+//! given up on. A retry re-sends the same command id, so an attempt that landed
 //! after all is answered DUPLICATE.
 //!
 //! **A supersede is two writes**, one on each plan's stream: `Supersede` on
@@ -23,24 +23,23 @@
 use std::collections::BTreeMap;
 
 use angzarr_diagnostic::Report;
-use angzarr_embedded::markup::Rejection;
 use angzarr_embedded::v1::{CommandBook, Cover};
 use angzarr_embedded::{
-    CatchUp, CommandBookExt, CoverExt, Failure, Kernel, KernelError, Recovery, Registry, Sampled,
-    Store, StoreError,
+    CatchUp, CommandBookExt, CoverExt, DeadLetter, Kernel, KernelError, OnRetryable, Registry,
+    StoreError,
 };
+use kernel_runner::{Refusal, Runner, KERNEL_RETRY};
 use plan_lists::{PlanList, PlanLists, PlanRow};
 use plans::{AddPlan, PlanAggregate, PlanCommand, PlanRejection, PlanState, PLAN_DOMAIN};
 use ports::{
     Clock, CommandIds, Delay, Jitter, Mint, PlanFiles, Project, ProjectIdentity, TaskStores, Tasks,
 };
-use tasks_application::answered;
 
 use crate::rules::{joined, locate, new_plan_text, Located};
 use crate::{
-    content_hash, default_path, frontmatter, plan_name, resolve_path, Backoff, CheckReport,
-    DeadLetter, Finding, ImportReport, Link, NewPlan, PlanError, PlanQuery, PlanStatus, PlanText,
-    PlanView, Plans, Ported, PLANS_DIR,
+    content_hash, default_path, frontmatter, plan_name, resolve_path, CheckReport, Finding,
+    ImportReport, Link, NewPlan, PlanError, PlanQuery, PlanStatus, PlanText, PlanView, Plans,
+    PLANS_DIR,
 };
 
 /// How many plan ids an add mints before giving up, each refused because a
@@ -69,7 +68,8 @@ pub struct PlanService<I, S, F, T, M, C, D> {
     pub mint: M,
     pub clock: C,
     pub delay: D,
-    pub backoff: Backoff,
+    /// How the kernel retries a command ([`KERNEL_RETRY`]).
+    pub retry: OnRetryable,
     /// `--project`: the project to act on, overriding the work root's.
     pub project: Option<String>,
     registry: Registry,
@@ -93,7 +93,7 @@ impl<I, S, F, T, M, C, D> PlanService<I, S, F, T, M, C, D> {
             mint,
             clock,
             delay,
-            backoff: Backoff::DEFAULT,
+            retry: KERNEL_RETRY,
             project: None,
             registry: registry(),
             lists: BTreeMap::new(),
@@ -114,63 +114,6 @@ fn plan_cover(harp_id: &str) -> Cover {
 
 fn failed(error: StoreError) -> PlanError {
     PlanError::Failed(Report::of(&KernelError::Store(error)))
-}
-
-/// What one run of a command needs besides the store and the command.
-struct Runner<'a, C, D> {
-    registry: &'a Registry,
-    /// The dead letters the kernel's calls answered, kept until taken.
-    dead_letters: &'a mut Vec<DeadLetter>,
-    clock: &'a mut C,
-    delay: &'a mut D,
-    backoff: Backoff,
-}
-
-impl<C: Clock + CommandIds, D: Delay + Jitter + Send> Runner<'_, C, D> {
-    /// Run `command` on the plan `harp_id` in `store`, under one command
-    /// id, the kernel deciding it against the stream as it loads it and
-    /// retrying it: until it commits, is refused (the plan's own
-    /// rejection, typed), or fails, a retryable failure given up on at the
-    /// kernel's cap.
-    async fn run<St: Store>(
-        &mut self,
-        store: &St,
-        harp_id: &str,
-        command: &PlanCommand,
-    ) -> Result<(), PlanError> {
-        let sampled = Sampled {
-            now: self.clock.now(),
-            command_id: self.clock.command_id(),
-        };
-        let book = CommandBook::command_of(
-            plan_cover(harp_id),
-            &plans::messages::PlanCommand::from(command),
-        );
-        let waits = Ported::new(&mut *self.delay);
-        let handled = Kernel::new(self.registry)
-            .on_retryable(self.backoff.on_retryable())
-            .wait_with(&waits)
-            .handle::<PlanAggregate, _>(store, book, &sampled)
-            .await;
-        self.dead_letters.extend_from_slice(answered(&handled));
-        match handled {
-            Ok(_) => Ok(()),
-            Err(Failure::Rejected(rejected)) => Err(
-                match rejected
-                    .rejection::<Rejection<PlanRejection>>()
-                    .and_then(Rejection::message)
-                {
-                    Some(rejection) => PlanError::Rejected(rejection.clone()),
-                    None => PlanError::Failed(rejected.report().clone()),
-                },
-            ),
-            Err(failure) if failure.recovery() == Recovery::Retry => Err(PlanError::GaveUp {
-                attempts: self.backoff.attempts,
-                error: Report::of(&failure),
-            }),
-            Err(failure) => Err(PlanError::Failed(Report::of(&failure))),
-        }
-    }
 }
 
 /// A plan as the list holds one, from its stream's state.
@@ -300,15 +243,31 @@ where
         command: PlanCommand,
     ) -> Result<(), PlanError> {
         let store = self.stores.open(project).await.map_err(failed)?;
-        Runner {
+        let book = CommandBook::command_of(
+            plan_cover(harp_id),
+            &plans::messages::PlanCommand::from(&command),
+        );
+        let command_id = self.clock.command_id();
+        let mut runner = Runner {
             registry: &self.registry,
-            dead_letters: &mut self.dead_letters,
             clock: &mut self.clock,
             delay: &mut self.delay,
-            backoff: self.backoff,
+            retry: self.retry,
+            dead_letters: &mut self.dead_letters,
+        };
+        match runner
+            .run::<PlanAggregate, PlanRejection, _>(store, book, &command_id)
+            .await?
+        {
+            Ok(_) => Ok(()),
+            // The plan's own rejection, typed; one the router made on its
+            // behalf, as reported.
+            Err(Refusal {
+                rejection: Some(rejection),
+                ..
+            }) => Err(PlanError::Rejected(rejection)),
+            Err(Refusal { report, .. }) => Err(PlanError::Failed(report)),
         }
-        .run(store, harp_id, &command)
-        .await
     }
 
     /// A fresh plan id: one no plan stream of `project` holds.

@@ -41,9 +41,9 @@ use tasks::schema::{
 
 pub use tagma_core::{Code, Finding, Origin};
 
-use crate::retry;
 use crate::semver::{Semver, SEMVER};
 use crate::{failed, rejected, AppError, Project, Service, Shown, Tag};
+use kernel_runner::Runner;
 
 /// The namespace taskloom's own schema tags are in: ranking formulas,
 /// which tagma's `check` would otherwise call an unknown facet. A task may
@@ -522,7 +522,7 @@ async fn rules_after<St: Store>(
 /// writers seeding at once land it once, the second, shaping again, finding
 /// it there.
 pub(crate) async fn seed_in<St, C, D>(
-    runner: &mut retry::Runner<'_, C, D>,
+    runner: &mut Runner<'_, C, D>,
     store: &St,
 ) -> Result<StoreRules, AppError>
 where
@@ -596,11 +596,11 @@ where
     /// has no history ([`seed_in`]).
     pub(crate) async fn seeded(&mut self, project: &Project) -> Result<StoreRules, AppError> {
         let store = self.stores.open(project).await.map_err(failed)?;
-        let mut runner = retry::Runner {
+        let mut runner = Runner {
             registry: &self.registry,
             clock: &mut self.clock,
             delay: &mut self.delay,
-            backoff: self.backoff,
+            retry: self.retry,
             dead_letters: &mut self.dead_letters,
         };
         seed_in(&mut runner, store).await
@@ -618,11 +618,11 @@ where
         let store = self.stores.open(project).await.map_err(failed)?;
         let book = CommandBook::command_of(schema_stream(), &SchemaCommand::from(declare));
         let command_id = self.clock.command_id();
-        let mut runner = retry::Runner {
+        let mut runner = Runner {
             registry: &self.registry,
             clock: &mut self.clock,
             delay: &mut self.delay,
-            backoff: self.backoff,
+            retry: self.retry,
             dead_letters: &mut self.dead_letters,
         };
         let handled = runner

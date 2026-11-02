@@ -342,7 +342,7 @@ mod ticked {
             command_id: Uuid::from_bytes([id; 16]),
         };
         Kernel::new(&registry)
-            .on_retryable(tasks_application::KERNEL_RETRY)
+            .on_retryable(kernel_runner::KERNEL_RETRY)
             .handle::<TaskAggregate, _>(store, book, &sampled)
             .await
             .unwrap_or_else(|failure| panic!("{failure:?}"));

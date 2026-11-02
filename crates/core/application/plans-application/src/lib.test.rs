@@ -808,3 +808,20 @@ fn an_imported_external_plan_is_copied_in_so_check_finds_nothing() {
         ".taskloom/plans/plan-2.plan.md"
     );
 }
+
+// The dead letter other crates' tests hand a plans use case is from the
+// component named, under the router's unhandled-error reason, about a
+// plan's stream.
+#[test]
+fn test_the_dead_letter_sample_is_from_its_component_about_a_plan() {
+    let sample = crate::dead_letter_sample("bookkeeping");
+    assert_eq!(
+        crate::dead_letter_line(&sample.letter),
+        "DEAD_LETTER bookkeeping: ROUTER_REASON_UNHANDLED_HANDLER_ERROR"
+    );
+    assert_eq!(
+        sample.stream.domain,
+        plans::PLAN_DOMAIN,
+        "about a plan's stream"
+    );
+}

@@ -922,3 +922,118 @@ fn test_a_prune_never_purges_a_task_minted_on_its_harp_since_it_read() {
         "the task minted since is kept"
     );
 }
+
+// ------------------------------------------------------------ the purge
+
+/// A runner over `registry`, `clock` and `delay`, 5 attempts, 10ms
+/// doubling to 30ms; and the task swift-amber added, then removed, on
+/// `store`, through it.
+fn removed<'a>(
+    store: &crate::fakes::Flaky,
+    registry: &'a angzarr_embedded::Registry,
+    clock: &'a mut FakeClock,
+    delay: &'a mut FakeDelay,
+    remove: bool,
+) -> kernel_runner::Runner<'a, FakeClock, FakeDelay> {
+    use angzarr_embedded::v1::{CommandBook, Uuid};
+    use angzarr_embedded::CommandBookExt;
+    let mut runner = kernel_runner::Runner {
+        registry,
+        clock,
+        delay,
+        retry: kernel_runner::backoff(
+            std::time::Duration::from_millis(10),
+            std::time::Duration::from_millis(30),
+            5,
+        ),
+        // None is answered here; leaked, so the runner may outlive this.
+        dead_letters: Box::leak(Box::new(Vec::new())),
+    };
+    let add = tasks::AddTask {
+        harp_id: "swift-amber".to_string(),
+        text: "Ship it".to_string(),
+        status: None,
+        trigger: None,
+        tags: Vec::new(),
+        origin_session: None,
+        defers: tasks::DEFERRED.to_string(),
+        initial: tasks::TO_DO.to_string(),
+    };
+    let mut commands = vec![TaskCommand::from(add)];
+    if remove {
+        commands.push(
+            RemoveTask {
+                reason: RemovalReason::Pruned,
+            }
+            .into(),
+        );
+    }
+    for (n, command) in commands.into_iter().enumerate() {
+        let book = CommandBook::command_of(task_cover("swift-amber"), &command);
+        let id = Uuid::from_bytes([u8::try_from(n + 1).unwrap(); 16]);
+        ready(runner.run::<tasks::TaskAggregate, _, _>(store, book, &id))
+            .unwrap()
+            .unwrap();
+    }
+    runner
+}
+
+fn events(store: &crate::fakes::Flaky) -> usize {
+    ready(read_from(store, &task_cover("swift-amber"), 0))
+        .unwrap()
+        .map_or(0, |slice| slice.pages.len())
+}
+
+#[test]
+fn test_a_purge_deletes_a_removed_tasks_stream_and_says_how_many_events() {
+    let store = crate::fakes::Flaky::default();
+    let registry = crate::registry();
+    let (mut clock, mut delay) = (FakeClock::default(), FakeDelay::default());
+    let mut runner = removed(&store, &registry, &mut clock, &mut delay, true);
+    let stream = task_cover("swift-amber");
+    assert_eq!(
+        ready(super::purge(&mut runner, &store, &stream)).unwrap(),
+        2
+    );
+    assert_eq!(events(&store), 0);
+    assert_eq!(
+        ready(super::purge(&mut runner, &store, &stream)).unwrap(),
+        0,
+        "no such stream"
+    );
+}
+
+#[test]
+fn test_a_purge_leaves_a_live_task_alone() {
+    // A task minted on the harp after the removal was purged by another.
+    let store = crate::fakes::Flaky::default();
+    let registry = crate::registry();
+    let (mut clock, mut delay) = (FakeClock::default(), FakeDelay::default());
+    let mut runner = removed(&store, &registry, &mut clock, &mut delay, false);
+    let stream = task_cover("swift-amber");
+    assert_eq!(
+        ready(super::purge(&mut runner, &store, &stream)).unwrap(),
+        0
+    );
+    assert_eq!(events(&store), 1, "kept");
+}
+
+#[test]
+fn test_a_purge_gives_up_once_its_attempts_are_spent() {
+    let store = crate::fakes::Flaky::default();
+    let registry = crate::registry();
+    let (mut clock, mut delay) = (FakeClock::default(), FakeDelay::default());
+    let mut runner = removed(&store, &registry, &mut clock, &mut delay, true);
+    runner.delay.slept.clear();
+    store.fail(vec![Fault::Conflict; 5]);
+    let stream = task_cover("swift-amber");
+    let Err(AppError::GaveUp { attempts, error }) =
+        ready(super::purge(&mut runner, &store, &stream))
+    else {
+        panic!("gave up");
+    };
+    assert_eq!(attempts, 5);
+    assert_eq!(error.code(), "angzarr-ports-store-conflict");
+    assert_eq!(runner.delay.slept.len(), 4);
+    assert_eq!(events(&store), 2, "nothing purged");
+}

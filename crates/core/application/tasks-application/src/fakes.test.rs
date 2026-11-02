@@ -98,7 +98,7 @@ pub fn run(store: &MemoryStore, harp: &str, command: tasks::TaskCommand) {
     };
     ready(
         Kernel::new(&registry)
-            .on_retryable(crate::KERNEL_RETRY)
+            .on_retryable(kernel_runner::KERNEL_RETRY)
             .handle::<tasks::TaskAggregate, _>(
                 store,
                 CommandBook::command_of(crate::task_cover(harp), &command),

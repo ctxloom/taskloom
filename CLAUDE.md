@@ -143,9 +143,14 @@ one a migration failed or changed in, is refused untouched.
 There is no unit of work: each handling step is one atomic write. The
 kernel owns retries (angzarr's owner ruling, 2026-10-31): a command that
 loses the race at its write is re-run on the new head, and a store that
-could not say is tried again, under taskloom's `Backoff` (`KERNEL_RETRY`,
-`Backoff::on_retryable`), its waits on taskloom's `Delay` and `Jitter`
-ports (`Ported`), so tests stay exact. A command that depends on the task
+could not say is tried again, under angzarr-embedded's `OnRetryable`
+(`KERNEL_RETRY`, in taskloom's shape: `kernel_runner::backoff`), its waits
+on taskloom's `Delay` and `Jitter` ports (`Ported`), so tests stay exact.
+Every context sends its commands through kernel-runner's `Runner`, which
+gathers the dead letters each call answers (angzarr-embedded's
+`DeadLetter`) and hands back the domain's refusal typed, or why the
+command was not decided (`Unrun`), for the context to report as its own
+error. A command that depends on the task
 as it is is sent at the head it read, so a write landing between is the
 kernel's stale answer, and taskloom reads and shapes it again. Domain, projector and use-case tests run through
 angzarr-embedded's kernel over angzarr-ports' `MemoryStore`, as the binary

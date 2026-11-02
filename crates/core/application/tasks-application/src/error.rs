@@ -107,6 +107,26 @@ impl AppError {
     }
 }
 
+/// A command not decided, as a use case fails with it.
+impl From<kernel_runner::Unrun> for AppError {
+    fn from(unrun: kernel_runner::Unrun) -> AppError {
+        match unrun {
+            kernel_runner::Unrun::GaveUp { attempts, error } => {
+                AppError::GaveUp { attempts, error }
+            }
+            kernel_runner::Unrun::Failed(error) => AppError::Failed(error),
+        }
+    }
+}
+
+/// A domain's refusal of a command, as a use case fails with it: its
+/// report (the rejection's key and args).
+impl<R> From<kernel_runner::Refusal<R>> for AppError {
+    fn from(refusal: kernel_runner::Refusal<R>) -> AppError {
+        AppError::Rejected(refusal.report)
+    }
+}
+
 /// `result`, its error carrying `dead_letters`, taken, when there are any
 /// ([`AppError::DeadLettered`]): a failure is said with them, as a success
 /// is.

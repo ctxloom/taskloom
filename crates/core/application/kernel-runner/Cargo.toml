@@ -1,0 +1,24 @@
+[package]
+name = "kernel-runner"
+version = "0.1.0"
+description = "Running a use case's command through angzarr-embedded's kernel, as every taskloom context does: taskloom's retry, its waits on the ports, the dead letters answered, a refusal typed"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-embedded.workspace = true
+angzarr-diagnostic.workspace = true
+ports.workspace = true
+
+[dev-dependencies]
+# The kernel's test support (block_on_ready, angzarr-ports' FaultyStore)
+# and the ports' (the clock and the delay).
+angzarr-embedded = { workspace = true, features = ["test-support"] }
+ports = { workspace = true, features = ["test-support"] }
+# The aggregate the tests run commands to: any marked-up domain serves.
+tasks.workspace = true
+
+[lints]
+workspace = true

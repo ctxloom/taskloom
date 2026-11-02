@@ -14,8 +14,10 @@ plan-lists.workspace = true
 plans.workspace = true
 ports.workspace = true
 sha2.workspace = true
-# The retry budget and the kernel's retry setting the tasks use cases run
-# under, and their dead letter: plans run the same way.
+# Each command run through the kernel, as every context runs one.
+kernel-runner.workspace = true
+# The tasks use cases, which the project's tasks are read and retagged
+# through (`ProjectTasks`, the `Tasks` port over them).
 tasks-application.workspace = true
 
 [dev-dependencies]
@@ -24,14 +26,12 @@ tasks-application.workspace = true
 # the clock and the delay).
 angzarr-embedded = { workspace = true, features = ["test-support"] }
 ports = { workspace = true, features = ["test-support"] }
-# Its own tests read `dead_letter_sample`, as other crates' do.
-tasks-application = { workspace = true, features = ["test-support"] }
 fluent-syntax.workspace = true
 
 [features]
 # `diagnostic_samples` and `dead_letter_sample`, for other crates' tests:
 # their dev-dependency turns it on, and no build of a binary does.
-test-support = ["tasks-application/test-support"]
+test-support = []
 
 [lints]
 workspace = true

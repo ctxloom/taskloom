@@ -676,7 +676,7 @@ fn plan_does(
     };
     ready(
         Kernel::new(&registry)
-            .on_retryable(crate::KERNEL_RETRY)
+            .on_retryable(kernel_runner::KERNEL_RETRY)
             .handle::<plans::PlanAggregate, _>(store, book, &sampled),
     )
     .unwrap_or_else(|failure| panic!("{failure:?}"));

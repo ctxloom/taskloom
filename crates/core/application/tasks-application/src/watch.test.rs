@@ -10,7 +10,7 @@ use tasks::{AddTask, RemovalReason, RemoveTask, TaskCommand};
 
 use super::{Watch, WatchRequest, WatchService};
 use crate::fakes::{project, ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores};
-use crate::{retry, AppError, NewTask, Service, TaskService};
+use crate::{AppError, NewTask, Service, TaskService};
 
 type Fake = Service<FakeIdentity, FakeStores, FakeNames, FakeClock, FakeDelay>;
 
@@ -43,11 +43,11 @@ fn remove_for(service: &mut Fake, harp: &str, reason: RemovalReason) {
     let command = RemoveTask { reason };
     let book = CommandBook::command_of(crate::task_cover(harp), &tasks::TaskCommand::from(command));
     let command_id = ports::CommandIds::command_id(&mut service.clock);
-    let mut runner = retry::Runner {
+    let mut runner = kernel_runner::Runner {
         registry: &service.registry,
         clock: &mut service.clock,
         delay: &mut service.delay,
-        backoff: service.backoff,
+        retry: service.retry,
         dead_letters: &mut service.dead_letters,
     };
     let outcome =

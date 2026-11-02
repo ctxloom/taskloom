@@ -16,9 +16,7 @@ use ports::{Mint, PlanFiles, Tasks, Timestamp, Uuid};
 
 use super::registry;
 use crate::fakes::{ready, At, Fault, Service};
-use crate::{
-    content_hash, Link, NewPlan, PlanError, PlanQuery, PlanStatus, Plans, KERNEL_RETRY, RETIRED_TAG,
-};
+use crate::{content_hash, Link, NewPlan, PlanError, PlanQuery, PlanStatus, Plans, RETIRED_TAG};
 
 #[derive(Default)]
 struct Files(RefCell<BTreeMap<String, Vec<u8>>>);
@@ -138,7 +136,7 @@ fn other_process(store: &MemoryStore, harp: &str, command: PlanCommand) {
     );
     ready(
         Kernel::new(&registry)
-            .on_retryable(KERNEL_RETRY)
+            .on_retryable(kernel_runner::KERNEL_RETRY)
             .handle::<plans::PlanAggregate, _>(store, book, &sampled),
     )
     .unwrap_or_else(|failure| panic!("{failure:?}"));
@@ -175,7 +173,11 @@ fn a_store_that_cannot_say_is_retried_by_the_kernel_alone() {
     let (files, mint) = (Files::default(), Counter::default());
     let mut service = Service::new(&files, &tasks, &mint);
     service.add(new("One")).unwrap();
-    service.0.get_mut().backoff.attempts = 3;
+    service.0.get_mut().retry = kernel_runner::backoff(
+        kernel_runner::KERNEL_RETRY.initial_backoff,
+        kernel_runner::KERNEL_RETRY.max_backoff,
+        3,
+    );
     let before = service.0.borrow().stores.store.writes().len();
     service
         .0

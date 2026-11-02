@@ -93,6 +93,18 @@ impl Diagnostic for PathError {
     }
 }
 
+/// A command not decided, as a plans use case fails with it.
+impl From<kernel_runner::Unrun> for PlanError {
+    fn from(unrun: kernel_runner::Unrun) -> PlanError {
+        match unrun {
+            kernel_runner::Unrun::GaveUp { attempts, error } => {
+                PlanError::GaveUp { attempts, error }
+            }
+            kernel_runner::Unrun::Failed(error) => PlanError::Failed(error),
+        }
+    }
+}
+
 impl fmt::Display for PlanError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         angzarr_diagnostic::display(self, f)

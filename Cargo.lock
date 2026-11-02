@@ -1073,6 +1073,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "kernel-runner"
+version = "0.1.0"
+dependencies = [
+ "angzarr-diagnostic",
+ "angzarr-embedded",
+ "ports",
+ "tasks",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1446,6 +1456,7 @@ dependencies = [
  "angzarr-diagnostic",
  "angzarr-embedded",
  "fluent-syntax",
+ "kernel-runner",
  "plan-lists",
  "plans",
  "ports",
@@ -2416,6 +2427,7 @@ dependencies = [
  "fs4",
  "harp-names",
  "jsonl-task-log",
+ "kernel-runner",
  "os",
  "plan-files",
  "plans",
@@ -2466,6 +2478,7 @@ dependencies = [
  "angzarr-embedded",
  "fluent-bundle",
  "fluent-syntax",
+ "kernel-runner",
  "mutants",
  "plan-lists",
  "plans",

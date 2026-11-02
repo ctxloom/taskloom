@@ -76,6 +76,7 @@ task-priority = { path = "crates/core/read-model/task-priority" }
 plans = { path = "crates/core/domain/plans" }
 plan-lists = { path = "crates/core/read-model/plan-lists" }
 plans-application = { path = "crates/core/application/plans-application" }
+kernel-runner = { path = "crates/core/application/kernel-runner" }
 ports = { path = "crates/core/ports/ports" }
 tasks-application = { path = "crates/core/application/tasks-application" }
 project-application = { path = "crates/core/application/project-application" }

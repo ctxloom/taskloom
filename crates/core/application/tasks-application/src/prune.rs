@@ -27,7 +27,8 @@ use std::future::Future;
 
 use crate::DeadLetter;
 use angzarr_diagnostic::{Arg, Diagnostic, Report};
-use angzarr_embedded::{Purge, Store, StreamRef};
+use angzarr_embedded::v1::Cover;
+use angzarr_embedded::{Kernel, KernelError, Purge, Recovery, Registry, Store, StreamRef};
 use ports::{
     Clock, CommandIds, Configuration, Delay, Jitter, ProjectIdentity, TaskStores, Timestamp,
 };
@@ -37,10 +38,10 @@ use tasks::{
 };
 
 use crate::error::carrying;
-use crate::retry::{Refusal, Runner};
 use crate::{
     failed, given, query, rejected, task_cover, AppError, Project, Service, Shown, Task, DONE,
 };
+use kernel_runner::{Refusal, Runner};
 
 /// The age a prune takes by default: `--older-than 7d`.
 pub const DEFAULT_OLDER_THAN: &str = "7d";
@@ -288,7 +289,7 @@ where
             registry: &self.registry,
             clock: &mut self.clock,
             delay: &mut self.delay,
-            backoff: self.backoff,
+            retry: self.retry,
             dead_letters: &mut self.dead_letters,
         };
         for task in selected {
@@ -362,7 +363,7 @@ async fn take<S: Store + Purge, C: Clock + CommandIds, D: Delay + Jitter + Send>
         return Ok(Some(held.pages.len() as u64 + removal));
     }
     if task.removed {
-        let deleted = runner.purge(store, &stream).await?;
+        let deleted = purge(runner, store, &stream).await?;
         return Ok((deleted > 0).then_some(deleted));
     }
     let command_id = runner.clock.command_id();
@@ -381,7 +382,7 @@ async fn take<S: Store + Purge, C: Clock + CommandIds, D: Delay + Jitter + Send>
         .shaped::<TaskAggregate, _, _, _, _>(store, &stream, &command_id, holds)
         .await?
     {
-        Ok((Some(_), ())) => runner.purge(store, &stream).await.map(Some),
+        Ok((Some(_), ())) => purge(runner, store, &stream).await.map(Some),
         Ok((None, ())) => Ok(None),
         Err(Refusal {
             rejection: Some(TaskRejection::Removed { .. } | TaskRejection::NoTask),
@@ -389,6 +390,53 @@ async fn take<S: Store + Purge, C: Clock + CommandIds, D: Delay + Jitter + Send>
         }) => Ok(None),
         Err(refusal) => Err(refusal.into()),
     }
+}
+
+/// Purge the stream of the task `stream` names, if it holds a removed
+/// task, read first and purged at the head read (spec 14.43), so a live
+/// task minted on the harp since is never purged: the store refuses the
+/// stale head as a conflict, and the next attempt reads again, after the
+/// wait the kernel would wait ([`Runner::again`]). How many events it
+/// deleted: 0 when the stream holds no removed task.
+async fn purge<S: Store + Purge, C: Clock, D: Delay + Jitter + Send>(
+    runner: &mut Runner<'_, C, D>,
+    store: &S,
+    stream: &Cover,
+) -> Result<u64, AppError> {
+    let mut failed = 0;
+    loop {
+        let (failure, recovery) = match purge_removed(runner.registry, store, stream).await {
+            Ok(deleted) => return Ok(deleted),
+            Err(failed) => failed,
+        };
+        runner.again(&mut failed, failure, recovery).await?;
+    }
+}
+
+/// Purge `stream`, if it holds a removed task, at the head it was loaded
+/// at: a stream moved since (purged by another prune, a task minted on the
+/// freed harp) is the store's conflict, and the retry loads it again.
+async fn purge_removed<S: Store + Purge>(
+    registry: &Registry,
+    store: &S,
+    stream: &Cover,
+) -> Result<u64, (Report, Recovery)> {
+    let kernel_failed = |error: KernelError| {
+        let recovery = error.recovery();
+        (Report::of(&error), recovery)
+    };
+    let (task, head) = Kernel::new(registry)
+        .load::<TaskAggregate, _>(store, stream)
+        .await
+        .map_err(kernel_failed)?;
+    if !task.state().state().removed || head == 0 {
+        return Ok(0);
+    }
+    let at = StreamRef::try_from(stream).map_err(|e| kernel_failed(KernelError::Store(e)))?;
+    store
+        .purge(at, head)
+        .await
+        .map_err(|e| kernel_failed(KernelError::Store(e)))
 }
 
 /// What a prune selects by.

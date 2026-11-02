@@ -56,11 +56,12 @@ use tasks::{
     TaskRejection,
 };
 
-use crate::retry::Backoff;
 use crate::tags::{self, Tag, TagRefusal};
 use crate::view::{DEFERS, INITIAL};
 use crate::DeadLetter;
-use crate::{registry, retry, store_report, task_cover, text_hash, AppError};
+use crate::{registry, store_report, task_cover, text_hash, AppError};
+use angzarr_embedded::OnRetryable;
+use kernel_runner::{Runner, KERNEL_RETRY};
 
 /// What to import: every project with a log, or the one named.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
@@ -218,7 +219,8 @@ pub struct Importer<I, S, D, L> {
     pub stores: S,
     pub delay: D,
     pub jsonl_logs: L,
-    pub backoff: Backoff,
+    /// How the kernel retries a record's command ([`KERNEL_RETRY`]).
+    pub retry: OnRetryable,
     registry: Registry,
     /// The dead letters the import's kernel calls answered, taken into
     /// the report.
@@ -232,7 +234,7 @@ impl<I, S, D, L> Importer<I, S, D, L> {
             stores,
             delay,
             jsonl_logs,
-            backoff: Backoff::DEFAULT,
+            retry: KERNEL_RETRY,
             registry: registry(),
             dead_letters: Vec::new(),
         }
@@ -328,18 +330,18 @@ where
                 continue;
             }
             let mut at = At(record.ts);
-            let mut runner = retry::Runner {
+            let mut runner = Runner {
                 registry: &self.registry,
                 clock: &mut at,
                 delay: &mut self.delay,
-                backoff: self.backoff,
+                retry: self.retry,
                 dead_letters: &mut self.dead_letters,
             };
             let book = CommandBook::command_of(cover, &command);
             match runner
                 .run::<TaskAggregate, _, _>(store, book, &command_id)
                 .await
-                .map_err(|e| Report::of(&e))?
+                .map_err(|e| Report::of(&AppError::from(e)))?
             {
                 Ok(_) => {
                     report.applied += 1;
