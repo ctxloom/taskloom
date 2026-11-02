@@ -254,3 +254,29 @@ fn the_list_answers_each_book_with_its_projection() {
     assert_eq!(answered.next_sequence, 1);
     assert_eq!(lists.list().plans().len(), 1, "and folds it");
 }
+
+/// An event the plans domain cannot read fails its book as a bug naming
+/// the type it could not read, as the task list's does; the list keeps
+/// nothing of the book.
+#[test]
+fn an_unreadable_event_is_the_lists_bug_naming_its_type() {
+    use angzarr_embedded::ProjectorHandler;
+    let unknown = "/ctxloom.plans.v9.Unknown";
+    let mut book = plan_book("calm-heron", 0, &[added("calm-heron")], 2);
+    book.pages.push(EventPage {
+        sequence: 1,
+        payload: Some(angzarr_embedded::Any {
+            type_url: unknown.to_string(),
+            value: Vec::new(),
+        }),
+        meta: None,
+    });
+    let lists = PlanLists::default();
+    let error = ready(lists.dispatch(&book)).unwrap_err();
+    assert_eq!(
+        error.extras.get("cause.type_url").map(String::as_str),
+        Some(unknown),
+        "{error:?}"
+    );
+    assert!(lists.list().plans().is_empty());
+}

@@ -608,3 +608,44 @@ fn a_second_list_reads_only_what_was_written_since() {
         "the two first events seen, and the new stream's one event"
     );
 }
+
+// A stream the plan list cannot fold (an event no plan reads, as a newer
+// build could write) fails the read, as the task list's does, and is
+// handed again to the next, which fails too: the list never skips it.
+#[test]
+fn a_stream_the_plan_list_cannot_fold_fails_every_read() {
+    use angzarr_embedded::v1::EventPage;
+    use angzarr_embedded::{Append, EventStore, StreamRef, Write};
+    let tasks = FakeTasks::default();
+    let (files, mint) = (Files::default(), Counter::default());
+    let mut service = Service::new(&files, &tasks, &mint);
+    service.add(new("One")).unwrap();
+    service.add(new("Two")).unwrap();
+    assert_eq!(service.list(&PlanQuery::default()).len(), 2);
+    let cover = Cover::natural(plans::PLAN_DOMAIN, "plan-1");
+    let page = EventPage {
+        sequence: 1,
+        payload: Some(angzarr_embedded::Any {
+            type_url: "/ctxloom.plans.v9.Unknown".to_string(),
+            value: Vec::new(),
+        }),
+        meta: None,
+    };
+    let write = Write {
+        events: Some(Append {
+            stream: StreamRef::try_from(&cover).unwrap(),
+            expected: 1,
+            pages: std::slice::from_ref(&page),
+        }),
+        ..Write::default()
+    };
+    ready(EventStore::write(
+        service.0.borrow().stores.store.inner(),
+        write,
+    ))
+    .unwrap();
+    for _ in 0..2 {
+        let error = ready(service.0.borrow_mut().list(&PlanQuery::default())).unwrap_err();
+        assert!(matches!(error, PlanError::Failed(_)), "{error:?}");
+    }
+}
