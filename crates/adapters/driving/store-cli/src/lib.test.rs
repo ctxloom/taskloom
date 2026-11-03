@@ -71,7 +71,7 @@ impl StoreExport for FakeExport {
         out: &mut dyn Write,
     ) -> Result<Option<Exported>, Report> {
         self.given.push(descriptors.len());
-        if self.answer.is_ok() {
+        if matches!(self.answer, Ok(Some(_))) {
             out.write_all(b"{\"header\":{}}\n{\"end\":{}}\n").unwrap();
         }
         self.answer.clone()
@@ -119,14 +119,14 @@ fn folded(n: u8, id: &str) -> Folded {
         )
         .to_cover(),
         head: u64::from(n),
-        state: prost_types::Any {
+        state: Some(prost_types::Any {
             type_url: "/io.angzarr.v1.FactOrigin".to_string(),
             value: angzarr_store_transfer::angzarr_ports::angzarr_proto::v1::FactOrigin {
                 external_id: id.to_string(),
                 description: String::new(),
             }
             .encode_to_vec(),
-        },
+        }),
     }
 }
 
@@ -254,7 +254,7 @@ fn test_an_export_refused_says_why_on_stderr_and_exits_1() {
 }
 
 #[test]
-fn test_fold_digest_writes_the_tasks_lines_then_the_plans() {
+fn test_fold_digest_writes_every_contexts_lines_in_the_stores_order() {
     let mut world = World::new();
     let ran = world.run(&["store", "fold-digest"], Some("jolly-mute-magma"));
     assert_eq!(ran.code, 0, "{}", ran.err);
@@ -264,8 +264,8 @@ fn test_fold_digest_writes_the_tasks_lines_then_the_plans() {
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
     assert_eq!(lines.len(), 2, "one line per stream");
-    assert_eq!(lines[0]["state"]["externalId"], "one", "the tasks' first");
-    assert_eq!(lines[1]["state"]["externalId"], "two", "then the plans'");
+    assert_eq!(lines[0]["state"]["externalId"], "one");
+    assert_eq!(lines[1]["state"]["externalId"], "two");
     assert_eq!(lines[1]["head"], "2");
     assert_eq!(ran.err, "");
     assert_eq!(world.tasks.pins, [Some("jolly-mute-magma".to_string())]);
@@ -285,5 +285,29 @@ fn test_a_digest_that_fails_says_why_and_writes_nothing() {
             "taskloom: {}",
             catalog().message(&AppError::NoProject as &dyn Diagnostic)
         )
+    );
+}
+
+#[test]
+fn test_fold_digest_orders_the_streams_as_the_store_does_whichever_context_folded_them() {
+    let mut world = World::new();
+    let mut plan = folded(1, "plan");
+    plan.cover.domain = "plans".to_string();
+    let mut schema = folded(9, "schema");
+    schema.cover.domain = "schema".to_string();
+    world.tasks.folded = Ok(vec![folded(2, "task-2"), folded(1, "task-1"), schema]);
+    world.plans.folded = Ok(vec![plan]);
+    let ran = world.run(&["store", "fold-digest"], None);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    let ids: Vec<String> = ran
+        .out
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .map(|v| v["state"]["externalId"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        ids,
+        ["plan", "schema", "task-1", "task-2"],
+        "by domain, then root"
     );
 }

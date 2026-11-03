@@ -7,10 +7,13 @@
 
 use std::future::Future;
 
-use angzarr_embedded::Registry;
+use angzarr_diagnostic::Report;
+use angzarr_embedded::{Kernel, Registry};
 use ports::{ProjectIdentity, TaskStores};
+use tasks::schema::SchemaAggregate;
+use tasks::TaskAggregate;
 
-use crate::AppError;
+use crate::{failed, AppError};
 
 /// One stream folded: its cover, its head, its state packed in its
 /// snapshot form (angzarr-embedded's).
@@ -38,8 +41,26 @@ pub(crate) async fn fold<I: ProjectIdentity, S: TaskStores>(
     registry: &Registry,
     pinned: Option<&str>,
 ) -> Result<Vec<Folded>, AppError> {
-    let _ = (identity, stores, registry, pinned);
-    todo!("the tasks' digest")
+    let project = identity
+        .for_read(pinned)
+        .map_err(AppError::Identity)?
+        .ok_or(AppError::NoProject)?;
+    let Some(store) = stores.open_existing(&project).await.map_err(failed)? else {
+        return Ok(Vec::new());
+    };
+    let kernel = Kernel::new(registry);
+    let fold_failed = |e| AppError::Failed(Report::of(&e));
+    let mut folded = kernel
+        .fold_digest::<TaskAggregate, _>(store)
+        .await
+        .map_err(fold_failed)?;
+    folded.extend(
+        kernel
+            .fold_digest::<SchemaAggregate, _>(store)
+            .await
+            .map_err(fold_failed)?,
+    );
+    Ok(folded)
 }
 
 #[cfg(test)]

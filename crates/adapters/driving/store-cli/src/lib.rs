@@ -16,11 +16,14 @@ mod error;
 
 use std::io::Write;
 
+use angzarr_diagnostic::Diagnostic;
 use angzarr_presentation::Catalog;
+use angzarr_store_transfer::angzarr_ports::angzarr_proto::v1::Cover;
+use angzarr_store_transfer::{descriptor_pool, write_digest, Digested};
 use clap::Subcommand;
 use plans_application::DigestPlans;
 use project_application::{ProjectAdmin, Projects, StoreExport};
-use tasks_application::DigestService;
+use tasks_application::{DigestService, Folded};
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
@@ -44,7 +47,8 @@ pub enum StoreCommand {
     /// with outbox entries still to deliver.
     Export,
     /// Write the digest of this project's database to stdout: one JSONL
-    /// line per stream, its cover, head and state as this build folds it.
+    /// line per stream, in the store's order, its cover, head and state as
+    /// this build folds it (no state for a domain that takes no snapshot).
     /// Two builds' digests of one store's crossing must be the same bytes.
     FoldDigest,
 }
@@ -85,8 +89,87 @@ where
     T: DigestService,
     L: DigestPlans,
 {
-    let _ = (group, settings, catalog, use_cases, out, err);
-    todo!("the store group")
+    let Group::Store(command) = group;
+    let done = match command {
+        StoreCommand::Export => export(settings, use_cases.projects, out),
+        StoreCommand::FoldDigest => digest(settings, use_cases.tasks, use_cases.plans, out).await,
+    };
+    let said = match done {
+        Ok(None) => return 0,
+        Ok(Some(note)) => say(settings, catalog, &note, err).map(|()| 0),
+        Err(error) => say(settings, catalog, &error, err).map(|()| 1),
+    };
+    said.unwrap_or(1)
+}
+
+/// `diagnostic` on stderr: its catalog message after the program's name.
+fn say(
+    settings: &Settings<'_>,
+    catalog: &Catalog,
+    diagnostic: &dyn Diagnostic,
+    err: &mut dyn Write,
+) -> std::io::Result<()> {
+    writeln!(err, "{}: {}", settings.prog, catalog.message(diagnostic))
+}
+
+/// `store export`: the database through the project use case, the file
+/// on `out`; its note, for stderr.
+fn export<A: ProjectAdmin, C: StoreExport>(
+    settings: &Settings<'_>,
+    projects: &mut Projects<A, C>,
+    out: &mut dyn Write,
+) -> Result<Option<Exported>, CliError> {
+    let exported = projects
+        .export(settings.project, settings.descriptors, out)
+        .map_err(CliError::Project)?;
+    Ok(Some(Exported {
+        records: exported.records,
+        streams: exported.streams,
+    }))
+}
+
+/// `store fold-digest`: every stream the tasks and the plans fold, in the
+/// store's order, their lines on `out`. No note.
+async fn digest<T: DigestService, L: DigestPlans>(
+    settings: &Settings<'_>,
+    tasks: &mut T,
+    plans: &mut L,
+    out: &mut dyn Write,
+) -> Result<Option<Exported>, CliError> {
+    let mut folded = tasks
+        .fold_digest(settings.project.map(str::to_string))
+        .await
+        .map_err(CliError::Tasks)?;
+    folded.extend(plans.fold_digest().await.map_err(CliError::Plans)?);
+    // One order for every build: the store's (by domain, main first, then
+    // edition, then root), whichever context folded a stream.
+    folded.sort_by(|a, b| stream_order(&a.cover).cmp(&stream_order(&b.cover)));
+    let pool = descriptor_pool(settings.descriptors).map_err(CliError::Digest)?;
+    let digested: Vec<Digested> = folded.into_iter().map(digested).collect();
+    let mut lines = Vec::new();
+    write_digest(&digested, &pool, &mut lines).map_err(CliError::Digest)?;
+    out.write_all(&lines)
+        .and_then(|()| out.flush())
+        .map_err(|e| CliError::Output {
+            detail: e.to_string(),
+        })?;
+    Ok(None)
+}
+
+/// A stream's place in the store's order: its domain, its edition (main,
+/// none, first), its root's bytes.
+fn stream_order(cover: &Cover) -> (&str, Option<&str>, &[u8]) {
+    let root = cover.root.as_ref().map_or(&[][..], |r| &r.value[..]);
+    (&cover.domain, cover.edition.as_deref(), root)
+}
+
+/// A fold, as the digest writes it.
+fn digested(folded: Folded) -> Digested {
+    Digested {
+        cover: folded.cover,
+        head: folded.head,
+        state: folded.state,
+    }
 }
 
 #[cfg(test)]

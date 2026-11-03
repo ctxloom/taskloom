@@ -34,7 +34,7 @@ fn added(store: &MemoryStore, harp: &str) {
         title: format!("Plan {harp}"),
         status: PlanStatus::Draft,
         path: format!(".taskloom/plans/{harp}.plan.md"),
-        content_hash: "h".to_string(),
+        content_hash: crate::content_hash(b"a plan"),
         origin_session: "inept-sixth-stick".to_string(),
     });
     let book = CommandBook::command_of(
@@ -67,14 +67,11 @@ fn test_the_digest_folds_every_plan_stream_as_the_kernel_loads_it() {
         "one per plan stream, in the store's order"
     );
     let registry = registry();
-    let (plan, head) =
+    let (_, head) =
         ready(Kernel::new(&registry).load::<PlanAggregate, _>(store, &covers[1])).unwrap();
     assert_eq!(folded[1].head, head);
-    assert_eq!(
-        folded[1].state,
-        angzarr_embedded::pack(&angzarr_embedded::State::to_snapshot(plan.state())),
-        "its state as the kernel loads it"
-    );
+    // The plan aggregate takes no snapshot: no form of its state to show.
+    assert!(folded.iter().all(|f| f.state.is_none()));
     assert_eq!(
         ready(service.fold_digest()).unwrap(),
         folded,

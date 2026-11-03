@@ -122,8 +122,12 @@ impl<A: ProjectAdmin, C: StoreExport> Projects<A, C> {
         descriptors: &[&[u8]],
         out: &mut dyn std::io::Write,
     ) -> Result<Exported, ProjectError> {
-        let _ = (pinned, descriptors, out);
-        todo!("the export of a project's database")
+        let survey = self.admin.survey(pinned).map_err(ProjectError::Port)?;
+        let (id, _) = survey.resolved.as_ref().ok_or(ProjectError::NoProject)?;
+        self.checks
+            .export(&survey.store(id), descriptors, out)
+            .map_err(ProjectError::Port)?
+            .ok_or_else(|| ProjectError::NoDatabase { id: id.clone() })
     }
 }
 

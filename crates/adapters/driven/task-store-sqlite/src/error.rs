@@ -20,6 +20,8 @@ pub enum StoreOpenError {
     /// (the owner's ruling D2), but moved aside to `backup` and started
     /// afresh.
     PredatesEmbedded { path: String, backup: String },
+    /// A store's export could not be written to its output.
+    NoOutput { detail: String },
 }
 
 /// Its key, then each arg as ` name=value`, a value quoted where it would
@@ -39,6 +41,7 @@ impl StoreOpenError {
             StoreOpenError::Unplaced { .. } => code!("unplaced"),
             StoreOpenError::NoRuntime { .. } => code!("no-runtime"),
             StoreOpenError::PredatesEmbedded { .. } => code!("predates-embedded"),
+            StoreOpenError::NoOutput { .. } => code!("no-output"),
         }
     }
 
@@ -50,7 +53,9 @@ impl StoreOpenError {
                 ("path", path.as_str().into()),
                 ("ext_err_txt", detail.as_str().into()),
             ],
-            StoreOpenError::NoRuntime { detail } => vec![("ext_err_txt", detail.as_str().into())],
+            StoreOpenError::NoRuntime { detail } | StoreOpenError::NoOutput { detail } => {
+                vec![("ext_err_txt", detail.as_str().into())]
+            }
             StoreOpenError::PredatesEmbedded { path, backup } => vec![
                 ("path", path.as_str().into()),
                 ("backup", backup.as_str().into()),
@@ -110,6 +115,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(StoreOpenError::PredatesEmbedded {
             path: format!("{}/state.db", path()),
             backup: format!("{}/state.db.pre-embedded", path()),
+        }),
+        Box::new(StoreOpenError::NoOutput {
+            detail: "broken pipe".to_string(),
         }),
     ]
 }

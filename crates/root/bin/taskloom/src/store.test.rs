@@ -96,11 +96,9 @@ fn test_store_fold_digest_is_a_line_per_stream_and_the_same_twice() {
         folded, streams,
         "a line per stream the export holds, at its head, in its order"
     );
-    let tasks = digest
-        .iter()
-        .filter(|d| d["state"]["@type"] == "/ctxloom.tasks.v1.TaskState")
-        .count();
-    assert_eq!(tasks, 2, "each task folded");
+    // taskloom's aggregates take no snapshot, so no line holds a state:
+    // a finding against the plan's section 5.3.2.
+    assert!(digest.iter().all(|d| d.get("state").is_none()));
     assert_eq!(
         env.run(&["store", "fold-digest"]).stdout,
         ran.stdout,

@@ -35,6 +35,7 @@ fn test_each_error_displays_its_code_and_args_never_english() {
                 " path=/home/u/.ctxloom/projects/jolly-mute-magma/state.db \
              backup=/home/u/.ctxloom/projects/jolly-mute-magma/state.db.pre-embedded"
             ),
+            concat!(code!("no-output"), r#" ext_err_txt="broken pipe""#),
         ]
     );
 }

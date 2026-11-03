@@ -5,8 +5,12 @@
 
 use std::future::Future;
 
+use angzarr_diagnostic::Report;
+use angzarr_embedded::Kernel;
+use plans::PlanAggregate;
 use ports::{ProjectIdentity, TaskStores};
 
+use crate::project::failed;
 use crate::{PlanError, PlanService};
 
 /// One stream folded: its cover, its head, its state packed in its
@@ -28,7 +32,17 @@ where
     S: TaskStores,
 {
     async fn fold_digest(&mut self) -> Result<Vec<Folded>, PlanError> {
-        todo!("the plans' digest")
+        let identity = self.identity.for_read(self.project.as_deref());
+        let Some(project) = identity.map_err(PlanError::Identity)? else {
+            return Ok(Vec::new());
+        };
+        let Some(store) = self.stores.open_existing(&project).await.map_err(failed)? else {
+            return Ok(Vec::new());
+        };
+        Kernel::new(&self.registry)
+            .fold_digest::<PlanAggregate, _>(store)
+            .await
+            .map_err(|e| PlanError::Failed(Report::of(&e)))
     }
 }
 

@@ -105,7 +105,7 @@ pub struct PlanService<I, S, F, T, M, C, D> {
     pub retry: OnRetryable,
     /// `--project`: the project to act on, overriding the work root's.
     pub project: Option<String>,
-    registry: Registry,
+    pub(crate) registry: Registry,
     /// Each project's plan list, kept caught up across the service's
     /// reads (kernel-runner's [`ProjectLists`]).
     lists: ProjectLists<PlanLists>,

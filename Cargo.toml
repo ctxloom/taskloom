@@ -20,17 +20,17 @@ prost-types = "0.14"
 # commit, so a fresh clone builds with no sibling checkouts; bumps are
 # deliberate commits. To build against local checkouts while changing them
 # together, see "Co-developing angzarr-cli or tagma" in CLAUDE.md. At
-# e6f53b3 (angzarr-cli's transfer/export-old-line, unmerged), on angzarr
-# core 2681dab8, the rev the crates below pin, so the graph holds one
+# b47c357 (angzarr-cli's transfer/export-old-line, unmerged), on angzarr
+# core dd59566a, the rev the crates below pin, so the graph holds one
 # angzarr-proto and one angzarr-diagnostic even counting build
 # dependencies. (Its build-only angzarr-embedded-host-config is embedded
-# 71c8ebc's, as the crates below.)
-angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "e6f53b3e5c064e9cde64b370f41342295556c782" }
+# 9db9299's, as the crates below.)
+angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "b47c35730f1ccddebca689be17a4ced6a6ebfac9" }
 
 # angzarr-embedded, angzarr's in-app runtime, taskloom's
 # (taskloom-on-angzarr-embedded.plan.md). Pinned by rev on
-# angzarr-embedded's transfer/export-old-line, unmerged: 71c8ebc (router
-# e7c5cad, angzarr core 2681dab8 for angzarr-proto, angzarr-ports and
+# angzarr-embedded's transfer/export-old-line, unmerged: 9db9299 (router
+# 9496f6d, angzarr core dd59566a for angzarr-proto, angzarr-ports and
 # angzarr-diagnostic), the SQLite store's Export and the kernel's
 # fold_digest, for `taskloom store export` (store-export-import.plan.md):
 # the kernel at
@@ -43,10 +43,10 @@ angzarr-build = { git = "https://github.com/angzarr-io/angzarr-cli", rev = "e6f5
 # (`angzarr_embedded::testing`). angzarr-proto and angzarr-store-sqlite are
 # reached through those re-exports (`angzarr_embedded::angzarr_proto`,
 # `angzarr_embedded::angzarr_store_sqlite`) and not pinned here.
-angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "71c8ebca3cfff5b7d4e1ae40c3fba25531820a05" }
-angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "71c8ebca3cfff5b7d4e1ae40c3fba25531820a05" }
+angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "9db929911aa1b06db9ea68321a0bc91c49ff108e" }
+angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedded", rev = "9db929911aa1b06db9ea68321a0bc91c49ff108e" }
 # angzarr core's shared crates, at the core rev angzarr-embedded pins
-# (2681dab8, core's transfer/export-old-line), so the graph holds one of each. angzarr-diagnostic, the coded
+# (dd59566a, core's transfer/export-old-line), so the graph holds one of each. angzarr-diagnostic, the coded
 # error trait every error here implements, is pinned directly rather than
 # through angzarr-embedded's re-export so the crates that have no use for
 # the kernel do not link it; with its `build` feature, it is every crate's
@@ -54,35 +54,35 @@ angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr-embedde
 # angzarr-ports, angzarr's storage contract, is pinned directly for its
 # `memory` feature (the in-memory store the tests run on), which the
 # re-export cannot turn on.
-angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "2681dab885c8a3f138a0964f4d6b628d2480963f" }
-angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "2681dab885c8a3f138a0964f4d6b628d2480963f" }
+angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "dd59566a017474732a344caf3d1c8fc26d90481b" }
+angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "dd59566a017474732a344caf3d1c8fc26d90481b" }
 # angzarr-yaml, the one reader for every Rust config (owner ruling,
 # 2026-10-31): versioned documents (`schema_version`, migrated on read,
 # a newer one refused), a strict serde decode with key paths, and edits in
 # place that keep comments. tasks-config and project-registry read through
 # it. Its only dependencies are angzarr-diagnostic and serde.
-angzarr-yaml = { git = "https://github.com/angzarr-io/angzarr", rev = "2681dab885c8a3f138a0964f4d6b628d2480963f" }
+angzarr-yaml = { git = "https://github.com/angzarr-io/angzarr", rev = "dd59566a017474732a344caf3d1c8fc26d90481b" }
 # angzarr-presentation, presentation at the driving edge for any domain
 # (JSON or UTF-8 text, diagnostics rendered from the crates' catalogs,
 # display-width text helpers), moved from this repository into angzarr core
 # (decision 36, 2026-11-02); its codes are `angzarr-presentation-*`. Its
 # `test-support` feature renders a diagnostic's English from catalogs
 # (`english_for!`), for the tests that hold it to an expected text.
-angzarr-presentation = { git = "https://github.com/angzarr-io/angzarr", rev = "2681dab885c8a3f138a0964f4d6b628d2480963f" }
+angzarr-presentation = { git = "https://github.com/angzarr-io/angzarr", rev = "dd59566a017474732a344caf3d1c8fc26d90481b" }
 # angzarr-store-transfer, a store carried across a proto generation
 # (store-export-import.plan.md): every row of a store written as JSONL in
 # proto3's JSON mapping, its payloads expanded through the app's
 # descriptors, and the re-fold digest's lines; `taskloom store export` and
 # `fold-digest` write them. At the core rev of the crates above.
-angzarr-store-transfer = { git = "https://github.com/angzarr-io/angzarr", rev = "2681dab885c8a3f138a0964f4d6b628d2480963f" }
+angzarr-store-transfer = { git = "https://github.com/angzarr-io/angzarr", rev = "dd59566a017474732a344caf3d1c8fc26d90481b" }
 # The platform crates, moved from this repository into angzarr-platform
 # (decision 36): `os` (everything that differs between operating systems),
 # `file-system` (the seam all file I/O goes through) and `file-lock`
-# (advisory locks over both). On angzarr core 2681dab8, as the crates above
+# (advisory locks over both). On angzarr core dd59566a, as the crates above
 # (angzarr-platform's transfer/export-old-line, unmerged).
-os = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "239957ef3f233082605aca33bf072ced65aad6a8" }
-file-system = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "239957ef3f233082605aca33bf072ced65aad6a8" }
-file-lock = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "239957ef3f233082605aca33bf072ced65aad6a8" }
+os = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "5771284d1e32cea9af1616a0867d19ad6208fd33" }
+file-system = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "5771284d1e32cea9af1616a0867d19ad6208fd33" }
+file-lock = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "5771284d1e32cea9af1616a0867d19ad6208fd33" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
 plans-proto = { path = "crates/core/wire/plans-proto" }
 tasks = { path = "crates/core/domain/tasks" }
