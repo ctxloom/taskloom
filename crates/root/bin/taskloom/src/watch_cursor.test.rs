@@ -943,7 +943,7 @@ fn test_a_stream_below_the_cursor_is_expired_and_the_new_one_starts_at_0() {
     let env = world();
     let project = project_id(&env);
     let w = watch(&env, &[]);
-    primed(&w, &project);
+    let seeded = decoded(&cursor_of(&primed(&w, &project)))["streams"].clone();
     let harp = add(&env, "Re-minted");
     let seen = next(&w);
     let mut cursor = decoded(&cursor_of(&seen));
@@ -953,8 +953,13 @@ fn test_a_stream_below_the_cursor_is_expired_and_the_new_one_starts_at_0() {
         2,
         "the seed's stream and this one: {streams:?}"
     );
-    for next_sequence in streams.values_mut() {
-        if *next_sequence == 1 {
+    // Only this task's stream is forged ahead (setup fixed after review,
+    // 2026-11-03: the loop forged every stream at 1, and the seed's stream
+    // is at 1 too, so a second `expired` line could come before the pair
+    // the assertions read, in an order across streams that is not
+    // promised). This task's is the one the priming cursor did not hold.
+    for (key, next_sequence) in streams.iter_mut() {
+        if seeded.get(key).is_none() {
             *next_sequence = json!(99);
         }
     }
