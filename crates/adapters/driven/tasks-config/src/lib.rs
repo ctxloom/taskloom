@@ -31,6 +31,13 @@
 //! naming no key. Files are read through the [`Fs`] it is given.
 //! `homing` (repo homing is dropped) and `schema_version` are known and
 //! ignored.
+//!
+//! `plan_roots` is where plan files are searched for ([`PLAN_ROOTS`]): a
+//! YAML list in a config file, comma-separated in `TASKLOOM_CONFIG_PLAN_ROOTS`
+//! and `--config-set plan_roots=a,b`. The last layer setting it wins and
+//! replaces the defaults whole (the work tree and `.taskloom/plans`, which
+//! the plans use cases know); a blank item is refused, in a file, a
+//! variable or an override alike ([`ConfigError::BlankItem`]).
 
 mod edit;
 mod error;
@@ -65,7 +72,15 @@ pub const KIND: &str = "taskloom-config";
 /// no older version to migrate.
 pub const SCHEMA_VERSION: u32 = 1;
 /// The config keys taskloom knows.
-pub const KEYS: [&str; 4] = ["homing", "schema_version", "tag_permits", "tag_schema"];
+pub const KEYS: [&str; 5] = [
+    "homing",
+    "plan_roots",
+    "schema_version",
+    "tag_permits",
+    "tag_schema",
+];
+/// The key naming where plan files are searched for.
+pub const PLAN_ROOTS: &str = "plan_roots";
 
 /// One config file's keys.
 #[derive(Deserialize, Default, Debug)]
@@ -77,6 +92,7 @@ pub(crate) struct File {
     #[allow(dead_code)]
     homing: Option<String>,
     tag_schema: Option<Vec<String>>,
+    plan_roots: Option<Vec<String>>,
     /// Read from the work root's file alone ([`permits`]).
     tag_permits: Option<permits::Raw>,
 }
@@ -206,6 +222,10 @@ impl Configuration for TaskloomConfig {
     fn tag_permits(&mut self) -> Result<Option<TagPermits>, Report> {
         self.permits().map_err(|e| Report::of(&e))
     }
+
+    fn plan_roots(&mut self) -> Result<Option<Vec<String>>, Report> {
+        self.roots().map_err(|e| Report::of(&e))
+    }
 }
 
 impl ConfigurationWriter for TaskloomConfig {
@@ -219,6 +239,37 @@ impl ConfigurationWriter for TaskloomConfig {
 }
 
 impl TaskloomConfig {
+    /// `plan_roots` as the last layer setting it gives it: the home's file,
+    /// the work root's, the variable, then the overrides.
+    fn roots(&self) -> Result<Option<Vec<String>>, ConfigError> {
+        let mut roots = None;
+        for path in self.files() {
+            if let Some(set) = read(&*self.fs, &path)?.plan_roots {
+                roots = Some(set);
+            }
+        }
+        let flavor = self.fs.os().flavor();
+        for (name, value) in &self.env {
+            let (Some(name), Some(value)) = (name.to_str(), value.to_str()) else {
+                continue;
+            };
+            let key = name
+                .get(ENV_PREFIX.len()..)
+                .filter(|_| flavor.env_has_prefix(name, ENV_PREFIX) && !value.is_empty());
+            if key.is_some_and(|key| key.eq_ignore_ascii_case(PLAN_ROOTS)) {
+                roots = Some(listed(name, value)?);
+            }
+        }
+        for entry in &self.overrides {
+            if let Some((path, value)) = entry.split_once('=') {
+                if path.trim().eq_ignore_ascii_case(PLAN_ROOTS) {
+                    roots = Some(listed("--config-set", value)?);
+                }
+            }
+        }
+        Ok(roots)
+    }
+
     /// The work root, when there is one.
     fn work_root(&self) -> Option<PathBuf> {
         (self.root.0)().filter(|dir| !dir.as_os_str().is_empty())
@@ -331,11 +382,16 @@ fn parsed(path: &Path, text: &str) -> Result<File, ConfigError> {
     // A blank item is refused, never dropped, as a comma-separated list's
     // is.
     let blank = |list: &Vec<String>| list.iter().any(|item| item.trim().is_empty());
-    if file.tag_schema.as_ref().is_some_and(blank) {
-        return Err(ConfigError::BlankItem {
-            source: shown(),
-            value: "tag_schema".to_string(),
-        });
+    for (key, list) in [
+        ("tag_schema", &file.tag_schema),
+        (PLAN_ROOTS, &file.plan_roots),
+    ] {
+        if list.as_ref().is_some_and(blank) {
+            return Err(ConfigError::BlankItem {
+                source: shown(),
+                value: key.to_string(),
+            });
+        }
     }
     // Refused here, whichever file it is in, as the schema's list is: a
     // config file is taskloom's whole or not at all.
@@ -371,10 +427,26 @@ impl TaskloomConfig {
     }
 }
 
+/// The comma-separated `value`, set by `source` (a variable or
+/// `--config-set`), as a list: each item trimmed; a blank one refused.
+fn listed(source: &str, value: &str) -> Result<Vec<String>, ConfigError> {
+    let items: Vec<String> = value
+        .split(',')
+        .map(|item| item.trim().to_string())
+        .collect();
+    match items.iter().any(String::is_empty) {
+        true => Err(ConfigError::BlankItem {
+            source: source.to_string(),
+            value: PLAN_ROOTS.to_string(),
+        }),
+        false => Ok(items),
+    }
+}
+
 /// Whether `source` may set `key`: a key it knows, and none that moved.
 fn known(source: &str, key: &str) -> Result<(), ConfigError> {
     match key {
-        "homing" | "schema_version" => Ok(()),
+        "homing" | "schema_version" | PLAN_ROOTS => Ok(()),
         "tag_schema" | permits::KEY => Err(ConfigError::KeyMoved {
             source: source.to_string(),
             key: key.to_string(),

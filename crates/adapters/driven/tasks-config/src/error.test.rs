@@ -18,10 +18,10 @@ fn test_each_error_renders_its_english_fallback() {
         english,
         [
             format!("cannot read {path}: permission denied"),
-            format!("taskloom-config document {path}: `homeing`: unknown key \"homeing\" (the keys are: schema_version,homing,tag_schema,tag_permits)"),
+            format!("taskloom-config document {path}: `homeing`: unknown key \"homeing\" (the keys are: schema_version,homing,tag_schema,plan_roots,tag_permits)"),
             format!("{path}: tag_permits: namespaces: area is maybe, which is neither open nor a list of keys"),
             format!("{path} is schema_version 2, newer than the 1 this taskloom reads"),
-            "TASKLOOM_CONFIG_TAGS sets tags, which is no config key taskloom knows (known: homing, schema_version, tag_permits, tag_schema)".to_string(),
+            "TASKLOOM_CONFIG_TAGS sets tags, which is no config key taskloom knows (known: homing, plan_roots, schema_version, tag_permits, tag_schema)".to_string(),
             "--config-set tag_schema: expected <path>=<value>".to_string(),
             format!("{path}: tag_schema has a blank item: give one, or leave it out"),
             "TASKLOOM_CONFIG_TAG_SCHEMA sets tag_schema, which moved into the project's store: run `taskloom manage migrate schema` in the work root to move a project's .taskloom/config.yaml into its store, and delete it from anywhere else".to_string(),

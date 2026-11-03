@@ -35,6 +35,13 @@ fn test_a_configuration_knowing_nothing_of_permits_declares_none() {
     assert_eq!(SchemaOnly.tag_permits(), Ok(None));
 }
 
+// No plan_roots is the defaults, not an empty list of roots, which would
+// find no plan.
+#[test]
+fn test_a_configuration_knowing_nothing_of_plan_roots_sets_none() {
+    assert_eq!(SchemaOnly.plan_roots(), Ok(None));
+}
+
 /// Plan files whose every answer is its own, to see a borrow pass each on.
 struct Files;
 

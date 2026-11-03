@@ -239,7 +239,7 @@ fn test_a_file_that_is_not_taskloom_config_is_refused() {
     for (text, shown_as) in [
         (
             "schema_version: 1\nhomeing: home\n",
-            &yaml("decode-unknown-key problem.key_path=homeing problem.expected=schema_version,homing,tag_schema,tag_permits problem.found=homeing"),
+            &yaml("decode-unknown-key problem.key_path=homeing problem.expected=schema_version,homing,tag_schema,plan_roots,tag_permits problem.found=homeing"),
         ),
         (
             "schema_version: 1\ntag_schema: not-a-list\n",
@@ -813,4 +813,89 @@ fn load_failed_at() -> String {
         .load_into::<crate::File>(Some("c.yaml"), "schema_version: 1\nhomeing: home\n")
         .expect_err("an unknown key is refused");
     angzarr_diagnostic::Diagnostic::code(&refused).to_string()
+}
+
+// `plan_roots`: where plan files are searched for. A YAML list in a file,
+// comma-separated in the variable and `--config-set`; the last layer
+// setting it wins, whole; a blank item is refused wherever it is.
+mod plan_roots {
+    use super::*;
+
+    fn with_overrides(dirs: &Dirs, env: &[(&str, &str)], overrides: &[&str]) -> TaskloomConfig {
+        TaskloomConfig {
+            overrides: strings(overrides),
+            ..dirs.config(env)
+        }
+    }
+
+    #[test]
+    fn test_no_layer_setting_it_leaves_the_defaults() {
+        let dirs = Dirs::new(Some(HOME_ONLY), Some("schema_version: 1\nhoming: x\n"));
+        assert_eq!(dirs.config(&[]).plan_roots(), Ok(None));
+    }
+
+    const HOME_ONLY: &str = "schema_version: 1\n";
+
+    #[test]
+    fn test_the_last_layer_setting_it_replaces_the_ones_below() {
+        let dirs = Dirs::new(Some("plan_roots: [a, b]\n"), Some("plan_roots:\n  - c\n"));
+        assert_eq!(dirs.config(&[]).plan_roots(), Ok(Some(strings(&["c"]))));
+        let only_home = Dirs::new(Some("plan_roots: [a, b]\n"), None);
+        assert_eq!(
+            only_home.config(&[]).plan_roots(),
+            Ok(Some(strings(&["a", "b"])))
+        );
+        assert_eq!(
+            dirs.config(&[("TASKLOOM_CONFIG_PLAN_ROOTS", "d, e")])
+                .plan_roots(),
+            Ok(Some(strings(&["d", "e"])))
+        );
+        let mut config = with_overrides(
+            &dirs,
+            &[("TASKLOOM_CONFIG_PLAN_ROOTS", "d")],
+            &["plan_roots=f,g"],
+        );
+        assert_eq!(config.plan_roots(), Ok(Some(strings(&["f", "g"]))));
+    }
+
+    #[test]
+    fn test_an_empty_variable_is_unset() {
+        let dirs = Dirs::new(None, Some("plan_roots: [c]\n"));
+        assert_eq!(
+            dirs.config(&[("TASKLOOM_CONFIG_PLAN_ROOTS", "")])
+                .plan_roots(),
+            Ok(Some(strings(&["c"])))
+        );
+    }
+
+    #[test]
+    fn test_a_blank_item_is_refused_from_every_source() {
+        let dirs = Dirs::new(None, None);
+        for blank in ["a,,b", "a,", ",a", " "] {
+            let error = dirs
+                .config(&[("TASKLOOM_CONFIG_PLAN_ROOTS", blank)])
+                .plan_roots()
+                .unwrap_err();
+            assert_eq!(error.code(), code!("blank-item"), "{blank:?}");
+            let error = with_overrides(&dirs, &[], &[&format!("plan_roots={blank}")])
+                .plan_roots()
+                .unwrap_err();
+            assert_eq!(error.code(), code!("blank-item"), "{blank:?}");
+        }
+        let in_file = Dirs::new(None, Some("plan_roots:\n  - a\n  - \"\"\n"));
+        let error = in_file.config(&[]).plan_roots().unwrap_err();
+        assert_eq!(error.code(), code!("blank-item"));
+    }
+
+    #[test]
+    fn test_the_key_is_known_to_variables_and_overrides() {
+        let dirs = Dirs::new(None, None);
+        assert_eq!(
+            moved(
+                &dirs.config(&[("TASKLOOM_CONFIG_PLAN_ROOTS", "a")]),
+                &["plan_roots=a"]
+            ),
+            Ok(())
+        );
+    }
 }

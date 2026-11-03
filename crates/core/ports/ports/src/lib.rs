@@ -202,6 +202,18 @@ pub trait Configuration {
     fn tag_permits(&mut self) -> Result<Option<TagPermits>, Report> {
         Ok(None)
     }
+
+    /// Where plan files are searched for: the roots the last layer setting
+    /// `plan_roots` gives (a config file's YAML list, or a comma-separated
+    /// `TASKLOOM_CONFIG_PLAN_ROOTS` or `--config-set`), as written (a
+    /// relative one is the work root's, placed by the plans use cases);
+    /// `None` when no layer sets it, which means the defaults. A blank
+    /// item is refused.
+    ///
+    /// The default answers that none is set.
+    fn plan_roots(&mut self) -> Result<Option<Vec<String>>, Report> {
+        Ok(None)
+    }
 }
 
 /// Where the moved keys are taken out of the work root's config file once
