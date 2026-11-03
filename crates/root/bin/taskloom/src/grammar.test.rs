@@ -234,7 +234,7 @@ const RULED_COMMANDS: &[&[&str]] = &[
     &["manage", "schema", "tags", "list"],
     &["manage", "schema", "statuses", "list"],
     &["manage", "migrate"],
-    // PROPOSAL, pending owner review: the doctor spelling is not ruled.
+    // owner-accepted 2026-11-03: the doctor spelling.
     &["manage", "doctor", "heal"],
     &["manage", "doctor", "repoint"],
     &["manage", "doctor", "orphans"],
@@ -342,14 +342,15 @@ removed_verbs! {
     test_removed_schema_says_use_manage_schema: ["schema"] => "manage schema";
     test_removed_schema_check_says_use_manage_schema_check: ["schema", "check"] => "manage schema check";
     test_removed_schema_declare_says_use_manage_schema_declare_and_declares_nothing: ["schema", "declare", "--add", "tagma.permit:\"a:b\"", "--yes"] => "manage schema declare";
-    test_removed_schema_import_config_says_use_manage_migrate: ["schema", "import-config"] => "manage migrate";
-    test_removed_import_says_use_manage_migrate: ["import"] => "manage migrate";
+    test_removed_schema_import_config_says_use_manage_migrate: ["schema", "import-config"] => "manage migrate schema";
+    test_removed_import_says_use_manage_migrate: ["import"] => "manage migrate tasks";
     test_removed_project_show_says_use_manage_project_show: ["project", "show"] => "manage project show";
-    test_removed_project_heal_says_use_manage_doctor: ["project", "heal", "--yes"] => "manage doctor";
+    test_removed_project_heal_says_use_manage_doctor: ["project", "heal", "--yes"] => "manage doctor heal";
+    test_removed_project_repoint_says_use_manage_doctor_repoint: ["project", "repoint", "some-id", "--yes"] => "manage doctor repoint";
+    test_removed_project_orphans_says_use_manage_doctor_orphans: ["project", "orphans"] => "manage doctor orphans";
     test_removed_plan_says_use_plans: ["plan"] => "plans";
     test_removed_plan_list_says_use_plans_list: ["plan", "list"] => "plans list";
     test_removed_plan_check_says_use_plans_check: ["plan", "check"] => "plans check";
-    test_removed_plan_import_says_use_manage_migrate: ["plan", "import"] => "manage migrate";
     test_removed_watch_says_use_tasks_watch_and_does_not_watch: ["watch"] => "tasks watch";
     test_removed_version_says_use_manage_version: ["version"] => "manage version";
 }
@@ -905,7 +906,7 @@ fn test_manage_project_show_names_the_project() {
 }
 
 #[test]
-// PROPOSAL, pending owner review: the spelling `manage doctor heal|repoint|orphans [remove]` is not ruled.
+// owner-accepted 2026-11-03: the spelling `manage doctor heal|repoint|orphans [remove]`.
 fn test_manage_doctor_heal_reports_nothing_to_change_in_a_sound_project() {
     let env = Env::new(SESSION);
     add_task(&env, "Seed");
@@ -923,9 +924,12 @@ fn test_manage_hook_stamp_plan_is_a_command_of_manage_hook() {
 }
 
 #[test]
-fn test_manage_migrate_is_a_group_with_commands_of_its_own() {
-    let migrate = page(&["manage", "migrate"]);
-    assert!(!migrate.children().is_empty(), "{}", migrate.long.stdout);
+fn test_manage_migrate_has_two_children_tasks_and_schema() {
+    // orchestrator decision, pending owner review: `plan import` is gone.
+    assert_eq!(
+        names(&page(&["manage", "migrate"]).long.stdout),
+        set(&["tasks", "schema"])
+    );
 }
 
 // ------------------------------------------------------------ 8. confirmation
@@ -1011,7 +1015,7 @@ fn test_permits_remove_previews_by_default_dry_run_removes_nothing_and_yes_remov
 }
 
 #[test]
-// PROPOSAL, pending owner review: the spelling `manage doctor heal|repoint|orphans [remove]` is not ruled.
+// owner-accepted 2026-11-03: the spelling `manage doctor heal|repoint|orphans [remove]`.
 fn test_doctor_heal_previews_by_default_dry_run_writes_nothing_and_yes_heals() {
     let env = Env::new(SESSION);
     add_task(&env, "Seed");
@@ -1083,7 +1087,7 @@ impl Forked {
 }
 
 #[test]
-// PROPOSAL, pending owner review: the spelling `manage doctor heal|repoint|orphans [remove]` is not ruled.
+// owner-accepted 2026-11-03: the spelling `manage doctor heal|repoint|orphans [remove]`.
 fn test_doctor_repoint_previews_by_default_dry_run_binds_nothing_and_yes_binds() {
     let world = Forked::new();
     let before = world.marker();
@@ -1112,7 +1116,7 @@ fn test_doctor_repoint_previews_by_default_dry_run_binds_nothing_and_yes_binds()
 }
 
 #[test]
-// PROPOSAL, pending owner review: the spelling `manage doctor heal|repoint|orphans [remove]` is not ruled.
+// owner-accepted 2026-11-03: the spelling `manage doctor heal|repoint|orphans [remove]`.
 fn test_doctor_orphans_remove_previews_by_default_dry_run_keeps_it_and_yes_removes() {
     let world = Forked::new();
     let made = world.run(&[
@@ -1156,7 +1160,7 @@ fn test_doctor_orphans_remove_previews_by_default_dry_run_keeps_it_and_yes_remov
 
 #[test]
 fn test_each_command_is_described_in_one_line_in_its_parents_list() {
-    // PROPOSAL, pending owner review (not a ruling).
+    // owner-accepted 2026-11-03.
     const LONGEST: usize = 80;
     for page in pages() {
         for (name, about) in page.children() {
@@ -1177,7 +1181,7 @@ fn test_each_command_is_described_in_one_line_in_its_parents_list() {
 
 #[test]
 fn test_each_commands_help_opens_with_exactly_one_short_line() {
-    // PROPOSAL, pending owner review (not a ruling).
+    // owner-accepted 2026-11-03.
     const LONGEST: usize = 80;
     for page in pages().iter().filter(|p| !p.path.is_empty()) {
         let lines = preamble(&page.long.stdout);
@@ -1244,7 +1248,7 @@ fn test_only_loadout_mentions_yaml_as_a_format() {
 
 #[test]
 fn test_top_level_help_is_under_two_kilobytes() {
-    // PROPOSAL, pending owner review (not a ruling); today's
+    // owner-accepted 2026-11-03; today's
     // is about 5 KB.
     const BOUND: usize = 2048;
     let help = &page(&[]).long.stdout;
@@ -1375,4 +1379,93 @@ fn test_a_task_no_store_holds_is_answered_with_1_on_show_and_on_set() {
         &["tasks", "set", "no-such-task", "--status", "Done"],
         1,
     );
+}
+
+// ------------------------------------------------------------ orchestrator decisions, pending owner review
+
+#[test]
+fn test_removed_plan_import_says_plans_are_files_and_imports_nothing() {
+    // orchestrator decision, pending owner review.
+    let env = Env::new(SESSION);
+    let ran = refused(&env, &["plan", "import"], 2);
+    assert!(
+        ran.stderr
+            .contains("removed: plans are files; there is nothing to import"),
+        "{}",
+        ran.stderr
+    );
+    assert_eq!(ran.stdout, "");
+    assert!(!disk::exists(env.home.path().join(".ctxloom")));
+}
+
+#[test]
+fn test_dry_run_together_with_yes_is_a_usage_error() {
+    // orchestrator decision, pending owner review: contradictory flags.
+    let env = Env::new(SESSION);
+    add_task(&env, "Seed");
+    ok(&env, &["manage", "schema", "permits", "add", "area:cli"]);
+    for args in [
+        &["tasks", "prune", "--dry-run", "--yes"][..],
+        &[
+            "manage",
+            "schema",
+            "declare",
+            "--add",
+            r#"tagma.permit:"zz:y""#,
+            "--dry-run",
+            "--yes",
+        ],
+        &[
+            "manage",
+            "schema",
+            "permits",
+            "remove",
+            "area:cli",
+            "--dry-run",
+            "--yes",
+        ],
+        &["manage", "doctor", "heal", "--dry-run", "--yes"],
+    ] {
+        let ran = refused(&env, args, 2);
+        assert_eq!(ran.stdout, "", "{args:?}");
+    }
+    assert_eq!(permitted_keys(&env, "area"), ["cli"], "nothing was applied");
+}
+
+#[test]
+fn test_tasks_set_clear_trigger_returns_a_deferred_task_to_the_status_it_held() {
+    // orchestrator decision, pending owner review: --clear-trigger survives.
+    let env = Env::new(SESSION);
+    let harp = add_task(&env, "Waits");
+    ok(
+        &env,
+        &[
+            "tasks",
+            "set",
+            &harp,
+            "--status",
+            "Deferred",
+            "--trigger",
+            "when it ships",
+        ],
+    );
+    let cleared = ok(&env, &["tasks", "set", &harp, "--clear-trigger"]);
+    assert_eq!(cleared["status"], "To Do");
+    assert!(
+        cleared["trigger"].is_null() || cleared["trigger"] == "",
+        "{cleared}"
+    );
+}
+
+#[test]
+fn test_tasks_set_clear_trigger_with_trigger_is_a_usage_error() {
+    // orchestrator decision, pending owner review.
+    let env = Env::new(SESSION);
+    let harp = add_task(&env, "Idle");
+    let ran = refused(
+        &env,
+        &["tasks", "set", &harp, "--clear-trigger", "--trigger", "x"],
+        2,
+    );
+    assert_eq!(ran.stdout, "");
 }
