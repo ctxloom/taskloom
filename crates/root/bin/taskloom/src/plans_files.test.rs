@@ -1657,3 +1657,189 @@ fn test_plans_commands_create_no_plan_stream_in_the_store() {
         "a plan event is in the store"
     );
 }
+
+// ------------------------------------------- rulings of 2026-11-03
+
+// owner ruling 2026-11-03: `plan_roots`, when set, REPLACES the default
+// roots; unset means the defaults; a relative root resolves against the
+// work tree root.
+#[test]
+fn test_plan_roots_when_set_replaces_the_defaults_and_unset_keeps_them() {
+    let env = world();
+    write_plan(
+        &env,
+        "docs/in-tree.plan.md",
+        &plan_text("quiet-amber-falcon", "", "# t\n"),
+    );
+    write_plan(
+        &env,
+        ".taskloom/plans/in-plans.plan.md",
+        &plan_text("brisk-cedar-otter", "", "# p\n"),
+    );
+    let x = Temp::new();
+    disk::write(
+        x.path().join("far.plan.md"),
+        plan_text("hazy-pine-wren", "", "# f\n"),
+    )
+    .unwrap();
+
+    assert_eq!(
+        listed_names(&env, &[]),
+        ["in-plans", "in-tree"],
+        "unset: the defaults"
+    );
+    let set = format!("plan_roots={}", x.path().display());
+    assert_eq!(
+        listed_names(&env, &["--config-set", &set]),
+        ["far"],
+        "set: only X"
+    );
+}
+
+#[test]
+fn test_a_relative_plan_root_resolves_against_the_work_tree_root() {
+    let env = world();
+    write_plan(
+        &env,
+        "docs/in-docs.plan.md",
+        &plan_text("quiet-amber-falcon", "", "# d\n"),
+    );
+    write_plan(
+        &env,
+        "other/in-other.plan.md",
+        &plan_text("brisk-cedar-otter", "", "# o\n"),
+    );
+    assert_eq!(
+        listed_names(&env, &["--config-set", "plan_roots=docs"]),
+        ["in-docs"]
+    );
+}
+
+// orchestrator decision, pending owner review: absent status is draft;
+// absent title is the first markdown heading, else the file name; `session`
+// is the first of `sessions`, empty (null or "") when there are none.
+#[test]
+fn test_absent_status_title_and_session_take_their_defaults() {
+    let env = world();
+    write_plan(
+        &env,
+        "docs/headed.plan.md",
+        &plan_text(
+            "quiet-amber-falcon",
+            "",
+            "Intro line\n\n# The Heading\n\ntext\n",
+        ),
+    );
+    write_plan(
+        &env,
+        "docs/headless.plan.md",
+        &plan_text(
+            "brisk-cedar-otter",
+            "sessions: [first-harp, second-harp]\n",
+            "just text\n",
+        ),
+    );
+    let listed = ok(&env, &["plans", "list"]);
+    let find = |name: &str| {
+        listed
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["name"] == name)
+            .unwrap()
+            .clone()
+    };
+    let headed = find("headed");
+    assert_eq!(headed["status"], "draft");
+    assert_eq!(headed["title"], "The Heading");
+    assert!(
+        headed["session"].is_null() || headed["session"] == "",
+        "{headed}"
+    );
+    let headless = find("headless");
+    assert_eq!(headless["status"], "draft");
+    assert!(
+        headless["title"].as_str().unwrap().contains("headless"),
+        "{headless}"
+    );
+    assert_eq!(headless["session"], "first-harp");
+}
+
+// orchestrator decision, pending owner review: `superseded` is derived, so
+// a hand-written one is a `check` finding.
+#[test]
+fn test_check_flags_a_hand_written_superseded_status() {
+    let env = seeded_world();
+    let good = write_plan(
+        &env,
+        "docs/good.plan.md",
+        &plan_text("quiet-amber-falcon", "status: active\n", "# g\n"),
+    );
+    let bad = write_plan(
+        &env,
+        "docs/bad.plan.md",
+        &plan_text("brisk-cedar-otter", "status: superseded\n", "# b\n"),
+    );
+    check_names(&env, &[&bad], &[&good]);
+}
+
+// orchestrator decision, pending owner review: a hook must not block an
+// edit, so a payload it cannot read warns on stderr and exits 0.
+#[test]
+fn test_stamp_plan_warns_and_exits_0_on_a_malformed_or_empty_payload() {
+    let env = world();
+    let control = write_plan(
+        &env,
+        "docs/control.plan.md",
+        &plan_text("brisk-cedar-otter", "", "# c\n"),
+    );
+    assert_eq!(stamp(&env, &control, Some("this-session-harp")).code, 0);
+    assert!(
+        read(&control).contains("this-session-harp"),
+        "the control is stamped"
+    );
+
+    let file = write_plan(
+        &env,
+        "docs/p.plan.md",
+        &plan_text("quiet-amber-falcon", "", "# p\n"),
+    );
+    let before = read(&file);
+    for input in ["", "not json", "{}", r#"{"tool_input":{}}"#] {
+        let ran = run_with_stdin(
+            &env,
+            &["manage", "hook", "stamp-plan"],
+            input,
+            Some("this-session-harp"),
+        );
+        assert_eq!(ran.code, 0, "{input:?}: {}", ran.stderr);
+        assert!(!ran.stderr.trim().is_empty(), "{input:?} warns on stderr");
+        assert_eq!(read(&file), before);
+    }
+}
+
+// orchestrator decision, pending owner review: removing a tag the plan
+// does not carry is a no-op, exit 0.
+#[test]
+fn test_tag_remove_of_a_tag_the_plan_lacks_is_a_no_op_exit_0() {
+    let env = world();
+    let file = write_plan(
+        &env,
+        "docs/p.plan.md",
+        &plan_text("quiet-amber-falcon", "tags: [area:cli]\n", "# p\n"),
+    );
+    ok(
+        &env,
+        &["plans", "tag", "remove", "quiet-amber-falcon", "area:cli"],
+    );
+    assert_eq!(
+        ok(&env, &["plans", "show", "quiet-amber-falcon"])["tags"],
+        json!([])
+    );
+    let before = read(&file);
+    ok(
+        &env,
+        &["plans", "tag", "remove", "quiet-amber-falcon", "area:cli"],
+    );
+    assert_eq!(read(&file), before);
+}
