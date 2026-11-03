@@ -34,8 +34,9 @@
 //! state: `text`, `status`, `tags`) and `cursor` (the cursor once this line
 //! is processed). What is NOT pinned: the shape of `stream` (only that it is
 //! present and compares equal for one stream and unequal for two), the name
-//! of the priming line's `event`, and whether a pre-existing line shape is
-//! kept for the VS Code extension (an open question).
+//! of `stream`. Orchestrator decisions, pending owner review, are marked at
+//! their tests: the `primed` line, the project in the cursor, tasks streams
+//! only, `--heartbeat 0`, heartbeats in text mode, the re-minted stream.
 //!
 //! Every test waits on lines (each wait bounded) or on a bounded process,
 //! never on a sleep, so a watch that runs on instead of failing, or never
@@ -106,6 +107,10 @@ fn watch(env: &Env, args: &[&str]) -> Watching {
 fn primed(w: &Watching, project: &str) -> Value {
     let line = one_document(&w.line());
     assert_eq!(line["v"], 1, "a priming line carries the version: {line}");
+    // Orchestrator decision, pending owner review: the priming line is
+    // `{"v":1,"event":"primed","kind":"tasks","project":...,"cursor":...}`.
+    assert_eq!(line["event"], "primed", "{line}");
+    assert_eq!(line["kind"], "tasks", "{line}");
     assert_eq!(line["project"], project, "{line}");
     assert!(!cursor_of(&line).is_empty(), "a priming cursor: {line}");
     line
@@ -329,8 +334,7 @@ fn test_the_priming_line_is_first_and_history_is_not_replayed() {
     let w = watch(&env, &[]);
     // First, before any change, one JSON document with the version, the
     // project and the store's position now.
-    let first = primed(&w, &project);
-    assert_ne!(first["event"], "heartbeat", "{first}");
+    primed(&w, &project);
 
     // A watch without --since starts at the head: the task added before it
     // is not delivered, the one added after is.
@@ -819,4 +823,182 @@ fn test_format_json_is_jsonl_one_document_a_line() {
             "{line:?}"
         );
     }
+}
+
+// ------------------------------------------------ orchestrator decisions
+
+/// Decode a cursor under the PROPOSAL encoding (see the file header).
+fn decoded(cursor: &str) -> Value {
+    serde_json::from_slice(&b64url_decode(cursor)).expect("the proposed encoding: JSON")
+}
+
+fn encoded(cursor: &Value) -> String {
+    b64url_encode(cursor.to_string().as_bytes())
+}
+
+/// Whether `n` appears in `text` as a whole number.
+fn has_number(text: &str, n: u64) -> bool {
+    text.split(|c: char| !c.is_ascii_digit())
+        .any(|t| t == n.to_string())
+}
+
+#[test]
+fn test_resume_primes_with_the_requested_cursor_not_the_head() {
+    // Orchestrator decision, pending owner review: saving the head from the
+    // priming line would skip the replay.
+    let env = world();
+    let project = project_id(&env);
+    let first = watch(&env, &[]);
+    let head = cursor_of(&primed(&first, &project));
+    add(&env, "Missed");
+    next(&first);
+    drop(first);
+
+    let second = watch(&env, &["--since", &head]);
+    let priming = primed(&second, &project);
+    assert_eq!(cursor_of(&priming), head, "{priming}");
+    next(&second);
+}
+
+#[test]
+fn test_a_cursor_carries_the_project_and_a_foreign_projects_is_exit_2() {
+    // Orchestrator decision, pending owner review. The `project` member
+    // assumes the PROPOSAL encoding; the refusal does not.
+    let env = world();
+    let project = project_id(&env);
+    let cursor = some_cursor(&env);
+    assert_eq!(decoded(&cursor)["project"], project.as_str());
+
+    let other = world();
+    assert_ne!(project_id(&other), project);
+    // Invalid on its own content: refused before any stream is read.
+    refused(&other, &["--since", &cursor], 2);
+}
+
+#[test]
+fn test_only_the_tasks_domain_appears_in_the_cursor_and_as_lines() {
+    // Orchestrator decision, pending owner review: the schema stream (a
+    // declare writes to it) and other domains are not watched.
+    let env = world();
+    let project = project_id(&env);
+    let w = watch(&env, &[]);
+    let head = cursor_of(&primed(&w, &project));
+    ok(
+        &env,
+        &[
+            "manage",
+            "schema",
+            "declare",
+            "--add",
+            r#"tagma.permit:"x:*""#,
+            "--yes",
+        ],
+    );
+    let harp = add(&env, "After the declare");
+    let line = next(&w);
+    assert_change(&line, &harp, "After the declare", "To Do", json!([]));
+    assert_eq!(sequence(&line), 0, "no line for the schema stream: {line}");
+    let prefix = format!("{}/", tasks::TASK_DOMAIN);
+    for cursor in [head, cursor_of(&line)] {
+        let streams = decoded(&cursor)["streams"].clone();
+        let keys: Vec<&String> = streams.as_object().expect("streams").keys().collect();
+        assert!(!keys.is_empty());
+        assert!(keys.iter().all(|k| k.starts_with(&prefix)), "{keys:?}");
+    }
+}
+
+#[test]
+fn test_heartbeat_0_disables_heartbeats() {
+    // Orchestrator decision, pending owner review. Bounded wait: with a
+    // 1 s interval a beat would come in this time.
+    let env = world();
+    let project = project_id(&env);
+    let mut w = watch(&env, &["--heartbeat", "0"]);
+    primed(&w, &project);
+    assert_eq!(w.try_line(Duration::from_secs(4)), None, "no beat");
+    assert!(w.alive(), "0 is not an error");
+    let harp = add(&env, "Still delivered");
+    assert_change(&next(&w), &harp, "Still delivered", "To Do", json!([]));
+}
+
+#[test]
+fn test_heartbeats_appear_in_text_mode_as_one_line() {
+    // Orchestrator decision, pending owner review. The word is a guess at
+    // the catalog text: it must say `heartbeat`.
+    let env = world();
+    let w = Watching::start(&env, &["--format", "text", "--heartbeat", "1"]);
+    w.line();
+    for _ in 0..2 {
+        let beat = w.line();
+        assert!(beat.to_lowercase().contains("heartbeat"), "{beat:?}");
+    }
+}
+
+#[test]
+fn test_a_stream_below_the_cursor_is_expired_and_the_new_one_starts_at_0() {
+    // Orchestrator decision, pending owner review: a stream whose head is
+    // below the cursor's next sequence was pruned (and maybe re-minted).
+    // Black box cannot re-mint a harp, so the cursor is forged ahead of an
+    // existing stream (PROPOSAL encoding).
+    let env = world();
+    let project = project_id(&env);
+    let w = watch(&env, &[]);
+    primed(&w, &project);
+    let harp = add(&env, "Re-minted");
+    let seen = next(&w);
+    let mut cursor = decoded(&cursor_of(&seen));
+    let streams = cursor["streams"].as_object_mut().expect("streams");
+    assert_eq!(
+        streams.len(),
+        2,
+        "the seed's stream and this one: {streams:?}"
+    );
+    for next_sequence in streams.values_mut() {
+        if *next_sequence == 1 {
+            *next_sequence = json!(99);
+        }
+    }
+    drop(w);
+
+    let second = watch(&env, &["--since", &encoded(&cursor)]);
+    primed(&second, &project);
+    let lines = take(&second, 2);
+    let expired = lines
+        .iter()
+        .find(|l| l["event"] == "expired")
+        .expect("expired");
+    assert_eq!(stream(expired), stream(&seen));
+    let again = lines
+        .iter()
+        .find(|l| l["event"] == "changed")
+        .expect("changed");
+    assert_change(again, &harp, "Re-minted", "To Do", json!([]));
+    assert_eq!(sequence(again), 0, "the new stream from the start");
+}
+
+#[test]
+fn test_an_unknown_version_names_the_supported_one() {
+    // Orchestrator decision, pending owner review.
+    let env = world();
+    let mut forged = decoded(&some_cursor(&env));
+    forged["v"] = json!(999);
+    let ended = refused(&env, &["--since", &encoded(&forged)], 2);
+    assert!(has_number(&ended.stderr, 999), "{}", ended.stderr);
+    assert!(has_number(&ended.stderr, 1), "{}", ended.stderr);
+}
+
+#[test]
+fn test_text_mode_keeps_one_line_per_event_for_one_task() {
+    // Orchestrator decision, pending owner review: two events on one
+    // stream are two lines, each naming the task.
+    let env = world();
+    let w = Watching::start(&env, &["--format", "text"]);
+    w.line();
+    let harp = add(&env, "Text");
+    set_text(&env, &harp, "Text 2");
+    for _ in 0..2 {
+        let line = w.line();
+        assert!(line.contains(&harp), "{line:?}");
+    }
+    assert_eq!(w.try_line(Duration::from_secs(2)), None, "no extra line");
 }

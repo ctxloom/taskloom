@@ -70,6 +70,11 @@ impl Watching {
             .unwrap_or_else(|e| panic!("no line from watch: {e}"))
     }
 
+    /// The stream's next line if one comes within `within`.
+    pub(super) fn try_line(&self, within: Duration) -> Option<String> {
+        self.lines.recv_timeout(within).ok()
+    }
+
     /// Send `signal` and wait for the process to end; whatever it wrote
     /// after the lines already read must be nothing. Its status, on unix.
     ///
@@ -105,7 +110,7 @@ impl Watching {
     }
 
     /// Whether the process is still running.
-    fn alive(&mut self) -> bool {
+    pub(super) fn alive(&mut self) -> bool {
         let child = self.child.as_mut().unwrap();
         child.try_wait().expect("the watch's status").is_none()
     }
