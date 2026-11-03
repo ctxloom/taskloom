@@ -467,7 +467,7 @@ impl Render for Changed<'_> {
 
 /// What a project permits: JSON tasks-presentation's [`PermitsJson`];
 /// text one line a namespace, its keys in a column, then the flat tags and
-/// the targets the schema permits.
+/// the targets the store's rules constrain.
 pub struct Permits<'a>(pub &'a PermitList);
 
 impl Render for Permits<'_> {
@@ -477,34 +477,27 @@ impl Render for Permits<'_> {
 
     fn text(&self, out: &mut dyn Write) -> io::Result<()> {
         let doc = PermitsJson::of(self.0);
-        if !doc.declared {
-            writeln!(
-                out,
-                "No tag permits: this store declares none, so every tag its rules admit is permitted (`taskloom permit <permit>` starts them)."
-            )?;
+        if doc.namespaces.is_empty() {
+            writeln!(out, "Namespaces: (none)")?;
         } else {
-            if doc.namespaces.is_empty() {
-                writeln!(out, "Namespaces: (none)")?;
-            } else {
-                writeln!(out, "Namespaces:")?;
-                let width = doc
-                    .namespaces
-                    .iter()
-                    .map(|n| text::width(&n.namespace) + 1)
-                    .max()
-                    .unwrap_or(0)
-                    + 2;
-                for namespace in &doc.namespaces {
-                    let keys = match namespace.open {
-                        true => "(open: any key)".to_string(),
-                        false => namespace.keys.join(", "),
-                    };
-                    let name = format!("{}:", namespace.namespace);
-                    writeln!(out, "  {}{keys}", text::pad(&name, width))?;
-                }
+            writeln!(out, "Namespaces:")?;
+            let width = doc
+                .namespaces
+                .iter()
+                .map(|n| text::width(&n.namespace) + 1)
+                .max()
+                .unwrap_or(0)
+                + 2;
+            for namespace in &doc.namespaces {
+                let keys = match namespace.open {
+                    true => "(open: any key)".to_string(),
+                    false => namespace.keys.join(", "),
+                };
+                let name = format!("{}:", namespace.namespace);
+                writeln!(out, "  {}{keys}", text::pad(&name, width))?;
             }
-            writeln!(out, "Flat tags: {}", listed(doc.tags.iter()))?;
         }
+        writeln!(out, "Flat tags: {}", listed(doc.tags.iter()))?;
         writeln!(
             out,
             "Constrained by the store's rules: {}",

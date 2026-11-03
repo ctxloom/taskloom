@@ -2505,18 +2505,13 @@ fn test_a_refused_revoke_names_the_tasks_still_carrying_it() {
 
 // ------------------------------------------------------------ permits
 
-/// A closed store permitting `area:cli`, `area:mcp`, `relates:` and the
-/// flat `urgent` (`closed`), or none at all, with two rule targets.
-fn listed(closed: bool) -> Option<Result<PermitList, AppError>> {
-    let patterns = match closed {
-        true => ["area:cli", "area:mcp", "relates:*", "urgent"]
+/// A store permitting `area:cli`, `area:mcp`, `relates:` and the flat
+/// `urgent`, with two rule targets.
+fn listed() -> Option<Result<PermitList, AppError>> {
+    Some(Ok(PermitList {
+        patterns: ["area:cli", "area:mcp", "relates:*", "urgent"]
             .map(String::from)
             .into(),
-        false => Vec::new(),
-    };
-    Some(Ok(PermitList {
-        closed,
-        patterns,
         schema_targets: vec!["triage:kind".to_string(), "triage:level".to_string()],
     }))
 }
@@ -2527,7 +2522,7 @@ fn listed(closed: bool) -> Option<Result<PermitList, AppError>> {
 #[test]
 fn test_permits_lists_the_namespaces_flat_tags_and_schema_targets() {
     let mut fake = Fake {
-        permit_list: listed(true),
+        permit_list: listed(),
         ..Fake::default()
     };
     let ran = run_on(&mut fake, true, &["permits"]);
@@ -2539,7 +2534,6 @@ fn test_permits_lists_the_namespaces_flat_tags_and_schema_targets() {
     );
     let mut fake = Fake {
         permit_list: Some(Ok(PermitList {
-            closed: true,
             patterns: Vec::new(),
             schema_targets: vec!["triage:kind".to_string()],
         })),
@@ -2552,27 +2546,11 @@ fn test_permits_lists_the_namespaces_flat_tags_and_schema_targets() {
     );
 }
 
-// Opt-in (ruling 6), as a person reads it: no permits declared is not
-// "nothing permitted", and the listing says which, and how to start.
-#[test]
-fn test_permits_where_none_are_declared_says_every_tag_is_permitted() {
-    let mut fake = Fake {
-        permit_list: listed(false),
-        ..Fake::default()
-    };
-    let ran = run_on(&mut fake, true, &["permits"]);
-    assert_eq!(ran.code, 0, "{}", ran.err);
-    assert_eq!(
-        ran.out,
-        "No tag permits: this store declares none, so every tag its rules admit is permitted (`taskloom permit <permit>` starts them).\nConstrained by the store's rules: triage:kind, triage:level\n"
-    );
-}
-
 // In JSON, tasks-presentation's PermitsJson.
 #[test]
 fn test_permits_in_json_is_the_permits_document() {
     let mut fake = Fake {
-        permit_list: listed(true),
+        permit_list: listed(),
         ..Fake::default()
     };
     let ran = run_on(&mut fake, false, &["permits"]);
@@ -2581,7 +2559,6 @@ fn test_permits_in_json_is_the_permits_document() {
     assert_eq!(
         json,
         serde_json::json!({
-            "declared": true,
             "namespaces": [
                 {"namespace": "area", "open": false, "keys": ["cli", "mcp"]},
                 {"namespace": "relates", "open": true, "keys": []},
@@ -2590,14 +2567,6 @@ fn test_permits_in_json_is_the_permits_document() {
             "schema_targets": ["triage:kind", "triage:level"],
         })
     );
-    let mut fake = Fake {
-        permit_list: listed(false),
-        ..Fake::default()
-    };
-    let ran = run_on(&mut fake, false, &["permits"]);
-    let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
-    assert_eq!(json["declared"], false);
-    assert_eq!(json["namespaces"], serde_json::json!([]));
 }
 
 // ------------------------------------------------------------ schema
@@ -2801,7 +2770,7 @@ fn test_schema_check_prints_tagmas_findings_and_fails_on_any() {
 #[test]
 fn test_schema_import_config_runs_the_import_and_prints_what_it_left() {
     let mut fake = Fake {
-        declared: schema_declared(&["tagma.permit:urgent=true"], true),
+        declared: schema_declared(&["tagma.permit:urgent"], true),
         ..Fake::default()
     };
     let ran = run_on(&mut fake, true, &["schema", "import-config"]);
@@ -2809,7 +2778,7 @@ fn test_schema_import_config_runs_the_import_and_prints_what_it_left() {
     assert_eq!(fake.imports_of_config, 1);
     assert_eq!(
         ran.out,
-        "declared: the store's tag rules are now\n  tagma.permit:urgent=true\n"
+        "declared: the store's tag rules are now\n  tagma.permit:urgent\n"
     );
 }
 

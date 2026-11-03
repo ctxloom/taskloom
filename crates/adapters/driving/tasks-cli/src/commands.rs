@@ -412,8 +412,8 @@ pub(crate) async fn revoke(
 }
 
 /// List what the project permits: in text, its namespaces (open, or
-/// closed with their keys), its flat tags and the schema's targets, or
-/// that it declares none; in JSON, [`tasks_presentation::PermitsJson`].
+/// closed with their keys), its flat tags and the schema's targets; in
+/// JSON, [`tasks_presentation::PermitsJson`].
 pub(crate) async fn permits(
     ctx: Ctx<'_>,
     service: &mut impl TaskService,

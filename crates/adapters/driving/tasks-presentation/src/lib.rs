@@ -186,21 +186,18 @@ impl TagCountJson {
 /// What a project permits, as JSON (`taskloom permits --format json`):
 ///
 /// ```json
-/// {"declared": true,
-///  "namespaces": [{"namespace": "area", "open": false, "keys": ["cli", "mcp"]},
+/// {"namespaces": [{"namespace": "area", "open": false, "keys": ["cli", "mcp"]},
 ///                 {"namespace": "relates", "open": true, "keys": []}],
 ///  "tags": ["urgent"],
 ///  "schema_targets": ["triage:audited", "triage:blind-gate", "..."]}
 /// ```
 ///
-/// `declared` false is a project declaring no permits, so every tag the
-/// schema admits is permitted (its namespaces and tags empty); true with
-/// both empty is one permitting nothing but its schema's targets.
-/// Namespaces and keys are sorted; `schema_targets` are permitted as keys
-/// whatever the permits say of their namespace.
+/// Every store is an allowlist (F6): a tag no namespace or tag here admits
+/// is refused, so both empty is a project permitting nothing.
+/// Namespaces and keys are sorted; `schema_targets` are the targets the
+/// store's rules constrain, permitted as any other tag is.
 #[derive(Serialize, Default)]
 pub struct PermitsJson {
-    pub declared: bool,
     pub namespaces: Vec<NamespaceJson>,
     pub tags: Vec<String>,
     pub schema_targets: Vec<String>,
@@ -222,12 +219,6 @@ impl PermitsJson {
     /// among the flat tags, spelled as declared.
     pub fn of(list: &PermitList) -> PermitsJson {
         let schema_targets = list.schema_targets.clone();
-        if !list.closed {
-            return PermitsJson {
-                schema_targets,
-                ..PermitsJson::default()
-            };
-        }
         let mut namespaces: BTreeMap<String, NamespaceJson> = BTreeMap::new();
         let mut tags = Vec::new();
         for pattern in &list.patterns {
@@ -254,7 +245,6 @@ impl PermitsJson {
             namespace.keys.clear();
         }
         PermitsJson {
-            declared: true,
             namespaces: namespaces.into_values().collect(),
             tags,
             schema_targets,

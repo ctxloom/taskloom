@@ -8,7 +8,10 @@
 //! tag-permits.plan.md's (session inept-sixth-stick) where they still hold;
 //! what tagma now decides (the refusal's code, an existing tag warned of
 //! rather than ignored, one area a task as `tagma.keys-per-item`) is said
-//! where it changed.
+//! where it changed. Every store is an allowlist from when it is made (the
+//! owner's ruling F6, 2026-11-02), seeded with the permits of its rules'
+//! targets and the core vocabulary: there is no open world, no first
+//! permit, and a permit is a presence.
 
 use angzarr_diagnostic::{code, Diagnostic, Report};
 
@@ -54,7 +57,7 @@ const HARPS: [&str; 6] = [
 ];
 
 /// A service with `permits` permitted in order (each made on the store
-/// the first one binds and makes): none, an open world.
+/// the first one binds and makes): none, the seeded permits alone.
 fn under(permits: &[&str]) -> Permits {
     let mut service = Service::new(
         FakeIdentity::default(),
@@ -75,7 +78,7 @@ fn under(permits: &[&str]) -> Permits {
 const USUAL: [&str; 4] = ["area:cli", "area:mcp", "relates:", "urgent"];
 
 /// The factual flags (ruling 14): bare keys of `triage:`, scored by
-/// nothing, permitted by a project key by key.
+/// nothing, seeded key by key (the core every project copies).
 const FLAGS: [&str; 7] = [
     "triage:security",
     "triage:data-loss",
@@ -86,8 +89,8 @@ const FLAGS: [&str; 7] = [
     "triage:flaky",
 ];
 
-/// The exact targets the seeded schema constrains, sorted: a first permit
-/// keeps each admitted.
+/// The exact targets the seeded schema constrains, sorted: the seed
+/// permits each.
 const SEEDED_TARGETS: [&str; 8] = [
     "triage:audited",
     "triage:blind-gate",
@@ -158,6 +161,25 @@ fn spelled(written: &Written) -> Vec<String> {
     written.task.tags.iter().map(ToString::to_string).collect()
 }
 
+/// A task written straight through the kernel, as a store from before
+/// its permits holds it: its tags were never judged by them.
+fn old_task(service: &Permits, harp: &str, tags: &[&str]) {
+    let add = tasks::AddTask {
+        harp_id: harp.to_string(),
+        text: "Old".to_string(),
+        tags: tags
+            .iter()
+            .map(|t| tagma_core::Tag::parse(t).unwrap().into())
+            .collect(),
+        status: None,
+        trigger: None,
+        origin_session: None,
+        defers: "Deferred".to_string(),
+        initial: "To Do".to_string(),
+    };
+    crate::fakes::run(service.stores.store.inner(), harp, add.into());
+}
+
 /// Whether `error` is tagma's `not-permitted` of `tag`.
 fn not_permitted(error: &AppError, tag: &str) -> bool {
     let shown = error.to_string();
@@ -172,7 +194,7 @@ fn not_permitted(error: &AppError, tag: &str) -> bool {
 // written.
 #[test]
 fn test_an_add_with_a_tag_not_permitted_is_refused_naming_it() {
-    for tag in ["area:host-hardening", "sig:foo=bar", "wibble"] {
+    for tag in ["area:host-hardening", "lang:foo=bar", "wibble"] {
         let mut service = under(&USUAL);
         let error = add(&mut service, &["urgent", tag]).unwrap_err();
         assert!(not_permitted(&error, tag), "{tag}: {error}");
@@ -226,13 +248,13 @@ fn test_a_permitted_key_may_carry_a_value() {
     assert_eq!(spelled(&written), ["area:cli=x"]);
 }
 
-// Ruling 14, as the first permit now keeps it: every target the store's
-// rules constrain (the seeded triage:* among them) is permitted by a
-// permit the first one declares, as a KEY: its namespace is not opened by
-// it. triage:was-release is declared nowhere, so it is refused.
+// Ruling 14, as the seed now has it: every target the store's rules
+// constrain (the seeded triage:* among them) is permitted from when the
+// store is made, as a KEY: its namespace is not opened by it.
+// triage:was-release is declared nowhere, so it is refused.
 #[test]
-fn test_the_rules_constrained_targets_stay_permitted_after_a_first_permit() {
-    let mut service = under(&["urgent"]);
+fn test_the_rules_constrained_targets_are_permitted_from_the_start() {
+    let mut service = under(&[]);
     let written = add(
         &mut service,
         &["triage:kind=defect", "triage:level=2", "triage:exposed=cli"],
@@ -260,13 +282,15 @@ fn test_release_has_one_form_and_permits_do_not_break_it() {
     }
 }
 
-// Ruling 6 (opt-in): a store declaring no permits admits every tag the
-// rest of its rules do.
+// F6: there is no opt-in. A store is an allowlist from when it is made, so
+// a new store refuses what its seeded permits do not admit.
 #[test]
-fn test_a_store_declaring_no_permits_stays_permissive() {
+fn test_a_new_store_refuses_a_tag_its_seeded_permits_do_not_admit() {
     let mut service = under(&[]);
-    let written = add(&mut service, &["area:host-hardening", "wibble"]).unwrap();
-    assert_eq!(written.task.tags.len(), 2);
+    for tag in ["area:host-hardening", "wibble"] {
+        let error = add(&mut service, &[tag]).unwrap_err();
+        assert!(not_permitted(&error, tag), "{tag}: {error}");
+    }
 }
 
 // A tag held from before the permits never refuses a write: it is an
@@ -274,11 +298,8 @@ fn test_a_store_declaring_no_permits_stays_permissive() {
 // whole set), and kept beside one added; removed, it is no longer there.
 #[test]
 fn test_a_tag_held_from_before_the_permits_is_warned_of_never_refused() {
-    let mut service = under(&[]);
-    add(&mut service, &["wibble", "area:host-hardening"]).unwrap();
-    for spelled in USUAL {
-        permit(&mut service, spelled).unwrap();
-    }
+    let mut service = under(&USUAL);
+    old_task(&service, "swift-amber", &["wibble", "area:host-hardening"]);
     let change = TagChange {
         harp_id: "swift-amber".to_string(),
         add: vec!["urgent".to_string()],
@@ -295,13 +316,19 @@ fn test_a_tag_held_from_before_the_permits_is_warned_of_never_refused() {
     assert_eq!(warned, ["not-permitted area:host-hardening"]);
 }
 
-// Ruling 14: the factual flags stay bare keys of `triage:`, permitted key
-// by key, and the targets the rules constrain (kind, level, blind-gate,
-// ...) stay permitted beside them, each still held to its rules; a key
-// neither permits is refused.
+// Ruling 14: the factual flags stay bare keys of `triage:`, seeded key by
+// key, and the targets the rules constrain (kind, level, blind-gate, ...)
+// are permitted beside them, each still held to its rules; a key neither
+// permits is refused.
 #[test]
-fn test_permitted_triage_flags_coexist_with_the_rules_targets() {
-    let mut service = under(&FLAGS);
+fn test_seeded_triage_flags_coexist_with_the_rules_targets() {
+    let mut service = under(&[]);
+    for flag in FLAGS {
+        assert!(
+            !permit(&mut service, flag).unwrap().changed,
+            "{flag} seeded"
+        );
+    }
     let written = add(
         &mut service,
         &[
@@ -327,11 +354,11 @@ fn test_permitted_triage_flags_coexist_with_the_rules_targets() {
 }
 
 // Ruling 14: triage:blind-gate is constrained by the seeded schema, so a
-// store permitting nothing else admits it, more than one gate at once (it
-// is repeatable), and refuses a gate not in its enum.
+// new store admits it, more than one gate at once (it is repeatable), and
+// refuses a gate not in its enum.
 #[test]
-fn test_blind_gate_is_permitted_by_its_rules_and_held_to_its_enum() {
-    let mut service = under(&["urgent"]);
+fn test_blind_gate_is_permitted_by_the_seed_and_held_to_its_enum() {
+    let mut service = under(&[]);
     let written = add(
         &mut service,
         &["triage:blind-gate=mutation", "triage:blind-gate=ci"],
@@ -345,19 +372,31 @@ fn test_blind_gate_is_permitted_by_its_rules_and_held_to_its_enum() {
     assert!(error.to_string().contains("not-in-enum"), "{error}");
 }
 
-// Ruling 13: no vocabulary is built in. A store permitting one tag refuses
-// every core target its rules do not constrain.
+// Ruling 13, as F6 seeds it: the core vocabulary is copied into every
+// store when it is made (seeded, so a project may revoke it), and a
+// project's own (its areas, its sibling repos, a flat tag) it permits
+// itself.
 #[test]
-fn test_no_vocabulary_is_built_in() {
-    let mut service = under(&["urgent"]);
-    for tag in [
+fn test_the_core_vocabulary_is_seeded_and_a_projects_own_is_not() {
+    let mut service = under(&[]);
+    let core = [
         "human:decision",
         "relates:calm-otter",
-        "area:cli",
-        "repo:annals",
+        "touches:justfile",
+        "sig:os.Mode",
         "queue:20261027",
+        r#"landed:"tag-permits""#,
         "platform:linux",
         "triage:security",
+    ];
+    let written = add(&mut service, &core).unwrap();
+    assert_eq!(written.task.tags.len(), core.len());
+    for tag in [
+        "area:cli",
+        "repo:annals",
+        "urgent",
+        "human:whim",
+        "platform:beos",
     ] {
         let error = add(&mut service, &[tag]).unwrap_err();
         assert!(not_permitted(&error, tag), "{tag}: {error}");
@@ -367,9 +406,8 @@ fn test_no_vocabulary_is_built_in() {
 // ------------------------------------------------------------ the list
 
 // Ruling 9: what is permitted is readable, by a person and an agent alike
-// (`taskloom permits`): the store's patterns, that its world is closed,
-// and every target its rules constrain, sorted, its own declarations
-// among them.
+// (`taskloom permits`): the store's patterns, and every target its rules
+// constrain, sorted, its own declarations among them.
 #[test]
 fn test_the_permits_are_listed_with_the_targets_the_rules_constrain() {
     let mut service = under(&USUAL);
@@ -379,7 +417,6 @@ fn test_the_permits_are_listed_with_the_targets_the_rules_constrain() {
     }))
     .unwrap();
     let listed = ready(service.permits()).unwrap();
-    assert!(listed.closed);
     let mut targets = vec!["area:x".to_string()];
     targets.extend(SEEDED_TARGETS.iter().map(|t| t.to_string()));
     assert_eq!(listed.schema_targets, targets);
@@ -392,18 +429,23 @@ fn test_the_permits_are_listed_with_the_targets_the_rules_constrain() {
     }
     assert!(
         !listed.patterns.contains(&"*:*".to_string()),
-        "closed, not permitted"
+        "an allowlist, never every tag"
     );
 }
 
-// Ruling 6 (opt-in), as the list says it: no permit declared is an open
-// world, not an empty allowlist.
+// F6, as the list says it: a new store's permits are the seed's.
 #[test]
-fn test_a_store_declaring_no_permits_lists_an_open_world() {
+fn test_a_new_store_lists_its_seeded_permits() {
     let mut service = under(&[]);
     let listed = ready(service.permits()).unwrap();
-    assert!(!listed.closed);
-    assert!(listed.patterns.is_empty());
+    let mut seeded: Vec<String> = crate::SEEDED_SCHEMA
+        .iter()
+        .filter_map(|spelled| tagma_core::Tag::parse(spelled).ok())
+        .filter(|tag| tag.namespace.as_deref() == Some("tagma.permit"))
+        .map(|tag| tag.key)
+        .collect();
+    seeded.sort();
+    assert_eq!(listed.patterns, seeded);
     assert_eq!(listed.schema_targets, SEEDED_TARGETS);
 }
 
@@ -414,9 +456,9 @@ fn test_a_store_declaring_no_permits_lists_an_open_world() {
 #[test]
 fn test_a_permit_grants_a_namespace_a_key_or_a_flat_tag() {
     for (spelled, pattern) in [
-        ("area:", r#"tagma.permit:"area:*"=true"#),
-        ("area:cli", r#"tagma.permit:"area:cli"=true"#),
-        ("urgent", "tagma.permit:urgent=true"),
+        ("area:", r#"tagma.permit:"area:*""#),
+        ("area:cli", r#"tagma.permit:"area:cli""#),
+        ("urgent", "tagma.permit:urgent"),
     ] {
         let mut service = under(&[]);
         let permitted = permit(&mut service, spelled).unwrap();
@@ -435,13 +477,19 @@ fn test_a_permit_grants_a_namespace_a_key_or_a_flat_tag() {
     }
 }
 
-// The opt-in moment: the first permit closes the world, and every tag
-// not permitted is refused from then on.
+// F6: no permit is the first. A permit declares its own pattern and
+// nothing else (no `"*:*"=false`, no target kept), and a tag no permit
+// admits is still refused.
 #[test]
-fn test_the_first_permit_closes_the_world() {
+fn test_a_permit_declares_its_pattern_alone() {
     let mut service = under(&[]);
+    add(&mut service, &[]).unwrap();
+    let before = export(&mut service);
     permit(&mut service, "area:cli").unwrap();
-    assert!(export(&mut service).contains(&canonical(r#"tagma.permit:"*:*"=false"#)));
+    let after = export(&mut service);
+    let added: Vec<&String> = after.iter().filter(|t| !before.contains(t)).collect();
+    assert_eq!(added, [&canonical(r#"tagma.permit:"area:cli""#)]);
+    assert!(before.iter().all(|t| after.contains(t)));
     let error = add(&mut service, &["wibble"]).unwrap_err();
     assert!(not_permitted(&error, "wibble"), "{error}");
 }
@@ -511,9 +559,9 @@ fn test_a_permit_not_spelled_as_one_is_refused_and_nothing_declared() {
 #[test]
 fn test_a_revoke_no_task_needs_removes_the_permit() {
     for (spelled, pattern) in [
-        ("area:mcp", r#"tagma.permit:"area:mcp"=true"#),
-        ("relates:", r#"tagma.permit:"relates:*"=true"#),
-        ("urgent", "tagma.permit:urgent=true"),
+        ("area:mcp", r#"tagma.permit:"area:mcp""#),
+        ("relates:", r#"tagma.permit:"relates:*""#),
+        ("urgent", "tagma.permit:urgent"),
     ] {
         let mut service = under(&USUAL);
         let revoked = revoke(&mut service, spelled).unwrap();
@@ -566,10 +614,11 @@ fn test_a_finished_task_still_carrying_a_permit_blocks_its_revoke() {
 
 // A revoke of what is not among the permits is refused: a pattern never
 // declared (a key under a namespace permitted whole is no pattern of its
-// own: revoke the namespace's), and anything where none is declared.
+// own: revoke the namespace's), and anything a new store's seed does not
+// permit.
 #[test]
 fn test_a_revoke_of_what_is_not_among_the_permits_is_refused() {
-    for spelled in ["sig:", "area:config", "relates:calm-otter", "wibble"] {
+    for spelled in ["lang:", "area:config", "relates:calm-otter", "wibble"] {
         let mut service = under(&USUAL);
         let error = revoke(&mut service, spelled).unwrap_err();
         assert_eq!(
@@ -635,23 +684,14 @@ fn test_a_flat_tags_revoke_is_blocked_only_by_that_flat_tag() {
 // permitted area gets both findings.
 #[test]
 fn test_lint_reports_a_stored_tag_the_permits_do_not_permit() {
-    let mut service = under(&[]);
-    ready(service.declare(Declaration {
-        add: vec![],
-        remove: vec!["tagma.keys-per-item:area=1".to_string()],
-    }))
-    .unwrap();
-    add(&mut service, &["area:host-hardening", "area:cli", "urgent"]).unwrap();
-    add(&mut service, &["wibble"]).unwrap();
+    let mut service = under(&USUAL);
+    old_task(
+        &service,
+        "swift-amber",
+        &["area:host-hardening", "area:cli", "urgent"],
+    );
+    old_task(&service, "calm-otter", &["wibble"]);
     moved(&mut service, "calm-otter", "Deferred");
-    ready(service.declare(Declaration {
-        add: vec!["tagma.keys-per-item:area=1".to_string()],
-        remove: vec![],
-    }))
-    .unwrap();
-    for spelled in USUAL {
-        permit(&mut service, spelled).unwrap();
-    }
     assert_eq!(
         lint_findings(&mut service),
         [
@@ -673,27 +713,23 @@ fn test_lint_reports_a_stored_tag_the_permits_do_not_permit() {
 // them shows the lint did look.
 #[test]
 fn test_lint_leaves_a_closed_rows_permits_alone() {
-    let mut service = under(&[]);
-    add(&mut service, &["area:host-hardening"]).unwrap();
-    add(&mut service, &["wibble"]).unwrap();
-    add(&mut service, &["wibble"]).unwrap();
+    let mut service = under(&USUAL);
+    old_task(&service, "swift-amber", &["area:host-hardening"]);
+    old_task(&service, "calm-otter", &["wibble"]);
+    old_task(&service, "brisk-oak", &["wibble"]);
     moved(&mut service, "swift-amber", "Done");
     moved(&mut service, "calm-otter", "Archived");
-    for spelled in USUAL {
-        permit(&mut service, spelled).unwrap();
-    }
     let found = lint_findings(&mut service);
     let subjects: Vec<&str> = found.iter().map(|(harp, _)| harp.as_str()).collect();
     assert_eq!(subjects, ["brisk-oak"], "{found:?}");
 }
 
-// Review (2026-10-27): one area and one repo a task holds everywhere, not
-// only where a store declares permits; it is the seeded
-// `tagma.keys-per-item`, so a write is refused a second one and lint
-// reports a task that carries two from before the rule.
+// Review (2026-10-27): one area and one repo a task holds in every store;
+// it is the seeded `tagma.keys-per-item`, so a write is refused a second
+// one and lint reports a task that carries two from before the rule.
 #[test]
-fn test_one_area_and_one_repo_a_task_hold_where_no_permit_is_declared() {
-    let mut service = under(&[]);
+fn test_one_area_and_one_repo_a_task_hold_in_every_store() {
+    let mut service = under(&["area:cli", "area:mcp", "repo:a", "repo:b"]);
     let error = add(&mut service, &["area:cli", "area:mcp"]).unwrap_err();
     assert!(error.to_string().contains("too-many-keys"), "{error}");
     ready(service.declare(Declaration {
@@ -809,9 +845,16 @@ fn test_the_import_moves_the_old_declarations_into_tagmas_facets() {
             imported.tags
         );
     }
-    assert!(
-        !imported.tags.iter().any(|t| t.starts_with("tagma.permit")),
-        "no tag_permits, no permit"
+    let seeded: Vec<String> = crate::SEEDED_SCHEMA.iter().map(|s| canonical(s)).collect();
+    let permits: Vec<&String> = imported
+        .tags
+        .iter()
+        .filter(|t| t.starts_with("tagma.permit") && !seeded.contains(t))
+        .collect();
+    assert_eq!(
+        permits,
+        [&canonical(r#"tagma.permit:"area:x""#)],
+        "beside the seed's, the one target the file declared rules for"
     );
     assert_eq!(service.configuration.retired, 1);
     assert!(ready(service.list(crate::ListQuery::default())).is_ok());
@@ -820,11 +863,11 @@ fn test_the_import_moves_the_old_declarations_into_tagmas_facets() {
     assert_eq!(again.tags, imported.tags);
 }
 
-// The old permits become tagma.permit patterns, the world closed, and
-// every target the rules constrain (the imported ones among them) stays
-// permitted, as the old permits admitted a declared target without one.
+// The old permits become tagma.permit patterns, each a presence (F6: no
+// world to close), and each target the file declared rules for is
+// permitted, as the file admitted a declared target without one.
 #[test]
-fn test_the_import_moves_the_old_permits_and_keeps_the_declared_targets() {
+fn test_the_import_moves_the_old_permits_and_permits_the_declared_targets() {
     let mut permits = ports::TagPermits::default();
     permits.namespaces.insert(
         "area".to_string(),
@@ -840,13 +883,20 @@ fn test_the_import_moves_the_old_permits_and_keeps_the_declared_targets() {
         ..OldConfig::default()
     });
     let imported = ready(service.import_config()).unwrap();
+    assert!(
+        !imported
+            .tags
+            .iter()
+            .any(|t| t.contains("=true") || t.contains("=false")),
+        "no permit carries a value: {:?}",
+        imported.tags
+    );
     for tag in [
-        r#"tagma.permit:"*:*"=false"#,
-        r#"tagma.permit:"area:cli"=true"#,
-        r#"tagma.permit:"relates:*"=true"#,
-        "tagma.permit:urgent=true",
-        r#"tagma.permit:"lang:x"=true"#,
-        r#"tagma.permit:"triage:kind"=true"#,
+        r#"tagma.permit:"area:cli""#,
+        r#"tagma.permit:"relates:*""#,
+        "tagma.permit:urgent",
+        r#"tagma.permit:"lang:x""#,
+        r#"tagma.permit:"triage:kind""#,
     ] {
         assert!(
             imported.tags.contains(&canonical(tag)),

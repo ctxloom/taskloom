@@ -52,6 +52,7 @@ fn test_the_rules_are_the_stores_seeded_until_declared_otherwise() {
             r#"tagma.range:"triage:level"=1..9"#,
             r#"tagma.enum:"area:x"=a"#,
             r#"tagma.enum:"area:x"=b"#,
+            r#"tagma.permit:"area:x""#,
         ],
         &[r#"tagma.range:"triage:level"=1..5"#],
     );
@@ -94,6 +95,7 @@ fn test_a_malformed_configuration_refuses_the_command_and_says_where() {
 fn test_a_scalar_tag_displaces_its_old_value() {
     let env = Env::new("calm-otter-fox");
     let task = env.seed("Ship it");
+    env.permit_every_tag();
     let harp = task["harp_id"].as_str().unwrap();
     for level in ["triage:level=3", "triage:level=1"] {
         let ran = env.run(&["tag", harp, "--add", level, "--add", "x", "--json"]);
@@ -128,6 +130,7 @@ fn test_two_values_for_a_scalar_target_in_one_write_keep_the_last() {
 #[test]
 fn test_list_selects_by_a_postfix_tag_query_and_refuses_infix() {
     let env = Env::new("calm-otter-fox");
+    env.permit_every_tag();
     for (text, tag) in [
         ("one", "urgent"),
         ("two", "release"),
@@ -161,6 +164,7 @@ fn test_list_selects_by_a_postfix_tag_query_and_refuses_infix() {
 fn test_a_tag_the_schema_hides_is_left_out_of_text_and_kept_in_json() {
     let env = Env::new("calm-otter-fox");
     env.seed("First");
+    env.permit_every_tag();
     declare(&env, &[r#"tagma.hide:"triage:cwe"=true"#], &[]);
     let ran = env.run(&[
         "add",

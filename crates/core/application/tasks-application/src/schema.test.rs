@@ -51,15 +51,58 @@ type Store = Service<FakeIdentity, FakeStores, FakeNames, FakeClock, FakeDelay, 
 
 const HARPS: [&str; 4] = ["swift-amber", "calm-otter", "brisk-oak", "lone-elm"];
 
-fn service() -> Store {
+/// A service over `identity` and `stores`.
+fn over(identity: FakeIdentity, stores: FakeStores) -> Store {
     Service::new(
-        FakeIdentity::default(),
-        FakeStores::default(),
+        identity,
+        stores,
         FakeNames::of(&HARPS),
         FakeClock::default(),
         FakeDelay::default(),
     )
     .with_configuration(Files::default())
+}
+
+/// A service whose store permits every tag, so a rule other than the
+/// permits is judged alone.
+fn service() -> Store {
+    over(FakeIdentity::bound(), FakeStores::permitting_every_tag())
+}
+
+/// A service whose store is made by its first write, as every store is.
+fn fresh() -> Store {
+    over(FakeIdentity::default(), FakeStores::default())
+}
+
+/// The seed as it was before every store was an allowlist (F6): its rules
+/// alone, no permit.
+fn seed_without_permits() -> Vec<&'static str> {
+    SEEDED_SCHEMA
+        .iter()
+        .copied()
+        .filter(|spelled| !spelled.starts_with("tagma.permit:"))
+        .collect()
+}
+
+/// What `service`'s store's schema stream holds, as it holds it: no use
+/// case reads it unread.
+fn held(service: &Store) -> Vec<String> {
+    let registry = crate::registry();
+    let (schema, _) = ready(
+        angzarr_embedded::Kernel::new(&registry).load::<tasks::schema::SchemaAggregate, _>(
+            service.stores.store.inner(),
+            &crate::schema::schema_stream(),
+        ),
+    )
+    .unwrap();
+    crate::rules::StoreRules::held(schema.state().state()).export()
+}
+
+/// `spelled`, each canonically, sorted.
+fn sorted(spelled: &[&str]) -> Vec<String> {
+    let mut all: Vec<String> = spelled.iter().map(|s| canonical(s)).collect();
+    all.sort();
+    all
 }
 
 fn add(service: &mut Store, tags: &[&str]) -> Result<Written, AppError> {
@@ -138,7 +181,7 @@ fn test_the_seeded_schema_is_tagma_syntax_in_its_canonical_spelling() {
 
 #[test]
 fn test_a_new_store_is_seeded_with_the_built_in_rules_when_it_is_made() {
-    let mut service = service();
+    let mut service = fresh();
     add(&mut service, &[]).unwrap();
     let mut seeded: Vec<String> = SEEDED_SCHEMA.iter().map(|s| s.to_string()).collect();
     seeded.sort();
@@ -147,7 +190,7 @@ fn test_a_new_store_is_seeded_with_the_built_in_rules_when_it_is_made() {
 
 #[test]
 fn test_a_store_made_before_the_schema_stream_is_seeded_on_first_open() {
-    let mut service = service();
+    let mut service = fresh();
     // The store made, and an old task in it, with no schema stream.
     add(&mut service, &[]).unwrap();
     old_task(&service, "calm-otter", &["area:cli"]);
@@ -167,6 +210,94 @@ fn test_a_store_made_before_the_schema_stream_is_seeded_on_first_open() {
     // Seeded once: a declare after it is not undone by a second open.
     declare(&mut migrated, &[], &["tagma.keys-per-item:area=1"]);
     assert_eq!(export(&mut migrated).len(), SEEDED_SCHEMA.len() - 1);
+}
+
+// F6: every store is an allowlist from when it is made, so the seed
+// permits every target it constrains (or a seeded rule could never be
+// met).
+#[test]
+fn test_every_target_the_seed_constrains_is_permitted_by_it() {
+    let seed = crate::rules::StoreRules::default();
+    let permits = seed.permits();
+    for target in seed.targets() {
+        assert!(permits.contains(&target), "{target} in {permits:?}");
+    }
+}
+
+// A store closed before permits were presences (F6): its `=true` permits
+// are kept as presences, its `"*:*"=false` dropped (every store is closed
+// now), and the seed's permits declared beside them, on its first open,
+// by a read as by a write; a read alone writes nothing.
+#[test]
+fn test_a_store_closed_before_permits_were_presences_is_seeded_as_an_allowlist() {
+    let mut service = over(FakeIdentity::bound(), FakeStores::default());
+    let mut old = seed_without_permits();
+    old.extend([
+        r#"tagma.permit:"*:*"=false"#,
+        r#"tagma.permit:"area:cli"=true"#,
+        r#"tagma.permit:"lang:*"=true"#,
+    ]);
+    crate::fakes::declared(service.stores.store.inner(), &old);
+    old_task(&service, "calm-otter", &["area:cli", "wibble"]);
+    let before = held(&service);
+    let listed = ready(service.list(ListQuery::default())).unwrap();
+    assert_eq!(listed.tasks().count(), 1);
+    assert_eq!(held(&service), before, "a read writes nothing");
+    let mut expected: Vec<&str> = SEEDED_SCHEMA.to_vec();
+    expected.extend([r#"tagma.permit:"area:cli""#, r#"tagma.permit:"lang:*""#]);
+    assert_eq!(export(&mut service), sorted(&expected));
+    assert_eq!(held(&service), sorted(&expected), "seeded on its open");
+    assert!(add(&mut service, &["area:cli", "lang:en"]).is_ok());
+    let error = add(&mut service, &["wibble"]).unwrap_err();
+    assert!(error.to_string().contains("not-permitted"), "{error}");
+    let kept = tag(&mut service, "calm-otter", &["lang:fr"], &[]).unwrap();
+    let warned: Vec<String> = kept.warnings().iter().map(|f| f.tag.to_string()).collect();
+    assert_eq!(warned, ["wibble"], "an old tag is warned of, never refused");
+}
+
+// A store open before every store was an allowlist (F6: one declaring no
+// permit) is seeded with the seed's permits, as a store made now is.
+#[test]
+fn test_a_store_open_before_every_store_was_an_allowlist_is_seeded_with_its_permits() {
+    let mut service = over(FakeIdentity::bound(), FakeStores::default());
+    crate::fakes::declared(service.stores.store.inner(), &seed_without_permits());
+    old_task(&service, "calm-otter", &["wibble"]);
+    assert!(add(&mut service, &["triage:kind=defect", "relates:calm-otter"]).is_ok());
+    assert_eq!(held(&service), sorted(&SEEDED_SCHEMA), "seeded on its open");
+    let error = add(&mut service, &["wibble"]).unwrap_err();
+    assert!(error.to_string().contains("not-permitted"), "{error}");
+}
+
+// Permits once presences are the store's own: a seeded one revoked is not
+// seeded again, and a declared rule is kept.
+#[test]
+fn test_a_store_holding_its_permits_as_presences_is_read_as_it_holds_them() {
+    let mut service = fresh();
+    add(&mut service, &[]).unwrap();
+    ready(service.revoke(PermitChange {
+        permit: "landed:".to_string(),
+    }))
+    .unwrap();
+    let revoked = export(&mut service);
+    assert!(!revoked.contains(&canonical(r#"tagma.permit:"landed:*""#)));
+    assert_eq!(held(&service), revoked);
+    assert_eq!(export(&mut service), revoked, "not seeded again");
+}
+
+// A store left with no permit (each one revoked or removed) is read with
+// the seed's, as a store with no schema stream is read with the seed:
+// there is no store permitting nothing.
+#[test]
+fn test_a_store_left_with_no_permit_is_read_with_the_seeds_permits() {
+    let mut service = fresh();
+    add(&mut service, &[]).unwrap();
+    let permits: Vec<&str> = SEEDED_SCHEMA
+        .iter()
+        .copied()
+        .filter(|spelled| spelled.starts_with("tagma.permit:"))
+        .collect();
+    declare(&mut service, &[], &permits);
+    assert_eq!(export(&mut service), sorted(&SEEDED_SCHEMA));
 }
 
 #[test]
@@ -323,22 +454,45 @@ fn test_a_task_may_carry_no_tag_in_the_taskloom_namespace() {
 }
 
 // The formulas are taskloom's (ranking, not a constraint), so tagma's
-// check never sees them as one of its facets: a seeded store checks
-// clean, and the old `tagma.priority_fn` spelling is tagma's
-// `unknown-facet`.
+// check never sees them as one of its facets, and the old
+// `tagma.priority_fn` spelling is tagma's `unknown-facet`. A new store
+// permits no `area:` or `repo:` key (a project's own, it permits them
+// itself), so tagma says its one-a-task limits constrain nothing yet;
+// once the project permits one of each, the seeded store checks clean.
 #[test]
-fn test_check_is_tagmas_and_the_seeded_store_checks_clean() {
-    let mut service = service();
+fn test_check_is_tagmas_and_a_seeded_store_permitting_its_areas_checks_clean() {
+    let mut service = fresh();
     add(&mut service, &[]).unwrap();
-    assert_eq!(ready(service.schema_check(None)).unwrap(), []);
-    declare(&mut service, &[r#"tagma.priority_fn:"x:y"="1""#], &[]);
-    let found = ready(service.schema_check(None)).unwrap();
-    let codes: Vec<(&str, String)> = found
-        .iter()
-        .map(|f| (f.code.as_str(), f.tag.to_string()))
-        .collect();
+    let codes = |service: &mut Store| -> Vec<(&'static str, String)> {
+        let found = ready(service.schema_check(None)).unwrap();
+        found
+            .iter()
+            .map(|f| (f.code.as_str(), f.tag.to_string()))
+            .collect()
+    };
     assert_eq!(
-        codes,
+        codes(&mut service),
+        [
+            (
+                "rule-on-unpermitted",
+                canonical("tagma.keys-per-item:area=1")
+            ),
+            (
+                "rule-on-unpermitted",
+                canonical("tagma.keys-per-item:repo=1")
+            ),
+        ]
+    );
+    for permit in ["area:cli", "repo:tagma"] {
+        ready(service.permit(PermitChange {
+            permit: permit.to_string(),
+        }))
+        .unwrap();
+    }
+    assert_eq!(codes(&mut service), []);
+    declare(&mut service, &[r#"tagma.priority_fn:"x:y"="1""#], &[]);
+    assert_eq!(
+        codes(&mut service),
         [("unknown-facet", canonical(r#"tagma.priority_fn:"x:y"="1""#))]
     );
 }
@@ -361,25 +515,25 @@ fn test_a_declare_of_a_tasks_tag_is_refused() {
 
 // --------------------------------------------- permit and revoke
 
+// F6: a store is an allowlist from when it is made, so a permit declares
+// its own pattern and nothing else: no world to close, no target to keep.
 #[test]
-fn test_a_first_permit_closes_the_world_and_keeps_the_declared_targets_admitted() {
-    let mut service = service();
+fn test_a_permit_declares_its_pattern_and_nothing_else() {
+    let mut service = fresh();
     add(&mut service, &[]).unwrap();
+    let error = add(&mut service, &["area:cli"]).unwrap_err();
+    assert!(error.to_string().contains("not-permitted"), "{error}");
     ready(service.permit(PermitChange {
         permit: "area:".to_string(),
     }))
     .unwrap();
-    let exported = export(&mut service);
-    for expected in [
-        r#"tagma.permit:"*:*"=false"#,
-        r#"tagma.permit:"area:*"=true"#,
-    ] {
-        assert!(exported.contains(&canonical(expected)), "{expected}");
-    }
+    let mut expected: Vec<&str> = SEEDED_SCHEMA.to_vec();
+    expected.push(r#"tagma.permit:"area:*""#);
+    assert_eq!(export(&mut service), sorted(&expected));
     assert!(add(&mut service, &["area:cli"]).is_ok());
     assert!(
         add(&mut service, &["triage:kind=defect"]).is_ok(),
-        "a target the schema declares rules for stays admitted"
+        "a target the seed constrains, the seed permits"
     );
     let error = add(&mut service, &["lang:en"]).unwrap_err();
     assert!(error.to_string().contains("not-permitted"), "{error}");
@@ -387,12 +541,12 @@ fn test_a_first_permit_closes_the_world_and_keeps_the_declared_targets_admitted(
 
 #[test]
 fn test_each_permit_spelling_is_its_tagma_permit_pattern() {
-    let mut service = service();
+    let mut service = fresh();
     add(&mut service, &[]).unwrap();
     for (permit, pattern) in [
-        ("area:", r#"tagma.permit:"area:*"=true"#),
-        ("repo:tagma", r#"tagma.permit:"repo:tagma"=true"#),
-        ("urgent", "tagma.permit:urgent=true"),
+        ("area:", r#"tagma.permit:"area:*""#),
+        ("repo:tagma", r#"tagma.permit:"repo:tagma""#),
+        ("urgent", "tagma.permit:urgent"),
     ] {
         ready(service.permit(PermitChange {
             permit: permit.to_string(),
@@ -407,7 +561,7 @@ fn test_each_permit_spelling_is_its_tagma_permit_pattern() {
 
 #[test]
 fn test_a_revoke_of_what_tasks_still_carry_is_refused_listing_them() {
-    let mut service = service();
+    let mut service = fresh();
     add(&mut service, &[]).unwrap();
     ready(service.permit(PermitChange {
         permit: "area:".to_string(),
@@ -425,12 +579,12 @@ fn test_a_revoke_of_what_tasks_still_carry_is_refused_listing_them() {
             harp_ids: vec!["calm-otter".to_string()],
         }
     );
-    assert!(export(&mut service).contains(&canonical(r#"tagma.permit:"area:*"=true"#)));
+    assert!(export(&mut service).contains(&canonical(r#"tagma.permit:"area:*""#)));
 }
 
 #[test]
 fn test_a_revoke_no_task_needs_removes_its_permit_from_the_schema() {
-    let mut service = service();
+    let mut service = fresh();
     add(&mut service, &[]).unwrap();
     for permit in ["area:", "lang:"] {
         ready(service.permit(PermitChange {
@@ -443,6 +597,6 @@ fn test_a_revoke_no_task_needs_removes_its_permit_from_the_schema() {
     }))
     .unwrap();
     let exported = export(&mut service);
-    assert!(!exported.contains(&canonical(r#"tagma.permit:"lang:*"=true"#)));
-    assert!(exported.contains(&canonical(r#"tagma.permit:"area:*"=true"#)));
+    assert!(!exported.contains(&canonical(r#"tagma.permit:"lang:*""#)));
+    assert!(exported.contains(&canonical(r#"tagma.permit:"area:*""#)));
 }

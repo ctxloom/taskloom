@@ -19,10 +19,24 @@ use crate::{
 
 type Fake = Service<FakeIdentity, FakeStores, FakeNames, FakeClock, FakeDelay>;
 
-fn service(names: &[&str]) -> Fake {
+/// A service where no project is bound yet, whose store its first write
+/// makes, as every store is made.
+fn plain(names: &[&str]) -> Fake {
     Service::new(
         FakeIdentity::default(),
         FakeStores::default(),
+        FakeNames::of(names),
+        FakeClock::default(),
+        FakeDelay::default(),
+    )
+}
+
+/// A service whose project's store permits every tag, so a write is
+/// judged by the rules it is about alone.
+fn service(names: &[&str]) -> Fake {
+    Service::new(
+        FakeIdentity::bound(),
+        FakeStores::permitting_every_tag(),
         FakeNames::of(names),
         FakeClock::default(),
         FakeDelay::default(),
@@ -137,7 +151,7 @@ fn test_an_add_mints_a_harp_and_answers_with_the_task_and_its_project() {
 
 #[test]
 fn test_an_add_whose_harp_is_taken_mints_another_with_a_fresh_command_id() {
-    let mut service = service(&["swift-amber", "swift-amber", "calm-otter"]);
+    let mut service = plain(&["swift-amber", "swift-amber", "calm-otter"]);
     add(&mut service, new_task("First")).unwrap();
     let second = add(&mut service, new_task("Second")).unwrap();
     assert_eq!(second.task.harp_id, "calm-otter");
@@ -215,7 +229,7 @@ fn test_an_add_the_domain_refuses_is_refused_before_anything_is_bound_or_created
             },
         ),
     ] {
-        let mut service = service(&["swift-amber"]);
+        let mut service = plain(&["swift-amber"]);
         let error = add(&mut service, task).unwrap_err();
         let AppError::Rejected(rejection) = &error else {
             panic!("rejected: {error:?}");
@@ -226,7 +240,7 @@ fn test_an_add_the_domain_refuses_is_refused_before_anything_is_bound_or_created
         assert!(service.stores.opened.is_empty(), "no store opened");
         assert_eq!(service.names.minted, 0, "no harp minted");
     }
-    let mut service = service(&["swift-amber"]);
+    let mut service = plain(&["swift-amber"]);
     let written = add(&mut service, deferred(Some("the release"))).unwrap();
     assert_eq!(written.task.trigger, "the release");
     assert_eq!(service.identity.writes, 1);
@@ -302,7 +316,7 @@ fn test_an_add_leaving_out_status_trigger_and_session_is_to_do_with_none() {
 
 #[test]
 fn test_an_add_retries_its_one_command_id_through_store_failures() {
-    let mut service = service(&["swift-amber"]);
+    let mut service = plain(&["swift-amber"]);
     // The store's schema seeded first, so the faults fall on the add.
     ready(service.writes().seeded(&project())).unwrap();
     service
@@ -800,7 +814,7 @@ fn test_a_tag_of_no_task_is_refused() {
 
 #[test]
 fn test_a_tag_where_there_is_no_project_fails_and_binds_none() {
-    let mut service = service(&[]);
+    let mut service = plain(&[]);
     let unpinned = TagChange {
         project: None,
         ..change("swift-amber", &["x"], &[])
@@ -1055,11 +1069,11 @@ fn test_a_status_class_is_no_status_to_move_to() {
 
 #[test]
 fn test_a_status_change_of_no_task_or_where_there_is_none_is_refused() {
-    let mut held = service(&["swift-amber"]);
+    let mut held = plain(&["swift-amber"]);
     add(&mut held, new_task("Ship it")).unwrap();
     let error = ready(held.set_status(moved("calm-otter", "Done", None))).unwrap_err();
     assert_eq!(error.code(), tasks::TaskRejection::NoTask.code());
-    let mut nowhere = service(&[]);
+    let mut nowhere = plain(&[]);
     let unpinned = StatusChange {
         project: None,
         ..moved("swift-amber", "Done", None)
@@ -1067,7 +1081,7 @@ fn test_a_status_change_of_no_task_or_where_there_is_none_is_refused() {
     let error = ready(nowhere.set_status(unpinned)).unwrap_err();
     assert_eq!(error, AppError::NoProject);
     assert!(nowhere.stores.opened.is_empty() && nowhere.stores.looked.is_empty());
-    let mut storeless = service(&[]);
+    let mut storeless = plain(&[]);
     storeless.stores.absent = true;
     let error = ready(storeless.set_status(moved("swift-amber", "Done", None))).unwrap_err();
     assert_eq!(error.code(), tasks::TaskRejection::NoTask.code());
@@ -1148,13 +1162,13 @@ fn test_an_edit_replaces_the_text_whole_and_keeps_the_status_and_trigger() {
 
 #[test]
 fn test_an_edit_to_no_text_or_no_task_is_refused() {
-    let mut service = service(&["swift-amber"]);
+    let mut service = plain(&["swift-amber"]);
     add(&mut service, new_task("Ship it")).unwrap();
     let error = ready(service.edit(edited("swift-amber", " "))).unwrap_err();
     assert_eq!(error.code(), tasks::TaskRejection::TextRequired.code());
     let error = ready(service.edit(edited("calm-otter", "x"))).unwrap_err();
     assert_eq!(error.code(), tasks::TaskRejection::NoTask.code());
-    let mut nowhere = self::service(&[]);
+    let mut nowhere = plain(&[]);
     let unpinned = TextEdit {
         project: None,
         ..edited("swift-amber", "x")
@@ -1314,7 +1328,7 @@ fn test_a_list_answers_with_each_tasks_values_and_its_project() {
 
 #[test]
 fn test_a_list_where_there_is_no_project_in_a_work_root_is_empty_and_opens_no_store() {
-    let mut service = service(&[]);
+    let mut service = plain(&[]);
     let listing = ready(service.list(ListQuery::default())).unwrap();
     assert_eq!(listing.reach, crate::Reach::NoProject);
     assert!(listing.rows.is_empty());
@@ -1343,7 +1357,7 @@ fn test_a_list_of_a_project_with_no_store_yet_is_empty_and_creates_none() {
 
 #[test]
 fn test_a_list_opens_its_store_to_read() {
-    let mut service = service(&["swift-amber"]);
+    let mut service = plain(&["swift-amber"]);
     add(&mut service, new_task("Ship it")).unwrap();
     listed(&mut service, ListQuery::default());
     assert_eq!(service.stores.opened, ["jolly-mute-magma"], "the add's");
@@ -1390,7 +1404,7 @@ fn spelled(tags: &[tasks::Tag]) -> Vec<String> {
 // read looks) does not make an add that committed report failure.
 #[test]
 fn test_an_add_answers_the_task_its_commit_left_whatever_reads_after_it() {
-    let mut service = service(&["swift-amber"]);
+    let mut service = plain(&["swift-amber"]);
     service.stores.store.hollow(true);
     let written = add(&mut service, new_task("Ship it")).unwrap();
     assert_eq!(written.task.harp_id, "swift-amber");
@@ -1819,13 +1833,16 @@ fn test_a_blank_request_id_is_refused_before_anything_is_read() {
 
 // ------------------------------------------------------- the seed's race
 
-/// Another process seeding `store`'s schema stream with `tag` alone.
-fn seeded_meanwhile(store: &angzarr_embedded::angzarr_ports::memory::MemoryStore, tag: &str) {
+/// Another process seeding `store`'s schema stream with `tags` alone.
+fn seeded_meanwhile(store: &angzarr_embedded::angzarr_ports::memory::MemoryStore, tags: &[&str]) {
     use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover};
     use angzarr_embedded::{Kernel, Sampled};
     let registry = crate::registry();
     let declare = tasks::schema::Declare {
-        add: vec![tagma_core::Tag::parse(tag).unwrap().into()],
+        add: tags
+            .iter()
+            .map(|tag| tagma_core::Tag::parse(tag).unwrap().into())
+            .collect(),
         remove: vec![],
     };
     let book = CommandBook {
@@ -1876,13 +1893,18 @@ fn schema_events(service: &mut Fake) -> usize {
 // lands just before the kernel's own read of the stream.
 #[test]
 fn test_a_seed_racing_another_lands_once_and_keeps_the_others() {
-    let mut service = service(&["swift-amber"]);
+    let mut service = plain(&["swift-amber"]);
     // The reads: the schema's first load, the seed's shaping load, then
     // the kernel's own for the send: the other's seed lands before that.
     service.stores.store.before_nth(
         At::Read,
         3,
-        Box::new(|store: &MemoryStore| seeded_meanwhile(store, "tagma.keys-per-item:lang=1")),
+        Box::new(|store: &MemoryStore| {
+            seeded_meanwhile(
+                store,
+                &["tagma.keys-per-item:lang=1", r#"tagma.permit:"lang:*""#],
+            )
+        }),
     );
     add(&mut service, new_task("Ship it")).unwrap();
     assert!(service.stores.store.ran(At::Read), "the other seeded");
@@ -1891,7 +1913,7 @@ fn test_a_seed_racing_another_lands_once_and_keeps_the_others() {
     let exported = ready(crate::SchemaService::schema_export(&mut service, None)).unwrap();
     assert_eq!(
         exported,
-        ["tagma.keys-per-item:lang=1"],
+        ["tagma.keys-per-item:lang=1", r#"tagma.permit:"lang:*""#],
         "the other's seed stands"
     );
 }
@@ -1900,13 +1922,23 @@ fn test_a_seed_racing_another_lands_once_and_keeps_the_others() {
 // holds: an emptied schema stays empty.
 #[test]
 fn test_a_declared_store_is_never_seeded_again() {
-    let mut service = configured(&[]);
+    let mut service = plain(&["swift-amber", "calm-otter"]).with_configuration(FakeConfiguration {
+        declarations: Vec::new(),
+        asked: 0,
+    });
     ready(service.add(new_task("Ship it"))).unwrap();
-    let every: Vec<&str> = crate::SEEDED_SCHEMA.to_vec();
-    declare(&mut service, &[], &every);
+    let (permits, rules): (Vec<&str>, Vec<&str>) = crate::SEEDED_SCHEMA
+        .iter()
+        .partition(|spelled| spelled.starts_with("tagma.permit:"));
+    declare(&mut service, &[], &rules);
     ready(service.add(new_task("Again"))).unwrap();
     let exported = ready(crate::SchemaService::schema_export(&mut service, None)).unwrap();
-    assert!(exported.is_empty(), "{exported:?}");
+    let mut seeded: Vec<String> = permits
+        .iter()
+        .map(|spelled| tagma_core::Tag::parse(spelled).unwrap().to_string())
+        .collect();
+    seeded.sort();
+    assert_eq!(exported, seeded, "the rules removed stay removed");
 }
 
 /// The domain's refusal of a status that starts with the class sigil: its

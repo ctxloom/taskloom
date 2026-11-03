@@ -280,6 +280,21 @@ impl Env {
         added.json()
     }
 
+    /// Permit every tag in the project's store (`tagma.permit:"*:*"`),
+    /// minting the project and making its store if need be, so a test of
+    /// anything but the permits writes whatever tags it names: every store
+    /// is an allowlist from when it is made (F6).
+    fn permit_every_tag(&self) {
+        let ran = self.run(&[
+            "schema",
+            "declare",
+            "--add",
+            r#"tagma.permit:"*:*""#,
+            "--json",
+        ]);
+        assert!(ran.ok, "permit every tag: {}", ran.stderr);
+    }
+
     /// The registry's entries, as `project_id` lines.
     fn registered(&self) -> Vec<String> {
         let index = self.home.path().join(".ctxloom/projects/index.yaml");
@@ -458,6 +473,7 @@ fn test_concurrent_tags_of_one_task_lose_no_tag() {
         .as_str()
         .expect("a harp id")
         .to_string();
+    env.permit_every_tag();
 
     let n = 40;
     let ran = concurrently(&env, n, |i| {
@@ -487,7 +503,15 @@ fn test_concurrent_tags_of_one_task_lose_no_tag() {
 #[test]
 fn test_a_task_added_is_listed_in_text_with_its_project() {
     let env = Env::new("smoke-harp");
-    let added = env.run(&["add", "Ship", "it", "--tag", "release", "--format", "text"]);
+    let added = env.run(&[
+        "add",
+        "Ship",
+        "it",
+        "--tag",
+        "queue:release",
+        "--format",
+        "text",
+    ]);
     assert!(added.ok, "{}", added.stderr);
     let fields: Vec<&str> = added.stdout.trim_end().split('\t').collect();
     assert_eq!(fields[1..], ["To Do", "Ship it"]);
@@ -499,7 +523,7 @@ fn test_a_task_added_is_listed_in_text_with_its_project() {
     let listed = env.run(&["list", "--format", "text"]);
     assert!(listed.stdout.starts_with("Project: "), "{}", listed.stdout);
     assert!(
-        listed.stdout.contains("Ship it  [release]"),
+        listed.stdout.contains("Ship it  [queue:release]"),
         "{}",
         listed.stdout
     );
@@ -933,6 +957,7 @@ fn test_in_json_each_command_writes_one_document_and_errors_an_envelope() {
         "notices on stderr: {}",
         added.stderr
     );
+    env.permit_every_tag();
     let tagged = env.run(&["tag", &harp, "--add", "x", "--json"]);
     assert!(tagged.ok, "{}", tagged.stderr);
     assert_eq!(
@@ -999,6 +1024,7 @@ impl Jq {
             .as_str()
             .expect("harp_id")
             .to_string();
+        env.permit_every_tag();
         Jq { env, harp }
     }
 
@@ -1261,6 +1287,7 @@ fn test_in_json_a_stream_writes_one_document_a_line() {
     let env = Env::new("jq-watch-harp");
     let added = env.run(&["add", "Ship", "it", "--json"]);
     assert!(added.ok, "{}", added.stderr);
+    env.permit_every_tag();
     let watching = watch::Watching::start(&env, &["--json"]);
     assert_eq!(one_document(&watching.line())["event"], "changed");
     let harp = one_document(&added.stdout)["harp_id"].to_string();

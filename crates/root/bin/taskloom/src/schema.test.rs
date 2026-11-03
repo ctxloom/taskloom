@@ -95,6 +95,9 @@ fn test_schema_show_keeps_its_json_shape_reading_the_store() {
 fn test_schema_check_reports_tagmas_findings_and_fails_on_any() {
     let env = Env::new("calm-otter-fox");
     env.seed("Ship it");
+    for permit in ["area:cli", "repo:tagma"] {
+        assert!(env.run(&["permit", permit, "--json"]).ok, "{permit}");
+    }
     let clean = env.run(&["schema", "check", "--json"]);
     assert!(clean.ok, "{}", clean.stderr);
     assert_eq!(clean.json(), json!([]));
@@ -104,9 +107,9 @@ fn test_schema_check_reports_tagmas_findings_and_fails_on_any() {
     assert_eq!(
         ran.json(),
         json!([{
-            "code": "inert-false",
+            "code": "malformed-value",
             "tag": r#"tagma.permit:"*:secret"=false"#,
-            "args": [["facet", "permit"]],
+            "args": [["facet", "permit"], ["expected", "no value"]],
             "origin": "existing",
         }])
     );
@@ -160,6 +163,7 @@ fn test_a_write_is_refused_on_an_introduced_finding_and_warned_on_an_existing() 
     assert_eq!(code(&ran.stderr), super::codes::tag_rules());
     assert!(ran.stderr.contains("too-many-keys"), "{}", ran.stderr);
 
+    env.permit_every_tag();
     let ran = env.run(&[
         "add", "Ship it", "--json", "--tag", "lang:en", "--tag", "lang:fr",
     ]);
@@ -265,10 +269,9 @@ fn test_import_config_moves_the_work_roots_permits_into_the_store_once() {
     assert!(ran.ok, "{}", ran.stderr);
     let lines = exported(&env);
     for expected in [
-        r#"tagma.permit:"*:*"=false"#,
-        r#"tagma.permit:"area:cli"=true"#,
-        r#"tagma.permit:"relates:*"=true"#,
-        "tagma.permit:urgent=true",
+        r#"tagma.permit:"area:cli""#,
+        r#"tagma.permit:"relates:*""#,
+        "tagma.permit:urgent",
     ] {
         assert!(
             lines.iter().any(|l| l == expected),
@@ -304,12 +307,12 @@ fn test_import_config_moves_go_s_tag_permits_file_into_the_store() {
     assert_eq!(ran.json()["changed"], true);
     let lines = exported(&env);
     for expected in [
-        r#"tagma.permit:"area:domain"=true"#,
-        r#"tagma.permit:"area:integration"=true"#,
-        r#"tagma.permit:"area:docs"=true"#,
-        r#"tagma.permit:"triage:silent-no-op"=true"#,
-        r#"tagma.permit:"triage:flaky"=true"#,
-        r#"tagma.permit:"landed:*"=true"#,
+        r#"tagma.permit:"area:domain""#,
+        r#"tagma.permit:"area:integration""#,
+        r#"tagma.permit:"area:docs""#,
+        r#"tagma.permit:"triage:silent-no-op""#,
+        r#"tagma.permit:"triage:flaky""#,
+        r#"tagma.permit:"landed:*""#,
     ] {
         assert!(
             lines.iter().any(|l| l == expected),
@@ -338,8 +341,13 @@ fn test_permit_and_revoke_edit_the_stores_schema_and_never_a_file() {
         "no config file written"
     );
     let lines = exported(&env);
-    assert!(lines.iter().any(|l| l == r#"tagma.permit:"*:*"=false"#));
-    assert!(lines.iter().any(|l| l == r#"tagma.permit:"area:*"=true"#));
+    assert!(lines.iter().any(|l| l == r#"tagma.permit:"area:*""#));
+    assert!(
+        !lines
+            .iter()
+            .any(|l| l.starts_with("tagma.permit:") && l.contains('=')),
+        "a permit is a presence: {lines:?}"
+    );
     let ran = env.run(&["add", "Ship it", "--json", "--tag", "lang:en"]);
     assert_eq!(code(&ran.stderr), super::codes::tag_rules());
     assert!(ran.stderr.contains("not-permitted"), "{}", ran.stderr);

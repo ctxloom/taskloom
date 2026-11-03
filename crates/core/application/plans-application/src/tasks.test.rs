@@ -24,6 +24,9 @@ impl Names for Scripted {
 
 type Real = Service<FakeIdentity, FakeStores, Scripted, FakeClock, FakeDelay>;
 
+/// The tasks of a project whose store its first add makes, each tagged
+/// as given: in the seeded vocabulary, as every store is an allowlist from
+/// when it is made (F6).
 fn tasks(tagged: &[(&'static str, &[&str])]) -> ProjectTasks<Real> {
     let mut service = Service::new(
         FakeIdentity::default(),
@@ -55,12 +58,16 @@ fn tagged_gives_each_task_and_value_of_a_key_and_untag_removes_one() {
     let mut tasks = tasks(&[
         (
             "swift-amber",
-            &["doc:link=a", "doc:link=\"docs/b.plan.md\"", "urgent"],
+            &[
+                "sig:link=a",
+                "sig:link=\"docs/b.plan.md\"",
+                "relates:calm-otter",
+            ],
         ),
-        ("calm-otter", &["doc:link=a", "doc:other=a"]),
-        ("brisk-heron", &["link=a"]),
+        ("calm-otter", &["sig:link=a", "sig:other=a"]),
+        ("brisk-heron", &["touches:link=a"]),
     ]);
-    let mut tagged = ready(tasks.tagged("doc:link")).unwrap();
+    let mut tagged = ready(tasks.tagged("sig:link")).unwrap();
     tagged.sort();
     let pair = |h: &str, v: &str| (h.to_string(), v.to_string());
     assert_eq!(
@@ -71,8 +78,8 @@ fn tagged_gives_each_task_and_value_of_a_key_and_untag_removes_one() {
             pair("swift-amber", "docs/b.plan.md"),
         ]
     );
-    ready(tasks.untag("swift-amber", "doc:link", "docs/b.plan.md")).unwrap();
-    let mut tagged = ready(tasks.tagged("doc:link")).unwrap();
+    ready(tasks.untag("swift-amber", "sig:link", "docs/b.plan.md")).unwrap();
+    let mut tagged = ready(tasks.tagged("sig:link")).unwrap();
     tagged.sort();
     assert_eq!(
         tagged,

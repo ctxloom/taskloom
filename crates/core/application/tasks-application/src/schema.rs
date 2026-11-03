@@ -65,7 +65,7 @@ pub trait SchemaService {
 
 /// The schema stream of a store: one per store, its fixed name its
 /// natural key.
-fn schema_stream() -> Cover {
+pub(crate) fn schema_stream() -> Cover {
     Cover::natural(SCHEMA_DOMAIN, SCHEMA_STREAM)
 }
 

@@ -46,13 +46,10 @@ pub struct Permitted {
 }
 
 /// What a store permits, as [`crate::TaskService::permits`] reads it for
-/// `taskloom permits`.
+/// `taskloom permits`: only what a pattern admits is written.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct PermitList {
-    /// Whether the world is closed (`tagma.permit:"*:*"=false`): only what
-    /// a pattern admits is written.
-    pub closed: bool,
-    /// The patterns permitted (`tagma.permit:<pattern>=true`), sorted.
+    /// The patterns permitted (`tagma.permit:<pattern>`), sorted.
     pub patterns: Vec<String>,
     /// The exact targets the store's rules constrain, sorted.
     pub schema_targets: Vec<String>,

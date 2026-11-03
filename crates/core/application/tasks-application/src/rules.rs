@@ -105,9 +105,15 @@ impl StoreRules {
     /// the seed before.
     pub(crate) fn of(state: &SchemaState) -> StoreRules {
         match state.declared {
-            true => StoreRules::of_tags(state.tags.iter().map(Tag::to_core)),
+            true => StoreRules::held(state),
             false => StoreRules::default(),
         }
+    }
+
+    /// The tags `state` holds, as it holds them: what [`StoreRules::of`]
+    /// reads, before it is read.
+    pub(crate) fn held(state: &SchemaState) -> StoreRules {
+        StoreRules::of_tags(state.tags.iter().map(Tag::to_core))
     }
 
     /// The rules `spelled` declare, and nothing else: for tests.
