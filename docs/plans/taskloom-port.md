@@ -50,8 +50,9 @@ cutover ("What remains").
   generated from that proto.
 - `core/domain/tasks`: decide and apply for add, set-status, edit, retag and
   remove, with localizable rejections.
-- `core/read-model/task-lists`: the list projector (it keeps no cursor:
-  the owner's ruling on D7, 2026-10-30, under `WatchService` below),
+- `core/read-model/task-lists`: the list projector (it keeps no cursor
+  across streams: ruling D7; the watch's per-stream cursor, 2026-11-03,
+  is under `WatchService` below),
   caught up over the sync store port, or over the async one's read-only
   unit of work, one moment of the store. It keeps, per stream, its last
   projected sequence and its first event's fingerprint (the cause, a
@@ -115,20 +116,24 @@ cutover ("What remains").
     dangling reference a survivor holds: a tag carrying the harp as a word
     (`relates:<harp>`), or the harp as a word of its text or trigger.
   - `WatchService` (its own trait beside `TaskService`): a watch resolves
-    its project as a read does and holds only the store's change token
+    its project as a read does and holds the store's change token
     (`WatchedStores`: angzarr-ports' `ChangeToken` and the handle that
     answered it); each poll reads the token, no stream, and answers
-    whether it moved. Ruling D7 as the owner cut it (2026-10-30): nothing
-    outside the process read the per-stream cursor the watch once kept,
-    and `taskloom tasks watch` reduces every change to Go's `changed` line, so
-    the cursor, its deltas and snapshots are gone; nothing numbers across
-    streams. The accepted cost: any commit moves the token, so a commit
-    no task sees (a purge after its removal, a purge of nothing) is a
-    change, and the subscriber re-queries to find the same tasks. A
-    project with no store yet answers nothing until one appears (a look
-    at the filesystem each poll). The binary's in-process watch tests
-    force a prune whole, its halves apart, a mint on its freed harp and a
-    commit no task sees between polls, tick by tick.
+    whether it moved. Ruling D7 as the owner cut it (2026-10-30) kept no
+    cursor, because nothing outside the process read one; the owner
+    reversed that on 2026-11-03 (consolidation slice D): `heads` and
+    `after` read the task streams through `EventStore::covers` and
+    `read` in one read unit, from a map of stream to next sequence the
+    caller holds (`Positions`), and answer each new event with the task
+    as it left it, or `Expired` for a stream shorter than its position or
+    gone (pruned, and maybe minted again; a stream minted again as long as
+    before cannot be told from the old by its sequence). Nothing numbers
+    across streams, so lines are ordered per stream only. A commit no
+    task stream sees moves the token and writes no line. A project with
+    no store is an unknown project to the CLI (exit 1). The binary's
+    in-process watch tests force a prune whole, its halves apart, a mint
+    on its freed harp and a commit no task sees between polls, tick by
+    tick.
 - `core/application/project-application`: `show`, `heal`, `repoint` and the
   orphaned databases, planned from the port's survey; it depends on no
   tasks crate. The marker is authoritative and the registry heals toward
@@ -209,13 +214,19 @@ cutover ("What remains").
   `loadout`, Go's `cmd/taskloom/loadout.yaml` with the reviewed factual
   changes (Decided 11), printed in yaml alone (`--format yaml` is accepted by
   `loadout` only).
-- `adapters/driving/tasks-watch`: `taskloom tasks watch` (hidden, as Go's, until the CLI consolidation listed it), Go's
-  line `{"event":"changed","kind":"tasks","project":<id>}` as JSON Lines
-  (presentation's `write_json_line`), once at the start and once per burst
-  of commits: the use case is polled each tick (100ms, Go's
-  `watchDebounce`) and a burst gets its line at its first quiet tick, or
-  ten ticks in when it does not stop, as Go's debounce and ceiling. It
-  ends at SIGINT or SIGTERM (tokio's `signal` feature), as Go's (on
+- `adapters/driving/tasks-watch`: `taskloom tasks watch [--since <cursor>]
+  [--heartbeat <seconds>]` (hidden, as Go's, until the CLI consolidation
+  listed it; Go's single `changed` line was replaced by slice D's, 2026-11-03).
+  JSON Lines (presentation's `write_json_line`), every line with `v`:
+  `primed` (the cursor now, or the one asked for), `changed` (one per task
+  event: `stream`, `sequence`, `harp_id`, `task` {text, status, tags,
+  removed}, `cursor`), `expired` and `heartbeat`. The cursor is base64url
+  of `{"v":1,"project":<id>,"streams":{"tasks/<root>[@edition]":<next>}}`
+  (a proposal pending owner review) and covers every line before it on the
+  wire. The use case is polled each tick (100ms) and a tick that finds the
+  token moved reads the streams. Exit 2 for a cursor that is malformed, of
+  another version or another project's (before any state is read), 1 for a
+  project with no store. It ends at SIGINT or SIGTERM (tokio's `signal` feature), as Go's (on
   Windows at Ctrl-C, Ctrl-Break, or the console's close, logoff or
   shutdown, as Go's os.Interrupt and SIGTERM there), never at a closed stdin (the VS Code extension starts it with stdin from
   /dev/null), and with why when a line cannot be written. Its tests drive
@@ -449,11 +460,9 @@ Where the port differs from Go:
 - `watch` sources changes from the store, not the filesystem: each tick
   reads the store's change token (annals-store-sql's `PRAGMA
   data_version` with `total_changes()`, on the one connection the watch
-  holds), and only when it moved re-runs the projector's catch-up, which
-  re-reads every task stream (the projector skips what it has seen). A
-  token that moves with nothing new answers nothing, so no line. A
-  burst's line comes 100-200ms after its last commit (Go's: 100ms after
-  its last file event).
+  holds), and only when it moved reads the task streams from the cursor's
+  positions. A token that moves with nothing new answers nothing, so no
+  line. A line comes 0-100ms after its commit.
 - angzarr-build maps only angzarr's own packages by absolute path
   (`extern_path`), so `tasks-proto` nests its generated module as its
   package is (`ctxloom::tasks::v1`) and re-exports tagma-proto's `v1` at
@@ -708,8 +717,7 @@ restarted on a freed harp is under "Where it stands".
 - No MCP (the owner's ruling, 2026-10-30): agents use the CLI.
 - Companion: `loadout --format yaml` (hooks, the `taskloom` fragment), and `version --format json` with `lock_protocol`, which
   ctxloom's boot probe parses.
-- `watch` (a JSONL change stream,
-  debounced). Go's `run` is dropped: launching an agent on a task is
+- `watch` (a JSONL event stream with a resume cursor). Go's `run` is dropped: launching an agent on a task is
   ctxloom's.
 
 ## Decided

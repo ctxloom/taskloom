@@ -57,7 +57,8 @@ tasks-application is the example:
   mint), `change.rs` (`Changing`: a status change, deferring and reviving
   among them, an edit, a retag), `read.rs` (`Reading`: no kernel),
   `prune.rs` (`Pruner`), `permit.rs` (`Permitting`), `watch.rs`
-  (`Watching`: the identity and the change token alone), `schema.rs`
+  (`Watching`: the identity, the change token and a read of the task
+  streams from per-stream positions), `schema.rs`
   (the schema stream and its reads), and `import.rs` (`Importer`, a
   service of its own: only it holds the JSONL logs). A unit borrows its
   ports from the service for one call; its `impl` names only the bounds
@@ -172,9 +173,14 @@ Dependencies point inward; a review refuses a change that breaks these:
   which reads the plan files.
 - Entities are aggregates; anything listed is a projector's read model,
   never an aggregate. Nothing numbers across streams (ruling D7). A watch
-  keeps no cursor (the owner's cut of D7, 2026-10-30): it holds only the
-  store's change token, and a poll answers whether it moved, so any
-  commit, even one no task sees, is a change the subscriber re-queries.
+  holds the store's change token to know when to look, and since the
+  owner's ruling of 2026-11-03 (consolidation slice D, which reverses
+  D7's cut of 2026-10-30) it reads the task streams from a cursor of one
+  position per stream (`tasks-watch`'s `cursor.rs`; `tasks-application`'s
+  `WatchService::heads` and `after`, over `EventStore::covers` and
+  `read`, no port of its own): the use case keeps none, the driving
+  adapter holds the positions and every line carries them. No order
+  across streams is promised.
 
 ## Generated code is never committed
 
