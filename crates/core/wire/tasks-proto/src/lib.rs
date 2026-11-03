@@ -27,6 +27,15 @@ pub mod tagma {
 /// `ctxloom.tasks.v1`.
 pub use ctxloom::tasks::v1;
 
+/// The encoded `FileDescriptorSet` of the tasks protos and every file they
+/// import (angzarr's and tagma's among them), as protoc compiled them for
+/// this crate: angzarr-build's `wire` writes it beside the generated code,
+/// as `angzarr.descriptors`. What a store export expands this domain's
+/// stored payloads and states through (store-export-import.plan.md,
+/// D3 (a)).
+pub const FILE_DESCRIPTOR_SET: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/angzarr.descriptors"));
+
 #[cfg(test)]
 #[path = "lib.test.rs"]
 mod tests;

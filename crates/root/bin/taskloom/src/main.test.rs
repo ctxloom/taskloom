@@ -830,6 +830,8 @@ fn test_every_diagnostic_of_every_crate_renders_from_the_binarys_catalog() {
         plans_application::diagnostic_samples(),
         plan_files::diagnostic_samples(),
         plans_cli::diagnostic_samples(),
+        store_cli::diagnostic_samples(),
+        angzarr_store_transfer::diagnostic_samples(),
     ]
     .into_iter()
     .flatten()
@@ -869,6 +871,7 @@ fn ours() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
         plans_application::diagnostic_samples(),
         plan_files::diagnostic_samples(),
         plans_cli::diagnostic_samples(),
+        store_cli::diagnostic_samples(),
     ]
     .into_iter()
     .flatten()
@@ -1409,6 +1412,9 @@ mod prune;
 
 #[path = "snapshot.test.rs"]
 mod snapshot;
+
+#[path = "store.test.rs"]
+mod store;
 
 #[path = "watch.test.rs"]
 mod watch;

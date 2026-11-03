@@ -41,3 +41,30 @@ fn test_tags_are_tagmas_message() {
     let decoded = v1::TaskState::decode(state.encode_to_vec().as_slice()).expect("decode");
     assert_eq!(decoded.tags, vec![tag]);
 }
+
+// A store export expands the stored payloads by name: the set holds every
+// message the tasks store keeps, and the files they import.
+#[test]
+fn test_the_descriptor_set_holds_every_stored_message_and_its_imports() {
+    let set = prost_types::FileDescriptorSet::decode(super::FILE_DESCRIPTOR_SET).expect("decodes");
+    let names: Vec<String> = set
+        .file
+        .iter()
+        .filter(|f| f.package() == "ctxloom.tasks.v1")
+        .flat_map(|f| f.message_type.iter().map(|m| m.name().to_string()))
+        .collect();
+    for stored in [
+        "TaskAdded",
+        "StatusChanged",
+        "TextEdited",
+        "Retagged",
+        "TaskRemoved",
+        "SchemaRetagged",
+        "TaskState",
+        "SchemaState",
+    ] {
+        assert!(names.iter().any(|n| n == stored), "{stored} in {names:?}");
+    }
+    let files: Vec<&str> = set.file.iter().map(|f| f.name()).collect();
+    assert!(files.contains(&"tagma/v1/tag.proto"), "{files:?}");
+}

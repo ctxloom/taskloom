@@ -2,7 +2,8 @@
 //! it is inconsistent (`show`), repairing marker and registry skew and
 //! checking the project's database for damage (`heal`), binding a directory to an existing project (`repoint`), and
 //! the databases no live registered path points at (`orphans`, removed
-//! only by name).
+//! only by name), and a project's database written out whole, never
+//! changed (`store export`).
 //!
 //! The marker is authoritative: where `.project-id` and the registry
 //! disagree, the registry heals toward the marker. A change is planned
@@ -24,7 +25,9 @@ use angzarr_diagnostic::Report;
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{ProjectError, EN_US};
-pub use ports::{Change, Checked, IdSource, ProjectAdmin, Registered, StoreCheck, Survey};
+pub use ports::{
+    Change, Checked, Exported, IdSource, ProjectAdmin, Registered, StoreCheck, StoreExport, Survey,
+};
 
 /// Something about a directory's identity, or the registry, that is not as
 /// it should be.
@@ -89,7 +92,7 @@ pub struct Projects<A, C> {
     checks: C,
 }
 
-impl<A: ProjectAdmin, C: StoreCheck> Projects<A, C> {
+impl<A, C> Projects<A, C> {
     pub fn new(admin: A, checks: C) -> Self {
         Projects { admin, checks }
     }
@@ -99,11 +102,32 @@ impl<A: ProjectAdmin, C: StoreCheck> Projects<A, C> {
         &self.admin
     }
 
-    /// The database check it runs over.
+    /// The database check (and export) it runs over.
     pub fn checks(&self) -> &C {
         &self.checks
     }
+}
 
+impl<A: ProjectAdmin, C: StoreExport> Projects<A, C> {
+    /// `store export`: the database of the project `pinned` names (else
+    /// the working directory's) written to `out` whole, through the port
+    /// ([`StoreExport`]): its payloads expanded through `descriptors`, its
+    /// ledger judged before it is opened, and nothing of it changed
+    /// (store-export-import.plan.md). Refused: no project here
+    /// ([`ProjectError::NoProject`]), or no database for it
+    /// ([`ProjectError::NoDatabase`]).
+    pub fn export(
+        &mut self,
+        pinned: Option<&str>,
+        descriptors: &[&[u8]],
+        out: &mut dyn std::io::Write,
+    ) -> Result<Exported, ProjectError> {
+        let _ = (pinned, descriptors, out);
+        todo!("the export of a project's database")
+    }
+}
+
+impl<A: ProjectAdmin, C: StoreCheck> Projects<A, C> {
     /// What the working directory's identity rests on, and every
     /// inconsistency found.
     pub fn show(&mut self, pinned: Option<&str>) -> Result<Shown, ProjectError> {

@@ -29,6 +29,7 @@
 mod add;
 mod calendar;
 mod change;
+mod digest;
 mod error;
 mod import;
 mod lint;
@@ -92,6 +93,7 @@ pub fn no_task_sample() -> AppError {
 
 pub use add::{NewTask, KEYED_PROBES};
 pub use change::{StatusChange, TagChange, TextEdit};
+pub use digest::{DigestService, Folded};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{AppError, CATALOGS, EN_US};

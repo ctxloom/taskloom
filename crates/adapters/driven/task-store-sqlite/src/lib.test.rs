@@ -436,6 +436,195 @@ fn test_a_store_that_predates_angzarr_embedded_is_refused_naming_its_backup() {
     assert_eq!(home.read(&path), before, "the file as it was: not migrated");
 }
 
+// ------------------------------------------------------------ exporting
+//
+// `store export` (store-export-import.plan.md, D1 (a): this build exports
+// its own shape): the database written whole as angzarr-store-transfer's
+// JSONL, its payloads expanded through the tasks protos' descriptors, and
+// the database never changed, its ledger judged before any open.
+
+/// A `TaskAdded` payload, which the tasks protos' descriptors name.
+fn task_added(harp: &str) -> Any {
+    use prost::Name;
+    Any {
+        type_url: tasks_proto::v1::TaskAdded::type_url(),
+        value: prost::Message::encode_to_vec(&tasks_proto::v1::TaskAdded {
+            harp_id: harp.to_string(),
+            text: "a task".to_string(),
+            status: "Pending".to_string(),
+            ..Default::default()
+        }),
+    }
+}
+
+/// A database at `path` written by `SqliteStore` itself: one stream of
+/// one `TaskAdded`, closed, so the file holds everything ([`written`]'s
+/// wait for the log's removal).
+fn written_tasks(home: &Home, path: &Path) {
+    home.mkdir(path.parent().unwrap());
+    let real = home.real(path);
+    block_on(async {
+        let store = SqliteStore::open(&real).await.unwrap();
+        let mut page = event(0, 1);
+        page.payload = Some(task_added("dire-shore"));
+        append(&store, stream(1), 0, &[page]).await;
+    });
+    let mut wal = path.as_os_str().to_owned();
+    wal.push("-wal");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while home.exists(Path::new(&wal)) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the log is still beside the file"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
+/// `taskloom store export`'s store side: the header naming this build's
+/// generation, the store and its ledger, each row, the end; the file and
+/// its directory as they were.
+#[test]
+fn test_an_export_writes_the_database_whole_and_leaves_it_as_it_was() {
+    use ports::StoreExport;
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    written_tasks(&home, &path);
+    let before = home.read(&path);
+    let listed = |home: &Home| {
+        let mut names: Vec<String> = home
+            .rooted
+            .read_dir(path.parent().unwrap())
+            .unwrap()
+            .into_iter()
+            .map(|e| e.name.to_string_lossy().into_owned())
+            .filter(|n| !n.ends_with("-wal") && !n.ends_with("-shm"))
+            .collect();
+        names.sort();
+        names
+    };
+    let files = listed(&home);
+    let mut out = Vec::new();
+    let exported = home
+        .stores()
+        .export(&path, &[tasks_proto::FILE_DESCRIPTOR_SET], &mut out)
+        .expect("it exports");
+    assert_eq!(
+        exported,
+        Some(ports::Exported {
+            records: 1,
+            streams: 1
+        })
+    );
+    let lines: Vec<serde_json::Value> = std::str::from_utf8(&out)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 3, "header, the page, end");
+    let header = &lines[0]["header"];
+    assert_eq!(header["generation"], angzarr_store_transfer::GENERATION);
+    assert_eq!(header["store"], "angzarr-store-sqlite");
+    assert_eq!(header["ledger"], serde_json::json!([1, 2, 3, 4, 5, 6]));
+    let payload = &lines[1]["page"]["page"]["payload"];
+    assert_eq!(payload["@type"], "/ctxloom.tasks.v1.TaskAdded");
+    assert_eq!(payload["harpId"], "dire-shore", "expanded by name");
+    assert!(lines[2].get("end").is_some());
+    assert_eq!(home.read(&path), before, "the file's bytes as they were");
+    assert_eq!(listed(&home), files, "no file made beside it: no backup");
+}
+
+/// A database whose ledger is not this build's set (annals-store-sql's,
+/// its first migration alone: older) is refused before it is opened, so
+/// nothing migrates it, nothing backs it up, and nothing is written.
+#[test]
+fn test_an_export_refuses_a_ledger_not_the_builds_and_leaves_the_file_untouched() {
+    use ports::StoreExport;
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    home.write(&path, PRE_EMBEDDED);
+    let before = home.read(&path);
+    let mut out = Vec::new();
+    let refused = home
+        .stores()
+        .export(&path, &[], &mut out)
+        .expect_err("an older ledger is refused");
+    assert_eq!(
+        refused.code(),
+        angzarr_store_transfer::ExportError::LedgerNotTheBuilds {
+            applied: String::new(),
+            build: String::new(),
+        }
+        .code()
+    );
+    assert!(out.is_empty(), "nothing written");
+    assert_eq!(home.read(&path), before, "the file as it was: not migrated");
+    let backups = home
+        .rooted
+        .read_dir(path.parent().unwrap())
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.name.to_string_lossy().contains(".pre-"))
+        .count();
+    assert_eq!(backups, 0, "no backup taken");
+}
+
+/// No database is no export: nothing written, and nothing made.
+#[test]
+fn test_an_export_of_no_database_writes_nothing_and_makes_nothing() {
+    use ports::StoreExport;
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    let mut out = Vec::new();
+    assert_eq!(home.stores().export(&path, &[], &mut out), Ok(None));
+    assert!(out.is_empty());
+    assert!(!home.exists(&path), "no database made");
+    assert!(!home.exists(path.parent().unwrap()), "nor its directory");
+}
+
+/// Every page of real stores re-encodes to its bytes and expands (the
+/// plan's E4 on the copies): run by hand, with TASKLOOM_STORE_COPIES naming
+/// a directory of `<id>/state.db` copies (never the live stores). Each is
+/// copied again into the test's own directory first, and only counts are
+/// printed: the copies hold the owner's task text.
+#[test]
+#[ignore = "reads copies of real stores, named by TASKLOOM_STORE_COPIES"]
+fn test_every_store_copy_exports_every_page() {
+    use ports::StoreExport;
+    let Some(copies) = std::env::var_os("TASKLOOM_STORE_COPIES") else {
+        panic!("set TASKLOOM_STORE_COPIES to a directory of <id>/state.db copies");
+    };
+    let copies = PathBuf::from(copies);
+    let host = Os::new(os::host(), &copies).unwrap();
+    let mut ids: Vec<PathBuf> = host
+        .read_dir(&copies)
+        .unwrap()
+        .into_iter()
+        .map(|e| copies.join(e.name))
+        .filter(|p| host.exists(&p.join("state.db")).unwrap())
+        .collect();
+    ids.sort();
+    assert!(!ids.is_empty(), "no copies found");
+    let (mut stores, mut records) = (0u64, 0u64);
+    for dir in ids {
+        let home = Home::new();
+        let id = dir.file_name().unwrap().to_string_lossy().into_owned();
+        let path = store_in(home.path(), &id);
+        home.mkdir(path.parent().unwrap());
+        home.write(&path, &host.read(&dir.join("state.db")).unwrap());
+        let mut out = Vec::new();
+        let exported = home
+            .stores()
+            .export(&path, &[tasks_proto::FILE_DESCRIPTOR_SET], &mut out)
+            .unwrap_or_else(|e| panic!("store {id}: {e}"))
+            .expect("a database");
+        stores += 1;
+        records += exported.records;
+    }
+    println!("{stores} stores, {records} records exported");
+}
+
 // ------------------------------------------------------------ purging
 
 /// A purge never touches a position on the stream (angzarr decision 14.68):

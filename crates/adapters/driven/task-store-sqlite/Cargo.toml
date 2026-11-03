@@ -13,6 +13,9 @@ angzarr-diagnostic.workspace = true
 # (its `sqlite` feature), at the rev the kernel is built with.
 angzarr-embedded = { workspace = true, features = ["sqlite"] }
 angzarr-ports.workspace = true
+# The export's JSONL (store-export-import.plan.md): Export's rows checked
+# and written in proto3's JSON mapping.
+angzarr-store-transfer.workspace = true
 file-system.workspace = true
 os.workspace = true
 ports.workspace = true
@@ -22,6 +25,11 @@ tokio.workspace = true
 
 [dev-dependencies]
 fluent-syntax.workspace = true
+# The export's tests: payloads the tasks protos' descriptors name, and the
+# JSON lines read back.
+prost.workspace = true
+serde_json.workspace = true
+tasks-proto.workspace = true
 # The embedded store's test pages: their payloads and instants.
 prost-types.workspace = true
 os = { workspace = true, features = ["test-support"] }

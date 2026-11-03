@@ -54,7 +54,9 @@ use angzarr_embedded::angzarr_store_sqlite::{Integrity, SqlError, SqliteStore};
 use angzarr_ports::{StoreError, Watch};
 use file_system::Fs;
 use os::Mode;
-use ports::{Checked, HeldToken, Project, StoreCheck, TaskStores, WatchedStores};
+use ports::{
+    Checked, Exported, HeldToken, Project, StoreCheck, StoreExport, TaskStores, WatchedStores,
+};
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
@@ -184,6 +186,21 @@ impl StoreCheck for SqliteStores {
                 .join()
                 .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
         })
+    }
+}
+
+impl StoreExport for SqliteStores {
+    /// The database at `store`, its ledger judged first without opening
+    /// it, then opened read-only and exported whole. Synchronous, on a
+    /// runtime of its own on a thread of its own, as the check is.
+    fn export(
+        &mut self,
+        store: &Path,
+        descriptors: &[&[u8]],
+        out: &mut dyn std::io::Write,
+    ) -> Result<Option<Exported>, Report> {
+        let _ = (store, descriptors, out);
+        todo!("the store's export")
     }
 }
 

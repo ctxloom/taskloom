@@ -394,6 +394,29 @@ where
     }
 }
 
+impl<I, S, N, C, D, G> crate::DigestService for Service<I, S, N, C, D, G>
+where
+    I: ProjectIdentity + Send,
+    S: TaskStores + Send,
+    N: Send,
+    C: Send,
+    D: Send,
+    G: Send,
+{
+    async fn fold_digest(
+        &mut self,
+        project: Option<String>,
+    ) -> Result<Vec<crate::Folded>, AppError> {
+        crate::digest::fold(
+            &mut self.identity,
+            &mut self.stores,
+            &self.registry,
+            project.as_deref(),
+        )
+        .await
+    }
+}
+
 impl<I, S, N, C, D, G> WatchService for Service<I, S, N, C, D, G>
 where
     I: ProjectIdentity + Send,

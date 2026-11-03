@@ -153,6 +153,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "angzarr-store-transfer"
+version = "0.1.0"
+source = "git+https://github.com/angzarr-io/angzarr?rev=2681dab885c8a3f138a0964f4d6b628d2480963f#2681dab885c8a3f138a0964f4d6b628d2480963f"
+dependencies = [
+ "angzarr-diagnostic",
+ "angzarr-ports",
+ "prost",
+ "prost-reflect",
+ "prost-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "angzarr-yaml"
 version = "0.1.0"
 source = "git+https://github.com/angzarr-io/angzarr?rev=2681dab885c8a3f138a0964f4d6b628d2480963f#2681dab885c8a3f138a0964f4d6b628d2480963f"
@@ -1277,6 +1291,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
+name = "ordered-float"
+version = "2.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68f19d67e5a2795c94e73e0bb1cc1a7edeb2e28efd39e2e1c9b7a40c1108b11c"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "os"
 version = "0.1.0"
 source = "git+https://github.com/angzarr-io/angzarr-platform?rev=239957ef3f233082605aca33bf072ced65aad6a8#239957ef3f233082605aca33bf072ced65aad6a8"
@@ -1617,7 +1640,7 @@ version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03da047801ff44bb6a4d407d4860c05fd70bb81714e6b2f3812603d5b145b042"
 dependencies = [
- "heck 0.5.0",
+ "heck 0.4.1",
  "itertools",
  "log",
  "multimap",
@@ -1649,8 +1672,11 @@ version = "0.16.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "01b80ea363c31af2de2b92e3c07ed1156628f7838c4afb4df75ee78a37fedbd1"
 dependencies = [
+ "base64",
  "prost",
  "prost-types",
+ "serde",
+ "serde-value",
 ]
 
 [[package]]
@@ -1927,6 +1953,16 @@ checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
  "serde_derive",
+]
+
+[[package]]
+name = "serde-value"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
+dependencies = [
+ "ordered-float",
+ "serde",
 ]
 
 [[package]]
@@ -2292,6 +2328,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "store-cli"
+version = "0.1.0"
+dependencies = [
+ "angzarr-diagnostic",
+ "angzarr-presentation",
+ "angzarr-store-transfer",
+ "clap",
+ "fluent-syntax",
+ "plans-application",
+ "project-application",
+ "prost",
+ "prost-types",
+ "serde_json",
+ "tasks-application",
+ "tokio",
+]
+
+[[package]]
 name = "stringprep"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2403,11 +2457,15 @@ dependencies = [
  "angzarr-diagnostic",
  "angzarr-embedded",
  "angzarr-ports",
+ "angzarr-store-transfer",
  "file-system",
  "fluent-syntax",
  "os",
  "ports",
+ "prost",
  "prost-types",
+ "serde_json",
+ "tasks-proto",
  "tokio",
 ]
 
@@ -2419,6 +2477,7 @@ dependencies = [
  "angzarr-embedded",
  "angzarr-ports",
  "angzarr-presentation",
+ "angzarr-store-transfer",
  "clap",
  "file-lock",
  "file-system",
@@ -2437,6 +2496,7 @@ dependencies = [
  "project-registry",
  "serde",
  "serde_json",
+ "store-cli",
  "system",
  "tagma-core",
  "task-priority",
@@ -2524,6 +2584,7 @@ dependencies = [
  "angzarr-embedded",
  "angzarr-ports",
  "angzarr-presentation",
+ "angzarr-store-transfer",
  "angzarr-yaml",
  "file-lock",
  "file-system",
@@ -2534,6 +2595,7 @@ dependencies = [
  "plan-files",
  "plans",
  "plans-application",
+ "plans-proto",
  "project-application",
  "project-cli",
  "project-registry",
@@ -2541,6 +2603,7 @@ dependencies = [
  "task-store-sqlite",
  "tasks-application",
  "tasks-config",
+ "tasks-proto",
  "tokio",
 ]
 
@@ -2588,7 +2651,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -2986,7 +3049,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

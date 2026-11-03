@@ -21,3 +21,19 @@ fn test_event_round_trips_through_its_encoding() {
     let decoded = v1::MarkedSuperseded::decode(event.encode_to_vec().as_slice()).expect("decode");
     assert_eq!(decoded, event);
 }
+
+// A store export expands the stored payloads by name: the set holds the
+// plans' events and state.
+#[test]
+fn test_the_descriptor_set_holds_the_plans_events_and_state() {
+    let set = prost_types::FileDescriptorSet::decode(super::FILE_DESCRIPTOR_SET).expect("decodes");
+    let names: Vec<String> = set
+        .file
+        .iter()
+        .filter(|f| f.package() == "ctxloom.plans.v1")
+        .flat_map(|f| f.message_type.iter().map(|m| m.name().to_string()))
+        .collect();
+    for stored in ["PlanAdded", "Governed", "PlanState"] {
+        assert!(names.iter().any(|n| n == stored), "{stored} in {names:?}");
+    }
+}

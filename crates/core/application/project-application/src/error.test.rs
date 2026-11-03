@@ -28,6 +28,8 @@ fn test_each_error_renders_its_english_fallback() {
             "no project tpyo-id is registered or has a database: nothing to repoint to",
             "project jolly-mute-magma is still the project of /work/old, which exists: pass --share if the two trees are meant to share it",
             "jolly-mute-magma is not an orphaned database: a live registered path, or this directory, still points at it, or it does not exist",
+            "no project here to export: run it in a project's tree, or pass --project",
+            "project jolly-mute-magma has no database to export",
         ]
     );
 }
@@ -47,6 +49,8 @@ fn test_each_error_gives_its_args_values() {
     assert_eq!(values(&*samples[0]), ["tpyo-id"]);
     assert_eq!(values(&*samples[1]), ["jolly-mute-magma", "/work/old"]);
     assert_eq!(values(&*samples[2]), ["jolly-mute-magma"]);
+    assert!(values(&*samples[3]).is_empty());
+    assert_eq!(values(&*samples[4]), ["jolly-mute-magma"]);
 }
 
 #[test]

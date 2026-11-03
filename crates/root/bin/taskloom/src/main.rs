@@ -6,8 +6,10 @@
 //! bound there), and hands the frontend the command parsed only the use
 //! case it runs: the tasks use cases for the task commands and `watch`;
 //! the importer, the only reader of the JSONL task logs, for `import`;
-//! the plans use cases for the `plan` group; and the project use cases
-//! for the `project` group. `watch`
+//! the plans use cases for the `plan` group; the project use cases
+//! for the `project` group; and, for the `store` group, the project use
+//! cases' export and each context's digest, with the app's descriptor
+//! sets. `watch`
 //! streams the project's changes until SIGINT or SIGTERM (on Windows
 //! Ctrl-C, Ctrl-Break, or the console's close, logoff or shutdown; never
 //! at a closed stdin). It holds no logic of its own, and wires no adapter.
@@ -26,6 +28,7 @@ fn catalog() -> Result<angzarr_presentation::Catalog, angzarr_presentation::Cata
         project_cli::EN_US,
         tasks_watch::EN_US,
         plans_cli::EN_US,
+        store_cli::EN_US,
     ])
 }
 
@@ -58,6 +61,8 @@ enum Mounted {
     Plan(plans_cli::Group),
     #[command(flatten)]
     Watch(tasks_watch::Group),
+    #[command(flatten)]
+    Store(store_cli::Group),
 }
 
 /// `taskloom import`: the JSONL task logs under the home imported into
@@ -157,6 +162,39 @@ fn plan_group(
     )))
 }
 
+/// The `store` group: the project's database written whole as JSONL, and
+/// its streams' digest (store-export-import.plan.md), over the project use
+/// cases and each context's digest, the app's descriptor sets given.
+fn store_group(
+    runtime: &tokio::runtime::Runtime,
+    taskloom: &Taskloom,
+    group: store_cli::Group,
+    project: Option<String>,
+    catalog: &angzarr_presentation::Catalog,
+) -> ExitCode {
+    let mut projects = taskloom.projects();
+    let mut tasks = taskloom.tasks();
+    let mut plans = taskloom.plans(project.clone());
+    let settings = store_cli::Settings {
+        project: project.as_deref(),
+        descriptors: tasks_lib::DESCRIPTOR_SETS,
+        prog: tasks_cli::PROG,
+    };
+    let use_cases = store_cli::UseCases {
+        projects: &mut projects,
+        tasks: &mut tasks,
+        plans: &mut plans,
+    };
+    ExitCode::from(runtime.block_on(store_cli::run(
+        group,
+        &settings,
+        catalog,
+        use_cases,
+        &mut io::stdout().lock(),
+        &mut io::stderr().lock(),
+    )))
+}
+
 /// What the command line reads from the process besides its arguments.
 fn context() -> Context {
     Context {
@@ -242,10 +280,31 @@ fn main() -> ExitCode {
         Ok(format) => format,
         Err(code) => return ExitCode::from(code),
     };
-    let project = globals.project;
+    mounted(
+        &runtime,
+        &taskloom,
+        group,
+        globals.project,
+        format,
+        &context,
+        &catalog,
+    )
+}
+
+/// A group mounted beside the task commands, run with the format and the
+/// pinned project the global flags gave.
+fn mounted(
+    runtime: &tokio::runtime::Runtime,
+    taskloom: &Taskloom,
+    group: Mounted,
+    project: Option<String>,
+    format: angzarr_presentation::Format,
+    context: &Context,
+    catalog: &angzarr_presentation::Catalog,
+) -> ExitCode {
     match group {
         Mounted::Import(tasks_cli::ImportGroup::Import) => {
-            import(&runtime, &taskloom, project, format, &catalog)
+            import(runtime, taskloom, project, format, catalog)
         }
         Mounted::Project(group) => {
             let settings = project_cli::Settings {
@@ -253,7 +312,7 @@ fn main() -> ExitCode {
                 project,
                 prog: tasks_cli::PROG,
             };
-            project_group(&taskloom, group, &settings, &catalog)
+            project_group(taskloom, group, &settings, catalog)
         }
         Mounted::Plan(group) => {
             let settings = plans_cli::Settings {
@@ -261,8 +320,9 @@ fn main() -> ExitCode {
                 session: context.session.clone(),
                 prog: tasks_cli::PROG,
             };
-            plan_group(&runtime, &taskloom, group, project, &settings, &catalog)
+            plan_group(runtime, taskloom, group, project, &settings, catalog)
         }
+        Mounted::Store(group) => store_group(runtime, taskloom, group, project, catalog),
         Mounted::Watch(tasks_watch::Group::Watch) => {
             let settings = tasks_watch::Settings {
                 format,
@@ -270,11 +330,11 @@ fn main() -> ExitCode {
                 prog: tasks_cli::PROG,
             };
             watch(
-                &runtime,
+                runtime,
                 taskloom.fs().os(),
                 &mut taskloom.tasks(),
                 &settings,
-                &catalog,
+                catalog,
             )
         }
     }

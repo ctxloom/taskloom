@@ -1,0 +1,42 @@
+[package]
+name = "store-cli"
+version = "0.1.0"
+description = "The store command group (export, fold-digest), for any binary to mount: a project's database written whole as JSONL, and its streams' re-fold digest, for carrying a store across a proto generation"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-diagnostic.workspace = true
+angzarr-presentation.workspace = true
+# The digest's lines, and the descriptor pool they are written through
+# (store-export-import.plan.md, D4 (a)).
+angzarr-store-transfer.workspace = true
+clap.workspace = true
+plans-application.workspace = true
+project-application.workspace = true
+tasks-application.workspace = true
+
+[dev-dependencies]
+# Rendering catalogs' English (`english_for!`), for the tests that hold it.
+angzarr-presentation = { workspace = true, features = ["test-support"] }
+fluent-syntax.workspace = true
+prost.workspace = true
+prost-types.workspace = true
+serde_json.workspace = true
+# The use cases' futures, run to their end.
+tokio.workspace = true
+
+[build-dependencies]
+# The build writes the catalog's source under the crate's name
+# (angzarr_diagnostic::build): no catalog spells its crate's name.
+angzarr-diagnostic = { workspace = true, features = ["build"] }
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests: their
+# dev-dependency turns it on, and no build of a binary does.
+test-support = []
+
+[lints]
+workspace = true

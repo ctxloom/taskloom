@@ -33,6 +33,7 @@
 mod add;
 mod change;
 mod check;
+mod digest;
 mod error;
 mod import;
 mod project;
@@ -73,6 +74,7 @@ pub fn dead_letter_sample(component: &str) -> DeadLetter {
 pub use add::NewPlan;
 pub use change::Link;
 pub use check::{CheckReport, Finding};
+pub use digest::{DigestPlans, Folded};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{PathError, PlanError, CATALOGS, EN_US};
