@@ -169,6 +169,7 @@ fn minute(at: Timestamp) -> String {
 pub fn apply_command(older_than: &str, statuses: &[String], tag_query: Option<&str>) -> String {
     let mut words = vec![
         PROG.to_string(),
+        "tasks".to_string(),
         "prune".to_string(),
         "--older-than".to_string(),
         shell_word(older_than),
@@ -188,7 +189,7 @@ pub fn apply_command(older_than: &str, statuses: &[String], tag_query: Option<&s
 /// `word` as a POSIX shell reads it back: bare when every character is one
 /// a shell passes through literally, single-quoted otherwise, so `To Do`
 /// or `triage:level<=2` survives being pasted.
-fn shell_word(word: &str) -> String {
+pub(crate) fn shell_word(word: &str) -> String {
     let plain = !word.is_empty()
         && word
             .chars()

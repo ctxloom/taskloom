@@ -1,23 +1,22 @@
-//! The `plan` command group: `add`, `list`, `show`, `status`, `link`,
-//! `unlink`, `check` and `import`, translated into the plans use cases
+//! The `plans` command group: `add`, `list`, `show`, `status`, `link`,
+//! `unlink` and `check`, translated into the plans use cases
 //! ([`Plans`]) and their answers rendered through presentation, as text or
 //! one JSON document. It depends on no tasks crate, so any binary mounts
 //! it: taskloom does, beside its task commands.
 //!
-//! A binary flattens [`Group`] into its own subcommands, parses its own
-//! global flags (the format, the pinned project), and hands the group,
+//! A binary mounts [`Command`] under its own `plans` group, parses its own
+//! global flags (the format, the pinned project), and hands the command,
 //! those and its catalog (with this crate's [`EN_US`] and the use cases')
-//! to [`run`]. Text on a terminal, JSON otherwise, unless `--format` or
-//! `--json` says: `plan show` too, whose text is the plan's markdown, raw
-//! (the VS Code extension asks for it with `--format text`). Exit 0; 1 with
-//! the error on stderr (its catalog message in text, its envelope in JSON),
-//! or when `plan check` finds drift or `plan import` leaves a value; 2 on a
-//! usage error the parser cannot see (a status that is none, a link naming
-//! nothing).
+//! to [`run`]. Text on a terminal, JSON otherwise, unless `--format` says:
+//! `plans show` too, whose text is the plan's markdown, raw (the VS Code
+//! extension asks for it with `--format text`). Exit 0; 1 with the error
+//! on stderr (its catalog message in text, its envelope in JSON), or when
+//! `plans check` finds drift; 2 on a usage error the parser cannot see (a
+//! status that is none, a link naming nothing).
 //!
 //! The VS Code extension's contract (ctxloom-vscode `plans-data.ts`):
-//! `plan list --json` is an array of objects each with `path` (absolute),
-//! `name`, `title`, `session` and `sessions`.
+//! `plans list --format json` is an array of objects each with `path`
+//! (absolute), `name`, `title`, `session` and `sessions`.
 
 mod error;
 mod render;
@@ -32,50 +31,48 @@ use plans_application::{Link, NewPlan, PlanQuery, PlanStatus, PlanView};
 pub use error::diagnostic_samples;
 pub use error::{CliError, EN_US};
 pub use plans_application::Plans;
-use render::{Added, Checked, Imported, Linked, Listed, Moved, Shown};
+use render::{Added, Checked, Linked, Listed, Moved, Shown};
 
-/// The group, mounted as `plan`.
+/// The `plans` verbs.
 #[derive(Subcommand, Debug)]
-pub enum Group {
-    /// Plans: markdown files in the work tree, their status and links in
-    /// the project's store.
-    #[command(subcommand)]
-    Plan(PlanCommand),
-}
-
-#[derive(Subcommand, Debug)]
-pub enum PlanCommand {
-    /// Add a plan: write `.taskloom/plans/<id>.plan.md`, or register an
-    /// existing `.plan.md` in the work tree with --path.
+pub enum Command {
+    /// Add a plan: write a new plan file, or register an existing one
+    #[command(after_help = "Examples:\n  taskloom plans add --title 'Move plans into files'")]
     Add(AddArgs),
-    /// List plans, by id; each file is read, and its hash recorded where it
-    /// changed.
+    /// List plans
+    #[command(
+        after_help = "Examples:\n  taskloom plans list --status active\n  taskloom plans list --governs swift-amber-falcon\n\nTasks keep no plan link. To find the plans governing a task, use --governs <harp>;\nto find the tasks a plan governs, `taskloom plans show <plan>` lists its\n`governs:` harps, then `taskloom tasks show <harp>...`."
+    )]
     List(ListArgs),
-    /// Print a plan's markdown (in JSON, its record and content).
+    /// Print a plan's markdown (in JSON, its record and content)
+    #[command(
+        after_help = "Examples:\n  taskloom plans show brisk-cedar-otter\n\nTo find the tasks a plan governs, read its `governs:` harps, then run\n`taskloom tasks show <harp>...`."
+    )]
     Show(ShowArgs),
-    /// Set a plan's status (draft, active, done, abandoned; superseded is
-    /// set by `plan link --supersedes`).
+    /// Set a plan's status
+    #[command(after_help = "Examples:\n  taskloom plans status brisk-cedar-otter active")]
     Status(StatusArgs),
-    /// Link a plan to the tasks it governs, or to a plan it supersedes.
+    /// Link a plan to the tasks it governs, or to a plan it supersedes
+    #[command(
+        after_help = "Examples:\n  taskloom plans link brisk-cedar-otter --governs swift-amber-falcon"
+    )]
     Link(LinkArgs),
-    /// Remove a link `plan link` made.
+    /// Remove a link `plans link` made
+    #[command(
+        after_help = "Examples:\n  taskloom plans unlink brisk-cedar-otter --governs swift-amber-falcon"
+    )]
     Unlink(LinkArgs),
-    /// Report drift: a recorded file that is missing, a plan file under
-    /// .taskloom/plans no plan records, a governed task gone. Each file is
-    /// read, and its hash recorded where it changed. Exit 1 on any finding.
+    /// Report drift between the plan files and the store; exit 1 on a finding
+    #[command(after_help = "Examples:\n  taskloom plans check")]
     Check,
-    /// Turn tasks' ctxloom:plan="<path>" tags into plans and governs
-    /// links, retiring the tags migrated: a plan outside the work tree is
-    /// copied into .taskloom/plans. Report the values left (no readable
-    /// file, or not a .plan.md), whose tags are kept; exit 1 if any is.
-    Import(ImportArgs),
 }
 
 #[derive(Args, Debug)]
 pub struct AddArgs {
+    /// The plan's title.
     #[arg(long)]
     pub title: String,
-    /// A `.plan.md` in the work tree to register, relative or absolute.
+    /// An existing plan file to register, relative or absolute.
     #[arg(long)]
     pub path: Option<String>,
     /// draft (the default) or active.
@@ -88,8 +85,8 @@ pub struct AddArgs {
 
 #[derive(Args, Debug)]
 pub struct ListArgs {
-    /// Only plans in this status (repeatable).
-    #[arg(long)]
+    /// Only plans in this status (repeatable, or comma-separated).
+    #[arg(long, value_delimiter = ',')]
     pub status: Vec<String>,
     /// Only plans governing this task.
     #[arg(long)]
@@ -98,19 +95,22 @@ pub struct ListArgs {
 
 #[derive(Args, Debug)]
 pub struct ShowArgs {
-    /// A plan's harp id, or its path (relative, or absolute as `plan list`
+    /// A plan's harp id, or its path (relative, or absolute as `plans list`
     /// gives it).
     pub plan: String,
 }
 
 #[derive(Args, Debug)]
 pub struct StatusArgs {
+    /// The plan's id.
     pub plan: String,
+    /// draft, active, done or abandoned (superseded is set by `plans link`).
     pub status: String,
 }
 
 #[derive(Args, Debug)]
 pub struct LinkArgs {
+    /// The plan's id.
     pub plan: String,
     /// A task (repeatable).
     #[arg(long)]
@@ -118,13 +118,6 @@ pub struct LinkArgs {
     /// A plan.
     #[arg(long, conflicts_with = "governs")]
     pub supersedes: Option<String>,
-}
-
-#[derive(Args, Debug)]
-pub struct ImportArgs {
-    /// Report what would be imported; change nothing.
-    #[arg(long)]
-    pub dry_run: bool,
 }
 
 /// What the mounting binary parsed and read for the group.
@@ -141,21 +134,20 @@ pub struct Settings {
 /// How a command ended, short of an error.
 enum Ended {
     Ok,
-    /// Answered, but with something found (drift, a value left): exit 1.
+    /// Answered, but with something found (drift): exit 1.
     Found,
 }
 
-/// Run `group` against `plans`, writing to `out` and `err` with messages
+/// Run `command` against `plans`, writing to `out` and `err` with messages
 /// from `catalog`; the exit code.
 pub async fn run<P: Plans>(
-    group: Group,
+    command: Command,
     settings: &Settings,
     catalog: &Catalog,
     plans: &mut P,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
-    let Group::Plan(command) = group;
     let answered = answer(command, settings, plans, out).await;
     // The kernel's dead letters, almost certainly bugs, are never left
     // unsaid, whatever the command came to.
@@ -200,14 +192,14 @@ fn rendered(out: &mut dyn Write, format: Format, view: &impl Render) -> Result<(
 }
 
 async fn answer<P: Plans>(
-    command: PlanCommand,
+    command: Command,
     settings: &Settings,
     plans: &mut P,
     out: &mut dyn Write,
 ) -> Result<Ended, CliError> {
     let format = settings.format;
     match command {
-        PlanCommand::Add(args) => {
+        Command::Add(args) => {
             let new = NewPlan {
                 title: args.title,
                 path: args.path,
@@ -223,7 +215,7 @@ async fn answer<P: Plans>(
             let plan = plans.add(new).await.map_err(CliError::Plan)?;
             rendered(out, format, &Added(&plan))?;
         }
-        PlanCommand::List(args) => {
+        Command::List(args) => {
             let query = PlanQuery {
                 statuses: args
                     .status
@@ -235,7 +227,7 @@ async fn answer<P: Plans>(
             let listed = plans.list(&query).await.map_err(CliError::Plan)?;
             rendered(out, format, &Listed(&listed))?;
         }
-        PlanCommand::Show(args) => {
+        Command::Show(args) => {
             let shown = plans.show(&args.plan).await.map_err(CliError::Plan)?;
             if format == Format::Text && shown.content.is_none() {
                 return Err(CliError::FileMissing {
@@ -245,7 +237,7 @@ async fn answer<P: Plans>(
             }
             rendered(out, format, &Shown(&shown))?;
         }
-        PlanCommand::Status(args) => {
+        Command::Status(args) => {
             let to = status(&args.status)?;
             let plan = plans
                 .set_status(&args.plan, to)
@@ -253,23 +245,12 @@ async fn answer<P: Plans>(
                 .map_err(CliError::Plan)?;
             rendered(out, format, &Moved(&plan))?;
         }
-        PlanCommand::Link(args) => linking(args, true, plans, out, format).await?,
-        PlanCommand::Unlink(args) => linking(args, false, plans, out, format).await?,
-        PlanCommand::Check => {
+        Command::Link(args) => linking(args, true, plans, out, format).await?,
+        Command::Unlink(args) => linking(args, false, plans, out, format).await?,
+        Command::Check => {
             let report = plans.check().await.map_err(CliError::Plan)?;
             rendered(out, format, &Checked(&report))?;
             if report.failed() {
-                return Ok(Ended::Found);
-            }
-        }
-        PlanCommand::Import(args) => {
-            let report = plans.import(args.dry_run).await.map_err(CliError::Plan)?;
-            let imported = Imported {
-                report: &report,
-                dry_run: args.dry_run,
-            };
-            rendered(out, format, &imported)?;
-            if report.left_any() {
                 return Ok(Ended::Found);
             }
         }

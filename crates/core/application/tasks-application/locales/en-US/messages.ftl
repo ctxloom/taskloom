@@ -20,7 +20,7 @@ priority-in-project = project { $project }: { $warning }
 not-found = no task holds { $count ->
     [one] this harp id
    *[other] these harp ids
-}: { $harp_ids } (see `taskloom list`)
+}: { $harp_ids } (see `taskloom tasks list`)
 ambiguous = { $count ->
     [one] a harp id is
    *[other] harp ids are
@@ -38,7 +38,7 @@ tag-blank = a tag was given blank: give one, or leave it out
 tag-unparseable = the tag { $tag } is not a tag in tagma's grammar: { $ext_err_txt }
 tag-operator-word = the tag { $tag } is a query operator (and, or, not, in any case), so no query could match it
 tag-reserved-namespace = the tag { $tag } is in the namespace { $namespace }: tagma's and taskloom's namespaces are reserved for the store's tag rules
-tag-rules = the store's tag rules refuse this write: { $findings } (see `taskloom schema show`)
+tag-rules = the store's tag rules refuse this write: { $findings } (see `taskloom manage schema show`)
 tag-rule-warning = warning: { $tag } breaks the store's rule { $rule } ({ $args }), as it did before this write
 tag-query = the tag query { $query } is malformed ({ $postfix }): { $grammar }
 lint-rule = { $tags }: { $rule } ({ $args })
@@ -47,4 +47,4 @@ prune-no-status = a prune needs at least one status to select by: an empty statu
 prune-age-required = a prune needs an age: an offset like 30d, or a date like 2026-01-01
 prune-age-not-positive = the age { $age } is not a positive age
 prune-age-unreadable = the age { $age } is neither an offset (30d, 12w, 720h) nor a date (2026-01-01)
-tag-retired = { $tag } is retired: { $target } tags are plans now (taskloom plan add, taskloom plan link <plan> --governs <task>)
+tag-retired = { $tag } is retired: { $target } tags are plans now (taskloom plans add, taskloom plans link <plan> --governs <task>)

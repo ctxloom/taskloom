@@ -16,8 +16,8 @@ use serde_json::Value;
 use tasks_application::{AppError, Project, Watch, WatchRequest, WatchService};
 
 use super::{
-    long_about, run, ChangeLine, Debounce, Group, Interval, Settings, Ticks, CEILING_TICKS,
-    DEBOUNCE,
+    after_help, long_about, run, ChangeLine, Debounce, Group, Interval, Settings, Ticks,
+    CEILING_TICKS, DEBOUNCE,
 };
 
 /// What the long help says on each host, with the departures the human
@@ -240,7 +240,7 @@ fn test_a_watch_where_there_is_no_project_says_so_and_writes_no_line() {
     assert!(streamed.lines.is_empty());
     assert_eq!(
         streamed.err,
-        "taskloom: no project here yet; add a task first (taskloom add \"<task text>\")\n"
+        "taskloom: no project here yet; add a task first (taskloom tasks add \"<task text>\")\n"
     );
     assert_eq!(service.polled, 0);
 
@@ -368,8 +368,11 @@ fn test_the_mounted_command_says_the_hosts_long_help() {
     }
     let mut cli = Cli::command();
     let watch = cli.find_subcommand_mut("watch").expect("watch is mounted");
+    // The help opens with one line (the CLI grammar's rule), so the
+    // reviewed words follow the usage, after the example.
     assert_eq!(
-        watch.get_long_about().map(ToString::to_string),
-        Some(reviewed::said(os::host().flavor()))
+        watch.get_after_help().map(ToString::to_string),
+        Some(after_help(os::host().flavor()))
     );
+    assert!(after_help(os::host().flavor()).ends_with(&reviewed::said(os::host().flavor())));
 }

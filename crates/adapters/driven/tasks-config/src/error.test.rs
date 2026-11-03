@@ -24,7 +24,7 @@ fn test_each_error_renders_its_english_fallback() {
             "TASKLOOM_CONFIG_TAGS sets tags, which is no config key taskloom knows (known: homing, schema_version, tag_permits, tag_schema)".to_string(),
             "--config-set tag_schema: expected <path>=<value>".to_string(),
             format!("{path}: tag_schema has a blank item: give one, or leave it out"),
-            "TASKLOOM_CONFIG_TAG_SCHEMA sets tag_schema, which moved into the project's store: run `taskloom schema import-config` in the work root to move a project's .taskloom/config.yaml into its store, and delete it from anywhere else".to_string(),
+            "TASKLOOM_CONFIG_TAG_SCHEMA sets tag_schema, which moved into the project's store: run `taskloom manage migrate schema` in the work root to move a project's .taskloom/config.yaml into its store, and delete it from anywhere else".to_string(),
             "there is no work root here, so no project config to write tag permits to".to_string(),
             format!("{path} was left as it was: editing it would not have read back as meant (schema_version changed); this is a bug in taskloom"),
             format!("cannot write {path}: read-only file system"),

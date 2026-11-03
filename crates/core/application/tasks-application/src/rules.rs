@@ -200,7 +200,7 @@ impl StoreRules {
         &self.tags
     }
 
-    /// The tags, in tagma syntax, sorted: `taskloom schema export`.
+    /// The tags, in tagma syntax, sorted: `taskloom manage schema export`.
     pub(crate) fn export(&self) -> Vec<String> {
         self.tags.iter().map(ToString::to_string).collect()
     }
@@ -282,7 +282,7 @@ impl StoreRules {
     }
 
     /// The exact targets the rules constrain (`arity`, `type`, `enum`,
-    /// `range`), sorted, each once: what `taskloom permits` lists beside
+    /// `range`), sorted, each once: what `taskloom manage schema permits list` lists beside
     /// the permits.
     pub(crate) fn targets(&self) -> Vec<String> {
         let exact = ["tagma.arity", "tagma.type", "tagma.enum", "tagma.range"];
@@ -295,7 +295,7 @@ impl StoreRules {
     }
 
     /// The patterns `tagma.permit:<pattern>` declares, sorted: what
-    /// `taskloom permits` lists.
+    /// `taskloom manage schema permits list` lists.
     pub(crate) fn permits(&self) -> Vec<String> {
         self.facet(PERMIT)
             .filter(|tag| tag.value.is_none())
@@ -314,7 +314,7 @@ impl StoreRules {
         targets.len()
     }
 
-    /// What `taskloom schema show` prints: each declared target and its
+    /// What `taskloom manage schema show` prints: each declared target and its
     /// facets, as the tags spell them. Display only; tagma judges.
     pub(crate) fn summary(&self) -> SchemaSummary {
         let mut targets: BTreeMap<String, TargetSummary> = BTreeMap::new();
@@ -363,7 +363,7 @@ pub(crate) fn permit_tag(pattern: &str) -> tagma_core::Tag {
     }
 }
 
-/// The store's rules as `taskloom schema show` prints them: each target
+/// The store's rules as `taskloom manage schema show` prints them: each target
 /// a facet is declared for, by target.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct SchemaSummary {

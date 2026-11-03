@@ -14,8 +14,143 @@
 
 /// The reference loadout document, reviewed.
 pub fn loadout() -> String {
-    applied(include_str!("go/loadout.yaml"), LOADOUT)
+    applied(
+        &applied(include_str!("go/loadout.yaml"), LOADOUT),
+        CONSOLIDATION,
+    )
 }
+
+/// The CLI consolidation (slice A, owner-ruled 2026-11-03), applied after
+/// the changes above: the commands are `taskloom <noun> <verb>` (`tasks`,
+/// `manage`), `--format json` is the only machine flag (no `--json`), the
+/// removed spellings say what replaced them, and a change previews unless
+/// `--yes`. Each `old` is the text above's result.
+pub const CONSOLIDATION: &[(&str, &str)] = &[
+    (
+        r##"        taskloom serves no MCP. Read with `list` (`--term`, `--tag-query`,
+        `--status`, `--all`, `--compact`, `--limit`), `show <harp>...`,
+        `summary`, `tags`, `permits`, `schema`; write with `add <text>`
+        (`--tag`, `--status`, `--trigger`), `edit <harp> <text>`, `status
+        <harp> <status>` and `tag <harp> --add/--remove`. `<command> --help`
+        is the reference. Echo a task's harp back when you name it later.
+"##,
+        r##"        taskloom serves no MCP. Commands are `taskloom <noun> <verb>`. Read
+        with `tasks list` (`--term`, `--tag-query`, `--status`, `--all`,
+        `--compact`, `--limit`), `tasks show <harp>...`, `tasks summary`,
+        `manage schema tags list`, `manage schema permits list` and `manage
+        schema show`; write with `tasks add <text>` (`--tag`, `--status`,
+        `--trigger`), `tasks set <harp>` (`--text`, `--status`, `--trigger`)
+        and `tasks tag add|remove <harp> <tag>`. A bare group (`taskloom
+        tasks`) prints its help, as `<command> --help` does: that is the
+        reference. There is no `help` command. Echo a task's harp back when
+        you name it later.
+"##,
+    ),
+    (
+        r##"        - Enumerate with `--compact` and/or `--limit`: a bare `list --json`
+          returns every task's whole body.
+"##,
+        r##"        - Enumerate with `--compact` and/or `--limit`: a bare `tasks list
+          --format json` returns every task's whole body.
+"##,
+    ),
+    (
+        r##"        - Never read the store (`state.db`) directly: it is an append-only
+          log, and only the CLI folds it to current state.
+"##,
+        r##"        - Never read the store (`state.db`) directly: it is an append-only
+          log, and only the CLI folds it to current state.
+        - The old spellings (`taskloom list`, `add`, `show`, `status`, `edit`,
+          `tag`, `tags`, `summary`, `lint`, `prune`, `schema`, `plan`,
+          `watch`, and the old json shorthand flag) are removed, not aliased: each
+          prints `removed: use <new command>` and exits 2.
+        - Exit codes: 0 success; 1 the command ran against the store and the
+          answer was negative (no such task, a `check` finding); 2 the
+          request is invalid on its own content (bad arguments, a tag no
+          permit admits) and nothing was read or written.
+"##,
+    ),
+    (
+        r##"## Use `--json` FIRST, paired"##,
+        r##"## Use `--format json` FIRST, paired"##,
+    ),
+    (
+        r##"EVERY taskloom command takes `--json` (shorthand for `--format json`;
+        `--format` also accepts text). If you are an agent,
+        `--json` is your surface"##,
+        r##"EVERY taskloom command takes `--format json` (`--format` also accepts
+        text; there is no shorthand flag). If you are an agent,
+        `--format json` is your surface"##,
+    ),
+    (
+        r##"            taskloom show <harp> --json | jq -r '.text'
+            taskloom show <harp-a> <harp-b> --json | jq -r '.[].text'"##,
+        r##"            taskloom tasks show <harp> --format json | jq -r '.text'
+            taskloom tasks show <harp-a> <harp-b> --format json | jq -r '.[].text'"##,
+    ),
+    (
+        r##"            taskloom list --all --json | jq -r '.[].harp_id'
+            taskloom list --all --json | jq -r '.[]|select(.tags[]?=="human:decision")|.harp_id'"##,
+        r##"            taskloom tasks list --all --format json | jq -r '.[].harp_id'
+            taskloom tasks list --all --format json | jq -r '.[]|select(.tags[]?=="human:decision")|.harp_id'"##,
+    ),
+    (
+        r##"**If `--json` fails, or"##,
+        r##"**If `--format json` fails, or"##,
+    ),
+    (
+        r##"        - `taskloom show`'s text form"##,
+        r##"        - `taskloom tasks show`'s text form"##,
+    ),
+    (
+        r##"so a following `edit` (which replaces the"##,
+        r##"so a following `tasks set --text` (which replaces the"##,
+    ),
+    (
+        r##"            taskloom list --term <symbol, path, or error string>
+            taskloom list --tag-query <area>"##,
+        r##"            taskloom tasks list --term <symbol, path, or error string>
+            taskloom tasks list --tag-query <area>"##,
+    ),
+    (
+        r##"        `taskloom prune` removes old"##,
+        r##"        `taskloom tasks prune` removes old"##,
+    ),
+    (
+        r##"        `taskloom prune --yes` unless asked"##,
+        r##"        `taskloom tasks prune --yes` unless asked"##,
+    ),
+    (
+        r##"            taskloom list --all --json | jq -r '.[]|select(.text|test("<symbol>"))|.harp_id'
+            taskloom list --term <symbol|path|error> --json
+            taskloom list --tag-query <area>"##,
+        r##"            taskloom tasks list --all --format json | jq -r '.[]|select(.text|test("<symbol>"))|.harp_id'
+            taskloom tasks list --term <symbol|path|error> --format json
+            taskloom tasks list --tag-query <area>"##,
+    ),
+    (
+        r##"        `taskloom schema --json` (enums, ranges and scalar targets, enforced
+        on write), `taskloom tags --json` (what is in use) and `taskloom
+        permits --json`."##,
+        r##"        `taskloom manage schema show --format json` (enums, ranges and scalar
+        targets, enforced on write), `taskloom manage schema tags list
+        --format json` (what is in use) and `taskloom manage schema permits
+        list --format json`."##,
+    ),
+    (
+        r##"        Agents must not run `taskloom schema declare`, `taskloom permit`,
+        `taskloom revoke` or `taskloom schema import-config` without"##,
+        r##"        Agents must not run `taskloom manage schema declare`, `taskloom manage
+        schema permits add|remove` or `taskloom manage migrate schema` without"##,
+    ),
+    (
+        r##"Reading the rules (`taskloom schema`, `taskloom
+        schema export`, `taskloom schema check`) needs no permission."##,
+        r##"Reading the rules (`taskloom manage schema
+        show`, `export` and `check`) needs no permission. Changes preview by
+        default: `--yes` applies them, `--dry-run` never does."##,
+    ),
+];
 
 pub const LOADOUT: &[(&str, &str)] = &[
     // 5. run.description: built from the Rust repository; the SQLite store.

@@ -1,10 +1,10 @@
-//! Acceptance: `taskloom plan`, the real binary in a temporary home and
+//! Acceptance: `taskloom plans`, the real binary in a temporary home and
 //! work tree: a plan added, listed with the VS Code extension's fields,
 //! shown as JSON and as its markdown, linked to a task, its file edited
-//! (the hash tracks it) and removed (check says so), and the `ctxloom:plan`
-//! tags an imported Go log carries turned into plans.
+//! (the hash tracks it) and removed (check says so), and the retired
+//! `ctxloom:plan` tag refused.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 use serde_json::Value;
@@ -52,7 +52,7 @@ impl World {
     /// `taskloom args --json`, which must succeed: its document.
     fn json(&self, args: &[&str]) -> Value {
         let mut args = args.to_vec();
-        args.push("--json");
+        args.extend(["--format", "json"]);
         let ran = self.run(&args);
         assert!(ran.ok, "{args:?}: {}", ran.stderr);
         ran.json()
@@ -74,19 +74,26 @@ fn text(value: &Value) -> &str {
 #[test]
 fn show_names_the_plans_governing_each_task_and_none_for_a_task_ungoverned() {
     let world = World::new();
-    let governed = world.json(&["add", "Move plans into taskloom"]);
+    let governed = world.json(&["tasks", "add", "Move plans into taskloom"]);
     let governed = text(&governed["harp_id"]).to_string();
-    let free = world.json(&["add", "Tidy the docs"]);
+    let free = world.json(&["tasks", "add", "Tidy the docs"]);
     let free = text(&free["harp_id"]).to_string();
-    let first = world.json(&["plan", "add", "--title", "Plans", "--governs", &governed]);
+    let first = world.json(&["plans", "add", "--title", "Plans", "--governs", &governed]);
     let first = text(&first["id"]).to_string();
-    let second = world.json(&["plan", "add", "--title", "More", "--governs", &governed]);
+    let second = world.json(&["plans", "add", "--title", "More", "--governs", &governed]);
     let second = text(&second["id"]).to_string();
     let mut both = [first, second];
     both.sort();
     let line = format!("\n    plans: {}\n", both.join(", "));
     for global in [false, true] {
-        let mut args = vec!["show", governed.as_str(), free.as_str(), "--format", "text"];
+        let mut args = vec![
+            "tasks",
+            "show",
+            governed.as_str(),
+            free.as_str(),
+            "--format",
+            "text",
+        ];
         if global {
             args.push("--global");
         }
@@ -115,10 +122,10 @@ fn show_names_the_plans_governing_each_task_and_none_for_a_task_ungoverned() {
 #[test]
 fn a_plan_added_is_written_listed_shown_linked_and_tracked() {
     let world = World::new();
-    let task = world.json(&["add", "Move plans into taskloom"]);
+    let task = world.json(&["tasks", "add", "Move plans into taskloom"]);
     let task = text(&task["harp_id"]).to_string();
 
-    let added = world.json(&["plan", "add", "--title", "Plans", "--governs", &task]);
+    let added = world.json(&["plans", "add", "--title", "Plans", "--governs", &task]);
     let id = text(&added["id"]).to_string();
     let rel = format!(".taskloom/plans/{id}.plan.md");
     assert_eq!(added["rel_path"], rel.as_str());
@@ -129,7 +136,7 @@ fn a_plan_added_is_written_listed_shown_linked_and_tracked() {
     assert!(written.contains("title: Plans"), "{written}");
 
     // The VS Code extension's fields, off a terminal.
-    let listed = world.run(&["plan", "list"]);
+    let listed = world.run(&["plans", "list"]);
     assert!(listed.ok, "{}", listed.stderr);
     let first = &listed.json()[0];
     assert_eq!(first["path"], file.to_string_lossy().as_ref());
@@ -139,28 +146,28 @@ fn a_plan_added_is_written_listed_shown_linked_and_tracked() {
     assert_eq!(first["sessions"], serde_json::json!(["inept-sixth-stick"]));
 
     // Off a terminal, JSON; its text is the markdown, raw.
-    let shown = world.run(&["plan", "show", &file.to_string_lossy()]);
+    let shown = world.run(&["plans", "show", &file.to_string_lossy()]);
     assert!(shown.ok, "{}", shown.stderr);
     assert_eq!(shown.json()["content"], written.as_str());
-    let raw = world.run(&["plan", "show", &id, "--format", "text"]);
+    let raw = world.run(&["plans", "show", &id, "--format", "text"]);
     assert_eq!(raw.stdout, written);
 
     // The hash tracks an edit.
     disk::write(&file, "# Plans, edited\n").unwrap();
-    let checked = world.run(&["plan", "check"]);
+    let checked = world.run(&["plans", "check"]);
     assert!(checked.ok, "{}", checked.stderr);
     assert_eq!(
         checked.json(),
         serde_json::json!({"ok": true, "findings": []})
     );
-    let after = world.json(&["plan", "show", &id]);
+    let after = world.json(&["plans", "show", &id]);
     assert_ne!(after["content_hash"], added["content_hash"]);
 
-    let moved = world.json(&["plan", "status", &id, "active"]);
+    let moved = world.json(&["plans", "status", &id, "active"]);
     assert_eq!(moved["status"], "active");
-    let governing = world.json(&["plan", "list", "--governs", &task]);
+    let governing = world.json(&["plans", "list", "--governs", &task]);
     assert_eq!(governing[0]["id"], id.as_str());
-    let shown = world.run(&["show", &task, "--format", "text"]);
+    let shown = world.run(&["tasks", "show", &task, "--format", "text"]);
     assert!(
         shown.stdout.contains(&format!("\n    plans: {id}\n")),
         "{}",
@@ -169,7 +176,7 @@ fn a_plan_added_is_written_listed_shown_linked_and_tracked() {
 
     // A missing file is drift: exit 1, named.
     disk::remove_file(&file).unwrap();
-    let missing = world.run(&["plan", "check", "--format", "text"]);
+    let missing = world.run(&["plans", "check", "--format", "text"]);
     assert!(!missing.ok);
     assert_eq!(missing.stdout, format!("missing: {id} {rel}\n"));
 }
@@ -177,10 +184,10 @@ fn a_plan_added_is_written_listed_shown_linked_and_tracked() {
 #[test]
 fn a_usage_error_the_parser_cannot_see_exits_2() {
     let world = World::new();
-    let refused = world.run(&["plan", "add", "--title", "T", "--status", "nope"]);
+    let refused = world.run(&["plans", "add", "--title", "T", "--status", "nope"]);
     assert_eq!(refused_code(&refused), 2);
     assert!(refused.stderr.contains("nope"), "{}", refused.stderr);
-    let unknown = world.run(&["plan", "show", "no-such-plan"]);
+    let unknown = world.run(&["plans", "show", "no-such-plan"]);
     assert_eq!(refused_code(&unknown), 1);
 }
 
@@ -189,92 +196,15 @@ fn refused_code(ran: &Ran) -> i32 {
     ran.code
 }
 
-/// A Go task log under the home whose tasks carry `ctxloom:plan` tags: one
-/// naming a plan in the work tree, one outside it, one a dead path.
-fn go_log(home: &Path, project: &str, inside: &Path, outside: &Path) {
-    let tag = |path: &Path| {
-        serde_json::to_string(&format!("ctxloom:plan=\"{}\"", path.display())).unwrap()
-    };
-    let lines = [
-        format!(
-            r#"{{"op":"add","task":"brisk-heron","text":"Inside","tags":[{}],"ts":"2026-03-01T10:00:00Z"}}"#,
-            tag(inside)
-        ),
-        format!(
-            r#"{{"op":"add","task":"quiet-maple","text":"Outside","tags":[{}],"ts":"2026-03-01T10:01:00Z"}}"#,
-            tag(outside)
-        ),
-        format!(
-            r#"{{"op":"add","task":"tidy-otter","text":"Dead","tags":[{}],"ts":"2026-03-01T10:02:00Z"}}"#,
-            tag(&outside.with_file_name("gone.plan.md"))
-        ),
-    ];
-    let tasks = home.join(".ctxloom/tasks");
-    disk::create_dir_all(&tasks).unwrap();
-    disk::write(
-        tasks.join(format!("{project}.jsonl")),
-        lines.join("\n") + "\n",
-    )
-    .unwrap();
-}
-
+/// `plan import` is removed (plans become files, so there is nothing to
+/// import); the `ctxloom:plan` tag it retired stays refused on write.
 #[test]
-fn import_turns_ctxloom_plan_tags_into_plans_and_the_tag_is_retired_after() {
+fn the_retired_ctxloom_plan_tag_is_refused_on_write() {
     let world = World::new();
-    let project = "jolly-mute-magma";
-    let pinned = [("CTXLOOM_PROJECT_ID", project)];
-    let inside = world.path("docs/design.plan.md");
-    disk::create_dir_all(inside.parent().unwrap()).unwrap();
-    disk::write(&inside, "---\ntitle: Design\n---\n# Design\n").unwrap();
-    let elsewhere = Temp::new();
-    let outside = disk::canonicalize(elsewhere.path())
-        .unwrap()
-        .join("v1-removal.plan.md");
-    disk::write(&outside, "# V1 removal\n").unwrap();
-    go_log(world.home.path(), project, &inside, &outside);
-    let imported = world.run_with(&["import", "--json"], &pinned);
-    assert!(imported.ok, "{}", imported.stderr);
-
-    let dry = world.run_with(&["plan", "import", "--dry-run", "--json"], &pinned);
-    assert_eq!(dry.json()["plans"].as_array().unwrap().len(), 2);
-    assert!(world.run_with(&["plan", "list", "--json"], &pinned).json()[0].is_null());
-
-    let ran = world.run_with(&["plan", "import", "--json"], &pinned);
-    assert_eq!(ran.code, 1, "a dead path was left: {}", ran.stderr);
-    let report = ran.json();
-    assert_eq!(report["plans"][0]["path"], "docs/design.plan.md");
-    assert_eq!(
-        report["plans"][0]["governs"],
-        serde_json::json!(["brisk-heron"])
-    );
-    assert_eq!(report["plans"][1]["external"], true);
-    let copy = text(&report["plans"][1]["path"]).to_string();
-    assert_eq!(
-        disk::read_to_string(world.path(&copy)).unwrap(),
-        "# V1 removal\n"
-    );
-    assert_eq!(disk::read_to_string(&outside).unwrap(), "# V1 removal\n");
-    assert_eq!(
-        report["dead"][0]["tasks"],
-        serde_json::json!(["tidy-otter"])
-    );
-    assert_eq!(report["retired"].as_array().unwrap().len(), 2);
-
-    let plans = world.run_with(&["plan", "list", "--json"], &pinned).json();
-    assert_eq!(plans.as_array().unwrap().len(), 2);
-    assert_eq!(plans[0]["status"], "active");
-
-    // The tags migrated are gone; the dead one is kept.
-    let shown = world.run_with(&["show", "brisk-heron", "tidy-otter", "--json"], &pinned);
-    let shown = shown.json();
-    assert!(!shown[0]["tags"].to_string().contains("ctxloom"), "{shown}");
-    assert!(shown[1]["tags"].to_string().contains("ctxloom"), "{shown}");
-
-    // Retired: a write adding it is refused.
-    let refused = world.run_with(
-        &["tag", "brisk-heron", "--add", "ctxloom:plan=\"x.plan.md\""],
-        &pinned,
-    );
+    let added = world.run(&["tasks", "add", "Seed", "--format", "json"]);
+    assert!(added.ok, "{}", added.stderr);
+    let harp = added.json()["harp_id"].as_str().unwrap().to_string();
+    let refused = world.run(&["tasks", "tag", "add", &harp, "ctxloom:plan=\"x.plan.md\""]);
     assert!(!refused.ok);
     assert!(
         refused.stderr.contains("ctxloom:plan"),

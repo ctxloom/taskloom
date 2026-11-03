@@ -1,4 +1,4 @@
-//! `taskloom watch`: a project's task changes as a JSON Lines stream, one
+//! `taskloom tasks watch`: a project's task changes as a JSON Lines stream, one
 //! line per change:
 //! `{"event":"changed","kind":"tasks","project":"<project-id>"}`. A
 //! subscriber (a GUI) re-queries the task list on each line. One line is
@@ -46,7 +46,7 @@ pub const DEBOUNCE: Duration = Duration::from_millis(100);
 /// debounces.
 pub const CEILING_TICKS: u32 = 10;
 
-/// `taskloom watch --help`'s long text as a host of `flavor` says it: what
+/// `taskloom tasks watch --help`'s long text as a host of `flavor` says it: what
 /// stops the watch is what the os crate's stop signal hears there, Ctrl-C
 /// and SIGTERM on unix (Go's words); on Windows (a reviewed departure from
 /// Go's words, 2026-10-28) Ctrl-C and Ctrl-Break, and the console's close,
@@ -70,14 +70,20 @@ the backend, not the client)."
     )
 }
 
-/// The command, for the binary to mount.
+/// The text after `watch --help`'s usage: an example, then the long help
+/// (the reviewed words) as a host of `flavor` says it.
+pub fn after_help(flavor: os::Flavor) -> String {
+    format!(
+        "Examples:\n  taskloom tasks watch\n\n{}",
+        long_about(flavor)
+    )
+}
+
+/// The command, for the binary to mount as `tasks watch`.
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
 pub enum Group {
-    /// Stream task-store change events as JSONL (one line per change)
-    #[command(
-        hide = true,
-        long_about = long_about(os::host().flavor())
-    )]
+    /// Stream task-store change events as JSONL, one line per change
+    #[command(after_help = after_help(os::host().flavor()))]
     Watch,
 }
 

@@ -56,7 +56,7 @@ impl TaskStores for Stores {
 
 /// Add `args` as a task through the binary; its harp.
 fn add(env: &Env, args: &[&str]) -> String {
-    let added = env.run(&[&["add"][..], args, &["--json"]].concat());
+    let added = env.run(&[&["tasks", "add"][..], args, &["--format", "json"]].concat());
     assert!(added.ok, "{}", added.stderr);
     one_document(&added.stdout)["harp_id"]
         .as_str()
@@ -73,10 +73,26 @@ fn test_a_list_reads_one_moment_though_another_process_writes_and_purges_meanwhi
     let other = Arc::clone(&env);
     let meanwhile: Meanwhile = Box::new(move |_: &SqliteStore| {
         let env = &other;
-        let ran = env.run(&["prune", "--older-than", "1ns", "--yes", "--json"]);
+        let ran = env.run(&[
+            "tasks",
+            "prune",
+            "--older-than",
+            "1ns",
+            "--yes",
+            "--format",
+            "json",
+        ]);
         assert!(ran.ok, "{}", ran.stderr);
         assert_eq!(one_document(&ran.stdout)["tasks_pruned"], 1);
-        let ran = env.run(&["status", &moved, "In Progress", "--json"]);
+        let ran = env.run(&[
+            "tasks",
+            "set",
+            &moved,
+            "--status",
+            "In Progress",
+            "--format",
+            "json",
+        ]);
         assert!(ran.ok, "{}", ran.stderr);
         add(env, &["Added meanwhile"]);
     });
@@ -126,7 +142,7 @@ fn test_a_list_reads_one_moment_though_another_process_writes_and_purges_meanwhi
         "the store as the list's covers saw it: nothing moved, purged or added since"
     );
 
-    let listed = env.run(&["list", "--all", "--json"]);
+    let listed = env.run(&["tasks", "list", "--all", "--format", "json"]);
     assert!(listed.ok, "{}", listed.stderr);
     let after: Vec<String> = one_document(&listed.stdout)
         .as_array()

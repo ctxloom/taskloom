@@ -139,12 +139,14 @@ fn add(service: &mut Permits, tags: &[&str]) -> Result<Written, AppError> {
 fn permit(service: &mut Permits, permit: &str) -> Result<Permitted, AppError> {
     ready(service.permit(PermitChange {
         permit: permit.to_string(),
+        ..Default::default()
     }))
 }
 
 fn revoke(service: &mut Permits, permit: &str) -> Result<Permitted, AppError> {
     ready(service.revoke(PermitChange {
         permit: permit.to_string(),
+        ..Default::default()
     }))
 }
 
@@ -406,7 +408,7 @@ fn test_the_core_vocabulary_is_seeded_and_a_projects_own_is_not() {
 // ------------------------------------------------------------ the list
 
 // Ruling 9: what is permitted is readable, by a person and an agent alike
-// (`taskloom permits`): the store's patterns, and every target its rules
+// (`taskloom manage schema permits list`): the store's patterns, and every target its rules
 // constrain, sorted, its own declarations among them.
 #[test]
 fn test_the_permits_are_listed_with_the_targets_the_rules_constrain() {
@@ -414,6 +416,7 @@ fn test_the_permits_are_listed_with_the_targets_the_rules_constrain() {
     ready(service.declare(Declaration {
         add: vec![r#"tagma.enum:"area:x"=a"#.to_string()],
         remove: vec![],
+        ..Default::default()
     }))
     .unwrap();
     let listed = ready(service.permits()).unwrap();
@@ -571,6 +574,28 @@ fn test_a_revoke_no_task_needs_removes_the_permit() {
             "{spelled}"
         );
     }
+}
+
+// A dry run checks everything a revoke checks and answers what it would do,
+// writing nothing; one that would be refused is refused.
+#[test]
+fn test_a_dry_run_revoke_answers_what_it_would_do_and_changes_nothing() {
+    let mut service = under(&USUAL);
+    let before = export(&mut service);
+    let change = |permit: &str| PermitChange {
+        permit: permit.to_string(),
+        dry_run: true,
+    };
+    let would = ready(service.revoke(change("area:mcp"))).unwrap();
+    assert!(would.changed);
+    assert_eq!(export(&mut service), before, "nothing was removed");
+    let would = ready(service.permit(change("area:newkey"))).unwrap();
+    assert!(would.changed);
+    assert_eq!(export(&mut service), before, "nothing was added");
+    let already = ready(service.permit(change("area:mcp"))).unwrap();
+    assert!(!already.changed, "already permitted: no change");
+    let error = ready(service.revoke(change("nothing:held"))).unwrap_err();
+    assert_eq!(error.exit_code(), 1, "refused as a real revoke is");
 }
 
 // Ruling 4: revoking what stored tasks still carry is refused, listing
@@ -735,6 +760,7 @@ fn test_one_area_and_one_repo_a_task_hold_in_every_store() {
     ready(service.declare(Declaration {
         add: vec![],
         remove: vec!["tagma.keys-per-item:repo=1".to_string()],
+        ..Default::default()
     }))
     .unwrap();
     add(&mut service, &["repo:a", "repo:b"]).unwrap();
@@ -743,6 +769,7 @@ fn test_one_area_and_one_repo_a_task_hold_in_every_store() {
     ready(service.declare(Declaration {
         add: vec!["tagma.keys-per-item:repo=1".to_string()],
         remove: vec![],
+        ..Default::default()
     }))
     .unwrap();
     assert_eq!(

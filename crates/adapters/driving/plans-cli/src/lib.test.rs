@@ -1,4 +1,4 @@
-//! RED: `taskloom plan` over a fake use-case layer: what each command asks
+//! RED: `taskloom plans` over a fake use-case layer: what each command asks
 //! for, and what it writes, as text and as JSON, the VS Code fields
 //! included.
 
@@ -6,8 +6,8 @@ use angzarr_diagnostic::Diagnostic;
 use angzarr_presentation::{Catalog, Format};
 use clap::Parser;
 use plans_application::{
-    CheckReport, Finding, ImportReport, ImportedPlan, LeftTag, Link, NewPlan, PlanError, PlanQuery,
-    PlanStatus, PlanText, PlanView,
+    CheckReport, Finding, ImportReport, Link, NewPlan, PlanError, PlanQuery, PlanStatus, PlanText,
+    PlanView,
 };
 use serde_json::{json, Value};
 
@@ -22,14 +22,18 @@ struct Context {
 }
 
 /// The command line as a binary mounting the group parses it: its global
-/// format flags, and `plan`.
+/// format flag, and `plans`.
+#[derive(clap::Subcommand, Debug)]
+enum Group {
+    #[command(subcommand)]
+    Plans(Command),
+}
+
 #[derive(Parser, Debug)]
 #[command(name = "taskloom")]
 struct Cli {
     #[command(subcommand)]
     group: Group,
-    #[arg(long, global = true)]
-    json: bool,
     #[arg(long, global = true)]
     format: Option<String>,
 }
@@ -50,7 +54,7 @@ fn run(
     let cli = Cli::try_parse_from(args).unwrap_or_else(|e| panic!("{e}"));
     let settings = Settings {
         format: Format::choose(
-            cli.json,
+            false,
             cli.format.map(|f| f.parse().unwrap()),
             context.stdout_is_terminal,
         ),
@@ -60,7 +64,8 @@ fn run(
     let mut sources = vec![EN_US];
     sources.extend(plans_application::CATALOGS);
     let catalog = Catalog::en_us(&sources).unwrap();
-    ready(super::run(cli.group, &settings, &catalog, plans, out, err))
+    let Group::Plans(command) = cli.group;
+    ready(super::run(command, &settings, &catalog, plans, out, err))
 }
 
 const TEXT: &str = "---\ntitle: Plans move into taskloom\n---\n# Plans\n";
@@ -181,7 +186,7 @@ fn add_passes_title_path_status_governs_and_the_session() {
         &mut fake,
         true,
         &[
-            "plan",
+            "plans",
             "add",
             "--title",
             "T",
@@ -208,7 +213,11 @@ fn add_passes_title_path_status_governs_and_the_session() {
 
 #[test]
 fn add_in_text_names_the_plan_and_its_file() {
-    let ran = run_on(&mut Fake::default(), true, &["plan", "add", "--title", "T"]);
+    let ran = run_on(
+        &mut Fake::default(),
+        true,
+        &["plans", "add", "--title", "T"],
+    );
     assert_eq!(ran.out, "added plan-1 .taskloom/plans/plan-1.plan.md\n");
 }
 
@@ -217,7 +226,7 @@ fn add_in_json_is_the_plan_object() {
     let ran = run_on(
         &mut Fake::default(),
         false,
-        &["plan", "add", "--title", "T"],
+        &["plans", "add", "--title", "T"],
     );
     assert_eq!(ran.json()["id"], "plan-1");
     assert_eq!(ran.json()["status"], "draft");
@@ -229,7 +238,7 @@ fn add_refuses_an_unknown_status_as_a_usage_error() {
     let ran = run_on(
         &mut fake,
         true,
-        &["plan", "add", "--title", "T", "--status", "nope"],
+        &["plans", "add", "--title", "T", "--status", "nope"],
     );
     assert_eq!(ran.code, 2);
     assert!(fake.asked.is_empty());
@@ -239,7 +248,11 @@ fn add_refuses_an_unknown_status_as_a_usage_error() {
 
 #[test]
 fn list_json_keeps_the_vscode_fields_and_adds_the_plans_own() {
-    let ran = run_on(&mut two_plans(), true, &["plan", "list", "--json"]);
+    let ran = run_on(
+        &mut two_plans(),
+        true,
+        &["plans", "list", "--format", "json"],
+    );
     assert_eq!(ran.code, 0, "{}", ran.err);
     let first = &ran.json()[0];
     // The VS Code contract (plans-data.ts): path absolute, name, title,
@@ -264,19 +277,19 @@ fn list_json_keeps_the_vscode_fields_and_adds_the_plans_own() {
 
 #[test]
 fn list_json_with_no_plans_is_an_empty_array_and_sessions_never_null() {
-    let ran = run_on(&mut Fake::default(), false, &["plan", "list"]);
+    let ran = run_on(&mut Fake::default(), false, &["plans", "list"]);
     assert_eq!(ran.json(), json!([]));
     let mut fake = two_plans();
     fake.plans[0].sessions.clear();
     assert_eq!(
-        run_on(&mut fake, false, &["plan", "list"]).json()[0]["sessions"],
+        run_on(&mut fake, false, &["plans", "list"]).json()[0]["sessions"],
         json!([])
     );
 }
 
 #[test]
 fn list_text_is_a_line_per_plan() {
-    let ran = run_on(&mut two_plans(), true, &["plan", "list"]);
+    let ran = run_on(&mut two_plans(), true, &["plans", "list"]);
     assert_eq!(
         ran.out,
         "plan-1 [active] Title of plan-1 (.taskloom/plans/plan-1.plan.md)\n\
@@ -321,7 +334,7 @@ fn list_sends_its_status_and_governs_filters() {
     let mut querying = Querying::default();
     let argv = [
         "taskloom",
-        "plan",
+        "plans",
         "list",
         "--status",
         "active",
@@ -358,7 +371,7 @@ fn show_off_a_terminal_writes_json_and_its_text_is_the_markdown_raw() {
     let ran = run_on(
         &mut two_plans(),
         false,
-        &["plan", "show", "/tree/.taskloom/plans/plan-1.plan.md"],
+        &["plans", "show", "/tree/.taskloom/plans/plan-1.plan.md"],
     );
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(ran.json()["content"], TEXT);
@@ -366,7 +379,7 @@ fn show_off_a_terminal_writes_json_and_its_text_is_the_markdown_raw() {
         &mut two_plans(),
         false,
         &[
-            "plan",
+            "plans",
             "show",
             "/tree/.taskloom/plans/plan-1.plan.md",
             "--format",
@@ -382,7 +395,7 @@ fn show_json_is_the_plan_object_with_its_content() {
     let ran = run_on(
         &mut two_plans(),
         true,
-        &["plan", "show", "plan-1", "--json"],
+        &["plans", "show", "plan-1", "--format", "json"],
     );
     let shown = ran.json();
     assert_eq!(shown["id"], "plan-1");
@@ -393,7 +406,7 @@ fn show_json_is_the_plan_object_with_its_content() {
 
 #[test]
 fn show_of_an_unknown_plan_exits_1_naming_it_on_stderr() {
-    let ran = run_on(&mut two_plans(), true, &["plan", "show", "nope"]);
+    let ran = run_on(&mut two_plans(), true, &["plans", "show", "nope"]);
     assert_eq!(ran.code, 1);
     assert!(ran.out.is_empty());
     assert!(ran.err.contains("nope"), "{}", ran.err);
@@ -404,13 +417,13 @@ fn show_of_an_unknown_plan_exits_1_naming_it_on_stderr() {
 #[test]
 fn status_sends_the_parsed_status_and_says_it_in_text_and_json() {
     let mut fake = two_plans();
-    let ran = run_on(&mut fake, true, &["plan", "status", "plan-2", "Active"]);
+    let ran = run_on(&mut fake, true, &["plans", "status", "plan-2", "Active"]);
     assert_eq!(fake.asked, vec!["status plan-2 Active"]);
     assert_eq!(ran.out, "plan-2 active\n");
     let ran = run_on(
         &mut two_plans(),
         true,
-        &["plan", "status", "plan-2", "done", "--json"],
+        &["plans", "status", "plan-2", "done", "--format", "json"],
     );
     assert_eq!(ran.json()["status"], "done");
 }
@@ -424,7 +437,7 @@ fn link_governs_sends_one_link_per_task_and_text_names_each() {
         &mut fake,
         true,
         &[
-            "plan",
+            "plans",
             "link",
             "plan-1",
             "--governs",
@@ -449,13 +462,13 @@ fn link_supersedes_and_unlink_supersedes_send_their_link() {
     let ran = run_on(
         &mut fake,
         true,
-        &["plan", "link", "plan-2", "--supersedes", "plan-1"],
+        &["plans", "link", "plan-2", "--supersedes", "plan-1"],
     );
     assert_eq!(ran.out, "plan-2 supersedes plan-1\n");
     let ran = run_on(
         &mut fake,
         true,
-        &["plan", "unlink", "plan-2", "--supersedes", "plan-1"],
+        &["plans", "unlink", "plan-2", "--supersedes", "plan-1"],
     );
     assert_eq!(ran.out, "plan-2 no longer supersedes plan-1\n");
     assert_eq!(
@@ -470,7 +483,10 @@ fn link_supersedes_and_unlink_supersedes_send_their_link() {
 #[test]
 fn link_with_neither_governs_nor_supersedes_is_a_usage_error() {
     let mut fake = two_plans();
-    assert_eq!(run_on(&mut fake, true, &["plan", "link", "plan-1"]).code, 2);
+    assert_eq!(
+        run_on(&mut fake, true, &["plans", "link", "plan-1"]).code,
+        2
+    );
     assert!(fake.asked.is_empty());
 }
 
@@ -479,14 +495,14 @@ fn a_refused_link_exits_1_with_the_reason_on_stderr_and_json_envelope() {
     let ran = run_on(
         &mut two_plans(),
         true,
-        &["plan", "link", "plan-1", "--governs", "ghost"],
+        &["plans", "link", "plan-1", "--governs", "ghost"],
     );
     assert_eq!(ran.code, 1);
     assert!(ran.err.contains("ghost"), "{}", ran.err);
     let ran = run_on(
         &mut two_plans(),
         false,
-        &["plan", "link", "plan-1", "--governs", "ghost"],
+        &["plans", "link", "plan-1", "--governs", "ghost"],
     );
     let envelope: Value = serde_json::from_str(&ran.err).unwrap();
     assert_eq!(
@@ -518,7 +534,7 @@ fn drifted() -> Fake {
 
 #[test]
 fn check_text_is_a_line_per_finding_and_exits_1_on_drift() {
-    let ran = run_on(&mut drifted(), true, &["plan", "check"]);
+    let ran = run_on(&mut drifted(), true, &["plans", "check"]);
     assert_eq!(ran.code, 1);
     assert_eq!(
         ran.out,
@@ -529,7 +545,7 @@ fn check_text_is_a_line_per_finding_and_exits_1_on_drift() {
 
 #[test]
 fn check_json_names_each_finding_by_kind() {
-    let ran = run_on(&mut drifted(), false, &["plan", "check"]);
+    let ran = run_on(&mut drifted(), false, &["plans", "check"]);
     assert_eq!(ran.code, 1);
     assert_eq!(
         ran.json(),
@@ -545,10 +561,10 @@ fn check_json_names_each_finding_by_kind() {
 
 #[test]
 fn check_with_nothing_found_exits_0_and_says_so() {
-    let ran = run_on(&mut Fake::default(), true, &["plan", "check"]);
+    let ran = run_on(&mut Fake::default(), true, &["plans", "check"]);
     assert_eq!(ran.code, 0);
     assert_eq!(ran.out, "plans: no drift\n");
-    let ran = run_on(&mut Fake::default(), false, &["plan", "check"]);
+    let ran = run_on(&mut Fake::default(), false, &["plans", "check"]);
     assert_eq!(ran.json(), json!({"ok": true, "findings": []}));
 }
 
@@ -557,77 +573,7 @@ fn check_with_nothing_found_exits_0_and_says_so() {
 fn check_with_only_an_unregistered_file_exits_1() {
     let mut fake = drifted();
     fake.report.findings.drain(..1);
-    assert_eq!(run_on(&mut fake, true, &["plan", "check"]).code, 1);
-}
-
-// ---- import ----
-
-fn imported() -> Fake {
-    Fake {
-        import: ImportReport {
-            plans: vec![ImportedPlan {
-                harp_id: "plan-1".into(),
-                path: "docs/design.plan.md".into(),
-                external: false,
-                new: true,
-                governs: vec!["task-a".into(), "task-b".into()],
-            }],
-            dead: vec![LeftTag {
-                value: "/home/b/gone.plan.md".into(),
-                tasks: vec!["task-c".into()],
-            }],
-            not_plans: vec![LeftTag {
-                value: "docs/README.md".into(),
-                tasks: vec!["task-d".into()],
-            }],
-            retired: vec![
-                ("task-a".into(), "docs/design.plan.md".into()),
-                ("task-b".into(), "docs/design.plan.md".into()),
-            ],
-        },
-        ..Fake::default()
-    }
-}
-
-#[test]
-fn import_text_reports_plans_dead_paths_non_plans_and_retired_tags() {
-    let mut fake = imported();
-    let ran = run_on(&mut fake, true, &["plan", "import"]);
-    assert_eq!(fake.asked, vec!["import dry_run=false"]);
-    assert_eq!(
-        ran.out,
-        "plan-1 docs/design.plan.md (new): governs task-a, task-b\n\
-         dead: /home/b/gone.plan.md (task-c): tag kept\n\
-         not a plan: docs/README.md (task-d): tag kept\n\
-         2 ctxloom:plan tags retired\n"
-    );
-}
-
-#[test]
-fn import_with_a_dead_path_exits_1_so_a_script_sees_what_was_left() {
-    assert_eq!(run_on(&mut imported(), true, &["plan", "import"]).code, 1);
-    let mut clean = imported();
-    clean.import.dead.clear();
-    clean.import.not_plans.clear();
-    assert_eq!(run_on(&mut clean, true, &["plan", "import"]).code, 0);
-}
-
-#[test]
-fn import_json_is_the_whole_report() {
-    let ran = run_on(&mut imported(), false, &["plan", "import", "--dry-run"]);
-    let report = ran.json();
-    assert_eq!(report["dry_run"], true);
-    assert_eq!(report["plans"][0]["id"], "plan-1");
-    assert_eq!(report["plans"][0]["governs"], json!(["task-a", "task-b"]));
-    assert_eq!(
-        report["dead"][0],
-        json!({"value": "/home/b/gone.plan.md", "tasks": ["task-c"]})
-    );
-    assert_eq!(report["not_plans"][0]["value"], "docs/README.md");
-    assert_eq!(
-        report["retired"][0],
-        json!({"task": "task-a", "value": "docs/design.plan.md"})
-    );
+    assert_eq!(run_on(&mut fake, true, &["plans", "check"]).code, 1);
 }
 
 // ---- beyond the reviewed tests ----
@@ -700,7 +646,7 @@ fn a_link_refused_part_way_says_the_links_made_and_the_refusal() {
     let ran = run_refusing(
         true,
         &[
-            "plan",
+            "plans",
             "link",
             "plan-1",
             "--governs",
@@ -716,7 +662,7 @@ fn a_link_refused_part_way_says_the_links_made_and_the_refusal() {
 
 #[test]
 fn every_dead_letter_is_said_on_stderr() {
-    let ran = run_refusing(true, &["plan", "list"]);
+    let ran = run_refusing(true, &["plans", "list"]);
     assert_eq!(ran.code, 0);
     assert!(
         ran.err.starts_with(
@@ -729,7 +675,7 @@ fn every_dead_letter_is_said_on_stderr() {
 
 #[test]
 fn show_in_text_of_a_plan_whose_file_is_gone_exits_1_naming_it() {
-    let ran = run_refusing(true, &["plan", "show", "plan-1"]);
+    let ran = run_refusing(true, &["plans", "show", "plan-1"]);
     assert_eq!(ran.code, 1);
     assert!(ran.out.is_empty());
     assert!(
@@ -737,7 +683,7 @@ fn show_in_text_of_a_plan_whose_file_is_gone_exits_1_naming_it() {
         "{}",
         ran.err
     );
-    let ran = run_refusing(false, &["plan", "show", "plan-1"]);
+    let ran = run_refusing(false, &["plans", "show", "plan-1"]);
     assert_eq!(ran.code, 0);
     assert_eq!(ran.json()["content"], Value::Null);
 }
@@ -746,11 +692,11 @@ fn show_in_text_of_a_plan_whose_file_is_gone_exits_1_naming_it() {
 fn an_unknown_status_anywhere_is_a_usage_error() {
     let mut fake = two_plans();
     assert_eq!(
-        run_on(&mut fake, true, &["plan", "status", "plan-1", "nope"]).code,
+        run_on(&mut fake, true, &["plans", "status", "plan-1", "nope"]).code,
         2
     );
     assert_eq!(
-        run_on(&mut fake, true, &["plan", "list", "--status", "nope"]).code,
+        run_on(&mut fake, true, &["plans", "list", "--status", "nope"]).code,
         2
     );
     assert!(fake.asked.is_empty());
@@ -762,22 +708,11 @@ fn unlink_governs_says_each_link_removed() {
     let ran = run_on(
         &mut fake,
         true,
-        &["plan", "unlink", "plan-1", "--governs", "task-a"],
+        &["plans", "unlink", "plan-1", "--governs", "task-a"],
     );
     assert_eq!(ran.out, "plan-1 no longer governs task-a\n");
     assert_eq!(
-        run_on(&mut fake, true, &["plan", "unlink", "plan-1"]).code,
+        run_on(&mut fake, true, &["plans", "unlink", "plan-1"]).code,
         2
-    );
-}
-
-#[test]
-fn a_dry_run_import_says_nothing_changed() {
-    let ran = run_on(&mut imported(), true, &["plan", "import", "--dry-run"]);
-    assert!(
-        ran.out
-            .ends_with("2 ctxloom:plan tags would be retired (dry run: nothing changed)\n"),
-        "{}",
-        ran.out
     );
 }

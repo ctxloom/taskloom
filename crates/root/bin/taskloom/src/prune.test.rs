@@ -1,4 +1,4 @@
-//! Acceptance: `taskloom prune` through the real binary over SQLite, in a
+//! Acceptance: `taskloom tasks prune` through the real binary over SQLite, in a
 //! temporary home: a report changes nothing, `--yes` removes and purges,
 //! and each answer is one JSON document as jq reads it.
 
@@ -6,7 +6,7 @@ use super::{disk, one_document, Env};
 
 /// Add `args` as a task; its harp.
 fn add(env: &Env, args: &[&str]) -> String {
-    let mut args = [&["add"][..], args, &["--json"]].concat();
+    let mut args = [&["tasks", "add"][..], args, &["--format", "json"]].concat();
     args.retain(|a| !a.is_empty());
     let added = env.run(&args);
     assert!(added.ok, "{}", added.stderr);
@@ -17,7 +17,7 @@ fn add(env: &Env, args: &[&str]) -> String {
 }
 
 fn every_harp(env: &Env) -> Vec<String> {
-    let listed = env.run(&["list", "--all", "--json"]);
+    let listed = env.run(&["tasks", "list", "--all", "--format", "json"]);
     assert!(listed.ok, "{}", listed.stderr);
     one_document(&listed.stdout)
         .as_array()
@@ -47,7 +47,7 @@ fn test_a_prune_reports_then_with_yes_removes_and_purges_and_names_what_dangles(
     );
 
     // A cut of a nanosecond back takes every Done task already recorded.
-    let report = env.run(&["prune", "--older-than", "1ns", "--json"]);
+    let report = env.run(&["tasks", "prune", "--older-than", "1ns", "--format", "json"]);
     assert!(report.ok, "{}", report.stderr);
     let document = one_document(&report.stdout);
     assert_eq!(document["applied"], false);
@@ -83,13 +83,21 @@ fn test_a_prune_reports_then_with_yes_removes_and_purges_and_names_what_dangles(
     assert!(
         report
             .stderr
-            .contains("taskloom prune --older-than 1ns --status Done --yes"),
+            .contains("taskloom tasks prune --older-than 1ns --status Done --yes"),
         "{}",
         report.stderr
     );
     assert!(every_harp(&env).contains(&done), "a report changes nothing");
 
-    let applied = env.run(&["prune", "--older-than", "1ns", "--yes", "--json"]);
+    let applied = env.run(&[
+        "tasks",
+        "prune",
+        "--older-than",
+        "1ns",
+        "--yes",
+        "--format",
+        "json",
+    ]);
     assert!(applied.ok, "{}", applied.stderr);
     let document = one_document(&applied.stdout);
     assert_eq!(document["applied"], true);
@@ -103,7 +111,7 @@ fn test_a_prune_reports_then_with_yes_removes_and_purges_and_names_what_dangles(
     assert!(!left.contains(&done), "{left:?}");
     assert_eq!(left.len(), 2);
 
-    let again = env.run(&["prune", "--older-than", "1ns", "--format", "text"]);
+    let again = env.run(&["tasks", "prune", "--older-than", "1ns", "--format", "text"]);
     assert!(again.ok, "{}", again.stderr);
     assert!(
         again.stdout.contains("Nothing to prune (status Done, "),
@@ -115,7 +123,7 @@ fn test_a_prune_reports_then_with_yes_removes_and_purges_and_names_what_dangles(
 #[test]
 fn test_a_prune_where_there_is_no_project_creates_nothing() {
     let env = Env::new("prune-nowhere-harp");
-    let ran = env.run(&["prune", "--yes", "--json"]);
+    let ran = env.run(&["tasks", "prune", "--yes", "--format", "json"]);
     assert!(ran.ok, "{}", ran.stderr);
     assert_eq!(one_document(&ran.stdout)["pruned"], serde_json::json!([]));
     assert_eq!(
@@ -129,7 +137,7 @@ fn test_a_prune_where_there_is_no_project_creates_nothing() {
 #[test]
 fn test_a_refused_prune_is_an_envelope_and_leaves_stdout_empty() {
     let env = Env::new("prune-refused-harp");
-    let ran = env.run(&["prune", "--older-than", "soon", "--json"]);
+    let ran = env.run(&["tasks", "prune", "--older-than", "soon", "--format", "json"]);
     assert!(!ran.ok);
     assert_eq!(ran.stdout, "");
     let envelope = one_document(&ran.stderr);

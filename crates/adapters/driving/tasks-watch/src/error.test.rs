@@ -24,7 +24,7 @@ fn test_a_use_case_error_is_its_own_diagnostic() {
 fn test_no_project_is_gos_message() {
     assert_eq!(
         WatchError::NoProject.english(),
-        "no project here yet; add a task first (taskloom add \"<task text>\")"
+        "no project here yet; add a task first (taskloom tasks add \"<task text>\")"
     );
 }
 

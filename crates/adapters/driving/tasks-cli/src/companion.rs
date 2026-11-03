@@ -63,18 +63,9 @@ impl Render for VersionJson<'_> {
 }
 
 /// Print the loadout, unless another format than yaml was asked for (a
-/// `--json`, or a `--format` other than yaml); then nothing is printed.
-pub(crate) fn loadout(
-    json: bool,
-    asked: Option<Asked>,
-    out: &mut dyn Write,
-) -> Result<(), CliError> {
-    let refused = match (json, asked) {
-        (true, _) => Some(Format::Json),
-        (false, Some(Asked::Format(format))) => Some(format),
-        (false, Some(Asked::Yaml) | None) => None,
-    };
-    if let Some(format) = refused {
+/// `--format` other than yaml); then nothing is printed.
+pub(crate) fn loadout(asked: Option<Asked>, out: &mut dyn Write) -> Result<(), CliError> {
+    if let Some(Asked::Format(format)) = asked {
         return Err(CliError::LoadoutFormat {
             format: format_name(format).to_string(),
         });

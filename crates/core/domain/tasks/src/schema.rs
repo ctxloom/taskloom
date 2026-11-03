@@ -10,7 +10,7 @@
 //!
 //! Nothing here interprets a rule: what a tag means is tagma's. Decide
 //! holds a declare only to naming a tag, and to naming config tags alone;
-//! a malformed one is recorded, for `taskloom schema check` to report.
+//! a malformed one is recorded, for `taskloom manage schema check` to report.
 //!
 //! The commands and events are generated from
 //! `proto/ctxloom/tasks/v1/schema.proto`; [`SchemaAggregate`] is the

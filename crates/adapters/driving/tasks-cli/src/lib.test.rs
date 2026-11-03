@@ -19,7 +19,7 @@ use tasks_application::{
 
 use angzarr_presentation::Catalog;
 
-use super::{parse, run, run_import, Command, Context, Globals, ImportGroup, UseCases};
+use super::{parse, run, run_import, Command, Context, Globals, UseCases};
 
 mod shapes {
     use tasks_application::{Task, Timestamp};
@@ -288,7 +288,7 @@ fn run_on(fake: &mut Fake, terminal: bool, args: &[&str]) -> Ran {
 }
 
 /// The command line as a binary mounts these commands: the global flags
-/// over the task commands and `import`.
+/// over `tasks`, `manage` and `loadout`.
 #[derive(clap::Parser, Debug)]
 #[command(name = super::PROG, about = "Manage the per-project task store")]
 struct Cli {
@@ -300,10 +300,41 @@ struct Cli {
 
 #[derive(clap::Subcommand, Debug)]
 enum Line {
-    #[command(flatten)]
-    Tasks(Command),
-    #[command(flatten)]
-    Import(ImportGroup),
+    #[command(subcommand)]
+    Tasks(super::Tasks),
+    #[command(subcommand)]
+    Manage(Manage),
+    Loadout,
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum Manage {
+    #[command(subcommand)]
+    Schema(super::Schema),
+    #[command(subcommand)]
+    Migrate(Migrate),
+    Version,
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum Migrate {
+    Tasks,
+    Schema,
+}
+
+impl Line {
+    /// The command the task use cases run, or none for `manage migrate
+    /// tasks`, which the importer runs.
+    fn command(self) -> Option<Command> {
+        Some(match self {
+            Line::Tasks(tasks) => Command::Tasks(tasks),
+            Line::Manage(Manage::Schema(schema)) => Command::Schema(schema),
+            Line::Manage(Manage::Migrate(Migrate::Schema)) => Command::ImportConfig,
+            Line::Manage(Manage::Migrate(Migrate::Tasks)) => return None,
+            Line::Manage(Manage::Version) => Command::Version,
+            Line::Loadout => Command::Loadout,
+        })
+    }
 }
 
 /// `args` (after the program's name) parsed as a binary parses them, and
@@ -331,7 +362,7 @@ fn ran(
 
 fn run_in(context: &Context, fake: &mut Fake, args: &[&str]) -> Ran {
     ran(context, args, |line, globals, catalog, out, err| {
-        let Line::Tasks(command) = line else {
+        let Some(command) = line.command() else {
             panic!("not a task command: {args:?}")
         };
         run_with(fake, |use_cases| {
@@ -343,7 +374,7 @@ fn run_in(context: &Context, fake: &mut Fake, args: &[&str]) -> Ran {
 /// A task command `args` (the program's name first) parsed.
 fn parsed(args: &[&str]) -> (Command, Globals) {
     let cli = <Cli as clap::Parser>::try_parse_from(args).expect("parsed");
-    let Line::Tasks(command) = cli.command else {
+    let Some(command) = cli.command.command() else {
         panic!("not a task command: {args:?}")
     };
     (command, cli.globals)
@@ -369,6 +400,7 @@ fn test_add_joins_its_words_and_passes_its_flags_and_the_session() {
         &[
             "--project",
             "pinned",
+            "tasks",
             "add",
             "Ship",
             "it",
@@ -420,7 +452,11 @@ fn test_a_write_to_a_project_with_no_root_is_named_by_its_id() {
         })),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["--project", "pinned", "add", "Ship it"]);
+    let ran = run_on(
+        &mut fake,
+        true,
+        &["--project", "pinned", "tasks", "add", "Ship it"],
+    );
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(ran.err, "taskloom: project jolly-mute-magma\n");
 }
@@ -431,7 +467,7 @@ fn test_add_with_no_flags_leaves_status_trigger_and_tags_out() {
         written: written(shapes::task("swift-amber", "To Do")),
         ..Fake::default()
     };
-    run_on(&mut fake, true, &["add", "Ship it"]);
+    run_on(&mut fake, true, &["tasks", "add", "Ship it"]);
     let added = &fake.added[0];
     assert_eq!(added.project, None);
     assert_eq!(added.status, None);
@@ -451,6 +487,7 @@ fn test_add_passes_a_flag_given_empty_on_as_given() {
         &mut fake,
         true,
         &[
+            "tasks",
             "add",
             "Ship it",
             "--status",
@@ -479,7 +516,7 @@ fn test_add_in_an_empty_session_is_added_in_none() {
         session: String::new(),
         ..Context::default()
     };
-    run_in(&context, &mut fake, &["add", "Ship it"]);
+    run_in(&context, &mut fake, &["tasks", "add", "Ship it"]);
     assert_eq!(fake.added[0].origin_session, None);
 }
 
@@ -489,7 +526,7 @@ fn test_off_a_terminal_add_answers_in_json() {
         written: written(shapes::task("swift-amber", "To Do")),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, false, &["add", "Ship it"]);
+    let ran = run_on(&mut fake, false, &["tasks", "add", "Ship it"]);
     let value: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(value["harp_id"], "swift-amber");
 }
@@ -498,9 +535,8 @@ fn test_off_a_terminal_add_answers_in_json() {
 fn test_an_explicit_format_wins_over_the_terminal() {
     let answer = || written(shapes::task("swift-amber", "To Do"));
     for (terminal, args) in [
-        (true, &["--format", "json", "add", "x"][..]),
-        (true, &["add", "x", "--json"][..]),
-        (true, &["--json", "--format", "text", "add", "x"][..]),
+        (true, &["--format", "json", "tasks", "add", "x"][..]),
+        (true, &["tasks", "add", "x", "--format", "json"][..]),
     ] {
         let mut fake = Fake {
             written: answer(),
@@ -513,15 +549,15 @@ fn test_an_explicit_format_wins_over_the_terminal() {
         written: answer(),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, false, &["--format", "text", "add", "x"]);
+    let ran = run_on(&mut fake, false, &["--format", "text", "tasks", "add", "x"]);
     assert_eq!(ran.out, "swift-amber\tTo Do\tShip it\n");
 }
 
 #[test]
 fn test_add_needs_text() {
     let mut fake = Fake::default();
-    let ran = run_on(&mut fake, true, &["add"]);
-    assert_eq!(ran.code, 1);
+    let ran = run_on(&mut fake, true, &["tasks", "add"]);
+    assert_eq!(ran.code, 2);
     assert!(ran.err.contains("required"), "{}", ran.err);
     assert!(fake.added.is_empty());
 }
@@ -532,7 +568,7 @@ fn test_a_failed_add_says_why_on_stderr_and_exits_1() {
         written: Some(Err(AppError::HarpsExhausted { attempts: 100 })),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["add", "x"]);
+    let ran = run_on(&mut fake, true, &["tasks", "add", "x"]);
     assert_eq!(ran.code, 1);
     assert_eq!(ran.out, "");
     assert_eq!(ran.err, "taskloom: no free task id after 100 tries\n");
@@ -541,7 +577,7 @@ fn test_a_failed_add_says_why_on_stderr_and_exits_1() {
 // ------------------------------------------------------------ tag
 
 #[test]
-fn test_tag_passes_its_adds_and_removes_and_answers_with_the_tags() {
+fn test_tag_add_and_remove_pass_their_one_tag_and_answer_with_the_tags() {
     let mut fake = Fake {
         written: written(tagged_task()),
         ..Fake::default()
@@ -549,27 +585,33 @@ fn test_tag_passes_its_adds_and_removes_and_answers_with_the_tags() {
     let ran = run_on(
         &mut fake,
         true,
+        &["tasks", "tag", "add", "swift-amber", "a"],
+    );
+    assert_eq!(ran.code, 0);
+    let ran = run_on(
+        &mut fake,
+        true,
         &[
+            "tasks",
             "tag",
+            "remove",
             "swift-amber",
-            "--add",
-            "a",
-            "--add",
-            "b",
-            "--remove",
             "c",
+            "--request-id",
+            "r-9",
         ],
     );
     assert_eq!(ran.code, 0);
+    let change = |add: &[&str], remove: &[&str], request_id: Option<&str>| TagChange {
+        project: None,
+        harp_id: "swift-amber".to_string(),
+        add: add.iter().map(ToString::to_string).collect(),
+        remove: remove.iter().map(ToString::to_string).collect(),
+        request_id: request_id.map(str::to_string),
+    };
     assert_eq!(
         fake.tagged,
-        [TagChange {
-            project: None,
-            harp_id: "swift-amber".to_string(),
-            add: vec!["a".to_string(), "b".to_string()],
-            remove: vec!["c".to_string()],
-            request_id: None,
-        }]
+        [change(&["a"], &[], None), change(&[], &["c"], Some("r-9"))]
     );
     assert_eq!(ran.err, "taskloom: project /work/tree (jolly-mute-magma)\n");
     assert_eq!(ran.out, "swift-amber\tTo Do\ta,b\n");
@@ -584,7 +626,7 @@ fn test_tag_in_json_is_the_task() {
     let ran = run_on(
         &mut fake,
         false,
-        &["--project", "p", "tag", "swift-amber", "--add", "a"],
+        &["--project", "p", "tasks", "tag", "add", "swift-amber", "a"],
     );
     assert_eq!(fake.tagged[0].project.as_deref(), Some("p"));
     let value: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
@@ -599,7 +641,7 @@ fn test_a_failed_tag_exits_1() {
         })),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["tag", "x", "--add", "a"]);
+    let ran = run_on(&mut fake, true, &["tasks", "tag", "add", "x", "a"]);
     assert_eq!(ran.code, 1);
     assert!(ran.err.starts_with("taskloom: task x"), "{}", ran.err);
 }
@@ -618,8 +660,10 @@ fn test_status_passes_its_id_status_and_trigger_and_answers_like_add() {
         &[
             "--project",
             "p",
-            "status",
+            "tasks",
+            "set",
             "swift-amber",
+            "--status",
             "Deferred",
             "--trigger",
             "the release",
@@ -641,20 +685,32 @@ fn test_status_passes_its_id_status_and_trigger_and_answers_like_add() {
     );
     assert_eq!(ran.out, "swift-amber\tDeferred\tShip it\n");
     assert_eq!(ran.err, "taskloom: project /work/tree (jolly-mute-magma)\n");
-    let ran = run_on(&mut fake, false, &["status", "swift-amber", "Done"]);
+    let ran = run_on(
+        &mut fake,
+        false,
+        &["tasks", "set", "swift-amber", "--status", "Done"],
+    );
     let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(json["harp_id"], "swift-amber");
     assert_eq!(fake.moved[1].trigger, None, "no trigger given");
     run_on(
         &mut fake,
         true,
-        &["status", "swift-amber", "Done", "--trigger", ""],
+        &[
+            "tasks",
+            "set",
+            "swift-amber",
+            "--status",
+            "Done",
+            "--trigger",
+            "",
+        ],
     );
     assert_eq!(fake.moved[2].trigger.as_deref(), Some(""), "given empty");
 }
 
 // A trigger alone defers the task; --clear-trigger clears it, alone or with
-// a status, and is passed on beside a trigger for the use case to refuse.
+// a status, and beside a trigger is refused.
 #[test]
 fn test_status_passes_a_trigger_alone_and_a_clearing_of_the_trigger() {
     let mut fake = Fake {
@@ -671,81 +727,71 @@ fn test_status_passes_a_trigger_alone_and_a_clearing_of_the_trigger() {
     };
     for (args, expected) in [
         (
-            &["status", "swift-amber", "--trigger", "the release"][..],
+            &["tasks", "set", "swift-amber", "--trigger", "the release"][..],
             change(None, Some("the release"), false),
         ),
         (
-            &["status", "swift-amber", "--clear-trigger"][..],
+            &["tasks", "set", "swift-amber", "--clear-trigger"][..],
             change(None, None, true),
         ),
         (
-            &["status", "swift-amber", "Done", "--clear-trigger"][..],
+            &[
+                "tasks",
+                "set",
+                "swift-amber",
+                "--status",
+                "Done",
+                "--clear-trigger",
+            ][..],
             change(Some("Done"), None, true),
-        ),
-        (
-            &["status", "swift-amber", "--trigger", "x", "--clear-trigger"][..],
-            change(None, Some("x"), true),
         ),
     ] {
         let ran = run_on(&mut fake, true, args);
         assert_eq!(ran.code, 0, "{args:?}: {}", ran.err);
         assert_eq!(fake.moved.last(), Some(&expected), "{args:?}");
     }
+    // A trigger given and cleared at once is refused before anything is sent.
+    let sent = fake.moved.len();
+    let ran = run_on(
+        &mut fake,
+        true,
+        &[
+            "tasks",
+            "set",
+            "swift-amber",
+            "--trigger",
+            "x",
+            "--clear-trigger",
+        ],
+    );
+    assert_eq!(ran.code, 2, "{}", ran.err);
+    assert_eq!(fake.moved.len(), sent);
 }
 
 #[test]
 fn test_status_needs_an_id_and_a_change_and_says_why_it_failed() {
-    let ran = run_on(&mut Fake::default(), true, &["status", "swift-amber"]);
-    assert_eq!(ran.code, 1);
+    let ran = run_on(&mut Fake::default(), true, &["tasks", "set", "swift-amber"]);
+    assert_eq!(ran.code, 2);
     assert!(
         ran.err.contains("--trigger"),
         "names what it needs: {}",
         ran.err
     );
-    let ran = run_on(&mut Fake::default(), true, &["status"]);
-    assert_eq!(ran.code, 1);
+    let ran = run_on(&mut Fake::default(), true, &["tasks", "set"]);
+    assert_eq!(ran.code, 2);
     let mut fake = Fake {
         written: Some(Err(AppError::NoProject)),
-        ..Fake::default()
-    };
-    let ran = run_on(&mut fake, true, &["status", "swift-amber", "Done"]);
-    assert_eq!(ran.code, 1);
-    assert_eq!(
-        ran.err,
-        "taskloom: there is no project here yet, so no task to change\n"
-    );
-}
-
-// A status change on no task whose status names a task is the two given
-// the wrong way round: refused naming the order, not as "no such task".
-#[test]
-fn test_status_on_no_task_whose_status_is_a_task_says_the_harp_goes_first() {
-    let mut fake = Fake {
-        written: Some(Err(tasks_application::no_task_sample())),
-        details: details(
-            Reach::Project(project()),
-            vec![shapes::task("swift-amber", "To Do")],
-        ),
         ..Fake::default()
     };
     let ran = run_on(
         &mut fake,
         true,
-        &["--project", "p", "status", "To Do", "swift-amber"],
+        &["tasks", "set", "swift-amber", "--status", "Done"],
     );
     assert_eq!(ran.code, 1);
     assert_eq!(
-        fake.shows,
-        [ShowQuery {
-            project: Some("p".to_string()),
-            global: false,
-            harp_ids: vec!["swift-amber".to_string()],
-        }]
-    );
-    assert_eq!(
         ran.err,
-        "taskloom: the harp id comes first, then the status: \
-         taskloom status swift-amber \"To Do\"\n"
+        "taskloom: there is no project here yet, so no task to change\n"
     );
 }
 
@@ -761,21 +807,33 @@ fn test_status_keeps_its_own_error_unless_the_status_is_a_task() {
         })),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["status", "nope", "Done"]);
+    let ran = run_on(
+        &mut fake,
+        true,
+        &["tasks", "set", "nope", "--status", "Done"],
+    );
     assert_eq!(ran.code, 1);
     assert_eq!(ran.err, "taskloom: there is no such task\n");
     let mut fake = Fake {
         written: no_task(),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["status", "nope", "--clear-trigger"]);
+    let ran = run_on(
+        &mut fake,
+        true,
+        &["tasks", "set", "nope", "--clear-trigger"],
+    );
     assert_eq!(ran.err, "taskloom: there is no such task\n");
     assert_eq!(fake.shows, [], "no status to look up");
     let mut fake = Fake {
         written: Some(Err(AppError::NoProject)),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["status", "nope", "Done"]);
+    let ran = run_on(
+        &mut fake,
+        true,
+        &["tasks", "set", "nope", "--status", "Done"],
+    );
     assert_eq!(fake.shows, [], "not a missing task");
     assert_eq!(
         ran.err,
@@ -797,12 +855,11 @@ fn test_edit_joins_its_words_and_answers_like_add() {
         &[
             "--project",
             "p",
-            "edit",
+            "tasks",
+            "set",
             "swift-amber",
-            "Ship",
-            "it",
-            "--",
-            "--now",
+            "--text",
+            "Ship it --now",
         ],
     );
     assert_eq!(ran.code, 0, "{}", ran.err);
@@ -817,26 +874,86 @@ fn test_edit_joins_its_words_and_answers_like_add() {
     );
     assert_eq!(ran.out, "swift-amber\tTo Do\tShip it\n");
     assert_eq!(ran.err, "taskloom: project /work/tree (jolly-mute-magma)\n");
-    let ran = run_on(&mut fake, false, &["edit", "swift-amber", "x"]);
+    let ran = run_on(
+        &mut fake,
+        false,
+        &["tasks", "set", "swift-amber", "--text", "x"],
+    );
     let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(json["harp_id"], "swift-amber");
 }
 
 #[test]
 fn test_edit_needs_text_and_says_why_it_failed() {
-    let ran = run_on(&mut Fake::default(), true, &["edit", "swift-amber"]);
-    assert_eq!(ran.code, 1);
+    let ran = run_on(&mut Fake::default(), true, &["tasks", "set", "swift-amber"]);
+    assert_eq!(ran.code, 2);
     let mut fake = Fake {
         written: Some(Err(AppError::NoProject)),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["edit", "swift-amber", "x"]);
+    let ran = run_on(
+        &mut fake,
+        true,
+        &["tasks", "set", "swift-amber", "--text", "x"],
+    );
     assert_eq!(ran.code, 1);
     assert!(
         ran.err.starts_with("taskloom: there is no project"),
         "{}",
         ran.err
     );
+}
+
+// `tasks set` with a text and a status sends the text edit, then the
+// status change, each under a key derived from the one given, and answers
+// with the task as the status change left it.
+#[test]
+fn test_set_sends_the_text_then_the_status_under_distinct_derived_keys() {
+    let mut fake = Fake {
+        written: written(shapes::task("swift-amber", "Done")),
+        ..Fake::default()
+    };
+    let ran = run_on(
+        &mut fake,
+        true,
+        &[
+            "tasks",
+            "set",
+            "swift-amber",
+            "--text",
+            "New",
+            "--status",
+            "Done",
+            "--request-id",
+            "r-7",
+        ],
+    );
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    let edited: Vec<_> = fake.edits.iter().map(|e| e.request_id.as_deref()).collect();
+    let moved: Vec<_> = fake.moved.iter().map(|c| c.request_id.as_deref()).collect();
+    assert_eq!(
+        (edited, moved),
+        (vec![Some("r-7:text")], vec![Some("r-7:status")])
+    );
+    assert_eq!(fake.edits[0].text, "New");
+    assert_eq!(fake.moved[0].status.as_deref(), Some("Done"));
+    // Neither step is sent when the request is invalid on its face.
+    let ran = run_on(
+        &mut fake,
+        true,
+        &[
+            "tasks",
+            "set",
+            "swift-amber",
+            "--text",
+            "x",
+            "--trigger",
+            "t",
+            "--clear-trigger",
+        ],
+    );
+    assert_eq!(ran.code, 2);
+    assert_eq!((fake.edits.len(), fake.moved.len()), (1, 1));
 }
 
 // ------------------------------------------------------------ show
@@ -864,7 +981,7 @@ fn test_show_in_text_names_the_plans_governing_a_task() {
         ]])),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["show", "swift-amber"]);
+    let ran = run_on(&mut fake, true, &["tasks", "show", "swift-amber"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert!(
         ran.out.contains("\n    plans: brisk-cedar, calm-heron\n"),
@@ -891,7 +1008,7 @@ fn test_show_whose_plans_cannot_be_read_says_why() {
         ))),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, false, &["show", "swift-amber"]);
+    let ran = run_on(&mut fake, false, &["tasks", "show", "swift-amber"]);
     assert_eq!(ran.code, 1);
     let envelope: serde_json::Value = serde_json::from_str(&ran.err).unwrap();
     assert_eq!(envelope["code"], "x-broken", "{}", ran.err);
@@ -910,7 +1027,7 @@ fn test_show_passes_its_ids_and_names_the_project_on_stderr() {
     let ran = run_on(
         &mut fake,
         true,
-        &["--project", "p", "show", "swift-amber", "--global"],
+        &["--project", "p", "tasks", "show", "swift-amber", "--global"],
     );
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(
@@ -937,7 +1054,7 @@ fn test_show_of_one_id_is_an_object_and_of_several_an_array() {
         ),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, false, &["show", "swift-amber"]);
+    let ran = run_on(&mut fake, false, &["tasks", "show", "swift-amber"]);
     let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(json["harp_id"], "swift-amber");
     assert_eq!(json["project_id"], "jolly-mute-magma");
@@ -948,7 +1065,11 @@ fn test_show_of_one_id_is_an_object_and_of_several_an_array() {
             shapes::task("calm-otter", "To Do"),
         ],
     );
-    let ran = run_on(&mut fake, false, &["show", "swift-amber", "calm-otter"]);
+    let ran = run_on(
+        &mut fake,
+        false,
+        &["tasks", "show", "swift-amber", "calm-otter"],
+    );
     let json: Vec<serde_json::Value> = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(json[1]["harp_id"], "calm-otter");
 }
@@ -972,7 +1093,7 @@ fn test_show_across_projects_heads_each_task_with_its_project() {
     let ran = run_on(
         &mut fake,
         true,
-        &["show", "swift-amber", "calm-otter", "--global"],
+        &["tasks", "show", "swift-amber", "calm-otter", "--global"],
     );
     assert_eq!(
         ran.out,
@@ -984,20 +1105,20 @@ fn test_show_across_projects_heads_each_task_with_its_project() {
 
 #[test]
 fn test_show_needs_an_id_and_says_which_were_not_found() {
-    let ran = run_on(&mut Fake::default(), true, &["show"]);
-    assert_eq!(ran.code, 1);
+    let ran = run_on(&mut Fake::default(), true, &["tasks", "show"]);
+    assert_eq!(ran.code, 2);
     let mut fake = Fake {
         details: Some(Err(AppError::NotFound {
             harp_ids: vec!["nope".to_string()],
         })),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["show", "nope"]);
+    let ran = run_on(&mut fake, true, &["tasks", "show", "nope"]);
     assert_eq!(ran.code, 1);
     assert_eq!(ran.out, "");
     assert_eq!(
         ran.err,
-        "taskloom: no task holds this harp id: \"nope\" (see `taskloom list`)\n"
+        "taskloom: no task holds this harp id: \"nope\" (see `taskloom tasks list`)\n"
     );
 }
 
@@ -1024,7 +1145,7 @@ fn test_summary_counts_each_status_then_names_those_in_progress() {
         summary: summary(Reach::Project(project())),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["--project", "p", "summary"]);
+    let ran = run_on(&mut fake, true, &["--project", "p", "tasks", "summary"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(
         fake.summed,
@@ -1038,7 +1159,7 @@ fn test_summary_counts_each_status_then_names_those_in_progress() {
         "In Progress\t1\nTo Do\t2\n\nIn-progress: swift-amber\n"
     );
     assert_eq!(ran.err, "");
-    let ran = run_on(&mut fake, false, &["summary"]);
+    let ran = run_on(&mut fake, false, &["tasks", "summary"]);
     assert_eq!(
         ran.out,
         r#"{
@@ -1066,7 +1187,7 @@ fn test_summary_across_projects_names_each_task_with_its_project() {
         }),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["summary", "--global"]);
+    let ran = run_on(&mut fake, true, &["tasks", "summary", "--global"]);
     assert!(fake.summed[0].global);
     assert_eq!(
         ran.out,
@@ -1079,10 +1200,10 @@ fn test_summary_across_projects_names_each_task_with_its_project() {
         in_progress: Vec::new(),
     };
     fake.summary = Some(Ok(quiet));
-    let ran = run_on(&mut fake, true, &["summary"]);
+    let ran = run_on(&mut fake, true, &["tasks", "summary"]);
     assert_eq!(ran.out, "");
     assert_eq!(ran.err, "taskloom: no project here yet: nothing to list\n");
-    let ran = run_on(&mut fake, false, &["summary"]);
+    let ran = run_on(&mut fake, false, &["tasks", "summary"]);
     assert_eq!(ran.out, "{\n  \"counts\": {},\n  \"in_progress\": []\n}\n");
 }
 
@@ -1106,7 +1227,19 @@ fn test_statuses_are_a_line_each_or_gos_array() {
         statuses: statuses(Reach::NoProject, &names),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["--project", "p", "statuses", "--global"]);
+    let ran = run_on(
+        &mut fake,
+        true,
+        &[
+            "--project",
+            "p",
+            "manage",
+            "schema",
+            "statuses",
+            "list",
+            "--global",
+        ],
+    );
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(
         fake.taxonomies,
@@ -1120,7 +1253,7 @@ fn test_statuses_are_a_line_each_or_gos_array() {
         "0\tIn Progress\n1\tDeferred\trequires-trigger\n2\tDone\tterminal\n3\tBlocked\n"
     );
     assert_eq!(ran.err, "", "no project: the defaults, nothing to say");
-    let ran = run_on(&mut fake, false, &["statuses"]);
+    let ran = run_on(&mut fake, false, &["manage", "schema", "statuses", "list"]);
     let json: Vec<serde_json::Value> = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(
         json[1],
@@ -1140,14 +1273,14 @@ fn test_statuses_read_across_projects_for_want_of_one_say_so() {
         statuses: statuses(every, &["To Do"]),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["statuses"]);
+    let ran = run_on(&mut fake, true, &["manage", "schema", "statuses", "list"]);
     assert!(
         ran.err.starts_with("taskloom: no project here: /tmp/x"),
         "{}",
         ran.err
     );
     fake.statuses = statuses(Reach::Project(project()), &["To Do"]);
-    let ran = run_on(&mut fake, true, &["statuses"]);
+    let ran = run_on(&mut fake, true, &["manage", "schema", "statuses", "list"]);
     assert_eq!(ran.err, "");
 }
 
@@ -1185,7 +1318,10 @@ fn test_tags_passes_its_filters_and_aligns_its_counts() {
         &[
             "--project",
             "p",
+            "manage",
+            "schema",
             "tags",
+            "list",
             "--status",
             "@open,Done",
             "--term",
@@ -1215,7 +1351,7 @@ fn test_tags_passes_its_filters_and_aligns_its_counts() {
          docs                 1 active    2 total\n\
          triage:kind=chore   10 active  120 total\n"
     );
-    let ran = run_on(&mut fake, false, &["tags"]);
+    let ran = run_on(&mut fake, false, &["manage", "schema", "tags", "list"]);
     let json: Vec<serde_json::Value> = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(
         json[1],
@@ -1229,13 +1365,16 @@ fn test_tags_with_none_in_use_says_how_to_apply_one() {
         vocabulary: vocabulary(Reach::NoProject, &[]),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["tags"]);
+    let ran = run_on(&mut fake, true, &["manage", "schema", "tags", "list"]);
     assert_eq!(
         ran.out,
         "(no tags in use \u{2014} apply one with `taskloom tag <harp-id> --add <tag>`)\n"
     );
     assert_eq!(ran.err, "taskloom: no project here yet: nothing to list\n");
-    assert_eq!(run_on(&mut fake, false, &["tags"]).out, "[]\n");
+    assert_eq!(
+        run_on(&mut fake, false, &["manage", "schema", "tags", "list"]).out,
+        "[]\n"
+    );
     fake.vocabulary = vocabulary(
         Reach::Every {
             projects: 3,
@@ -1243,7 +1382,11 @@ fn test_tags_with_none_in_use_says_how_to_apply_one() {
         },
         &[],
     );
-    let ran = run_on(&mut fake, true, &["tags", "--global"]);
+    let ran = run_on(
+        &mut fake,
+        true,
+        &["manage", "schema", "tags", "list", "--global"],
+    );
     assert!(
         ran.out.starts_with("Projects: 3 (--global)\n\n(no tags"),
         "{}",
@@ -1285,7 +1428,8 @@ fn test_lint_says_each_violation_and_exits_1_for_any() {
         &[
             "--project",
             "p",
-            "lint",
+            "tasks",
+            "check",
             "--global",
             "--config-set",
             "tag_schema=x",
@@ -1305,7 +1449,7 @@ fn test_lint_says_each_violation_and_exits_1_for_any() {
          calm-otter: area:x=c: not-in-enum (allowed=a, allowed=b)\n"
     );
     assert_eq!(ran.err, "taskloom: 2 tag-standard violations found\n");
-    let ran = run_on(&mut fake, false, &["lint"]);
+    let ran = run_on(&mut fake, false, &["tasks", "check"]);
     assert_eq!(ran.code, 1);
     let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(json["checked_targets"], 3);
@@ -1337,7 +1481,7 @@ fn test_lint_across_projects_names_each_violations_project() {
         report_of_lint: lint_report(every, 3, 1),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["lint", "--global"]);
+    let ran = run_on(&mut fake, true, &["tasks", "check", "--global"]);
     assert_eq!(
         ran.out,
         "swift-amber (jolly-mute-magma): area:x=c: not-in-enum (allowed=a, allowed=b)\n"
@@ -1350,32 +1494,32 @@ fn test_a_clean_lint_exits_0_and_one_that_checked_nothing_exits_1() {
         report_of_lint: lint_report(Reach::Project(project()), 3, 0),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["lint"]);
+    let ran = run_on(&mut fake, true, &["tasks", "check"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(ran.out, "no tag-standard violations found\n");
     assert_eq!(ran.err, "");
-    let ran = run_on(&mut fake, false, &["lint"]);
+    let ran = run_on(&mut fake, false, &["tasks", "check"]);
     assert_eq!(
         ran.out,
         "{\n  \"violations\": [],\n  \"checked_targets\": 3\n}\n"
     );
     fake.report_of_lint = lint_report(Reach::Project(project()), 0, 0);
-    let ran = run_on(&mut fake, true, &["lint"]);
+    let ran = run_on(&mut fake, true, &["tasks", "check"]);
     assert_eq!(ran.code, 1);
     assert_eq!(
         ran.out,
-        "0 targets checked: the tag schema declares no enum or range for lint to check\n"
+        "0 targets checked: the tag schema declares no enum or range for the check to run on\n"
     );
-    assert!(ran.err.contains("lint checked no target"), "{}", ran.err);
+    assert!(ran.err.contains("the check found no target"), "{}", ran.err);
     fake.report_of_lint = lint_report(Reach::Project(project()), 0, 1);
-    let ran = run_on(&mut fake, true, &["lint"]);
+    let ran = run_on(&mut fake, true, &["tasks", "check"]);
     assert!(ran.out.starts_with("0 targets checked"), "{}", ran.out);
     assert!(
         ran.out.contains("swift-amber: area:x=c"),
         "both: {}",
         ran.out
     );
-    assert!(ran.err.contains("lint checked no target"), "{}", ran.err);
+    assert!(ran.err.contains("the check found no target"), "{}", ran.err);
 }
 
 // ------------------------------------------------------------ list
@@ -1416,6 +1560,7 @@ fn test_list_passes_its_filters() {
         &[
             "--project",
             "p",
+            "tasks",
             "list",
             "--status",
             "Done,To Do",
@@ -1455,7 +1600,7 @@ fn test_list_passes_its_filters() {
         listing: listing(Vec::new()),
         ..Fake::default()
     };
-    run_on(&mut fake, true, &["list"]);
+    run_on(&mut fake, true, &["tasks", "list"]);
     assert_eq!(fake.listed, [ListQuery::default()]);
 }
 
@@ -1472,16 +1617,42 @@ fn test_list_tags_and_prune_pass_a_filter_given_empty_on_as_given() {
     run_on(
         &mut fake,
         true,
-        &["list", "--term", "", "--tag-query", "", "--sort", ""],
+        &[
+            "tasks",
+            "list",
+            "--term",
+            "",
+            "--tag-query",
+            "",
+            "--sort",
+            "",
+        ],
     );
     let given = Some(String::new());
     assert_eq!(fake.listed[0].term, given);
     assert_eq!(fake.listed[0].tag_query, given);
     assert_eq!(fake.listed[0].sort, given);
-    run_on(&mut fake, true, &["tags", "--term", "", "--tag-query", ""]);
+    run_on(
+        &mut fake,
+        true,
+        &[
+            "manage",
+            "schema",
+            "tags",
+            "list",
+            "--term",
+            "",
+            "--tag-query",
+            "",
+        ],
+    );
     assert_eq!(fake.counts[0].term, given);
     assert_eq!(fake.counts[0].tag_query, given);
-    run_on(&mut fake, true, &["prune", "--tag-query", "", "--yes"]);
+    run_on(
+        &mut fake,
+        true,
+        &["tasks", "prune", "--tag-query", "", "--yes"],
+    );
     assert_eq!(fake.prunes[0].tag_query, given);
 }
 
@@ -1494,9 +1665,9 @@ fn test_list_passes_a_limit_of_zero_on_as_given() {
         listing: listing(Vec::new()),
         ..Fake::default()
     };
-    run_on(&mut fake, true, &["list", "--limit", "0"]);
+    run_on(&mut fake, true, &["tasks", "list", "--limit", "0"]);
     assert_eq!(fake.listed[0].limit, Some(0));
-    let help = run_on(&mut Fake::default(), true, &["list", "--help"]);
+    let help = run_on(&mut Fake::default(), true, &["tasks", "list", "--help"]);
     assert!(
         help.out.contains("leave it out for no limit; 0 is refused"),
         "{}",
@@ -1510,7 +1681,7 @@ fn test_list_as_text_names_the_project_then_the_table() {
         listing: listing(vec![shapes::task("swift-amber", "To Do")]),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["list"]);
+    let ran = run_on(&mut fake, true, &["tasks", "list"]);
     assert_eq!(ran.code, 0);
     assert_eq!(
         ran.out,
@@ -1528,7 +1699,7 @@ fn test_list_as_json_is_an_array_of_tasks() {
         ]),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, false, &["list"]);
+    let ran = run_on(&mut fake, false, &["tasks", "list"]);
     let value: Vec<serde_json::Value> = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(value.len(), 2);
     assert_eq!(value[1]["harp_id"], "calm-otter");
@@ -1541,7 +1712,7 @@ fn test_list_where_there_is_no_project_says_so_and_lists_nothing() {
             listing: Some(Ok(listing_in(Reach::NoProject, Vec::new()))),
             ..Fake::default()
         };
-        let ran = run_on(&mut fake, terminal, &["list"]);
+        let ran = run_on(&mut fake, terminal, &["tasks", "list"]);
         assert_eq!(ran.code, 0);
         assert_eq!(ran.out, shown);
         assert_eq!(ran.err, "taskloom: no project here yet: nothing to list\n");
@@ -1561,7 +1732,7 @@ fn test_list_across_projects_is_headed_by_their_count_and_each_project() {
         ))),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["list", "--global"]);
+    let ran = run_on(&mut fake, true, &["tasks", "list", "--global"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(
         ran.out,
@@ -1570,7 +1741,7 @@ fn test_list_across_projects_is_headed_by_their_count_and_each_project() {
          [ ] swift-amber  To Do        Ship it\n\n"
     );
     assert_eq!(ran.err, "", "an asked-for --global says nothing");
-    let ran = run_on(&mut fake, false, &["list", "--global"]);
+    let ran = run_on(&mut fake, false, &["tasks", "list", "--global"]);
     let rows: Vec<serde_json::Value> = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(rows[0]["harp_id"], "swift-amber");
     assert_eq!(rows[0]["created_at"], "1970-01-01T00:00:00Z");
@@ -1588,7 +1759,7 @@ fn test_list_across_projects_for_want_of_one_says_why_on_stderr() {
         listing: Some(Ok(listing_in(every, Vec::new()))),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["list"]);
+    let ran = run_on(&mut fake, true, &["tasks", "list"]);
     assert_eq!(ran.out, "Projects: 0 (--global)\n\n(no tasks)\n");
     assert!(
         ran.err
@@ -1608,7 +1779,7 @@ fn test_list_compact_is_each_tasks_headline_in_json() {
         listing: Some(Ok(listing_in(Reach::Project(project()), vec![task]))),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, false, &["list", "--compact"]);
+    let ran = run_on(&mut fake, false, &["tasks", "list", "--compact"]);
     assert_eq!(
         ran.out,
         r#"[
@@ -1631,7 +1802,11 @@ fn test_list_compact_is_each_tasks_headline_in_json() {
         },
         vec![shapes::task("calm-otter", "To Do")],
     )));
-    let ran = run_on(&mut fake, false, &["list", "--compact", "--global"]);
+    let ran = run_on(
+        &mut fake,
+        false,
+        &["tasks", "list", "--compact", "--global"],
+    );
     let rows: Vec<serde_json::Value> = serde_json::from_str(&ran.out).unwrap();
     let keys: Vec<&String> = rows[0].as_object().unwrap().keys().collect();
     assert_eq!(
@@ -1647,7 +1822,7 @@ fn test_list_compact_is_each_tasks_headline_in_json() {
         ],
         "the compact row and its project"
     );
-    let ran = run_on(&mut fake, true, &["list", "--compact"]);
+    let ran = run_on(&mut fake, true, &["tasks", "list", "--compact"]);
     assert!(
         ran.out.contains("[ ] calm-otter"),
         "text ignores it: {}",
@@ -1668,7 +1843,7 @@ fn test_list_warns_on_stderr_when_its_priority_ranking_means_little() {
         listing: Some(Ok(sorted)),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["list", "--sort", "priority"]);
+    let ran = run_on(&mut fake, true, &["tasks", "list", "--sort", "priority"]);
     assert_eq!(
         ran.err,
         "taskloom: project p: --sort priority is meaningless here: every active task ties at the same raw priority score (only 0 of 2 active tasks carry a tag any priority_fn/decay_fn formula actually reads) \u{2014} the ranking reflects nothing\n\
@@ -1689,7 +1864,7 @@ fn test_list_says_on_stderr_what_a_search_hid_and_a_limit_left_out() {
         listing: Some(Ok(searched.clone())),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["list", "--term", "x"]);
+    let ran = run_on(&mut fake, true, &["tasks", "list", "--term", "x"]);
     assert_eq!(
         ran.err,
         "taskloom: 3 more matching tasks hidden by the default view (2 completed, 1 deferred): add --all to include them\n\
@@ -1698,12 +1873,12 @@ fn test_list_says_on_stderr_what_a_search_hid_and_a_limit_left_out() {
     searched.searched = false;
     searched.omitted = 0;
     fake.listing = Some(Ok(searched.clone()));
-    let ran = run_on(&mut fake, true, &["list"]);
+    let ran = run_on(&mut fake, true, &["tasks", "list"]);
     assert_eq!(ran.err, "", "an unsearched listing hides by design");
     searched.searched = true;
     searched.hidden = Hidden::default();
     fake.listing = Some(Ok(searched));
-    let ran = run_on(&mut fake, true, &["list", "--term", "x"]);
+    let ran = run_on(&mut fake, true, &["tasks", "list", "--term", "x"]);
     assert_eq!(ran.err, "", "a search that hid nothing says nothing");
 }
 
@@ -1713,7 +1888,7 @@ fn test_a_failed_list_exits_1() {
         listing: Some(Err(AppError::HarpsExhausted { attempts: 1 })),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["list"]);
+    let ran = run_on(&mut fake, true, &["tasks", "list"]);
     assert_eq!(ran.code, 1);
     assert!(ran.err.starts_with("taskloom: "), "{}", ran.err);
 }
@@ -1729,9 +1904,9 @@ fn test_help_is_written_to_stdout_and_exits_0() {
 }
 
 #[test]
-fn test_an_unknown_command_is_a_usage_error_exiting_1() {
+fn test_an_unknown_command_is_a_usage_error_exiting_2() {
     let ran = run_on(&mut Fake::default(), true, &["frobnicate"]);
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 2);
     assert_eq!(ran.out, "");
     assert!(ran.err.contains("frobnicate"), "{}", ran.err);
 }
@@ -1760,7 +1935,10 @@ fn test_output_that_cannot_be_written_fails_with_why() {
         stdout_is_terminal: true,
         ..Context::default()
     };
-    for args in [&["taskloom", "add", "x"][..], &["taskloom", "list"][..]] {
+    for args in [
+        &["taskloom", "tasks", "add", "x"][..],
+        &["taskloom", "tasks", "list"][..],
+    ] {
         let mut fake = Fake {
             written: written(shapes::task("swift-amber", "To Do")),
             listing: listing(Vec::new()),
@@ -1791,7 +1969,7 @@ fn test_output_that_cannot_be_written_fails_with_why() {
         ..Fake::default()
     };
     let mut err = Vec::new();
-    let (command, globals) = parsed(&["taskloom", "--json", "list"]);
+    let (command, globals) = parsed(&["taskloom", "--format", "json", "tasks", "list"]);
     let code = run_with(&mut fake, |use_cases| {
         ready(run(
             command,
@@ -1817,7 +1995,7 @@ fn test_a_text_error_is_its_catalog_message_not_its_english() {
         written: Some(Err(tasks_application::no_task_sample())),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["add", "x"]);
+    let ran = run_on(&mut fake, true, &["tasks", "add", "x"]);
     assert_eq!(ran.code, 1);
     assert_eq!(ran.err, "taskloom: there is no such task\n");
 }
@@ -1831,7 +2009,7 @@ fn test_a_json_error_is_an_envelope_on_stderr_with_its_cause_nested() {
         })),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, false, &["add", "x"]);
+    let ran = run_on(&mut fake, false, &["tasks", "add", "x"]);
     assert_eq!(ran.code, 1);
     assert_eq!(ran.out, "", "stdout holds answers only");
     let envelope: serde_json::Value = serde_json::from_str(&ran.err).unwrap();
@@ -1858,13 +2036,16 @@ fn test_a_json_error_is_an_envelope_on_stderr_with_its_cause_nested() {
 fn test_a_usage_error_in_json_is_an_envelope() {
     for (terminal, args) in [
         (false, &["frobnicate"][..]),
-        (true, &["--json", "frobnicate"][..]),
+        (true, &["--format", "json", "frobnicate"][..]),
         (true, &["--format", "json", "frobnicate"][..]),
         (true, &["--format=json", "frobnicate"][..]),
-        (true, &["--format", "json", "--format", "yaml", "list"][..]),
+        (
+            true,
+            &["--format", "json", "--format", "yaml", "tasks", "list"][..],
+        ),
     ] {
         let ran = run_on(&mut Fake::default(), terminal, args);
-        assert_eq!(ran.code, 1, "{args:?}");
+        assert_eq!(ran.code, 2, "{args:?}");
         assert_eq!(ran.out, "", "{args:?}");
         let envelope: serde_json::Value =
             serde_json::from_str(&ran.err).unwrap_or_else(|e| panic!("{args:?}: {e}: {}", ran.err));
@@ -1882,11 +2063,11 @@ fn test_a_usage_error_in_text_is_clap_s_own_words() {
         &["frobnicate"][..],
         &["--format", "text", "--json-ish"][..],
         &["--format=text", "frobnicate"][..],
-        &["frobnicate", "--", "--json"][..],
+        &["frobnicate", "--", "--format", "json"][..],
         &["frobnicate", "--format"][..],
     ] {
         let ran = run_on(&mut Fake::default(), true, args);
-        assert_eq!(ran.code, 1, "{args:?}");
+        assert_eq!(ran.code, 2, "{args:?}");
         assert!(ran.err.starts_with("error: "), "{args:?}: {}", ran.err);
     }
 }
@@ -1919,15 +2100,15 @@ fn report(projects: Vec<ProjectImport>) -> Option<Result<ImportReport, AppError>
     }))
 }
 
-/// `args` run as the binary runs them: `import` mounted beside the task
-/// commands, its importer reached only once `import` is parsed.
+/// `args` run as the binary runs them: `manage migrate tasks` mounted beside
+/// the task commands, its importer reached only once it is parsed.
 fn import_on(importer: &mut FakeImporter, terminal: bool, args: &[&str]) -> Ran {
     let context = Context {
         stdout_is_terminal: terminal,
         ..Context::default()
     };
     ran(&context, args, |line, globals, catalog, out, err| {
-        let Line::Import(ImportGroup::Import) = line else {
+        let Line::Manage(Manage::Migrate(Migrate::Tasks)) = line else {
             panic!("not import: {args:?}")
         };
         match globals.format(&context, catalog, err) {
@@ -1950,7 +2131,7 @@ fn test_import_imports_every_project_and_says_what_it_did() {
         report: report(vec![imported(0)]),
         ..FakeImporter::default()
     };
-    let ran = import_on(&mut fake, true, &["import"]);
+    let ran = import_on(&mut fake, true, &["manage", "migrate", "tasks"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(fake.imports, [ImportRequest { project: None }]);
     assert_eq!(
@@ -1969,7 +2150,13 @@ fn test_import_of_one_project_names_it() {
     import_on(
         &mut fake,
         true,
-        &["import", "--project", "jolly-mute-magma"],
+        &[
+            "manage",
+            "migrate",
+            "tasks",
+            "--project",
+            "jolly-mute-magma",
+        ],
     );
     assert_eq!(
         fake.imports,
@@ -1985,7 +2172,7 @@ fn test_import_answers_json_off_a_terminal() {
         report: report(vec![imported(0)]),
         ..FakeImporter::default()
     };
-    let ran = import_on(&mut fake, false, &["import"]);
+    let ran = import_on(&mut fake, false, &["manage", "migrate", "tasks"]);
     let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(json["complete"], true);
     assert_eq!(json["projects"][0]["project_id"], "jolly-mute-magma");
@@ -1997,7 +2184,7 @@ fn test_import_that_left_records_behind_fails_after_saying_which() {
         report: report(vec![imported(2)]),
         ..FakeImporter::default()
     };
-    let ran = import_on(&mut fake, true, &["import"]);
+    let ran = import_on(&mut fake, true, &["manage", "migrate", "tasks"]);
     assert_eq!(ran.code, 1);
     assert!(ran.out.contains("not imported: line 1"), "{}", ran.out);
     assert_eq!(
@@ -2014,7 +2201,7 @@ fn test_import_that_stopped_in_a_project_fails() {
         report: report(vec![stopped, imported(0)]),
         ..FakeImporter::default()
     };
-    let ran = import_on(&mut fake, true, &["import"]);
+    let ran = import_on(&mut fake, true, &["manage", "migrate", "tasks"]);
     assert_eq!(ran.code, 1);
     assert_eq!(
         ran.err,
@@ -2028,7 +2215,7 @@ fn test_import_that_cannot_start_fails_with_why() {
         report: Some(Err(AppError::NoProject)),
         ..FakeImporter::default()
     };
-    let ran = import_on(&mut fake, true, &["import"]);
+    let ran = import_on(&mut fake, true, &["manage", "migrate", "tasks"]);
     assert_eq!(ran.code, 1);
     assert_eq!(ran.out, "");
     assert!(
@@ -2048,7 +2235,11 @@ mod reviewed;
 
 #[test]
 fn test_version_in_json_is_gos_shape_with_the_lock_protocol() {
-    let ran = run_on(&mut Fake::default(), true, &["version", "--format", "json"]);
+    let ran = run_on(
+        &mut Fake::default(),
+        true,
+        &["manage", "version", "--format", "json"],
+    );
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(
         ran.out,
@@ -2059,7 +2250,7 @@ fn test_version_in_json_is_gos_shape_with_the_lock_protocol() {
 
 #[test]
 fn test_version_in_text_is_the_bare_version() {
-    let ran = run_on(&mut Fake::default(), true, &["version"]);
+    let ran = run_on(&mut Fake::default(), true, &["manage", "version"]);
     assert_eq!((ran.code, ran.out.as_str()), (0, "1.2.3\n"));
 }
 
@@ -2067,7 +2258,11 @@ fn test_version_in_text_is_the_bare_version() {
 // version, in text whatever the format asked.
 #[test]
 fn test_the_version_flag_prints_gos_line_with_the_contexts_version() {
-    for args in [&["--version"][..], &["-v"], &["--version", "--json"]] {
+    for args in [
+        &["--version"][..],
+        &["-v"],
+        &["--version", "--format", "json"],
+    ] {
         let ran = run_on(&mut Fake::default(), false, args);
         assert_eq!(
             (ran.code, ran.out.as_str(), ran.err.as_str()),
@@ -2083,7 +2278,11 @@ fn test_a_version_with_no_lock_protocol_leaves_it_out_as_go_does() {
         version: "1.2.3".to_string(),
         ..Context::default()
     };
-    let ran = run_in(&context, &mut Fake::default(), &["version", "--json"]);
+    let ran = run_in(
+        &context,
+        &mut Fake::default(),
+        &["manage", "version", "--format", "json"],
+    );
     let value: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(
         value,
@@ -2108,12 +2307,12 @@ fn test_the_loadout_is_gos_reviewed_byte_for_byte() {
 #[test]
 fn test_the_loadout_in_another_format_is_refused_and_prints_nothing() {
     for (args, asked) in [
-        (&["loadout", "--json"][..], "json"),
+        (&["loadout", "--format", "json"][..], "json"),
         (&["loadout", "--format", "json"], "json"),
         (&["--format", "text", "loadout"], "text"),
     ] {
         let ran = run_on(&mut Fake::default(), true, args);
-        assert_eq!(ran.code, 1, "{args:?}");
+        assert_eq!(ran.code, 2, "{args:?}");
         assert_eq!(ran.out, "", "{args:?}");
         assert!(
             ran.err.contains(&format!("not {asked}")),
@@ -2126,11 +2325,11 @@ fn test_the_loadout_in_another_format_is_refused_and_prints_nothing() {
 #[test]
 fn test_yaml_is_only_the_loadout_s() {
     for args in [
-        &["list", "--format", "yaml"][..],
-        &["version", "--format", "yaml"],
+        &["tasks", "list", "--format", "yaml"][..],
+        &["manage", "version", "--format", "yaml"],
     ] {
         let ran = run_on(&mut Fake::default(), true, args);
-        assert_eq!(ran.code, 1, "{args:?}");
+        assert_eq!(ran.code, 2, "{args:?}");
         assert_eq!(ran.out, "", "{args:?}");
         assert_eq!(
             ran.err, "taskloom: the format yaml is not one of text or json\n",
@@ -2144,8 +2343,12 @@ fn test_yaml_is_only_the_loadout_s() {
 /// angzarr core, decision 36), pinned as the user-visible output it is.
 #[test]
 fn test_a_format_no_command_speaks_is_angzarr_presentation_s_code_in_json() {
-    let ran = run_on(&mut Fake::default(), false, &["list", "--format", "yaml"]);
-    assert_eq!(ran.code, 1);
+    let ran = run_on(
+        &mut Fake::default(),
+        false,
+        &["tasks", "list", "--format", "yaml"],
+    );
+    assert_eq!(ran.code, 2);
     assert_eq!(ran.out, "");
     let envelope: serde_json::Value =
         serde_json::from_str(&ran.err).unwrap_or_else(|e| panic!("{e}: {}", ran.err));
@@ -2204,7 +2407,7 @@ fn test_prune_by_default_reports_done_tasks_older_than_seven_days() {
         pruning: Some(Ok(pruning(false, &[]))),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["prune"]);
+    let ran = run_on(&mut fake, true, &["tasks", "prune"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(
         fake.prunes,
@@ -2231,6 +2434,7 @@ fn test_prune_passes_its_flags() {
         &[
             "--project",
             "pinned",
+            "tasks",
             "prune",
             "--older-than",
             "30d",
@@ -2278,13 +2482,20 @@ fn test_a_prune_report_that_would_take_something_says_how_to_apply_it() {
     let ran = run_on(
         &mut fake,
         true,
-        &["prune", "--status", "To Do", "--tag-query", "level<=2"],
+        &[
+            "tasks",
+            "prune",
+            "--status",
+            "To Do",
+            "--tag-query",
+            "level<=2",
+        ],
     );
     assert_eq!(ran.code, 0);
     assert_eq!(
         ran.err,
         "taskloom: removed nothing: this was a report, not a removal; to apply exactly this plan, \
-         run it again with --yes: taskloom prune --older-than 7d --status 'To Do' --tag-query 'level<=2' --yes\n"
+         run it again with --yes: taskloom tasks prune --older-than 7d --status 'To Do' --tag-query 'level<=2' --yes\n"
     );
 }
 
@@ -2294,7 +2505,7 @@ fn test_off_a_terminal_a_prune_is_one_json_document_and_its_notices_are_on_stder
         pruning: Some(Ok(pruning(false, &["swift-amber"]))),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, false, &["prune"]);
+    let ran = run_on(&mut fake, false, &["tasks", "prune"]);
     let value: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(value["pruned"][0]["harp_id"], "swift-amber");
     assert_eq!(
@@ -2313,7 +2524,7 @@ fn test_a_prune_where_there_is_no_project_says_so_on_stderr() {
         pruning: Some(Ok(answer)),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["prune"]);
+    let ran = run_on(&mut fake, true, &["tasks", "prune"]);
     assert_eq!(ran.code, 0);
     assert_eq!(ran.err, "taskloom: no project here yet: nothing to prune\n");
     assert_eq!(
@@ -2323,7 +2534,7 @@ fn test_a_prune_where_there_is_no_project_says_so_on_stderr() {
 }
 
 #[test]
-fn test_a_refused_prune_says_why_and_exits_1() {
+fn test_a_refused_prune_says_why_and_exits_2() {
     let refusal = Report::of(&tasks_application::PruneRefusal::AgeUnreadable {
         age: "soon".to_string(),
     });
@@ -2331,8 +2542,8 @@ fn test_a_refused_prune_says_why_and_exits_1() {
         pruning: Some(Err(AppError::Prune(refusal))),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["prune", "--older-than", "soon"]);
-    assert_eq!(ran.code, 1);
+    let ran = run_on(&mut fake, true, &["tasks", "prune", "--older-than", "soon"]);
+    assert_eq!(ran.code, 2);
     assert_eq!(ran.out, "");
     assert_eq!(
         ran.err,
@@ -2362,7 +2573,7 @@ fn test_a_writes_dead_letters_are_said_on_stderr() {
             written,
             ..Fake::default()
         };
-        let ran = run_on(&mut fake, terminal, &["add", "Ship it"]);
+        let ran = run_on(&mut fake, terminal, &["tasks", "add", "Ship it"]);
         assert_eq!(ran.code, 0, "{}", ran.err);
         assert_eq!(
             ran.err,
@@ -2394,7 +2605,11 @@ fn test_a_failed_writes_dead_letters_are_said_on_stderr_before_its_error() {
             written: Some(Err(failed.clone())),
             ..Fake::default()
         };
-        let ran = run_on(&mut fake, terminal, &["edit", "swift-amber", "x"]);
+        let ran = run_on(
+            &mut fake,
+            terminal,
+            &["tasks", "set", "swift-amber", "--text", "x"],
+        );
         assert_eq!(ran.code, 1);
         let (letter, rest) = ran.err.split_once('\n').unwrap();
         assert_eq!(letter, LINE);
@@ -2411,7 +2626,7 @@ fn test_a_prunes_dead_letters_are_said_on_stderr() {
         pruning: Some(Ok(pruning)),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, false, &["prune"]);
+    let ran = run_on(&mut fake, false, &["tasks", "prune"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(ran.err, format!("{LINE}\n"));
 }
@@ -2426,7 +2641,7 @@ fn test_an_imports_dead_letters_are_said_on_stderr() {
         report,
         ..FakeImporter::default()
     };
-    let ran = import_on(&mut fake, true, &["import"]);
+    let ran = import_on(&mut fake, true, &["manage", "migrate", "tasks"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(ran.err, format!("{LINE}\n"));
 }
@@ -2443,6 +2658,7 @@ fn permitted(permit: &str, changed: bool) -> Option<Result<Permitted, AppError>>
 fn change(permit: &str) -> PermitChange {
     PermitChange {
         permit: permit.to_string(),
+        ..Default::default()
     }
 }
 
@@ -2452,7 +2668,11 @@ fn test_permit_passes_its_permit_on_and_says_what_changed() {
         permitted: permitted("area:cli", true),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["permit", "area:cli"]);
+    let ran = run_on(
+        &mut fake,
+        true,
+        &["manage", "schema", "permits", "add", "area:cli"],
+    );
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(fake.permits, [change("area:cli")]);
     assert_eq!(ran.out, "permitted area:cli\n");
@@ -2460,9 +2680,17 @@ fn test_permit_passes_its_permit_on_and_says_what_changed() {
         permitted: permitted("area:cli", false),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["permit", "area:cli"]);
+    let ran = run_on(
+        &mut fake,
+        true,
+        &["manage", "schema", "permits", "add", "area:cli"],
+    );
     assert_eq!(ran.out, "area:cli was already permitted\n");
-    let ran = run_on(&mut fake, false, &["permit", "area:cli"]);
+    let ran = run_on(
+        &mut fake,
+        false,
+        &["manage", "schema", "permits", "add", "area:cli"],
+    );
     let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(
         json,
@@ -2476,7 +2704,11 @@ fn test_revoke_passes_its_permit_on_and_says_so() {
         permitted: permitted("area:", true),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["revoke", "area:"]);
+    let ran = run_on(
+        &mut fake,
+        true,
+        &["manage", "schema", "permits", "remove", "area:", "--yes"],
+    );
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(fake.revokes, [change("area:")]);
     assert!(fake.permits.is_empty());
@@ -2494,7 +2726,11 @@ fn test_a_refused_revoke_names_the_tasks_still_carrying_it() {
         })),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["revoke", "area:cli"]);
+    let ran = run_on(
+        &mut fake,
+        true,
+        &["manage", "schema", "permits", "remove", "area:cli", "--yes"],
+    );
     assert_eq!(ran.code, 1);
     assert_eq!(ran.out, "");
     assert_eq!(
@@ -2525,7 +2761,7 @@ fn test_permits_lists_the_namespaces_flat_tags_and_schema_targets() {
         permit_list: listed(),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["permits"]);
+    let ran = run_on(&mut fake, true, &["manage", "schema", "permits", "list"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(fake.permit_lists, 1);
     assert_eq!(
@@ -2539,7 +2775,7 @@ fn test_permits_lists_the_namespaces_flat_tags_and_schema_targets() {
         })),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["permits"]);
+    let ran = run_on(&mut fake, true, &["manage", "schema", "permits", "list"]);
     assert_eq!(
         ran.out,
         "Namespaces: (none)\nFlat tags: (none)\nConstrained by the store's rules: triage:kind\n"
@@ -2553,7 +2789,7 @@ fn test_permits_in_json_is_the_permits_document() {
         permit_list: listed(),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, false, &["permits"]);
+    let ran = run_on(&mut fake, false, &["manage", "schema", "permits", "list"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(
@@ -2607,7 +2843,7 @@ fn test_schema_lists_each_target_with_its_facets_and_formulas() {
         schema: declared(),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["schema"]);
+    let ran = run_on(&mut fake, true, &["manage", "schema", "show"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(fake.schemas, 1);
     assert_eq!(
@@ -2630,8 +2866,8 @@ fn test_schema_show_is_what_schema_alone_prints() {
         schema: declared(),
         ..Fake::default()
     };
-    let bare = run_on(&mut bare, true, &["schema"]);
-    let shown = run_on(&mut shown, true, &["schema", "show"]);
+    let bare = run_on(&mut bare, true, &["manage", "schema", "show"]);
+    let shown = run_on(&mut shown, true, &["manage", "schema", "show"]);
     assert_eq!(shown.code, 0, "{}", shown.err);
     assert_eq!(shown.out, bare.out);
 }
@@ -2645,7 +2881,7 @@ fn test_schema_in_json_is_one_entry_per_target_with_every_facet() {
         schema: declared(),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, false, &["schema", "show"]);
+    let ran = run_on(&mut fake, false, &["manage", "schema", "show"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(
@@ -2666,14 +2902,14 @@ fn test_schema_declaring_nothing_says_so() {
         schema: Some(Ok(SchemaSummary::default())),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["schema"]);
+    let ran = run_on(&mut fake, true, &["manage", "schema", "show"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(ran.out, "No tag rules: the store declares no target.\n");
     let mut fake = Fake {
         schema: Some(Ok(SchemaSummary::default())),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, false, &["schema"]);
+    let ran = run_on(&mut fake, false, &["manage", "schema", "show"]);
     let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(json, serde_json::json!({"targets": []}));
 }
@@ -2686,7 +2922,7 @@ fn test_schema_unread_is_an_error() {
         schema: Some(Err(AppError::NoProject)),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["schema"]);
+    let ran = run_on(&mut fake, true, &["manage", "schema", "show"]);
     assert_eq!(ran.code, 1);
     assert_eq!(ran.out, "");
     assert!(ran.err.starts_with("taskloom: "), "{}", ran.err);
@@ -2704,7 +2940,11 @@ fn test_schema_export_prints_the_tags_one_a_line() {
         exported: Some(Ok(tags.clone())),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["--project", "p", "schema", "export"]);
+    let ran = run_on(
+        &mut fake,
+        true,
+        &["--project", "p", "manage", "schema", "export"],
+    );
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(ran.out, format!("{}\n{}\n", tags[0], tags[1]));
     assert_eq!(fake.schema_reads, [Some("p".to_string())]);
@@ -2712,7 +2952,11 @@ fn test_schema_export_prints_the_tags_one_a_line() {
         exported: Some(Ok(tags.clone())),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, false, &["schema", "export", "--json"]);
+    let ran = run_on(
+        &mut fake,
+        false,
+        &["manage", "schema", "export", "--format", "json"],
+    );
     assert_eq!(ran.out, format!("{}\n{}\n", tags[0], tags[1]));
 }
 
@@ -2733,7 +2977,7 @@ fn test_schema_check_prints_tagmas_findings_and_fails_on_any() {
         checked: Some(Ok(vec![finding()])),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["schema", "check"]);
+    let ran = run_on(&mut fake, true, &["manage", "schema", "check"]);
     assert_eq!(ran.code, 1);
     assert_eq!(ran.out, "inert-false\ttagma.permit:x=false\tfacet=permit\n");
     assert!(
@@ -2746,7 +2990,7 @@ fn test_schema_check_prints_tagmas_findings_and_fails_on_any() {
         checked: Some(Ok(vec![finding()])),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, false, &["schema", "check"]);
+    let ran = run_on(&mut fake, false, &["manage", "schema", "check"]);
     let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(
         json,
@@ -2761,7 +3005,7 @@ fn test_schema_check_prints_tagmas_findings_and_fails_on_any() {
         checked: Some(Ok(vec![])),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["schema", "check"]);
+    let ran = run_on(&mut fake, true, &["manage", "schema", "check"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(ran.out, "The store's tag rules check clean.\n");
 }
@@ -2773,7 +3017,7 @@ fn test_schema_import_config_runs_the_import_and_prints_what_it_left() {
         declared: schema_declared(&["tagma.permit:urgent"], true),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["schema", "import-config"]);
+    let ran = run_on(&mut fake, true, &["manage", "migrate", "schema"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(fake.imports_of_config, 1);
     assert_eq!(
@@ -2803,7 +3047,11 @@ fn test_a_writes_warnings_are_on_stderr_in_text_and_in_the_json_document() {
         written: warned(),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["tag", "swift-amber", "--add", "x"]);
+    let ran = run_on(
+        &mut fake,
+        true,
+        &["tasks", "tag", "add", "swift-amber", "x"],
+    );
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert!(
         ran.err
@@ -2815,7 +3063,11 @@ fn test_a_writes_warnings_are_on_stderr_in_text_and_in_the_json_document() {
         written: warned(),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, false, &["tag", "swift-amber", "--add", "x"]);
+    let ran = run_on(
+        &mut fake,
+        false,
+        &["tasks", "tag", "add", "swift-amber", "x"],
+    );
     let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(json["harp_id"], "swift-amber");
     assert_eq!(json["warnings"][0]["code"], "too-many-keys");
@@ -2824,13 +3076,18 @@ fn test_a_writes_warnings_are_on_stderr_in_text_and_in_the_json_document() {
         written: written(shapes::task("swift-amber", "To Do")),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, false, &["tag", "swift-amber", "--add", "x"]);
+    let ran = run_on(
+        &mut fake,
+        false,
+        &["tasks", "tag", "add", "swift-amber", "x"],
+    );
     let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
     assert!(json.get("warnings").is_none(), "{json}");
 }
 
 // `--request-id <id>` on every write names the request's key, passed on
 // as given (a blank one for the use case to refuse); left out, none. Nothing on the command line mints one.
+// `tasks set` sends each of its steps under a key derived from it.
 #[test]
 fn test_a_write_passes_its_request_id_on_as_given() {
     let mut fake = Fake {
@@ -2838,14 +3095,38 @@ fn test_a_write_passes_its_request_id_on_as_given() {
         ..Fake::default()
     };
     for args in [
-        &["add", "Ship it", "--request-id", "r-1"][..],
-        &["status", "swift-amber", "Done", "--request-id", "r-2"],
-        &["tag", "swift-amber", "--add", "x", "--request-id", "r-3"],
-        &["edit", "swift-amber", "New", "--request-id", ""],
-        &["add", "Ship it"],
-        &["status", "swift-amber", "Done"],
-        &["tag", "swift-amber", "--add", "x"],
-        &["edit", "swift-amber", "New"],
+        &["tasks", "add", "Ship it", "--request-id", "r-1"][..],
+        &[
+            "tasks",
+            "set",
+            "swift-amber",
+            "--status",
+            "Done",
+            "--request-id",
+            "r-2",
+        ],
+        &[
+            "tasks",
+            "tag",
+            "add",
+            "swift-amber",
+            "x",
+            "--request-id",
+            "r-3",
+        ],
+        &[
+            "tasks",
+            "set",
+            "swift-amber",
+            "--text",
+            "New",
+            "--request-id",
+            "r-4",
+        ],
+        &["tasks", "add", "Ship it"],
+        &["tasks", "set", "swift-amber", "--status", "Done"],
+        &["tasks", "tag", "add", "swift-amber", "x"],
+        &["tasks", "set", "swift-amber", "--text", "New"],
     ] {
         let ran = run_on(&mut fake, true, args);
         assert_eq!(ran.code, 0, "{args:?}: {}", ran.err);
@@ -2853,7 +3134,7 @@ fn test_a_write_passes_its_request_id_on_as_given() {
     let added: Vec<_> = fake.added.iter().map(|t| t.request_id.as_deref()).collect();
     assert_eq!(added, [Some("r-1"), None]);
     let moved: Vec<_> = fake.moved.iter().map(|c| c.request_id.as_deref()).collect();
-    assert_eq!(moved, [Some("r-2"), None]);
+    assert_eq!(moved, [Some("r-2:status"), None]);
     let tagged: Vec<_> = fake
         .tagged
         .iter()
@@ -2861,22 +3142,45 @@ fn test_a_write_passes_its_request_id_on_as_given() {
         .collect();
     assert_eq!(tagged, [Some("r-3"), None]);
     let edited: Vec<_> = fake.edits.iter().map(|e| e.request_id.as_deref()).collect();
-    assert_eq!(edited, [Some(""), None]);
+    assert_eq!(edited, [Some("r-4:text"), None]);
+    // A blank key is refused before either step is sent.
+    let ran = run_on(
+        &mut fake,
+        true,
+        &[
+            "tasks",
+            "set",
+            "swift-amber",
+            "--text",
+            "New",
+            "--status",
+            "Done",
+            "--request-id",
+            " ",
+        ],
+    );
+    assert_eq!(ran.code, 2, "{}", ran.err);
+    assert_eq!((fake.edits.len(), fake.moved.len()), (2, 2));
 }
 
 // The help says what a request id does, on every write, an add's too.
 #[test]
 fn test_the_help_says_what_a_request_id_does() {
-    for write in ["add", "status", "tag", "edit"] {
-        let help = run_on(&mut Fake::default(), true, &[write, "--help"]);
+    for write in [
+        &["tasks", "add"][..],
+        &["tasks", "set"],
+        &["tasks", "tag", "add"],
+        &["tasks", "tag", "remove"],
+    ] {
+        let help = run_on(&mut Fake::default(), true, &[write, &["--help"]].concat());
         assert!(
             help.out
                 .contains("resend the same one when retrying it, and a request already applied is not applied again"),
-            "{write}: {}",
+            "{write:?}: {}",
             help.out
         );
     }
-    let help = run_on(&mut Fake::default(), true, &["add", "--help"]);
+    let help = run_on(&mut Fake::default(), true, &["tasks", "add", "--help"]);
     assert!(
         help.out.contains("the task's id derives from it"),
         "{}",
@@ -2891,13 +3195,13 @@ fn test_the_help_says_what_a_request_id_does() {
 fn test_no_help_teaches_the_retired_urgent_tag() {
     for command in [
         &["--help"][..],
-        &["add", "--help"],
-        &["tag", "--help"],
-        &["list", "--help"],
-        &["tags", "--help"],
-        &["prune", "--help"],
-        &["permit", "--help"],
-        &["revoke", "--help"],
+        &["tasks", "add", "--help"],
+        &["tasks", "tag", "add", "--help"],
+        &["tasks", "list", "--help"],
+        &["manage", "schema", "tags", "list", "--help"],
+        &["tasks", "prune", "--help"],
+        &["manage", "schema", "permits", "add", "--help"],
+        &["manage", "schema", "permits", "remove", "--help"],
     ] {
         let help = run_on(&mut Fake::default(), true, command);
         assert!(!help.out.is_empty(), "{command:?}");
@@ -2908,7 +3212,7 @@ fn test_no_help_teaches_the_retired_urgent_tag() {
 // ---------------------------------------------- RED: self-hosted schema
 //
 // red/self-hosted-schema, for the owner's review
-// (docs/plans/self-hosted-schema.md): `taskloom schema declare` edits the
+// (docs/plans/self-hosted-schema.md): `taskloom manage schema declare` edits the
 // store's schema stream; the loadout tells agents never to run it unasked.
 
 fn schema_declared(
@@ -2931,12 +3235,14 @@ fn test_schema_declare_sends_its_adds_and_removes_as_one_declaration() {
         &mut fake,
         false,
         &[
+            "manage",
             "schema",
             "declare",
             "--add",
             "tagma.keys-per-item:lang=1",
             "--remove",
             "tagma.keys-per-item:area=1",
+            "--yes",
         ],
     );
     assert_eq!(ran.code, 0, "{}", ran.err);
@@ -2945,6 +3251,7 @@ fn test_schema_declare_sends_its_adds_and_removes_as_one_declaration() {
         [tasks_application::Declaration {
             add: vec!["tagma.keys-per-item:lang=1".to_string()],
             remove: vec!["tagma.keys-per-item:area=1".to_string()],
+            ..Default::default()
         }]
     );
     let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
@@ -2958,9 +3265,9 @@ fn test_schema_declare_sends_its_adds_and_removes_as_one_declaration() {
 fn test_the_loadout_forbids_agents_every_schema_changing_command_unasked() {
     let loadout = crate::companion::LOADOUT;
     for command in [
-        "`taskloom schema declare`",
-        "`taskloom permit`",
-        "`taskloom revoke`",
+        "`taskloom manage schema declare`",
+        "`taskloom manage\n        schema permits add|remove`",
+        "`taskloom manage migrate schema`",
     ] {
         assert!(loadout.contains(command), "{command} not named");
     }
@@ -2968,5 +3275,5 @@ fn test_the_loadout_forbids_agents_every_schema_changing_command_unasked() {
         !loadout.contains("future schema-declaring command"),
         "the command exists now: the loadout names it"
     );
-    assert!(loadout.contains("taskloom schema check"));
+    assert!(loadout.contains("Reading the rules (`taskloom manage schema"));
 }

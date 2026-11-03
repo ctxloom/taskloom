@@ -183,7 +183,7 @@ impl TagCountJson {
     }
 }
 
-/// What a project permits, as JSON (`taskloom permits --format json`):
+/// What a project permits, as JSON (`taskloom manage schema permits list --format json`):
 ///
 /// ```json
 /// {"namespaces": [{"namespace": "area", "open": false, "keys": ["cli", "mcp"]},
@@ -361,7 +361,7 @@ impl SchemaJson {
     }
 }
 
-/// One of tagma's findings (`taskloom schema check`, a write's
+/// One of tagma's findings (`taskloom manage schema check`, a write's
 /// `warnings`), as tagma's SPEC §13 shapes it: its code, its tag in its
 /// canonical spelling, its args as `[name, value]` pairs, and its origin.
 #[derive(Serialize, PartialEq, Debug)]

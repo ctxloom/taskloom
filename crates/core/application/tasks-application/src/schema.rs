@@ -34,6 +34,8 @@ use kernel_runner::Runner;
 pub struct Declaration {
     pub add: Vec<String>,
     pub remove: Vec<String>,
+    /// Check everything and answer what it would do, writing nothing.
+    pub dry_run: bool,
 }
 
 /// What a declare (or a permit, or a revoke) left on the schema stream:

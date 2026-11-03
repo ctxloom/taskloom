@@ -401,6 +401,47 @@ impl Render for Planned<'_> {
     }
 }
 
+/// A plan from a change given `--yes` beside `--dry-run`, which wins: it
+/// says `--yes` was ignored and lists what it would do without
+/// `--dry-run` (JSON: `yes_ignored_by_dry_run: true` and `would_apply`
+/// beside the plan's own fields).
+pub struct YesIgnored<'a>(pub &'a Plan, pub &'a Catalog);
+
+#[derive(Serialize)]
+struct YesIgnoredJson<'a> {
+    #[serde(flatten)]
+    plan: PlanJson<'a>,
+    yes_ignored_by_dry_run: bool,
+    would_apply: Vec<String>,
+}
+
+impl YesIgnored<'_> {
+    fn would_apply(&self) -> Vec<String> {
+        self.0.changes.iter().map(change_line).collect()
+    }
+}
+
+impl Render for YesIgnored<'_> {
+    fn json(&self) -> impl Serialize + '_ {
+        YesIgnoredJson {
+            plan: PlanJson::of(self.0, self.1),
+            yes_ignored_by_dry_run: true,
+            would_apply: self.would_apply(),
+        }
+    }
+
+    fn text(&self, out: &mut dyn Write) -> io::Result<()> {
+        writeln!(
+            out,
+            "--yes was given, but --dry-run is absolute: without --dry-run this would:"
+        )?;
+        for line in self.would_apply() {
+            writeln!(out, "  - {line}")?;
+        }
+        plan_text(out, self.0, self.1)
+    }
+}
+
 /// `project orphans`' answer, in either format.
 pub struct Orphans<'a>(pub &'a [Problem]);
 

@@ -7,17 +7,17 @@ use angzarr_presentation::{Catalog, Format};
 use clap::Args;
 use plans_application::Governing;
 use tasks_application::{
-    AppError, Declaration, ListQuery, Listing, NewTask, PermitChange, PermitService, PruneRequest,
-    PruneService, Reach, SchemaService, Scope, ShowQuery, StatusChange, TagChange, TaskService,
-    TextEdit, DEFAULT_OLDER_THAN, DEFAULT_PRUNE_STATUSES,
+    Declaration, ListQuery, Listing, NewTask, PermitChange, PermitService, PruneRequest,
+    PruneService, Reach, SchemaService, Scope, ShowQuery, TagChange, TaskService, TaskSet,
+    DEFAULT_OLDER_THAN, DEFAULT_PRUNE_STATUSES,
 };
 
 use crate::prune::{apply_command, PruneReport};
 use crate::render::{
     Added, Changed, Checked, Counted, DeclaredView, Detailed, Exported, Linted, Listed, Permits,
-    Schema, Summed, Tagged, Taxonomy,
+    Previewed, Schema, Summed, Tagged, Taxonomy, YesIgnored,
 };
-use crate::{dead_lettered, notify, output_failed, wrote, CliError, Notice};
+use crate::{dead_lettered, notify, output_failed, wrote, CliError, Notice, PROG};
 
 /// What every task command is handed besides its own arguments: the
 /// global flags, the format, the catalog and the session.
@@ -90,32 +90,26 @@ pub(crate) async fn add(
     )
 }
 
-// clap prints a required group ahead of the positionals, which put
-// <STATUS|...> before <HARP_ID> in the usage line: the harp id comes
-// first, as Go's `status <harp-id> <status>` has it.
 #[derive(Args, Debug)]
-#[command(
-    override_usage = "taskloom status [OPTIONS] <HARP_ID> <STATUS|--trigger <TRIGGER>|--clear-trigger>"
-)]
 #[command(group(
     clap::ArgGroup::new("change")
-        .args(["status", "trigger", "clear_trigger"])
+        .args(["text", "status", "trigger", "clear_trigger"])
         .required(true)
         .multiple(true)
 ))]
-pub struct StatusArgs {
+pub struct SetArgs {
     /// The task's id.
     harp_id: String,
-    /// The status: any name not starting with '@' (see `taskloom statuses`).
-    /// Moving a Deferred task to another status clears its trigger.
+    /// The new text, whole.
+    #[arg(long)]
+    text: Option<String>,
+    /// The new status (see `taskloom manage schema statuses list`).
+    #[arg(long)]
     status: Option<String>,
-    /// Revive condition: defers the task (alone, or with Deferred), keeping
-    /// the status it held to return to; a Deferred task keeps the one it
-    /// has when none is given.
+    /// Revive condition: defers the task, which keeps the status it held.
     #[arg(long)]
     trigger: Option<String>,
-    /// Clear the trigger: a Deferred task returns to the status it was
-    /// deferred from, or to the status given.
+    /// Clear the trigger: a Deferred task returns to the status it held.
     #[arg(long)]
     clear_trigger: bool,
     /// An id you choose for this request; resend the same one when retrying
@@ -124,94 +118,25 @@ pub struct StatusArgs {
     request_id: Option<String>,
 }
 
-pub(crate) async fn status(
-    args: StatusArgs,
+pub(crate) async fn set(
+    args: SetArgs,
     ctx: Ctx<'_>,
     service: &mut impl TaskService,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<(), CliError> {
-    let change = StatusChange {
-        project: ctx.project.clone(),
-        harp_id: args.harp_id.clone(),
-        status: args.status.clone(),
+    let change = TaskSet {
+        project: ctx.project,
+        harp_id: args.harp_id,
+        text: args.text,
+        status: args.status,
         trigger: args.trigger,
         clear_trigger: args.clear_trigger,
         request_id: args.request_id,
     };
-    let written = match service.set_status(change).await {
-        Ok(written) => written,
-        Err(error) => {
-            return Err(reversed(error, args.harp_id, args.status, ctx.project, service).await)
-        }
-    };
-    wrote(
-        &written,
-        &Added(&written.task),
-        ctx.format,
-        ctx.catalog,
-        out,
-        err,
-    )
-}
-
-/// A status change's error: where it is on no task and the status given
-/// is a task's id, the two were given the wrong way round, and that is
-/// the error, not "no such task".
-async fn reversed(
-    error: AppError,
-    harp_id: String,
-    status: Option<String>,
-    project: Option<String>,
-    service: &mut impl TaskService,
-) -> CliError {
-    let Some(status) = status else {
-        return CliError::App(error);
-    };
-    if !error.is_no_task() {
-        return CliError::App(error);
-    }
-    let query = ShowQuery {
-        project,
-        global: false,
-        harp_ids: vec![status.clone()],
-    };
-    match service.show(query).await {
-        Ok(_) => CliError::StatusReversed {
-            command: format!("taskloom status {status} \"{harp_id}\""),
-        },
-        Err(_) => CliError::App(error),
-    }
-}
-
-#[derive(Args, Debug)]
-pub struct EditArgs {
-    /// The task's id.
-    harp_id: String,
-    /// The new text, whole; several words are joined with spaces. Text
-    /// starting with '-' goes after `--`.
-    #[arg(required = true, num_args = 1..)]
-    text: Vec<String>,
-    /// An id you choose for this request; resend the same one when retrying
-    /// it, and a request already applied is not applied again.
-    #[arg(long)]
-    request_id: Option<String>,
-}
-
-pub(crate) async fn edit(
-    args: EditArgs,
-    ctx: Ctx<'_>,
-    service: &mut impl TaskService,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> Result<(), CliError> {
-    let edit = TextEdit {
-        project: ctx.project,
-        harp_id: args.harp_id,
-        text: args.text.join(" "),
-        request_id: args.request_id,
-    };
-    let written = service.edit(edit).await.map_err(CliError::App)?;
+    let written = tasks_application::set_task(service, change)
+        .await
+        .map_err(CliError::App)?;
     wrote(
         &written,
         &Added(&written.task),
@@ -226,30 +151,32 @@ pub(crate) async fn edit(
 pub struct TagArgs {
     /// The task's id.
     harp_id: String,
-    /// Tag to add (repeatable).
-    #[arg(long)]
-    add: Vec<String>,
-    /// Tag to remove (repeatable).
-    #[arg(long)]
-    remove: Vec<String>,
+    /// The tag.
+    tag: String,
     /// An id you choose for this request; resend the same one when retrying
     /// it, and a request already applied is not applied again.
     #[arg(long)]
     request_id: Option<String>,
 }
 
+/// Add (`adding`) or remove `args.tag` on the task.
 pub(crate) async fn tag(
     args: TagArgs,
+    adding: bool,
     ctx: Ctx<'_>,
     service: &mut impl TaskService,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<(), CliError> {
+    let (add, remove) = match adding {
+        true => (vec![args.tag], Vec::new()),
+        false => (Vec::new(), vec![args.tag]),
+    };
     let change = TagChange {
         project: ctx.project,
         harp_id: args.harp_id,
-        add: args.add,
-        remove: args.remove,
+        add,
+        remove,
         request_id: args.request_id,
     };
     let written = service.tag(change).await.map_err(CliError::App)?;
@@ -373,6 +300,41 @@ pub struct PermitArgs {
     permit: String,
 }
 
+/// `permits remove`'s arguments: the permit, and whether to apply it.
+#[derive(Args, Debug)]
+pub struct RemovePermitArgs {
+    /// The permit, spelled as `permits add` takes it.
+    permit: String,
+    #[command(flatten)]
+    apply: ApplyArgs,
+}
+
+/// A change that previews unless told to apply.
+#[derive(Args, Debug, Clone, Copy)]
+pub struct ApplyArgs {
+    /// Make the change; without it, only report what it would do.
+    #[arg(long)]
+    yes: bool,
+    /// Report what it would do and change nothing (wins over --yes).
+    #[arg(long)]
+    dry_run: bool,
+}
+
+impl ApplyArgs {
+    /// Whether the change is made: asked for, and not a dry run.
+    pub fn applies(self) -> bool {
+        self.yes && !self.dry_run
+    }
+
+    /// Whether `--yes` was given and `--dry-run` overruled it; `would` is
+    /// then what the change would do without it.
+    fn ignored(self, would: impl FnOnce() -> Vec<String>) -> Option<YesIgnored> {
+        (self.yes && self.dry_run).then(|| YesIgnored {
+            would_apply: would(),
+        })
+    }
+}
+
 /// Permit `args.permit` and say what changed: in text, `permitted <permit>`
 /// or `<permit> was already permitted`; in JSON, `{"permit", "changed"}`.
 pub(crate) async fn permit(
@@ -383,6 +345,7 @@ pub(crate) async fn permit(
 ) -> Result<(), CliError> {
     let change = PermitChange {
         permit: args.permit,
+        dry_run: false,
     };
     let permitted = service.permit(change).await.map_err(CliError::App)?;
     let view = Changed {
@@ -392,23 +355,45 @@ pub(crate) async fn permit(
     angzarr_presentation::render(out, ctx.format, &view).map_err(output_failed)
 }
 
-/// Revoke `args.permit` and say so: in text, `revoked <permit>`; in JSON,
-/// `{"permit", "changed"}`.
+/// Remove `args.permit`, or report that it would be: in text, `revoked
+/// <permit>`; in JSON, `{"permit", "changed"}`.
 pub(crate) async fn revoke(
-    args: PermitArgs,
+    args: RemovePermitArgs,
     ctx: Ctx<'_>,
     service: &mut impl PermitService,
     out: &mut dyn Write,
+    err: &mut dyn Write,
 ) -> Result<(), CliError> {
+    let applies = args.apply.applies();
+    let ignored = args
+        .apply
+        .ignored(|| vec![format!("remove the permit {}", args.permit)]);
+    let command = format!("{PROG} manage schema permits remove {} --yes", args.permit);
     let change = PermitChange {
         permit: args.permit,
+        dry_run: !applies,
     };
     let permitted = service.revoke(change).await.map_err(CliError::App)?;
     let view = Changed {
         permitted: &permitted,
         revoked: true,
     };
-    angzarr_presentation::render(out, ctx.format, &view).map_err(output_failed)
+    angzarr_presentation::render(out, ctx.format, &Previewed(&view, !applies, ignored))
+        .map_err(output_failed)?;
+    previewed(applies, command, ctx.catalog, err)
+}
+
+/// After a preview, say on stderr that nothing changed and what applies it.
+fn previewed(
+    applies: bool,
+    command: String,
+    catalog: &Catalog,
+    err: &mut dyn Write,
+) -> Result<(), CliError> {
+    match applies {
+        true => Ok(()),
+        false => notify(&Notice::Preview { command }, catalog, err).map_err(output_failed),
+    }
 }
 
 /// List what the project permits: in text, its namespaces (open, or
@@ -423,72 +408,64 @@ pub(crate) async fn permits(
     angzarr_presentation::render(out, ctx.format, &Permits(&list)).map_err(output_failed)
 }
 
-#[derive(Args, Debug)]
-pub struct SchemaArgs {
-    #[command(subcommand)]
-    action: Option<SchemaAction>,
-}
-
-/// What `schema` does: `show`, its default; `export` and `check`, which
-/// read the store's rules too; and `declare` and `import-config`, a
-/// person's, which change them.
+/// What `manage schema` does besides its vocabulary groups.
 #[derive(clap::Subcommand, Debug)]
-enum SchemaAction {
-    /// Print the store's tag rules (what `schema` alone prints).
+pub enum SchemaCommand {
+    /// Print the store's tag rules a write is held to
+    #[command(after_help = "Examples:\n  taskloom manage schema show")]
     Show,
-    /// Print the store's tag rules as tagma config tags, one a line,
-    /// sorted: tagma's own syntax, which tagma reads back, in any format.
+    /// Print the store's tag rules as tagma config tags
+    #[command(after_help = "Examples:\n  taskloom manage schema export")]
     Export,
-    /// Check the store's tag rules with tagma (an unknown facet, a
-    /// malformed value, a contradiction, a rule that can never hold);
-    /// exits 1 on any finding.
+    /// Check the store's tag rules; exit 1 on any finding
+    #[command(after_help = "Examples:\n  taskloom manage schema check")]
     Check,
-    /// Add and remove the store's tag rules (tagma.* and taskloom.* tags).
-    /// A person's command: an agent runs it only with the human's
-    /// permission for that change.
+    /// Add and remove the store's tag rules (a person's command)
+    #[command(
+        after_help = "Examples:\n  taskloom manage schema declare --add 'tagma.permit:\"area:*\"' --yes"
+    )]
     Declare(DeclareArgs),
-    /// Move the work root's .taskloom/config.yaml tag_schema and
-    /// tag_permits into the project's store, once, then take them out of
-    /// the file, its other keys and comments kept. A person's command.
-    ImportConfig,
 }
 
 #[derive(Args, Debug)]
-struct DeclareArgs {
+pub struct DeclareArgs {
     /// A tag rule to add, in tagma's grammar (repeatable).
     #[arg(long = "add")]
     add: Vec<String>,
     /// A tag rule to remove, in tagma's grammar (repeatable).
     #[arg(long = "remove")]
     remove: Vec<String>,
+    #[command(flatten)]
+    apply: ApplyArgs,
 }
 
-/// Run `schema`'s action: `show` the store's rules (text one line a
+/// Run a `manage schema` command: `show` the store's rules (text one line a
 /// target with its facets, its formulas beneath; JSON
 /// [`tasks_presentation::SchemaJson`]), `export` them, `check` them
-/// (failing on a finding), `declare` a change to them or `import-config`.
+/// (failing on a finding) or `declare` a change to them.
 pub(crate) async fn schema(
-    args: SchemaArgs,
+    command: SchemaCommand,
     ctx: Ctx<'_>,
     service: &mut (impl TaskService + SchemaService + PermitService),
     out: &mut dyn Write,
+    err: &mut dyn Write,
 ) -> Result<(), CliError> {
     let format = ctx.format;
-    match args.action {
-        None | Some(SchemaAction::Show) => {
+    match command {
+        SchemaCommand::Show => {
             let schema = service.tag_schema().await.map_err(CliError::App)?;
             angzarr_presentation::render(out, format, &Schema(&schema)).map_err(output_failed)
         }
         // Printed in its own format, tagma's syntax, whatever is asked,
         // as `loadout` is in yaml: it is what tagma reads back.
-        Some(SchemaAction::Export) => {
+        SchemaCommand::Export => {
             let tags = service
                 .schema_export(ctx.project)
                 .await
                 .map_err(CliError::App)?;
             angzarr_presentation::render(out, Format::Text, &Exported(&tags)).map_err(output_failed)
         }
-        Some(SchemaAction::Check) => {
+        SchemaCommand::Check => {
             let findings = service
                 .schema_check(ctx.project)
                 .await
@@ -500,21 +477,54 @@ pub(crate) async fn schema(
                 count => Err(CliError::SchemaFindings { count }),
             }
         }
-        Some(SchemaAction::Declare(declare)) => {
+        SchemaCommand::Declare(declare) => {
+            let applies = declare.apply.applies();
+            let ignored = declare.apply.ignored(|| {
+                let rules = |verb: &str, rules: &[String]| {
+                    rules
+                        .iter()
+                        .map(|rule| format!("{verb} the rule {rule}"))
+                        .collect::<Vec<_>>()
+                };
+                [rules("add", &declare.add), rules("remove", &declare.remove)].concat()
+            });
+            let command = declaration_command(&declare);
             let declaration = Declaration {
                 add: declare.add,
                 remove: declare.remove,
+                dry_run: !applies,
             };
             let declared = service.declare(declaration).await.map_err(CliError::App)?;
-            angzarr_presentation::render(out, format, &DeclaredView(&declared))
-                .map_err(output_failed)
-        }
-        Some(SchemaAction::ImportConfig) => {
-            let declared = service.import_config().await.map_err(CliError::App)?;
-            angzarr_presentation::render(out, format, &DeclaredView(&declared))
-                .map_err(output_failed)
+            let view = DeclaredView(&declared);
+            angzarr_presentation::render(out, format, &Previewed(&view, !applies, ignored))
+                .map_err(output_failed)?;
+            previewed(applies, command, ctx.catalog, err)
         }
     }
+}
+
+/// The command that applies exactly the declaration given.
+fn declaration_command(declare: &DeclareArgs) -> String {
+    let mut words = vec![PROG.to_string(), "manage schema declare".to_string()];
+    for (flag, rules) in [("--add", &declare.add), ("--remove", &declare.remove)] {
+        for rule in rules {
+            words.push(flag.to_string());
+            words.push(crate::prune::shell_word(rule));
+        }
+    }
+    words.push("--yes".to_string());
+    words.join(" ")
+}
+
+/// `manage migrate schema`: move the work root's config file's tag rules
+/// into the project's store.
+pub(crate) async fn import_config(
+    ctx: Ctx<'_>,
+    service: &mut impl PermitService,
+    out: &mut dyn Write,
+) -> Result<(), CliError> {
+    let declared = service.import_config().await.map_err(CliError::App)?;
+    angzarr_presentation::render(out, ctx.format, &DeclaredView(&declared)).map_err(output_failed)
 }
 
 #[derive(Args, Debug)]
@@ -612,9 +622,9 @@ pub(crate) async fn tags(
         .map_err(output_failed)
 }
 
-/// Lint, then refuse when it found a violation or checked no target, so
+/// Check the tasks' tags, then refuse when it found a violation or checked no target, so
 /// that CI sees it in the exit code.
-pub(crate) async fn lint(
+pub(crate) async fn check(
     args: GlobalArgs,
     ctx: Ctx<'_>,
     service: &mut impl TaskService,
@@ -652,9 +662,8 @@ pub struct PruneArgs {
     /// Only tasks matching this tag query (see list --tag-query).
     #[arg(long = "tag-query")]
     tag_query: Option<String>,
-    /// Remove and purge; without it prune only reports what it would.
-    #[arg(long)]
-    yes: bool,
+    #[command(flatten)]
+    apply: ApplyArgs,
 }
 
 /// Run the prune the flags ask for. Say on stderr when there is no
@@ -668,12 +677,13 @@ pub(crate) async fn prune(
     err: &mut dyn Write,
 ) -> Result<(), CliError> {
     let apply = apply_command(&args.older_than, &args.status, args.tag_query.as_deref());
+    let apply_args = args.apply;
     let request = PruneRequest {
         project: ctx.project,
         statuses: args.status,
         older_than: args.older_than,
         tag_query: args.tag_query,
-        apply: args.yes,
+        apply: args.apply.applies(),
     };
     let (format, catalog) = (ctx.format, ctx.catalog);
     let pruning = service.prune(request).await.map_err(CliError::App)?;
@@ -681,7 +691,26 @@ pub(crate) async fn prune(
         notify(&Notice::NothingToPrune, catalog, err).map_err(output_failed)?;
     }
     dead_lettered(&pruning.dead_letters, err).map_err(output_failed)?;
-    angzarr_presentation::render(out, format, &PruneReport(&pruning)).map_err(output_failed)?;
+    let report = PruneReport(&pruning);
+    let ignored = apply_args.ignored(|| {
+        pruning
+            .pruned
+            .iter()
+            .map(|p| {
+                format!(
+                    "remove and purge the task {} ({})",
+                    p.task.harp_id, p.task.status
+                )
+            })
+            .collect()
+    });
+    match ignored {
+        Some(ignored) => {
+            angzarr_presentation::render(out, format, &Previewed(&report, true, Some(ignored)))
+        }
+        None => angzarr_presentation::render(out, format, &report),
+    }
+    .map_err(output_failed)?;
     if pruning.applied || pruning.pruned.is_empty() {
         return Ok(());
     }

@@ -267,7 +267,7 @@ impl Env {
 
     /// The final listing, read by one process alone.
     fn list(&self) -> Vec<Value> {
-        let ran = self.run(&["list", "--json"]);
+        let ran = self.run(&["tasks", "list", "--format", "json"]);
         assert!(ran.ok, "list failed: {}", ran.stderr);
         ran.json().as_array().expect("an array").clone()
     }
@@ -275,7 +275,7 @@ impl Env {
     /// Add `text` alone, before any concurrency: the project is minted, its
     /// store created and migrated. The task's JSON.
     fn seed(&self, text: &str) -> Value {
-        let added = self.run(&["add", text, "--format", "json"]);
+        let added = self.run(&["tasks", "add", text, "--format", "json"]);
         assert!(added.ok, "seed: {}", added.stderr);
         added.json()
     }
@@ -286,11 +286,14 @@ impl Env {
     /// is an allowlist from when it is made (F6).
     fn permit_every_tag(&self) {
         let ran = self.run(&[
+            "manage",
             "schema",
             "declare",
             "--add",
             r#"tagma.permit:"*:*""#,
-            "--json",
+            "--yes",
+            "--format",
+            "json",
         ]);
         assert!(ran.ok, "permit every tag: {}", ran.stderr);
     }
@@ -357,7 +360,11 @@ fn test_concurrent_adds_at_first_sight_bind_one_project_and_lose_no_task() {
 
     let n = 40;
     let ran = concurrently(&env, n, |i| {
-        vec!["add".to_string(), format!("concurrent-task-{i:03}")]
+        vec![
+            "tasks".to_string(),
+            "add".to_string(),
+            format!("concurrent-task-{i:03}"),
+        ]
     });
     for (i, r) in ran.iter().enumerate() {
         assert!(r.ok, "process {i} failed: {}", r.stderr);
@@ -400,9 +407,18 @@ fn test_readers_during_writes_see_whole_listings() {
     let (writers, readers) = (20, 10);
     let ran = concurrently(&env, writers + readers, |i| {
         if i < writers {
-            vec!["add".to_string(), format!("rw-task-{i:03}")]
+            vec![
+                "tasks".to_string(),
+                "add".to_string(),
+                format!("rw-task-{i:03}"),
+            ]
         } else {
-            vec!["list".to_string(), "--json".to_string()]
+            vec![
+                "tasks".to_string(),
+                "list".to_string(),
+                "--format".to_string(),
+                "json".to_string(),
+            ]
         }
     });
     let last: BTreeMap<String, Value> = env
@@ -442,7 +458,7 @@ fn test_readers_during_writes_see_whole_listings() {
 #[test]
 fn test_readers_at_first_sight_answer_while_the_store_is_made() {
     let env = Env::new("first-sight-reader-harp");
-    let before = env.run(&["list"]);
+    let before = env.run(&["tasks", "list"]);
     assert!(
         before.ok && before.stderr.contains("no project here"),
         "{}",
@@ -451,9 +467,18 @@ fn test_readers_at_first_sight_answer_while_the_store_is_made() {
     let (writers, readers) = (20, 10);
     let ran = concurrently(&env, writers + readers, |i| {
         if i < writers {
-            vec!["add".to_string(), format!("fs-task-{i:03}")]
+            vec![
+                "tasks".to_string(),
+                "add".to_string(),
+                format!("fs-task-{i:03}"),
+            ]
         } else {
-            vec!["list".to_string(), "--json".to_string()]
+            vec![
+                "tasks".to_string(),
+                "list".to_string(),
+                "--format".to_string(),
+                "json".to_string(),
+            ]
         }
     });
     for (i, r) in ran.iter().enumerate() {
@@ -478,9 +503,10 @@ fn test_concurrent_tags_of_one_task_lose_no_tag() {
     let n = 40;
     let ran = concurrently(&env, n, |i| {
         vec![
+            "tasks".to_string(),
             "tag".to_string(),
+            "add".to_string(),
             harp.clone(),
-            "--add".to_string(),
             format!("tag-{i:03}"),
         ]
     });
@@ -504,6 +530,7 @@ fn test_concurrent_tags_of_one_task_lose_no_tag() {
 fn test_a_task_added_is_listed_in_text_with_its_project() {
     let env = Env::new("smoke-harp");
     let added = env.run(&[
+        "tasks",
         "add",
         "Ship",
         "it",
@@ -520,7 +547,7 @@ fn test_a_task_added_is_listed_in_text_with_its_project() {
         "{}",
         added.stderr
     );
-    let listed = env.run(&["list", "--format", "text"]);
+    let listed = env.run(&["tasks", "list", "--format", "text"]);
     assert!(listed.stdout.starts_with("Project: "), "{}", listed.stdout);
     assert!(
         listed.stdout.contains("Ship it  [queue:release]"),
@@ -549,28 +576,45 @@ fn test_a_value_given_empty_is_refused_never_read_as_left_out() {
     let env = Env::new("empty-harp");
     let seeded = env.seed("Shipped");
     let harp = seeded["harp_id"].as_str().unwrap().to_string();
-    let done = env.run(&["status", &harp, "Done", "--json"]);
+    let done = env.run(&[
+        "tasks", "set", &harp, "--status", "Done", "--format", "json",
+    ]);
     assert!(done.ok, "{}", done.stderr);
     for (args, code) in [
-        (vec!["add", "x", "--status", ""], codes::blank()),
-        (vec!["add", "x", "--trigger", " "], codes::blank()),
-        (vec!["add", "x", "--tag", ""], codes::tag_blank()),
-        (vec!["--project", "", "add", "x"], codes::invalid_id()),
+        (vec!["tasks", "add", "x", "--status", ""], codes::blank()),
+        (vec!["tasks", "add", "x", "--trigger", " "], codes::blank()),
+        (vec!["tasks", "add", "x", "--tag", ""], codes::tag_blank()),
         (
-            vec!["status", &harp, "Deferred", "--trigger", ""],
+            vec!["--project", "", "tasks", "add", "x"],
+            codes::invalid_id(),
+        ),
+        (
+            vec![
+                "tasks",
+                "set",
+                &harp,
+                "--status",
+                "Deferred",
+                "--trigger",
+                "",
+            ],
             codes::blank(),
         ),
         (
-            vec!["tag", &harp, "--add", "ok", "--remove", ""],
+            vec!["tasks", "tag", "remove", &harp, ""],
             codes::tag_blank(),
         ),
-        (vec!["list", "--term", ""], codes::blank()),
-        (vec!["list", "--tag-query", ""], codes::blank()),
-        (vec!["list", "--sort", ""], codes::blank()),
-        (vec!["tags", "--tag-query", ""], codes::blank()),
-        (vec!["--project", "", "list"], codes::invalid_id()),
+        (vec!["tasks", "list", "--term", ""], codes::blank()),
+        (vec!["tasks", "list", "--tag-query", ""], codes::blank()),
+        (vec!["tasks", "list", "--sort", ""], codes::blank()),
+        (
+            vec!["manage", "schema", "tags", "list", "--tag-query", ""],
+            codes::blank(),
+        ),
+        (vec!["--project", "", "tasks", "list"], codes::invalid_id()),
         (
             vec![
+                "tasks",
                 "prune",
                 "--older-than",
                 "2999-01-01",
@@ -582,14 +626,16 @@ fn test_a_value_given_empty_is_refused_never_read_as_left_out() {
         ),
     ] {
         let mut args = args.clone();
-        args.push("--json");
+        args.extend(["--format", "json"]);
         let ran = env.run(&args);
         assert!(!ran.ok, "{args:?}: {}", ran.stdout);
         assert_eq!(ran.stdout, "", "{args:?}");
         let envelope: Value = serde_json::from_str(&ran.stderr).unwrap();
         assert_eq!(envelope["code"], code, "{args:?}: {envelope}");
     }
-    let listed = env.run(&["list", "--all", "--json"]).json();
+    let listed = env
+        .run(&["tasks", "list", "--all", "--format", "json"])
+        .json();
     assert_eq!(
         listed.as_array().unwrap().len(),
         1,
@@ -599,7 +645,7 @@ fn test_a_value_given_empty_is_refused_never_read_as_left_out() {
     assert_eq!(listed[0]["tags"], serde_json::json!([]), "nothing tagged");
 
     let unset = [("CTXLOOM_SESSION_HARP", ""), ("CTXLOOM_PROJECT_ID", "")];
-    let added = env.run_with(&["add", "x", "--json"], &unset);
+    let added = env.run_with(&["tasks", "add", "x", "--format", "json"], &unset);
     assert!(added.ok, "{}", added.stderr);
     assert_eq!(added.json()["origin_session"], "", "{}", added.stdout);
     assert!(
@@ -620,7 +666,7 @@ fn seeded_project(env: &Env) -> String {
 #[test]
 fn test_a_list_of_a_project_never_written_creates_nothing() {
     let env = Env::new("tpyo-harp");
-    let listed = env.run(&["list", "--project", "tpyo", "--json"]);
+    let listed = env.run(&["tasks", "list", "--project", "tpyo", "--format", "json"]);
     assert!(listed.ok, "{}", listed.stderr);
     assert_eq!(listed.json(), serde_json::json!([]));
     assert!(
@@ -633,7 +679,7 @@ fn test_a_list_of_a_project_never_written_creates_nothing() {
 #[test]
 fn test_a_tag_where_there_is_no_project_fails_and_binds_none() {
     let env = Env::new("no-project-harp");
-    let tagged = env.run(&["tag", "swift-amber", "--add", "x"]);
+    let tagged = env.run(&["tasks", "tag", "add", "swift-amber", "x"]);
     assert!(!tagged.ok);
     assert!(
         tagged.stderr.contains("no project here yet"),
@@ -675,11 +721,11 @@ fn test_a_deleted_working_directory_fails_only_the_commands_that_need_it() {
     }
     let env = Env::new("gone-cwd-harp");
     let run = |args: &[&str]| run_where_the_working_directory_is_gone(&env, env.home.path(), args);
-    let version = run(&["version"]);
+    let version = run(&["manage", "version"]);
     assert!(version.ok, "{}", version.stderr);
     let loadout = run(&["loadout", "--format", "yaml"]);
     assert!(loadout.ok, "{}", loadout.stderr);
-    let list = run(&["list"]);
+    let list = run(&["tasks", "list"]);
     assert!(!list.ok, "{}", list.stdout);
     assert!(
         list.stderr.contains("the working directory cannot be read"),
@@ -701,7 +747,7 @@ fn test_a_relative_path_is_never_resolved_against_the_top_when_the_cwd_is_gone()
     let added = run_where_the_working_directory_is_gone(
         &env,
         home,
-        &["add", "Ship it", "--project", "jolly-mute-magma"],
+        &["tasks", "add", "Ship it", "--project", "jolly-mute-magma"],
     );
     assert!(!added.ok, "{}", added.stdout);
     assert!(
@@ -730,15 +776,19 @@ fn test_a_read_spans_every_project_when_asked_or_outside_any_work_root() {
     for dir in [&repo, &empty_repo] {
         disk::create_dir_all(dir.path().join(".git")).unwrap();
     }
-    let added = env.run_in(repo.path(), &["add", "in the repo", "--json"], &[]);
+    let added = env.run_in(
+        repo.path(),
+        &["tasks", "add", "in the repo", "--format", "json"],
+        &[],
+    );
     assert!(added.ok, "{}", added.stderr);
 
-    let here = env.run(&["list", "--json"]);
+    let here = env.run(&["tasks", "list", "--format", "json"]);
     assert_eq!(
         texts(&here.json().as_array().unwrap().clone(), "text"),
         ["in the first"]
     );
-    let every = env.run(&["list", "--global", "--json"]);
+    let every = env.run(&["tasks", "list", "--global", "--format", "json"]);
     assert!(every.ok, "{}", every.stderr);
     assert_eq!(every.stderr, "", "asked for: nothing to explain");
     let rows = every.json().as_array().unwrap().clone();
@@ -747,7 +797,7 @@ fn test_a_read_spans_every_project_when_asked_or_outside_any_work_root() {
     assert_eq!(seen, ["in the first", "in the repo"]);
     assert!(rows.iter().all(|r| r["project_id"].is_string()), "{rows:?}");
 
-    let fallback = env.run_outside(&["list", "--json"]);
+    let fallback = env.run_outside(&["tasks", "list", "--format", "json"]);
     assert!(fallback.ok, "{}", fallback.stderr);
     assert_eq!(fallback.json().as_array().unwrap().len(), 2);
     assert!(
@@ -755,14 +805,18 @@ fn test_a_read_spans_every_project_when_asked_or_outside_any_work_root() {
         "{}",
         fallback.stderr
     );
-    let text = env.run_outside(&["list", "--format", "text"]);
+    let text = env.run_outside(&["tasks", "list", "--format", "text"]);
     assert!(
         text.stdout.starts_with("Projects: 2 (--global)\n"),
         "{}",
         text.stdout
     );
 
-    let in_repo = env.run_in(empty_repo.path(), &["list", "--json"], &[]);
+    let in_repo = env.run_in(
+        empty_repo.path(),
+        &["tasks", "list", "--format", "json"],
+        &[],
+    );
     assert_eq!(in_repo.json(), serde_json::json!([]));
     assert!(
         in_repo.stderr.contains("no project here yet"),
@@ -787,15 +841,19 @@ fn test_a_checkout_above_a_tests_directory_is_not_its_project() {
     let dir = checkout.path().join("target").join("tmp");
     disk::create_dir_all(&dir).unwrap();
 
-    let listed = env.run_in(&dir, &["list", "--json"], &[]);
+    let listed = env.run_in(&dir, &["tasks", "list", "--format", "json"], &[]);
     assert!(
         listed.stderr.contains("no project here yet"),
         "{}",
         listed.stderr
     );
-    let added = env.run_in(&dir, &["add", "enclosed", "--json"], &[]);
+    let added = env.run_in(&dir, &["tasks", "add", "enclosed", "--format", "json"], &[]);
     assert!(added.ok, "{}", added.stderr);
-    let shown = env.run_in(&dir, &["project", "show", "--json"], &[]);
+    let shown = env.run_in(
+        &dir,
+        &["manage", "project", "show", "--format", "json"],
+        &[],
+    );
     assert!(shown.ok, "{}", shown.stderr);
     let shown = shown.json();
     assert_ne!(shown["project_id"], "jolly-mute-magma", "{shown}");
@@ -948,7 +1006,7 @@ fn one_document(text: &str) -> Value {
 #[test]
 fn test_in_json_each_command_writes_one_document_and_errors_an_envelope() {
     let env = Env::new("jq-harp");
-    let added = env.run(&["add", "Ship", "it", "--json"]);
+    let added = env.run(&["tasks", "add", "Ship", "it", "--format", "json"]);
     assert!(added.ok, "{}", added.stderr);
     let task = one_document(&added.stdout);
     let harp = task["harp_id"].as_str().expect("harp_id").to_string();
@@ -958,24 +1016,32 @@ fn test_in_json_each_command_writes_one_document_and_errors_an_envelope() {
         added.stderr
     );
     env.permit_every_tag();
-    let tagged = env.run(&["tag", &harp, "--add", "x", "--json"]);
+    let tagged = env.run(&["tasks", "tag", "add", &harp, "x", "--format", "json"]);
     assert!(tagged.ok, "{}", tagged.stderr);
     assert_eq!(
         one_document(&tagged.stdout)["tags"],
         serde_json::json!(["x"])
     );
-    let listed = env.run(&["list", "--json"]);
+    let listed = env.run(&["tasks", "list", "--format", "json"]);
     assert!(listed.ok, "{}", listed.stderr);
     assert_eq!(one_document(&listed.stdout)[0]["harp_id"], harp.as_str());
-    let queried = env.run(&["list", "--tag-query", "x", "--json"]);
+    let queried = env.run(&["tasks", "list", "--tag-query", "x", "--format", "json"]);
     assert!(queried.ok, "{}", queried.stderr);
     assert_eq!(one_document(&queried.stdout)[0]["harp_id"], harp.as_str());
-    let unread = env.run(&["list", "--tag-query", "x/and", "--json"]);
+    let unread = env.run(&["tasks", "list", "--tag-query", "x/and", "--format", "json"]);
     assert!(!unread.ok);
     assert_eq!(unread.stdout, "", "an error leaves stdout empty");
     assert_eq!(one_document(&unread.stderr)["code"], codes::tag_query());
 
-    let failed = env.run(&["tag", "no-such-task", "--add", "x", "--json"]);
+    let failed = env.run(&[
+        "tasks",
+        "tag",
+        "add",
+        "no-such-task",
+        "x",
+        "--format",
+        "json",
+    ]);
     assert!(!failed.ok);
     assert_eq!(failed.stdout, "", "an error leaves stdout empty");
     let envelope = one_document(&failed.stderr);
@@ -983,7 +1049,7 @@ fn test_in_json_each_command_writes_one_document_and_errors_an_envelope() {
     assert!(envelope["args"].is_object(), "{envelope}");
     assert!(envelope["message"].is_string(), "{envelope}");
 
-    let usage = env.run(&["frobnicate", "--json"]);
+    let usage = env.run(&["frobnicate", "--format", "json"]);
     assert!(!usage.ok);
     assert_eq!(one_document(&usage.stderr)["code"], codes::usage());
 
@@ -994,11 +1060,19 @@ fn test_in_json_each_command_writes_one_document_and_errors_an_envelope() {
         "{\"op\":\"add\",\"task\":\"brisk-heron\",\"text\":\"Go's\",\"ts\":\"2026-03-01T10:01:00Z\"}\n",
     )
     .unwrap();
-    let imported = env.run(&["import", "--json"]);
+    let imported = env.run(&["manage", "migrate", "tasks", "--format", "json"]);
     assert!(imported.ok, "{}", imported.stderr);
     assert_eq!(one_document(&imported.stdout)["complete"], true);
 
-    let incomplete = env.run(&["import", "--project", "no-such-project", "--json"]);
+    let incomplete = env.run(&[
+        "manage",
+        "migrate",
+        "tasks",
+        "--project",
+        "no-such-project",
+        "--format",
+        "json",
+    ]);
     assert!(!incomplete.ok);
     let report = one_document(&incomplete.stdout);
     assert_eq!(
@@ -1048,80 +1122,148 @@ impl Jq {
 fn test_in_json_each_change_writes_one_document_and_errors_an_envelope() {
     let jq = Jq::new("jq-change-harp");
     let harp = jq.harp.as_str();
-    let task = jq.ok(&["status", harp, "Deferred", "--trigger", "later", "--json"]);
+    let task = jq.ok(&[
+        "tasks",
+        "set",
+        harp,
+        "--status",
+        "Deferred",
+        "--trigger",
+        "later",
+        "--format",
+        "json",
+    ]);
     assert_eq!(
         (&task["status"], &task["trigger"]),
         (&"Deferred".into(), &"later".into())
     );
     // Reverses the reviewed "kept" (the human's ruling on L, 2026-10-27):
     // leaving Deferred by a status clears the trigger.
-    let back = jq.ok(&["status", harp, "To Do", "--json"]);
+    let back = jq.ok(&[
+        "tasks", "set", harp, "--status", "To Do", "--format", "json",
+    ]);
     assert_eq!(back["trigger"], "", "cleared on leaving Deferred");
-    jq.ok(&["status", harp, "In Progress", "--json"]);
-    let deferred = jq.ok(&["status", harp, "--trigger", "later", "--json"]);
+    jq.ok(&[
+        "tasks",
+        "set",
+        harp,
+        "--status",
+        "In Progress",
+        "--format",
+        "json",
+    ]);
+    let deferred = jq.ok(&[
+        "tasks",
+        "set",
+        harp,
+        "--trigger",
+        "later",
+        "--format",
+        "json",
+    ]);
     assert_eq!(
         (&deferred["status"], &deferred["trigger"]),
         (&"Deferred".into(), &"later".into()),
         "a trigger alone defers"
     );
-    let revived = jq.ok(&["status", harp, "--clear-trigger", "--json"]);
+    let revived = jq.ok(&["tasks", "set", harp, "--clear-trigger", "--format", "json"]);
     assert_eq!(
         (&revived["status"], &revived["trigger"]),
         (&"In Progress".into(), &"".into()),
         "back to the status it was deferred from"
     );
     jq.refused(
-        &["status", harp, "Done", "--trigger", "later", "--json"],
+        &[
+            "tasks",
+            "set",
+            harp,
+            "--status",
+            "Done",
+            "--trigger",
+            "later",
+            "--format",
+            "json",
+        ],
         &codes::trigger_with_status(),
     );
     jq.refused(
         &[
-            "status",
+            "tasks",
+            "set",
             harp,
             "--trigger",
             "x",
             "--clear-trigger",
-            "--json",
+            "--format",
+            "json",
         ],
         &codes::trigger_and_clear(),
     );
-    jq.ok(&["status", harp, "To Do", "--json"]);
+    jq.ok(&[
+        "tasks", "set", harp, "--status", "To Do", "--format", "json",
+    ]);
     jq.refused(
-        &["status", harp, "@open", "--json"],
+        &[
+            "tasks", "set", harp, "--status", "@open", "--format", "json",
+        ],
         &codes::status_reserved(),
     );
     jq.refused(
-        &["status", "no-such-task", "Done", "--json"],
+        &[
+            "tasks",
+            "set",
+            "no-such-task",
+            "--status",
+            "Done",
+            "--format",
+            "json",
+        ],
         &codes::no_task(),
     );
-    let task = jq.ok(&["edit", harp, "Ship", "it", "today", "--json"]);
+}
+
+#[test]
+fn test_in_json_each_text_and_tag_change_writes_one_document_and_errors_an_envelope() {
+    let jq = Jq::new("jq-text-harp");
+    let harp = jq.harp.as_str();
+    let task = jq.ok(&[
+        "tasks",
+        "set",
+        harp,
+        "--text",
+        "Ship it today",
+        "--format",
+        "json",
+    ]);
     assert_eq!(
         (&task["text"], &task["status"]),
         (&"Ship it today".into(), &"To Do".into())
     );
-    jq.refused(&["edit", harp, " ", "--json"], &codes::text_required());
-    jq.refused(&["tag", harp, "--json"], &codes::tag_required());
-    let tagged = jq.ok(&[
+    jq.refused(
+        &["tasks", "set", harp, "--text", " ", "--format", "json"],
+        &codes::text_required(),
+    );
+    jq.ok(&[
+        "tasks",
         "tag",
+        "add",
         harp,
-        "--add",
         "triage:level=3",
-        "--add",
-        "x",
-        "--json",
+        "--format",
+        "json",
     ]);
+    let tagged = jq.ok(&["tasks", "tag", "add", harp, "x", "--format", "json"]);
     assert_eq!(tagged["tags"], serde_json::json!(["triage:level=3", "x"]));
-    let collapsed = jq.ok(&[
+    jq.ok(&[
+        "tasks",
         "tag",
+        "add",
         harp,
-        "--add",
         "triage:level=1",
-        "--remove",
-        "x",
-        "--add",
-        "x",
-        "--json",
+        "--format",
+        "json",
     ]);
+    let collapsed = jq.ok(&["tasks", "tag", "remove", harp, "x", "--format", "json"]);
     assert_eq!(
         collapsed["tags"],
         serde_json::json!(["triage:level=1"]),
@@ -1138,33 +1280,74 @@ fn test_a_write_retried_under_its_request_id_applies_once() {
     let jq = Jq::new("jq-request-harp");
     let harp = jq.harp.as_str();
     let moving = [
-        "status",
+        "tasks",
+        "set",
         harp,
+        "--status",
         "In Progress",
         "--request-id",
         "r-1",
-        "--json",
+        "--format",
+        "json",
     ];
     let first = jq.ok(&moving);
     assert_eq!(jq.ok(&moving), first, "its time of change included");
-    jq.ok(&["status", harp, "Done", "--json"]);
+    jq.ok(&["tasks", "set", harp, "--status", "Done", "--format", "json"]);
     assert_eq!(jq.ok(&moving)["status"], "Done", "not applied again");
-    let tagging = ["tag", harp, "--add", "x", "--request-id", "r-1", "--json"];
+    let tagging = [
+        "tasks",
+        "tag",
+        "add",
+        harp,
+        "x",
+        "--request-id",
+        "r-1",
+        "--format",
+        "json",
+    ];
     jq.ok(&tagging);
-    jq.ok(&["tag", harp, "--remove", "x", "--json"]);
+    jq.ok(&["tasks", "tag", "remove", harp, "x", "--format", "json"]);
     assert_eq!(jq.ok(&tagging)["tags"], serde_json::json!([]));
-    let editing = ["edit", harp, "First", "--request-id", "r-1", "--json"];
+    let editing = [
+        "tasks",
+        "set",
+        harp,
+        "--text",
+        "First",
+        "--request-id",
+        "r-1",
+        "--format",
+        "json",
+    ];
     jq.ok(&editing);
-    jq.ok(&["edit", harp, "Second", "--json"]);
+    jq.ok(&["tasks", "set", harp, "--text", "Second", "--format", "json"]);
     assert_eq!(jq.ok(&editing)["text"], "Second");
     jq.refused(
-        &["status", harp, "Done", "--request-id", " ", "--json"],
+        &[
+            "tasks",
+            "set",
+            harp,
+            "--status",
+            "Done",
+            "--request-id",
+            " ",
+            "--format",
+            "json",
+        ],
         &codes::blank(),
     );
-    let adding = ["add", "Again", "--request-id", "r-2", "--json"];
+    let adding = [
+        "tasks",
+        "add",
+        "Again",
+        "--request-id",
+        "r-2",
+        "--format",
+        "json",
+    ];
     let added = jq.ok(&adding);
     assert_eq!(jq.ok(&adding)["harp_id"], added["harp_id"]);
-    let listed = jq.ok(&["list", "--all", "--json"]);
+    let listed = jq.ok(&["tasks", "list", "--all", "--format", "json"]);
     assert_eq!(listed.as_array().map(Vec::len), Some(2), "{listed}");
 }
 
@@ -1172,8 +1355,9 @@ fn test_a_write_retried_under_its_request_id_applies_once() {
 fn test_in_json_each_read_writes_one_document_and_errors_an_envelope() {
     let jq = Jq::new("jq-read-harp");
     let harp = jq.harp.as_str();
-    jq.ok(&["tag", harp, "--add", "release", "--json"]);
+    jq.ok(&["tasks", "tag", "add", harp, "release", "--format", "json"]);
     let narrowed = jq.ok(&[
+        "tasks",
         "list",
         "--status",
         "@open",
@@ -1182,33 +1366,40 @@ fn test_in_json_each_read_writes_one_document_and_errors_an_envelope() {
         "--compact",
         "--limit",
         "1",
-        "--json",
+        "--format",
+        "json",
     ]);
     assert_eq!(narrowed[0]["headline"], "Ship it");
-    assert_eq!(jq.ok(&["list", "--global", "--json"])[0]["harp_id"], harp);
+    assert_eq!(
+        jq.ok(&["tasks", "list", "--global", "--format", "json"])[0]["harp_id"],
+        harp
+    );
     jq.refused(
-        &["list", "--status", "@done", "--json"],
+        &["tasks", "list", "--status", "@done", "--format", "json"],
         &codes::unknown_status_class(),
     );
 
-    assert_eq!(jq.ok(&["show", harp, "--json"])["text"], "Ship it");
-    let twice = jq.ok(&["show", harp, harp, "--global", "--json"]);
+    assert_eq!(
+        jq.ok(&["tasks", "show", harp, "--format", "json"])["text"],
+        "Ship it"
+    );
+    let twice = jq.ok(&["tasks", "show", harp, harp, "--global", "--format", "json"]);
     assert_eq!(twice.as_array().map(Vec::len), Some(2));
     jq.refused(
-        &["show", harp, "no-such-task", "--json"],
+        &["tasks", "show", harp, "no-such-task", "--format", "json"],
         &codes::not_found(),
     );
 
     for args in [
-        &["summary", "--json"][..],
-        &["summary", "--global", "--json"],
+        &["tasks", "summary", "--format", "json"][..],
+        &["tasks", "summary", "--global", "--format", "json"],
     ] {
         let summary = jq.ok(args);
         assert_eq!(summary["counts"]["To Do"], 1, "{args:?}");
         assert_eq!(summary["in_progress"], serde_json::json!([]), "{args:?}");
     }
 
-    let statuses = jq.ok(&["statuses", "--json"]);
+    let statuses = jq.ok(&["manage", "schema", "statuses", "list", "--format", "json"]);
     let names: Vec<&Value> = statuses
         .as_array()
         .expect("an array")
@@ -1221,8 +1412,10 @@ fn test_in_json_each_read_writes_one_document_and_errors_an_envelope() {
     );
 
     for args in [
-        &["tags", "--json"][..],
-        &["tags", "--global", "--status", "@open", "--json"],
+        &["manage", "schema", "tags", "list", "--format", "json"][..],
+        &[
+            "manage", "schema", "tags", "list", "--global", "--status", "@open", "--format", "json",
+        ],
     ] {
         assert_eq!(
             jq.ok(args),
@@ -1231,26 +1424,43 @@ fn test_in_json_each_read_writes_one_document_and_errors_an_envelope() {
         );
     }
     jq.refused(
-        &["tags", "--tag-query", "x/and", "--json"],
+        &[
+            "manage",
+            "schema",
+            "tags",
+            "list",
+            "--tag-query",
+            "x/and",
+            "--format",
+            "json",
+        ],
         &codes::tag_query(),
     );
+}
 
-    let linted = jq.ok(&["lint", "--json"]);
+#[test]
+fn test_in_json_a_check_writes_one_document_and_a_finding_an_envelope() {
+    let jq = Jq::new("jq-check-harp");
+    let harp = jq.harp.as_str();
+    let linted = jq.ok(&["tasks", "check", "--format", "json"]);
     assert_eq!(linted["violations"], serde_json::json!([]));
     assert!(linted["checked_targets"].as_u64() > Some(0), "{linted}");
-    let tagged = jq.ok(&["tag", harp, "--add", "area:x=c", "--json"]);
-    assert_eq!(tagged["tags"].as_array().map(Vec::len), Some(2));
+    let tagged = jq.ok(&["tasks", "tag", "add", harp, "area:x=c", "--format", "json"]);
+    assert_eq!(tagged["tags"].as_array().map(Vec::len), Some(1));
     let declared = jq.ok(&[
+        "manage",
         "schema",
         "declare",
+        "--yes",
         "--add",
         r#"tagma.enum:"area:x"=a"#,
         "--add",
         r#"tagma.enum:"area:x"=b"#,
-        "--json",
+        "--format",
+        "json",
     ]);
     assert_eq!(declared["changed"], true);
-    let ran = jq.env.run(&["lint", "--json"]);
+    let ran = jq.env.run(&["tasks", "check", "--format", "json"]);
     assert!(!ran.ok, "a violation exits 1");
     let report = one_document(&ran.stdout);
     assert_eq!(report["violations"][0]["harp_id"], harp);
@@ -1260,8 +1470,16 @@ fn test_in_json_each_read_writes_one_document_and_errors_an_envelope() {
 #[test]
 fn test_a_list_sorted_by_priority_ranks_the_projects_tasks_through_its_store() {
     let jq = Jq::new("jq-priority-harp");
-    let critical = jq.ok(&["add", "Fix it", "--tag", "triage:level=1", "--json"]);
-    let ranked = jq.ok(&["list", "--sort", "priority", "--json"]);
+    let critical = jq.ok(&[
+        "tasks",
+        "add",
+        "Fix it",
+        "--tag",
+        "triage:level=1",
+        "--format",
+        "json",
+    ]);
+    let ranked = jq.ok(&["tasks", "list", "--sort", "priority", "--format", "json"]);
     let order: Vec<(&Value, &Value)> = ranked
         .as_array()
         .expect("an array")
@@ -1277,7 +1495,7 @@ fn test_a_list_sorted_by_priority_ranks_the_projects_tasks_through_its_store() {
         "level 1 first; the untriaged task floors below it"
     );
     assert_eq!(
-        jq.ok(&["list", "--json"])[0]["derived_priority"],
+        jq.ok(&["tasks", "list", "--format", "json"])[0]["derived_priority"],
         Value::Null
     );
 }
@@ -1285,13 +1503,13 @@ fn test_a_list_sorted_by_priority_ranks_the_projects_tasks_through_its_store() {
 #[test]
 fn test_in_json_a_stream_writes_one_document_a_line() {
     let env = Env::new("jq-watch-harp");
-    let added = env.run(&["add", "Ship", "it", "--json"]);
+    let added = env.run(&["tasks", "add", "Ship", "it", "--format", "json"]);
     assert!(added.ok, "{}", added.stderr);
     env.permit_every_tag();
-    let watching = watch::Watching::start(&env, &["--json"]);
+    let watching = watch::Watching::start(&env, &["--format", "json"]);
     assert_eq!(one_document(&watching.line())["event"], "changed");
     let harp = one_document(&added.stdout)["harp_id"].to_string();
-    let tagged = env.run(&["tag", harp.trim_matches('"'), "--add", "x"]);
+    let tagged = env.run(&["tasks", "tag", "add", harp.trim_matches('"'), "x"]);
     assert!(tagged.ok, "{}", tagged.stderr);
     assert_eq!(one_document(&watching.line())["kind"], "tasks");
     if let Some(status) = watching.stop("INT") {
@@ -1302,24 +1520,31 @@ fn test_in_json_a_stream_writes_one_document_a_line() {
 #[test]
 fn test_in_json_each_project_command_writes_one_document_and_errors_an_envelope() {
     let env = Env::new("jq-project-harp");
-    let added = env.run(&["add", "Ship", "it", "--json"]);
+    let added = env.run(&["tasks", "add", "Ship", "it", "--format", "json"]);
     assert!(added.ok, "{}", added.stderr);
-    let shown = env.run(&["project", "show", "--json"]);
+    let shown = env.run(&["manage", "project", "show", "--format", "json"]);
     assert!(shown.ok, "{}", shown.stderr);
     let project = one_document(&shown.stdout)["project_id"]
         .as_str()
         .expect("the project added to")
         .to_string();
     for args in [
-        &["project", "heal", "--json"][..],
-        &["project", "orphans", "--json"],
-        &["project", "repoint", &project, "--json"],
+        &["manage", "doctor", "heal", "--format", "json"][..],
+        &["manage", "doctor", "orphans", "--format", "json"],
+        &["manage", "doctor", "repoint", &project, "--format", "json"],
     ] {
         let ran = env.run(args);
         assert!(ran.ok, "{args:?}: {}", ran.stderr);
         one_document(&ran.stdout);
     }
-    let refused = env.run(&["project", "repoint", "no-such-project", "--json"]);
+    let refused = env.run(&[
+        "manage",
+        "doctor",
+        "repoint",
+        "no-such-project",
+        "--format",
+        "json",
+    ]);
     assert!(!refused.ok);
     assert_eq!(refused.stdout, "", "an error leaves stdout empty");
     assert_eq!(
@@ -1415,40 +1640,3 @@ mod snapshot;
 
 #[path = "watch.test.rs"]
 mod watch;
-
-// The harp id comes first, then the status, as Go's `status <harp-id>
-// <status>` and the VS Code extension's `["status", harp, status]` have it;
-// the usage line says so. The other order is refused naming the order, not
-// as "there is no such task".
-#[test]
-fn test_status_takes_the_harp_then_the_status_and_says_so_when_reversed() {
-    let env = Env::new("status-order-harp");
-    let harp = env.seed("Order")["harp_id"].as_str().unwrap().to_string();
-    let help = env.run(&["status", "--help"]);
-    assert!(help.ok, "{}", help.stderr);
-    let usage = help
-        .stdout
-        .lines()
-        .find(|line| line.starts_with("Usage:"))
-        .unwrap_or_else(|| panic!("no usage line: {}", help.stdout));
-    let (Some(harp_at), Some(status_at)) = (usage.find("<HARP_ID>"), usage.find("STATUS")) else {
-        panic!("names both: {usage}");
-    };
-    assert!(harp_at < status_at, "the harp id first: {usage}");
-
-    let moved = env.run(&["status", &harp, "In Progress", "--json"]);
-    assert!(moved.ok, "{}", moved.stderr);
-    assert_eq!(moved.json()["status"], "In Progress");
-
-    let reversed = env.run(&["status", "To Do", &harp, "--json"]);
-    assert!(!reversed.ok, "{}", reversed.stdout);
-    let envelope = one_document(&reversed.stderr);
-    assert_eq!(envelope["code"], codes::status_reversed(), "{envelope}");
-    let message = envelope["message"].as_str().unwrap();
-    assert!(
-        message.contains(&format!("taskloom status {harp} \"To Do\"")),
-        "shows the order to use: {message}"
-    );
-    let listed = env.list();
-    assert_eq!(listed[0]["status"], "In Progress", "nothing moved");
-}

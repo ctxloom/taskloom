@@ -1,15 +1,19 @@
-//! The `project` command group: `show`, `heal`, `repoint` and `orphans`,
-//! translated into the project use cases and their answers rendered
-//! through presentation, as text or one JSON document. It depends on no
-//! tasks crate, so any binary mounts it: taskloom does, beside its task
-//! commands, and ctxloom can.
+//! The project commands: `manage project show` ([`ProjectCommand`]) and
+//! `manage doctor heal|repoint|orphans` ([`DoctorCommand`]), translated into
+//! the project use cases and their answers rendered through presentation,
+//! as text or one JSON document. It depends on no tasks crate, so any
+//! binary mounts it: taskloom does, beside its task commands, and ctxloom
+//! can.
 //!
-//! A binary flattens [`Group`] into its own subcommands, parses its own
-//! global flags (the format, the pinned project), and hands the group,
+//! A binary mounts the two enums under its own groups, parses its own
+//! global flags (the format, the pinned project), and hands the [`Command`],
 //! those and its catalog (with this crate's [`EN_US`], the use cases' and
-//! the store's, whose damage `heal` reports) to [`run`]. Exit 0, or 1 with the error on stderr: its catalog message
-//! in text, its envelope in JSON. Only `show` takes the pinned project;
-//! the others act on this directory's and refuse one.
+//! the store's, whose damage `heal` reports) to [`run`]. Exit 0, or 1 with
+//! the error on stderr: its catalog message in text, its envelope in JSON.
+//! Only `show` takes the pinned project; the others act on this
+//! directory's and refuse one. A change (`heal`, `repoint`, `orphans
+//! remove`) only reports what it would do unless `--yes` applies it;
+//! `--dry-run` always wins over `--yes`.
 
 mod error;
 mod render;
@@ -23,37 +27,35 @@ use project_application::{ProjectAdmin, Projects, StoreCheck};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{CliError, EN_US};
-use render::{Orphans, Planned, Show};
+use render::{Orphans, Planned, Show, YesIgnored};
 
-/// The group, mounted as `project`.
-#[derive(Subcommand, Debug, PartialEq, Eq)]
-pub enum Group {
-    /// Show, heal and rebind which project this directory is.
-    #[command(subcommand)]
-    Project(ProjectCommand),
-}
-
+/// `manage project`.
 #[derive(Subcommand, Debug, PartialEq, Eq)]
 pub enum ProjectCommand {
-    /// Show this directory's project: its id, root, marker, registry
-    /// entries and database, the other trees sharing it (a second clone
-    /// with the same committed .project-id is the same project, by
-    /// design), and every inconsistency found.
+    /// Show which project this directory is
+    #[command(
+        after_help = "Examples:\n  taskloom manage project show\n\nThe project is the work root's: CTXLOOM_ROOT if set, else the enclosing git work tree,\nelse the directory's own. Its id is committed in .project-id; the registry at\n~/.ctxloom/projects maps it to the trees sharing it, and holds its database."
+    )]
     Show,
-    /// Repair the skew between this directory's .project-id and the
-    /// registry, toward the marker (registering this tree beside any other
-    /// sharing its id), and check the project's database for damage, which
-    /// it reports and never repairs. Reports what it would change; --yes
-    /// changes it.
+}
+
+/// `manage doctor`.
+#[derive(Subcommand, Debug, PartialEq, Eq)]
+pub enum DoctorCommand {
+    /// Repair the skew between .project-id and the registry (a preview unless --yes)
+    #[command(
+        after_help = "Examples:\n  taskloom manage doctor heal\n  taskloom manage doctor heal --yes"
+    )]
     Heal {
         /// Make the changes.
         #[arg(long)]
         yes: bool,
+        /// Report what it would change and change nothing (wins over --yes).
+        #[arg(long)]
+        dry_run: bool,
     },
-    /// Bind this directory to an existing project and its database. The id
-    /// it had before keeps its database. Moving onto a project another
-    /// existing tree holds needs --share. Reports what it would change;
-    /// --yes changes it.
+    /// Bind this directory to an existing project (a preview unless --yes)
+    #[command(after_help = "Examples:\n  taskloom manage doctor repoint swift-amber-falcon --yes")]
     Repoint {
         /// The project to bind to.
         project_id: String,
@@ -65,8 +67,11 @@ pub enum ProjectCommand {
         /// Make the changes.
         #[arg(long)]
         yes: bool,
+        /// Report what it would change and change nothing (wins over --yes).
+        #[arg(long)]
+        dry_run: bool,
     },
-    /// List the databases no live registered path points at.
+    /// List the databases no live registered path points at
     Orphans {
         #[command(subcommand)]
         action: Option<OrphansAction>,
@@ -75,8 +80,10 @@ pub enum ProjectCommand {
 
 #[derive(Subcommand, Debug, PartialEq, Eq)]
 pub enum OrphansAction {
-    /// Delete orphaned databases, each named. Reports what it would
-    /// delete; --yes deletes it.
+    /// Delete orphaned databases (a preview unless --yes)
+    #[command(
+        after_help = "Examples:\n  taskloom manage doctor orphans remove swift-amber-falcon --yes"
+    )]
     Remove {
         /// The orphaned databases' project ids.
         #[arg(required = true, num_args = 1..)]
@@ -84,7 +91,17 @@ pub enum OrphansAction {
         /// Delete them.
         #[arg(long)]
         yes: bool,
+        /// Report what it would delete and delete nothing (wins over --yes).
+        #[arg(long)]
+        dry_run: bool,
     },
+}
+
+/// What [`run`] runs.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Command {
+    Project(ProjectCommand),
+    Doctor(DoctorCommand),
 }
 
 /// What the mounting binary parsed for the group.
@@ -99,17 +116,16 @@ pub struct Settings {
     pub prog: &'static str,
 }
 
-/// Run `group` against `projects`, writing to `out` and `err` with
+/// Run `command` against `projects`, writing to `out` and `err` with
 /// messages from `catalog`; the exit code.
 pub fn run<A: ProjectAdmin, C: StoreCheck>(
-    group: Group,
+    command: Command,
     settings: &Settings,
     catalog: &Catalog,
     projects: &mut Projects<A, C>,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
-    let Group::Project(command) = group;
     match answer(command, settings, catalog, projects, out) {
         Ok(()) => 0,
         Err(error) => {
@@ -134,17 +150,17 @@ fn report(
 }
 
 fn answer<A: ProjectAdmin, C: StoreCheck>(
-    command: ProjectCommand,
+    command: Command,
     settings: &Settings,
     catalog: &Catalog,
     projects: &mut Projects<A, C>,
     out: &mut dyn Write,
 ) -> Result<(), CliError> {
     let unpinned = match &command {
-        ProjectCommand::Show => None,
-        ProjectCommand::Heal { .. } => Some("heal"),
-        ProjectCommand::Repoint { .. } => Some("repoint"),
-        ProjectCommand::Orphans { .. } => Some("orphans"),
+        Command::Project(ProjectCommand::Show) => None,
+        Command::Doctor(DoctorCommand::Heal { .. }) => Some("heal"),
+        Command::Doctor(DoctorCommand::Repoint { .. }) => Some("repoint"),
+        Command::Doctor(DoctorCommand::Orphans { .. }) => Some("orphans"),
     };
     if let (Some(command), Some(_)) = (unpinned, &settings.project) {
         return Err(CliError::ProjectNotTaken {
@@ -152,40 +168,60 @@ fn answer<A: ProjectAdmin, C: StoreCheck>(
         });
     }
     let wrote = match command {
-        ProjectCommand::Show => {
+        Command::Project(ProjectCommand::Show) => {
             let shown = projects
                 .show(settings.project.as_deref())
                 .map_err(CliError::Project)?;
             angzarr_presentation::render(out, settings.format, &Show(&shown, catalog))
         }
-        ProjectCommand::Heal { yes } => {
-            let plan = projects.heal(yes).map_err(CliError::Project)?;
-            angzarr_presentation::render(out, settings.format, &Planned(&plan, catalog))
+        Command::Doctor(DoctorCommand::Heal { yes, dry_run }) => {
+            let plan = projects.heal(yes && !dry_run).map_err(CliError::Project)?;
+            planned(out, settings, catalog, &plan, yes && dry_run)
         }
-        ProjectCommand::Repoint {
+        Command::Doctor(DoctorCommand::Repoint {
             project_id,
             share,
             yes,
-        } => {
+            dry_run,
+        }) => {
             let plan = projects
-                .repoint(&project_id, share, yes)
+                .repoint(&project_id, share, yes && !dry_run)
                 .map_err(CliError::Project)?;
-            angzarr_presentation::render(out, settings.format, &Planned(&plan, catalog))
+            planned(out, settings, catalog, &plan, yes && dry_run)
         }
-        ProjectCommand::Orphans { action: None } => {
+        Command::Doctor(DoctorCommand::Orphans { action: None }) => {
             let orphans = projects.orphans().map_err(CliError::Project)?;
             angzarr_presentation::render(out, settings.format, &Orphans(&orphans))
         }
-        ProjectCommand::Orphans {
-            action: Some(OrphansAction::Remove { project_ids, yes }),
-        } => {
+        Command::Doctor(DoctorCommand::Orphans {
+            action:
+                Some(OrphansAction::Remove {
+                    project_ids,
+                    yes,
+                    dry_run,
+                }),
+        }) => {
             let plan = projects
-                .remove_orphans(&project_ids, yes)
+                .remove_orphans(&project_ids, yes && !dry_run)
                 .map_err(CliError::Project)?;
-            angzarr_presentation::render(out, settings.format, &Planned(&plan, catalog))
+            planned(out, settings, catalog, &plan, yes && dry_run)
         }
     };
     wrote.map_err(output_failed)
+}
+
+/// A plan, written; if `--yes` was overruled by `--dry-run`, saying so.
+fn planned(
+    out: &mut dyn Write,
+    settings: &Settings,
+    catalog: &Catalog,
+    plan: &project_application::Plan,
+    yes_ignored: bool,
+) -> io::Result<()> {
+    match yes_ignored {
+        true => angzarr_presentation::render(out, settings.format, &YesIgnored(plan, catalog)),
+        false => angzarr_presentation::render(out, settings.format, &Planned(plan, catalog)),
+    }
 }
 
 fn output_failed(error: io::Error) -> CliError {

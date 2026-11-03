@@ -274,7 +274,7 @@ fn test_the_retired_plan_tag_is_refused_and_no_other() {
         target: "ctxloom:plan".into(),
     }
     .english();
-    assert!(english.contains("plan link"), "{english}");
+    assert!(english.contains("plans link"), "{english}");
 }
 
 // Only `ctxloom:plan` is retired: another key of the namespace, or the

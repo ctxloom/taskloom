@@ -12,7 +12,7 @@ use project_application::{
 };
 use serde_json::{json, Value};
 
-use super::{run, Group, OrphansAction, ProjectCommand, Settings};
+use super::{run, Command, DoctorCommand, OrphansAction, ProjectCommand, Settings};
 
 /// A binary mounting the group beside nothing else.
 #[derive(Parser, Debug)]
@@ -21,10 +21,22 @@ struct Bin {
     group: Group,
 }
 
-fn parse(args: &[&str]) -> Group {
-    Bin::try_parse_from(std::iter::once("bin").chain(args.iter().copied()))
+#[derive(clap::Subcommand, Debug)]
+enum Group {
+    #[command(subcommand)]
+    Project(ProjectCommand),
+    #[command(subcommand)]
+    Doctor(DoctorCommand),
+}
+
+fn parse(args: &[&str]) -> Command {
+    match Bin::try_parse_from(std::iter::once("bin").chain(args.iter().copied()))
         .unwrap()
         .group
+    {
+        Group::Project(project) => Command::Project(project),
+        Group::Doctor(doctor) => Command::Doctor(doctor),
+    }
 }
 
 struct Fake {
@@ -162,35 +174,40 @@ fn document(ran: &Ran) -> Value {
 fn test_each_command_parses() {
     assert_eq!(
         parse(&["project", "show"]),
-        Group::Project(ProjectCommand::Show)
+        Command::Project(ProjectCommand::Show)
     );
     assert_eq!(
-        parse(&["project", "heal", "--yes"]),
-        Group::Project(ProjectCommand::Heal { yes: true })
-    );
-    assert_eq!(
-        parse(&["project", "repoint", "t", "--share"]),
-        Group::Project(ProjectCommand::Repoint {
-            project_id: "t".to_string(),
-            share: true,
-            yes: false,
+        parse(&["doctor", "heal", "--yes"]),
+        Command::Doctor(DoctorCommand::Heal {
+            yes: true,
+            dry_run: false
         })
     );
     assert_eq!(
-        parse(&["project", "orphans"]),
-        Group::Project(ProjectCommand::Orphans { action: None })
+        parse(&["doctor", "repoint", "t", "--share"]),
+        Command::Doctor(DoctorCommand::Repoint {
+            project_id: "t".to_string(),
+            share: true,
+            yes: false,
+            dry_run: false,
+        })
     );
     assert_eq!(
-        parse(&["project", "orphans", "remove", "x", "y"]),
-        Group::Project(ProjectCommand::Orphans {
+        parse(&["doctor", "orphans"]),
+        Command::Doctor(DoctorCommand::Orphans { action: None })
+    );
+    assert_eq!(
+        parse(&["doctor", "orphans", "remove", "x", "y"]),
+        Command::Doctor(DoctorCommand::Orphans {
             action: Some(OrphansAction::Remove {
                 project_ids: vec!["x".to_string(), "y".to_string()],
                 yes: false,
+                dry_run: false,
             })
         })
     );
     assert!(
-        Bin::try_parse_from(["bin", "project", "orphans", "remove"]).is_err(),
+        Bin::try_parse_from(["bin", "doctor", "orphans", "remove"]).is_err(),
         "a removal names what it removes"
     );
 }
@@ -274,7 +291,7 @@ fn test_show_as_text() {
 #[test]
 fn test_heal_reports_and_changes_only_with_yes() {
     let mut projects = projects();
-    let would = ran(&["project", "heal"], true, &mut projects);
+    let would = ran(&["doctor", "heal"], true, &mut projects);
     assert_eq!(
         document(&would),
         json!({
@@ -287,7 +304,7 @@ fn test_heal_reports_and_changes_only_with_yes() {
             "previous": null,
         })
     );
-    let made = ran(&["project", "heal", "--yes"], false, &mut projects);
+    let made = ran(&["doctor", "heal", "--yes"], false, &mut projects);
     assert_eq!(made.code, 0);
     assert!(
         made.out.starts_with("Changed:\n  - register m for /w\n"),
@@ -299,7 +316,7 @@ fn test_heal_reports_and_changes_only_with_yes() {
 #[test]
 fn test_heal_reports_damage_from_the_catalog_in_one_document_or_a_line() {
     let mut projects = checked(Checked::Damaged(damage()));
-    let found = ran(&["project", "heal"], true, &mut projects);
+    let found = ran(&["doctor", "heal"], true, &mut projects);
     assert_eq!(
         document(&found)["unresolved"],
         json!([{
@@ -313,7 +330,7 @@ fn test_heal_reports_damage_from_the_catalog_in_one_document_or_a_line() {
             },
         }])
     );
-    let found = ran(&["project", "heal"], false, &mut projects);
+    let found = ran(&["doctor", "heal"], false, &mut projects);
     assert_eq!(found.code, 0);
     assert!(
         found.out.ends_with(&format!(
@@ -329,7 +346,7 @@ fn test_heal_reports_damage_from_the_catalog_in_one_document_or_a_line() {
 
 #[test]
 fn test_repoint_reports_what_it_was() {
-    let ran = ran(&["project", "repoint", "t"], true, &mut projects());
+    let ran = ran(&["doctor", "repoint", "t"], true, &mut projects());
     let doc = document(&ran);
     assert_eq!(doc["previous"], "m");
     assert_eq!(doc["changes"][0]["kind"], "write-marker");
@@ -337,7 +354,7 @@ fn test_repoint_reports_what_it_was() {
 
 #[test]
 fn test_a_refused_command_exits_1_naming_the_program() {
-    let ran = ran(&["project", "repoint", "tpyo"], false, &mut projects());
+    let ran = ran(&["doctor", "repoint", "tpyo"], false, &mut projects());
     assert_eq!(ran.code, 1);
     assert_eq!(ran.out, "");
     assert_eq!(
@@ -348,7 +365,7 @@ fn test_a_refused_command_exits_1_naming_the_program() {
 
 #[test]
 fn test_in_json_a_refused_command_writes_its_envelope_on_stderr() {
-    let ran = ran(&["project", "repoint", "tpyo"], true, &mut projects());
+    let ran = ran(&["doctor", "repoint", "tpyo"], true, &mut projects());
     assert_eq!(ran.code, 1);
     assert_eq!(ran.out, "");
     let envelope: Value = serde_json::from_str(&ran.err).expect("one JSON document");
@@ -365,7 +382,7 @@ fn test_in_json_a_refused_command_writes_its_envelope_on_stderr() {
 #[test]
 fn test_orphans_are_listed_and_removed_by_name() {
     let mut projects = projects();
-    let listed = ran(&["project", "orphans"], true, &mut projects);
+    let listed = ran(&["doctor", "orphans"], true, &mut projects);
     assert_eq!(
         document(&listed),
         json!([
@@ -373,13 +390,13 @@ fn test_orphans_are_listed_and_removed_by_name() {
             {"project_id": "t", "database": database("t")},
         ])
     );
-    let text = ran(&["project", "orphans"], false, &mut projects);
+    let text = ran(&["doctor", "orphans"], false, &mut projects);
     assert_eq!(
         text.out,
         format!("stray\t{}\nt\t{}\n", database("stray"), database("t"))
     );
     let removed = ran(
-        &["project", "orphans", "remove", "stray", "--yes"],
+        &["doctor", "orphans", "remove", "stray", "--yes"],
         true,
         &mut projects,
     );
@@ -434,8 +451,8 @@ fn test_output_that_cannot_be_written_exits_1() {
     for json in [true, false] {
         for args in [
             &["project", "show"][..],
-            &["project", "heal"],
-            &["project", "orphans"],
+            &["doctor", "heal"],
+            &["doctor", "orphans"],
         ] {
             let mut err = Vec::new();
             let settings = Settings {
@@ -470,12 +487,12 @@ fn test_output_that_cannot_be_written_exits_1() {
 #[test]
 fn test_project_is_refused_by_every_command_but_show() {
     let cases: [(&[&str], &str); 5] = [
-        (&["project", "heal"], "heal"),
-        (&["project", "heal", "--yes"], "heal"),
-        (&["project", "repoint", "t", "--yes"], "repoint"),
-        (&["project", "orphans"], "orphans"),
+        (&["doctor", "heal"], "heal"),
+        (&["doctor", "heal", "--yes"], "heal"),
+        (&["doctor", "repoint", "t", "--yes"], "repoint"),
+        (&["doctor", "orphans"], "orphans"),
         (
-            &["project", "orphans", "remove", "stray", "--yes"],
+            &["doctor", "orphans", "remove", "stray", "--yes"],
             "orphans",
         ),
     ];
@@ -500,7 +517,7 @@ fn test_project_is_refused_by_every_command_but_show() {
             assert_eq!(code, 1, "{args:?}");
             assert!(out.is_empty(), "{args:?}");
             let expected = format!(
-                "--project is not taken by project {command}, which acts on this directory's project: only project show takes it"
+                "--project is not taken by manage doctor {command}, which acts on this directory's project: only manage project show takes it"
             );
             if json {
                 let envelope: Value = serde_json::from_str(&err).expect("one JSON document");

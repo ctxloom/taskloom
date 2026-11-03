@@ -200,7 +200,7 @@ fn test_a_report_with_no_project_has_empty_project_fields() {
 fn test_the_apply_command_repeats_the_selection_then_yes() {
     assert_eq!(
         apply_command("7d", &["Done".to_string()], None),
-        "taskloom prune --older-than 7d --status Done --yes"
+        "taskloom tasks prune --older-than 7d --status Done --yes"
     );
     assert_eq!(
         apply_command(
@@ -208,7 +208,7 @@ fn test_the_apply_command_repeats_the_selection_then_yes() {
             &["Done".to_string(), "To Do".to_string()],
             Some("urgent/release/and")
         ),
-        "taskloom prune --older-than 2026-01-01 --status Done --status 'To Do' \
+        "taskloom tasks prune --older-than 2026-01-01 --status Done --status 'To Do' \
          --tag-query urgent/release/and --yes"
     );
 }

@@ -1,4 +1,4 @@
-//! Acceptance: `taskloom import` agrees with the reference fold, task by
+//! Acceptance: `taskloom manage migrate tasks` agrees with the reference fold, task by
 //! task.
 //!
 //! The reference fold is the oracle, dumped as JSON by `scripts/go-fold`'s
@@ -40,11 +40,11 @@ fn home_with(logs: &Path) -> Temp {
     home
 }
 
-/// `taskloom import --json` in `home`, from a directory that is no
+/// `taskloom manage migrate tasks --json` in `home`, from a directory that is no
 /// project.
 fn import(home: &Path) -> (Ran, Value) {
     let output = Command::new(binary())
-        .args(["import", "--json"])
+        .args(["manage", "migrate", "tasks", "--format", "json"])
         .current_dir(outside_every_work_root())
         .isolated(home)
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())

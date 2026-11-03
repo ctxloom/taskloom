@@ -133,6 +133,7 @@ fn declare(service: &mut Store, add: &[&str], remove: &[&str]) {
     ready(service.declare(Declaration {
         add: strings(add),
         remove: strings(remove),
+        ..Default::default()
     }))
     .unwrap();
 }
@@ -171,6 +172,29 @@ fn old_task(service: &Store, harp: &str, tags: &[&str]) {
 }
 
 // ------------------------------------------------------- seeding
+
+// A dry run of a declaration answers the tags after it and whether they
+// would change, and declares nothing; a bad declaration is refused as ever.
+#[test]
+fn test_a_dry_run_declaration_answers_the_tags_after_and_declares_nothing() {
+    let mut service = service();
+    let before = export(&mut service);
+    let rule = r#"tagma.permit:"zzdry:key""#;
+    let would = ready(service.declare(Declaration {
+        add: vec![rule.to_string()],
+        dry_run: true,
+        ..Default::default()
+    }))
+    .unwrap();
+    assert!(would.changed);
+    assert!(would.tags.contains(&canonical(rule)));
+    assert_eq!(export(&mut service), before, "nothing was declared");
+    let none = ready(service.declare(Declaration {
+        dry_run: true,
+        ..Default::default()
+    }));
+    assert!(none.is_err(), "a declaration of nothing is refused");
+}
 
 #[test]
 fn test_the_seeded_schema_is_tagma_syntax_in_its_canonical_spelling() {
@@ -276,6 +300,7 @@ fn test_a_store_holding_its_permits_as_presences_is_read_as_it_holds_them() {
     add(&mut service, &[]).unwrap();
     ready(service.revoke(PermitChange {
         permit: "landed:".to_string(),
+        ..Default::default()
     }))
     .unwrap();
     let revoked = export(&mut service);
@@ -431,6 +456,7 @@ fn test_no_file_layer_is_consulted_for_tag_rules() {
     declare(&mut service, &["tagma.keys-per-item:lang=1"], &[]);
     ready(service.permit(PermitChange {
         permit: "lang:".to_string(),
+        ..Default::default()
     }))
     .unwrap();
     assert_eq!(service.configuration.asked, 0, "no file layer read");
@@ -486,6 +512,7 @@ fn test_check_is_tagmas_and_a_seeded_store_permitting_its_areas_checks_clean() {
     for permit in ["area:cli", "repo:tagma"] {
         ready(service.permit(PermitChange {
             permit: permit.to_string(),
+            ..Default::default()
         }))
         .unwrap();
     }
@@ -504,6 +531,7 @@ fn test_a_declare_of_a_tasks_tag_is_refused() {
     let error = ready(service.declare(Declaration {
         add: vec!["area:cli".to_string()],
         remove: vec![],
+        ..Default::default()
     }))
     .unwrap_err();
     let not_config = tasks::schema::SchemaRejection::NotConfig { tag: String::new() };
@@ -525,6 +553,7 @@ fn test_a_permit_declares_its_pattern_and_nothing_else() {
     assert!(error.to_string().contains("not-permitted"), "{error}");
     ready(service.permit(PermitChange {
         permit: "area:".to_string(),
+        ..Default::default()
     }))
     .unwrap();
     let mut expected: Vec<&str> = SEEDED_SCHEMA.to_vec();
@@ -550,6 +579,7 @@ fn test_each_permit_spelling_is_its_tagma_permit_pattern() {
     ] {
         ready(service.permit(PermitChange {
             permit: permit.to_string(),
+            ..Default::default()
         }))
         .unwrap();
         assert!(
@@ -565,11 +595,13 @@ fn test_a_revoke_of_what_tasks_still_carry_is_refused_listing_them() {
     add(&mut service, &[]).unwrap();
     ready(service.permit(PermitChange {
         permit: "area:".to_string(),
+        ..Default::default()
     }))
     .unwrap();
     add(&mut service, &["area:cli"]).unwrap();
     let error = ready(service.revoke(PermitChange {
         permit: "area:".to_string(),
+        ..Default::default()
     }))
     .unwrap_err();
     assert_eq!(
@@ -589,11 +621,13 @@ fn test_a_revoke_no_task_needs_removes_its_permit_from_the_schema() {
     for permit in ["area:", "lang:"] {
         ready(service.permit(PermitChange {
             permit: permit.to_string(),
+            ..Default::default()
         }))
         .unwrap();
     }
     ready(service.revoke(PermitChange {
         permit: "lang:".to_string(),
+        ..Default::default()
     }))
     .unwrap();
     let exported = export(&mut service);

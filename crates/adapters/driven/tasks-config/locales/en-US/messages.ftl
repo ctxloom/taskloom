@@ -9,6 +9,6 @@ newer = { $path } is schema_version { $version }, newer than the { $current } th
 unknown-key = { $source } sets { $key }, which is no config key taskloom knows (known: { $known })
 not-an-override = --config-set { $entry }: expected <path>=<value>
 blank-item = { $source }: { $value } has a blank item: give one, or leave it out
-key-moved = { $source } sets { $key }, which moved into the project's store: run `taskloom schema import-config` in the work root to move a project's .taskloom/config.yaml into its store, and delete it from anywhere else
+key-moved = { $source } sets { $key }, which moved into the project's store: run `taskloom manage migrate schema` in the work root to move a project's .taskloom/config.yaml into its store, and delete it from anywhere else
 no-work-root = there is no work root here, so no project config to write tag permits to
 edit-refused = { $path } was left as it was: editing it would not have read back as meant ({ $ext_err_txt }); this is a bug in taskloom

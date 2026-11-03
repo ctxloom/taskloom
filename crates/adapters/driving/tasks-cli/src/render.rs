@@ -395,7 +395,7 @@ impl Render for Linted<'_> {
         if report.checked_targets == 0 {
             writeln!(
                 out,
-                "0 targets checked: the tag schema declares no enum or range for lint to check"
+                "0 targets checked: the tag schema declares no enum or range for the check to run on"
             )?;
         } else if report.violations.is_empty() {
             writeln!(out, "no tag-standard violations found")?;
@@ -563,7 +563,7 @@ impl Render for Schema<'_> {
     }
 }
 
-/// The store's schema tags, in tagma syntax (`taskloom schema export`):
+/// The store's schema tags, in tagma syntax (`taskloom manage schema export`):
 /// one a line, as tagma reads them back. `export` prints its text in any
 /// format; its JSON, an array of them, is for a frontend that asks.
 pub struct Exported<'a>(pub &'a [String]);
@@ -578,7 +578,7 @@ impl Render for Exported<'_> {
     }
 }
 
-/// tagma's findings over the store's rules (`taskloom schema check`):
+/// tagma's findings over the store's rules (`taskloom manage schema check`):
 /// JSON tagma's §13 shape, an array; text one a line, its code, its tag
 /// and its args, or that there is none.
 pub struct Checked<'a>(pub &'a [RuleFinding]);
@@ -641,6 +641,62 @@ impl Render for DeclaredView<'_> {
             .tags
             .iter()
             .try_for_each(|line| writeln!(out, "  {line}"))
+    }
+}
+
+/// What a preview says when `--yes` was given beside `--dry-run`, which
+/// wins: that `--yes` was ignored, and what would be done without
+/// `--dry-run`.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct YesIgnored {
+    pub would_apply: Vec<String>,
+}
+
+/// A change's answer, as a preview when it was not applied: in text it
+/// says so first (and, given `--yes` beside `--dry-run`, that `--yes` was
+/// ignored and what it would otherwise do); in JSON it is the answer's own
+/// document, with `yes_ignored_by_dry_run: true` and `would_apply` beside
+/// its fields in that case.
+pub struct Previewed<'a, R>(pub &'a R, pub bool, pub Option<YesIgnored>);
+
+#[derive(Serialize)]
+struct Ignored<T: Serialize> {
+    #[serde(flatten)]
+    doc: T,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    yes_ignored_by_dry_run: Option<bool>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    would_apply: Vec<String>,
+}
+
+impl<R: Render> Render for Previewed<'_, R> {
+    fn json(&self) -> impl Serialize + '_ {
+        Ignored {
+            doc: self.0.json(),
+            yes_ignored_by_dry_run: self.2.as_ref().map(|_| true),
+            would_apply: self
+                .2
+                .as_ref()
+                .map(|i| i.would_apply.clone())
+                .unwrap_or_default(),
+        }
+    }
+
+    fn text(&self, out: &mut dyn Write) -> io::Result<()> {
+        if self.1 {
+            writeln!(out, "preview, nothing was changed:")?;
+        }
+        if let Some(ignored) = &self.2 {
+            writeln!(
+                out,
+                "--yes was given, but --dry-run is absolute: without --dry-run this would:"
+            )?;
+            ignored
+                .would_apply
+                .iter()
+                .try_for_each(|line| writeln!(out, "  {line}"))?;
+        }
+        self.0.text(out)
     }
 }
 

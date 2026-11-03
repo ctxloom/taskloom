@@ -657,6 +657,7 @@ fn test_a_projects_permits_refuse_a_tag_until_it_is_permitted() {
     let permit = |permit: &str| {
         block_on(taskloom.tasks().permit(PermitChange {
             permit: permit.to_string(),
+            ..Default::default()
         }))
         .unwrap()
     };

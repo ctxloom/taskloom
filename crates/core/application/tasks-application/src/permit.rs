@@ -33,6 +33,8 @@ use crate::{tags, AppError, Declaration, Tag};
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct PermitChange {
     pub permit: String,
+    /// Check everything and answer what it would do, writing nothing.
+    pub dry_run: bool,
 }
 
 /// What a permit or revoke did: the permit, spelled canonically, and
@@ -45,7 +47,7 @@ pub struct Permitted {
 }
 
 /// What a store permits, as [`crate::TaskService::permits`] reads it for
-/// `taskloom permits`: only what a pattern admits is written.
+/// `taskloom manage schema permits list`: only what a pattern admits is written.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct PermitList {
     /// The patterns permitted (`tagma.permit:<pattern>`), sorted.
@@ -76,7 +78,7 @@ pub trait PermitService {
         change: PermitChange,
     ) -> impl Future<Output = Result<Permitted, AppError>> + Send;
 
-    /// Add and remove the store's schema tags (`taskloom schema declare`),
+    /// Add and remove the store's schema tags (`taskloom manage schema declare`),
     /// recorded on its schema stream. A person's: the loadout tells agents
     /// never to run it unasked.
     fn declare(
@@ -84,7 +86,7 @@ pub trait PermitService {
         declaration: Declaration,
     ) -> impl Future<Output = Result<Declared, AppError>> + Send;
 
-    /// `taskloom schema import-config`: the work root's config file's
+    /// `taskloom manage migrate schema`: the work root's config file's
     /// `tag_schema` and `tag_permits` (the keys that moved) declared in its
     /// project's store, in tagma's facets, then taken out of the file, its
     /// other keys and comments kept. Nothing to import is no error: it
@@ -120,16 +122,14 @@ where
             .identity
             .for_write(None)
             .map_err(AppError::Identity)?;
-        let declared = self
-            .writes
-            .declaring(
-                &project,
-                Declare {
-                    add: vec![permit.tag().into()],
-                    remove: Vec::new(),
-                },
-            )
-            .await?;
+        let declare = Declare {
+            add: vec![permit.tag().into()],
+            remove: Vec::new(),
+        };
+        let declared = match change.dry_run {
+            true => self.writes.previewing(&project, declare).await?,
+            false => self.writes.declaring(&project, declare).await?,
+        };
         Ok(Permitted {
             permit: permit.to_string(),
             changed: declared.changed,
@@ -158,16 +158,14 @@ where
                 harp_ids,
             });
         }
-        let declared = self
-            .writes
-            .declaring(
-                &project,
-                Declare {
-                    add: Vec::new(),
-                    remove: vec![permit.tag().into()],
-                },
-            )
-            .await?;
+        let declare = Declare {
+            add: Vec::new(),
+            remove: vec![permit.tag().into()],
+        };
+        let declared = match change.dry_run {
+            true => self.writes.previewing(&project, declare).await?,
+            false => self.writes.declaring(&project, declare).await?,
+        };
         Ok(Permitted {
             permit: permit.to_string(),
             changed: declared.changed,
@@ -178,6 +176,7 @@ where
     /// the work root's project's store.
     pub(crate) async fn declare(&mut self, declaration: Declaration) -> Result<Declared, AppError> {
         self.writes.projects.refuse_moved()?;
+        let dry_run = declaration.dry_run;
         let declare = schema::declaration(declaration)?;
         let project = self
             .writes
@@ -185,7 +184,10 @@ where
             .identity
             .for_write(None)
             .map_err(AppError::Identity)?;
-        self.writes.declaring(&project, declare).await
+        match dry_run {
+            true => self.writes.previewing(&project, declare).await,
+            false => self.writes.declaring(&project, declare).await,
+        }
     }
 }
 
@@ -339,7 +341,7 @@ impl<I, S: TaskStores, G, C, D> Permitting<'_, I, S, G, C, D> {
 }
 
 /// A permit, parsed: the tagma pattern it is (`area:*`, `area:cli`,
-/// `urgent`), and the spelling `taskloom permit` takes.
+/// `urgent`), and the spelling `taskloom manage schema permits add` takes.
 #[derive(Clone, PartialEq, Eq, Debug)]
 struct Permit {
     /// The canonical spelling: `area:`, `area:cli`, `urgent`.
@@ -428,7 +430,7 @@ impl Permit {
 /// The key a namespace's permit is parsed with.
 const PLACEHOLDER: &str = "x";
 
-/// The canonical spelling, as `taskloom permit` takes it.
+/// The canonical spelling, as `taskloom manage schema permits add` takes it.
 impl fmt::Display for Permit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.spelled)

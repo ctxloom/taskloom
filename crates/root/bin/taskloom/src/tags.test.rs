@@ -19,7 +19,7 @@ fn code(stderr: &str) -> String {
 
 /// `add` declared on the store's tag rules, `remove` taken out.
 fn declare(env: &Env, add: &[&str], remove: &[&str]) {
-    let mut args = vec!["schema", "declare", "--json"];
+    let mut args = vec!["manage", "schema", "declare", "--yes", "--format", "json"];
     for tag in add {
         args.extend(["--add", tag]);
     }
@@ -37,7 +37,7 @@ fn declare(env: &Env, add: &[&str], remove: &[&str]) {
 #[test]
 fn test_the_rules_are_the_stores_seeded_until_declared_otherwise() {
     let env = Env::new("calm-otter-fox");
-    let add = |tag: &str| env.run(&["add", "Ship it", "--json", "--tag", tag]);
+    let add = |tag: &str| env.run(&["tasks", "add", "Ship it", "--format", "json", "--tag", tag]);
 
     // The seeded rules: triage:level is 1-5.
     let ran = add("triage:level=7");
@@ -69,11 +69,11 @@ fn test_a_malformed_configuration_refuses_the_command_and_says_where() {
     let env = Env::new("calm-otter-fox");
     env.seed("Ship it");
     declare(&env, &[r#"tagma.arty:"x:y"=1"#], &[]);
-    let checked = env.run(&["schema", "check", "--json"]);
+    let checked = env.run(&["manage", "schema", "check", "--format", "json"]);
     assert!(!checked.ok);
     assert_eq!(checked.json()[0]["code"], "unknown-facet");
     configure(env.project.path(), "schema_version: 1\nhomeing: home\n");
-    let ran = env.run(&["add", "Ship it"]);
+    let ran = env.run(&["tasks", "add", "Ship it"]);
     assert!(!ran.ok);
     // The envelope's message (stderr is JSON, a `\` in it escaped) names
     // the file, joined by the host's separator.
@@ -87,7 +87,15 @@ fn test_a_malformed_configuration_refuses_the_command_and_says_where() {
         ran.stderr
     );
     configure(env.project.path(), "schema_version: 1\nhoming: home\n");
-    let ran = env.run(&["add", "Ship it", "--json", "--config-set", "nonsense"]);
+    let ran = env.run(&[
+        "tasks",
+        "add",
+        "Ship it",
+        "--format",
+        "json",
+        "--config-set",
+        "nonsense",
+    ]);
     assert_eq!(code(&ran.stderr), super::codes::not_an_override());
 }
 
@@ -98,9 +106,11 @@ fn test_a_scalar_tag_displaces_its_old_value() {
     env.permit_every_tag();
     let harp = task["harp_id"].as_str().unwrap();
     for level in ["triage:level=3", "triage:level=1"] {
-        let ran = env.run(&["tag", harp, "--add", level, "--add", "x", "--json"]);
+        let ran = env.run(&["tasks", "tag", "add", harp, level, "--format", "json"]);
         assert!(ran.ok, "{}", ran.stderr);
     }
+    let ran = env.run(&["tasks", "tag", "add", harp, "x", "--format", "json"]);
+    assert!(ran.ok, "{}", ran.stderr);
     let listed = env.list();
     assert_eq!(
         listed[0]["tags"],
@@ -115,13 +125,21 @@ fn test_a_scalar_tag_displaces_its_old_value() {
 fn test_two_values_for_a_scalar_target_in_one_write_keep_the_last() {
     let env = Env::new("calm-otter-fox");
     let two = ["--tag", "triage:level=3", "--tag", "triage:level=1"];
-    let ran = env.run(&[&["add", "Ship it", "--json"][..], &two[..]].concat());
+    let ran = env.run(
+        &[
+            &["tasks", "add", "Ship it", "--format", "json"][..],
+            &two[..],
+        ]
+        .concat(),
+    );
     assert!(ran.ok, "{}", ran.stderr);
     assert_eq!(ran.json()["tags"], serde_json::json!(["triage:level=1"]));
     let harp = ran.json()["harp_id"].as_str().unwrap().to_string();
-    let both = ["--add", "triage:level=2", "--add", "triage:level=4"];
-    let ran = env.run(&[&["tag", &harp, "--json"][..], &both[..]].concat());
-    assert!(ran.ok, "{}", ran.stderr);
+    // `tasks tag add` takes one tag, so the two values are two writes.
+    for level in ["triage:level=2", "triage:level=4"] {
+        let ran = env.run(&["tasks", "tag", "add", &harp, level, "--format", "json"]);
+        assert!(ran.ok, "{}", ran.stderr);
+    }
     let listed = env.list();
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0]["tags"], serde_json::json!(["triage:level=4"]));
@@ -136,11 +154,11 @@ fn test_list_selects_by_a_postfix_tag_query_and_refuses_infix() {
         ("two", "release"),
         ("three", "area:cli=x"),
     ] {
-        let ran = env.run(&["add", text, "--tag", tag, "--json"]);
+        let ran = env.run(&["tasks", "add", text, "--tag", tag, "--format", "json"]);
         assert!(ran.ok, "{}", ran.stderr);
     }
     let texts = |query: &str| -> Vec<String> {
-        let ran = env.run(&["list", "--json", "--tag-query", query]);
+        let ran = env.run(&["tasks", "list", "--format", "json", "--tag-query", query]);
         assert!(ran.ok, "{query}: {}", ran.stderr);
         ran.json()
             .as_array()
@@ -153,7 +171,7 @@ fn test_list_selects_by_a_postfix_tag_query_and_refuses_infix() {
     assert_eq!(texts("urgent/not"), ["two", "three"]);
     assert_eq!(texts("*:cli=+"), ["three"]);
     for refused in ["urgent/and", "urgent or release"] {
-        let ran = env.run(&["list", "--json", "--tag-query", refused]);
+        let ran = env.run(&["tasks", "list", "--format", "json", "--tag-query", refused]);
         assert!(!ran.ok, "{refused}");
         assert_eq!(code(&ran.stderr), super::codes::tag_query());
     }
@@ -167,19 +185,21 @@ fn test_a_tag_the_schema_hides_is_left_out_of_text_and_kept_in_json() {
     env.permit_every_tag();
     declare(&env, &[r#"tagma.hide:"triage:cwe"=true"#], &[]);
     let ran = env.run(&[
+        "tasks",
         "add",
         "Ship it",
         "--tag",
         "triage:cwe=79",
         "--tag",
         "x",
-        "--json",
+        "--format",
+        "json",
     ]);
     assert!(ran.ok, "{}", ran.stderr);
     let harp = ran.json()["harp_id"].as_str().unwrap().to_string();
-    let text = env.run(&["list", "--format", "text"]);
+    let text = env.run(&["tasks", "list", "--format", "text"]);
     assert!(text.stdout.contains("Ship it  [x]"), "{}", text.stdout);
-    let tagged = env.run(&["tag", &harp, "--add", "y", "--format", "text"]);
+    let tagged = env.run(&["tasks", "tag", "add", &harp, "y", "--format", "text"]);
     assert_eq!(tagged.stdout, format!("{harp}\tTo Do\tx,y\n"));
     assert_eq!(
         env.list()[1]["tags"],
@@ -198,7 +218,7 @@ fn test_schema_prints_the_stores_tag_rules() {
         &[r#"tagma.enum:"area:x"=a"#, r#"tagma.enum:"area:x"=b"#],
         &[],
     );
-    let ran = env.run(&["schema", "--json"]);
+    let ran = env.run(&["manage", "schema", "show", "--format", "json"]);
     assert!(ran.ok, "{}", ran.stderr);
     let doc: serde_json::Value = serde_json::from_str(&ran.stdout).unwrap();
     let targets = doc["targets"].as_array().unwrap();

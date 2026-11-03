@@ -513,6 +513,7 @@ fn declare(service: &mut Configured, add: &[&str], remove: &[&str]) {
         crate::Declaration {
             add: strings(add),
             remove: strings(remove),
+            ..Default::default()
         },
     ))
     .unwrap();

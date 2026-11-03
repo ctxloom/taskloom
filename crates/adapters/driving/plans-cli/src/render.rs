@@ -7,7 +7,7 @@
 use std::io::{self, Write};
 
 use angzarr_presentation::Render;
-use plans_application::{CheckReport, Finding, ImportReport, LeftTag, PlanText, PlanView};
+use plans_application::{CheckReport, Finding, PlanText, PlanView};
 use serde::Serialize;
 
 /// A plan as JSON.
@@ -190,121 +190,6 @@ impl Render for Checked<'_> {
                 Finding::MissingTask { plan, task } => writeln!(out, "missing task: {plan} {task}"),
                 Finding::Unregistered { path } => writeln!(out, "unregistered: {path}"),
             })
-    }
-}
-
-#[derive(Serialize)]
-struct ImportedJson<'a> {
-    id: &'a str,
-    path: &'a str,
-    external: bool,
-    new: bool,
-    governs: &'a [String],
-}
-
-#[derive(Serialize)]
-struct RetiredJson<'a> {
-    task: &'a str,
-    value: &'a str,
-}
-
-#[derive(Serialize)]
-struct LeftJson<'a> {
-    value: &'a str,
-    tasks: &'a [String],
-}
-
-fn left_json(left: &[LeftTag]) -> Vec<LeftJson<'_>> {
-    left.iter()
-        .map(|left| LeftJson {
-            value: &left.value,
-            tasks: &left.tasks,
-        })
-        .collect()
-}
-
-#[derive(Serialize)]
-struct ImportJson<'a> {
-    dry_run: bool,
-    plans: Vec<ImportedJson<'a>>,
-    dead: Vec<LeftJson<'a>>,
-    not_plans: Vec<LeftJson<'a>>,
-    retired: Vec<RetiredJson<'a>>,
-}
-
-/// `plan import`'s answer.
-pub struct Imported<'a> {
-    pub report: &'a ImportReport,
-    pub dry_run: bool,
-}
-
-/// A value left, with the tasks keeping its tag.
-fn left(out: &mut dyn Write, what: &str, left: &LeftTag) -> io::Result<()> {
-    writeln!(
-        out,
-        "{what}: {} ({}): tag kept",
-        left.value,
-        left.tasks.join(", ")
-    )
-}
-
-impl Render for Imported<'_> {
-    fn json(&self) -> impl Serialize + '_ {
-        ImportJson {
-            dry_run: self.dry_run,
-            plans: self
-                .report
-                .plans
-                .iter()
-                .map(|plan| ImportedJson {
-                    id: &plan.harp_id,
-                    path: &plan.path,
-                    external: plan.external,
-                    new: plan.new,
-                    governs: &plan.governs,
-                })
-                .collect(),
-            dead: left_json(&self.report.dead),
-            not_plans: left_json(&self.report.not_plans),
-            retired: self
-                .report
-                .retired
-                .iter()
-                .map(|(task, value)| RetiredJson { task, value })
-                .collect(),
-        }
-    }
-
-    fn text(&self, out: &mut dyn Write) -> io::Result<()> {
-        for plan in &self.report.plans {
-            let how = match (plan.new, plan.external) {
-                (true, true) => " (new, copied in)",
-                (true, false) => " (new)",
-                (false, _) => "",
-            };
-            writeln!(
-                out,
-                "{} {}{how}: governs {}",
-                plan.harp_id,
-                plan.path,
-                plan.governs.join(", ")
-            )?;
-        }
-        for dead in &self.report.dead {
-            left(out, "dead", dead)?;
-        }
-        for not_plan in &self.report.not_plans {
-            left(out, "not a plan", not_plan)?;
-        }
-        let count = self.report.retired.len();
-        let tags = if count == 1 { "tag" } else { "tags" };
-        match self.dry_run {
-            false => writeln!(out, "{count} ctxloom:plan {tags} retired"),
-            true => writeln!(
-                out,
-                "{count} ctxloom:plan {tags} would be retired (dry run: nothing changed)"
-            ),
-        }
     }
 }
 

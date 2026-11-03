@@ -32,6 +32,9 @@ pub enum Notice {
     /// A prune reported what it would take, and took nothing: `command`
     /// takes it.
     ReportOnly { command: String },
+    /// A change reported what it would do, and changed nothing: `command`
+    /// does it.
+    Preview { command: String },
 }
 
 impl Notice {
@@ -64,6 +67,7 @@ impl Diagnostic for Notice {
             Notice::Omitted { .. } => code!("omitted"),
             Notice::NothingToPrune => code!("nothing-to-prune"),
             Notice::ReportOnly { .. } => code!("report-only"),
+            Notice::Preview { .. } => code!("preview"),
         }
     }
 
@@ -84,7 +88,9 @@ impl Diagnostic for Notice {
                 ("deferred", (*deferred).into()),
             ],
             Notice::Omitted { omitted } => vec![("omitted", (*omitted).into())],
-            Notice::ReportOnly { command } => vec![("command", command.as_str().into())],
+            Notice::ReportOnly { command } | Notice::Preview { command } => {
+                vec![("command", command.as_str().into())]
+            }
             Notice::NoProject | Notice::NothingToPrune => Vec::new(),
         }
     }

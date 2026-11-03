@@ -135,7 +135,7 @@ fn test_every_layer_setting_a_moved_key_is_refused_naming_it() {
             "{source}"
         );
         assert!(
-            error.english().contains("taskloom schema import-config"),
+            error.english().contains("taskloom manage migrate schema"),
             "{error}"
         );
     }

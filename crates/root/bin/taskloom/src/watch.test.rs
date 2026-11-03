@@ -1,4 +1,4 @@
-//! Acceptance: `taskloom watch`, the real binary in a temporary home: its
+//! Acceptance: `taskloom tasks watch`, the real binary in a temporary home: its
 //! first line at once, a line for a task another process adds, one JSON
 //! document a line, and a clean exit at SIGINT or SIGTERM (on Windows, at
 //! a Ctrl-Break sent to its process group). Each watch runs
@@ -23,7 +23,7 @@ use super::{binary, disk, one_document, Env, Isolated};
 /// How long a line may take before the stream is judged not to answer.
 const PATIENCE: Duration = Duration::from_secs(30);
 
-/// A running `taskloom watch`, killed if a test ends with it still running.
+/// A running `taskloom tasks watch`, killed if a test ends with it still running.
 pub(super) struct Watching {
     child: Option<Child>,
     lines: Receiver<String>,
@@ -35,7 +35,7 @@ impl Watching {
         // A process group of its own on Windows, so a Ctrl-Break sent to
         // it (`ctrl_break`) reaches the watch alone.
         let mut child = os::own_group(&mut command)
-            .arg("watch")
+            .args(["tasks", "watch"])
             .args(args)
             .isolated(env.home.path())
             .working_in(env.project.path())
@@ -46,7 +46,7 @@ impl Watching {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .expect("taskloom watch starts");
+            .expect("taskloom tasks watch starts");
         let stdout = child.stdout.take().unwrap();
         let (tx, lines) = mpsc::channel();
         std::thread::spawn(move || {
@@ -138,7 +138,7 @@ fn event(project: &str) -> Value {
 fn test_watch_writes_a_line_at_once_and_one_for_a_task_another_process_adds() {
     let env = Env::new("watch-harp");
     env.seed("Before");
-    let shown = env.run(&["project", "show", "--json"]);
+    let shown = env.run(&["manage", "project", "show", "--format", "json"]);
     let project = one_document(&shown.stdout)["project_id"]
         .as_str()
         .expect("the project")
@@ -149,7 +149,7 @@ fn test_watch_writes_a_line_at_once_and_one_for_a_task_another_process_adds() {
     // comes before any change; one JSON document a line.
     assert_eq!(one_document(&watching.line()), event(&project));
 
-    let added = env.run(&["add", "After"]);
+    let added = env.run(&["tasks", "add", "After"]);
     assert!(added.ok, "{}", added.stderr);
     assert_eq!(one_document(&watching.line()), event(&project));
 
@@ -162,13 +162,13 @@ fn test_watch_writes_a_line_at_once_and_one_for_a_task_another_process_adds() {
 fn test_watch_ends_cleanly_at_sigterm_and_watches_a_pinned_project() {
     let env = Env::new("watch-term-harp");
     env.seed("Seed");
-    let shown = env.run(&["project", "show", "--json"]);
+    let shown = env.run(&["manage", "project", "show", "--format", "json"]);
     let project = one_document(&shown.stdout)["project_id"]
         .as_str()
         .unwrap()
         .to_string();
     let elsewhere = Env::new("watch-term-elsewhere");
-    let watching = Watching::start(&elsewhere, &["--project", &project, "--json"]);
+    let watching = Watching::start(&elsewhere, &["--project", &project, "--format", "json"]);
     assert_eq!(one_document(&watching.line()), event(&project));
     if let Some(status) = watching.stop("TERM") {
         assert!(status.success(), "SIGTERM is a clean end: {status}");
@@ -196,19 +196,19 @@ fn test_watch_ends_cleanly_at_a_ctrl_break_on_windows() {
 #[test]
 fn test_watch_where_there_is_no_project_says_so_and_binds_none() {
     let env = Env::new("watch-none-harp");
-    let ran = env.run(&["watch", "--format", "text"]);
+    let ran = env.run(&["tasks", "watch", "--format", "text"]);
     assert!(!ran.ok);
     assert_eq!(ran.stdout, "");
     assert_eq!(
         ran.stderr,
-        "taskloom: no project here yet; add a task first (taskloom add \"<task text>\")\n"
+        "taskloom: no project here yet; add a task first (taskloom tasks add \"<task text>\")\n"
     );
     assert!(
         !disk::exists(env.home.path().join(".ctxloom")),
         "a watch binds no project and creates nothing"
     );
 
-    let ran = env.run(&["watch", "--json"]);
+    let ran = env.run(&["tasks", "watch", "--format", "json"]);
     assert!(!ran.ok);
     assert_eq!(ran.stdout, "", "an error leaves stdout empty");
     assert_eq!(
@@ -219,7 +219,7 @@ fn test_watch_where_there_is_no_project_says_so_and_binds_none() {
 
 #[test]
 fn test_watch_with_stdin_from_dev_null_stays_up_and_answers_each_change() {
-    // The VS Code extension spawns `taskloom watch` with stdin ignored: a
+    // The VS Code extension spawns `taskloom tasks watch` with stdin ignored: a
     // watch that ended at a closed stdin wrote one line and exited, and
     // its tasks never updated live.
     let env = Env::new("watch-devnull-harp");
@@ -227,7 +227,7 @@ fn test_watch_with_stdin_from_dev_null_stays_up_and_answers_each_change() {
     let mut watching = Watching::start(&env, &[]);
     assert_eq!(one_document(&watching.line())["event"], "changed");
 
-    let added = env.run(&["add", "Another"]);
+    let added = env.run(&["tasks", "add", "Another"]);
     assert!(added.ok, "{}", added.stderr);
     assert_eq!(one_document(&watching.line())["event"], "changed");
     assert!(watching.alive(), "a closed stdin does not end the watch");

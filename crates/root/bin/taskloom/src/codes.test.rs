@@ -29,10 +29,6 @@ pub fn trigger_required() -> String {
     of(&TaskRejection::TriggerRequired)
 }
 
-pub fn tag_required() -> String {
-    of(&TaskRejection::TagRequired)
-}
-
 pub fn harp_id_required() -> String {
     of(&TaskRejection::HarpIdRequired)
 }
@@ -143,10 +139,6 @@ pub fn import_incomplete() -> String {
 
 pub fn lint_violations() -> String {
     of(&tasks_cli::CliError::LintViolations { count: 0 })
-}
-
-pub fn status_reversed() -> String {
-    of(&tasks_cli::CliError::StatusReversed { command: none() })
 }
 
 pub fn usage() -> String {

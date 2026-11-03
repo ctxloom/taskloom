@@ -1,14 +1,14 @@
 //! taskloom: per-project task tracking, for people and agents alike on
 //! its command line (it serves no MCP). The composition root: it parses the
-//! command line (the global flags, the task commands, and `import`, the
-//! `plan` and `project` groups and `watch` mounted beside them), builds the wiring
-//! from the process (tasks-lib's `Taskloom`, the `--config-set` overrides
-//! bound there), and hands the frontend the command parsed only the use
-//! case it runs: the tasks use cases for the task commands and `watch`;
-//! the importer, the only reader of the JSONL task logs, for `import`;
-//! the plans use cases for the `plan` group; and the project use cases
-//! for the `project` group. `watch`
-//! streams the project's changes until SIGINT or SIGTERM (on Windows
+//! command line (the global flags, and the groups `tasks`, `plans` and
+//! `manage` with `loadout` beside them: noun-verb, no `help` command), builds
+//! the wiring from the process (tasks-lib's `Taskloom`, the `--config-set`
+//! overrides bound there), and hands the frontend the command parsed only
+//! the use case it runs: the tasks use cases for the task commands, the
+//! schema and `tasks watch`; the importer, the only reader of the JSONL task
+//! logs, for `manage migrate tasks`; the plans use cases for `plans`; and
+//! the project use cases for `manage project` and `manage doctor`. `tasks
+//! watch` streams the project's changes until SIGINT or SIGTERM (on Windows
 //! Ctrl-C, Ctrl-Break, or the console's close, logoff or shutdown; never
 //! at a closed stdin). It holds no logic of its own, and wires no adapter.
 
@@ -41,26 +41,118 @@ struct Cli {
 
 #[derive(clap::Subcommand, Debug)]
 enum Command {
-    #[command(flatten)]
-    Tasks(tasks_cli::Command),
-    #[command(flatten)]
-    Mounted(Mounted),
+    /// Add, list, show and change tasks
+    #[command(subcommand)]
+    Tasks(TasksVerb),
+    /// Plan files, their status and links
+    #[command(subcommand)]
+    Plans(plans_cli::Command),
+    /// The store's rules, migrations, hooks and diagnosis
+    #[command(subcommand)]
+    Manage(Manage),
+    /// Print what taskloom contributes to a ctxloom session (as yaml)
+    #[command(after_help = "Examples:\n  taskloom loadout --format yaml")]
+    Loadout,
 }
 
-/// The commands mounted beside the task commands.
+/// The verbs of `tasks`: the task commands, and `watch` mounted beside them.
 #[derive(clap::Subcommand, Debug)]
-enum Mounted {
+enum TasksVerb {
     #[command(flatten)]
-    Import(tasks_cli::ImportGroup),
-    #[command(flatten)]
-    Project(project_cli::Group),
-    #[command(flatten)]
-    Plan(plans_cli::Group),
+    Task(tasks_cli::Tasks),
     #[command(flatten)]
     Watch(tasks_watch::Group),
 }
 
-/// `taskloom import`: the JSONL task logs under the home imported into
+/// The groups of `manage`.
+#[derive(clap::Subcommand, Debug)]
+enum Manage {
+    /// Commands ctxloom calls on a session's events
+    #[command(subcommand)]
+    Hook(Hook),
+    /// The store's tag rules, permits, tags and statuses
+    #[command(subcommand)]
+    Schema(tasks_cli::Schema),
+    /// Move older data into the store
+    #[command(subcommand)]
+    Migrate(Migrate),
+    /// Diagnose and repair which project a directory is
+    #[command(subcommand)]
+    Doctor(project_cli::DoctorCommand),
+    /// Which project this directory is
+    #[command(subcommand)]
+    Project(project_cli::ProjectCommand),
+    /// Print the taskloom version
+    #[command(after_help = "Examples:\n  taskloom manage version")]
+    Version,
+}
+
+/// The hooks ctxloom calls.
+#[derive(clap::Subcommand, Debug)]
+enum Hook {
+    /// Record the session in a plan file's frontmatter, as it is edited
+    #[command(after_help = "Examples:\n  taskloom manage hook stamp-plan")]
+    StampPlan,
+}
+
+/// The migrations.
+#[derive(clap::Subcommand, Debug)]
+enum Migrate {
+    /// Import Go taskloom's task logs into each project's store
+    #[command(after_help = "Examples:\n  taskloom manage migrate tasks")]
+    Tasks,
+    /// Move the config file's tag rules into the project's store
+    #[command(after_help = "Examples:\n  taskloom manage migrate schema")]
+    Schema,
+}
+
+/// Where a parsed command goes: the use case that answers it.
+enum Routed {
+    Tasks(tasks_cli::Command),
+    Mounted(Mounted),
+}
+
+/// The commands that are no task use case's.
+enum Mounted {
+    Import,
+    Watch,
+    Plans(plans_cli::Command),
+    Project(project_cli::Command),
+}
+
+impl From<Command> for Routed {
+    fn from(command: Command) -> Routed {
+        match command {
+            Command::Tasks(TasksVerb::Task(tasks)) => {
+                Routed::Tasks(tasks_cli::Command::Tasks(tasks))
+            }
+            Command::Tasks(TasksVerb::Watch(tasks_watch::Group::Watch)) => {
+                Routed::Mounted(Mounted::Watch)
+            }
+            Command::Plans(plans) => Routed::Mounted(Mounted::Plans(plans)),
+            Command::Loadout => Routed::Tasks(tasks_cli::Command::Loadout),
+            Command::Manage(Manage::Version) => Routed::Tasks(tasks_cli::Command::Version),
+            Command::Manage(Manage::Hook(Hook::StampPlan)) => {
+                Routed::Tasks(tasks_cli::Command::StampPlan)
+            }
+            Command::Manage(Manage::Schema(schema)) => {
+                Routed::Tasks(tasks_cli::Command::Schema(schema))
+            }
+            Command::Manage(Manage::Migrate(Migrate::Tasks)) => Routed::Mounted(Mounted::Import),
+            Command::Manage(Manage::Migrate(Migrate::Schema)) => {
+                Routed::Tasks(tasks_cli::Command::ImportConfig)
+            }
+            Command::Manage(Manage::Doctor(doctor)) => {
+                Routed::Mounted(Mounted::Project(project_cli::Command::Doctor(doctor)))
+            }
+            Command::Manage(Manage::Project(project)) => {
+                Routed::Mounted(Mounted::Project(project_cli::Command::Project(project)))
+            }
+        }
+    }
+}
+
+/// `taskloom manage migrate tasks`: the JSONL task logs under the home imported into
 /// each project's store, by an importer built for this command alone.
 fn import(
     runtime: &tokio::runtime::Runtime,
@@ -80,7 +172,7 @@ fn import(
     )))
 }
 
-/// `taskloom watch`: the project's changes on stdout, polled every
+/// `taskloom tasks watch`: the project's changes on stdout, polled every
 /// debounce, until interrupted.
 fn watch<W: tasks_application::WatchService>(
     runtime: &tokio::runtime::Runtime,
@@ -117,11 +209,11 @@ fn watch<W: tasks_application::WatchService>(
     ExitCode::from(code)
 }
 
-/// The `project` group, over the project registry and the SQLite store's
+/// The project commands, over the project registry and the SQLite store's
 /// integrity check.
 fn project_group(
     taskloom: &Taskloom,
-    group: project_cli::Group,
+    group: project_cli::Command,
     settings: &project_cli::Settings,
     catalog: &angzarr_presentation::Catalog,
 ) -> ExitCode {
@@ -136,12 +228,12 @@ fn project_group(
     ))
 }
 
-/// The `plan` group, over the plans use cases: the plan files in the work
+/// The `plans` group, over the plans use cases: the plan files in the work
 /// tree and the project's store.
 fn plan_group(
     runtime: &tokio::runtime::Runtime,
     taskloom: &Taskloom,
-    group: plans_cli::Group,
+    group: plans_cli::Command,
     project: Option<String>,
     settings: &plans_cli::Settings,
     catalog: &angzarr_presentation::Catalog,
@@ -216,65 +308,77 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let group = match command {
-        Command::Tasks(command) => {
-            let mut service = taskloom.tasks();
-            // The plans name the plans governing each task `show` shows,
-            // in the project each was found in.
-            let mut plans = taskloom.plans(globals.project.clone());
-            let use_cases = tasks_cli::UseCases {
-                tasks: &mut service,
-                plans: &mut plans,
-            };
-            return ExitCode::from(runtime.block_on(tasks_cli::run(
-                command,
-                globals,
-                &context,
-                &catalog,
-                use_cases,
-                &mut stdout.lock(),
-                &mut stderr.lock(),
-            )));
+    let routed = Routed::from(command);
+    let command = match routed {
+        Routed::Tasks(command) => command,
+        Routed::Mounted(other) => {
+            return mounted(&runtime, &taskloom, other, globals, &context, &catalog)
         }
-        Command::Mounted(group) => group,
     };
-    let format = match globals.format(&context, &catalog, &mut stderr.lock()) {
+    let mut service = taskloom.tasks();
+    // The plans name the plans governing each task `show` shows, in the
+    // project each was found in.
+    let mut plans = taskloom.plans(globals.project.clone());
+    let use_cases = tasks_cli::UseCases {
+        tasks: &mut service,
+        plans: &mut plans,
+    };
+    ExitCode::from(runtime.block_on(tasks_cli::run(
+        command,
+        globals,
+        &context,
+        &catalog,
+        use_cases,
+        &mut stdout.lock(),
+        &mut stderr.lock(),
+    )))
+}
+
+/// The commands that are no task use case's: `manage migrate tasks`, `tasks
+/// watch`, `plans` and the project commands.
+fn mounted(
+    runtime: &tokio::runtime::Runtime,
+    taskloom: &Taskloom,
+    routed: Mounted,
+    globals: tasks_cli::Globals,
+    context: &Context,
+    catalog: &angzarr_presentation::Catalog,
+) -> ExitCode {
+    let format = match globals.format(context, catalog, &mut io::stderr().lock()) {
         Ok(format) => format,
         Err(code) => return ExitCode::from(code),
     };
     let project = globals.project;
-    match group {
-        Mounted::Import(tasks_cli::ImportGroup::Import) => {
-            import(&runtime, &taskloom, project, format, &catalog)
-        }
+    match routed {
+        Mounted::Import => import(runtime, taskloom, project, format, catalog),
         Mounted::Project(group) => {
             let settings = project_cli::Settings {
                 format,
                 project,
                 prog: tasks_cli::PROG,
             };
-            project_group(&taskloom, group, &settings, &catalog)
+            project_group(taskloom, group, &settings, catalog)
         }
-        Mounted::Plan(group) => {
+        Mounted::Plans(group) => {
             let settings = plans_cli::Settings {
                 format,
                 session: context.session.clone(),
                 prog: tasks_cli::PROG,
             };
-            plan_group(&runtime, &taskloom, group, project, &settings, &catalog)
+            plan_group(runtime, taskloom, group, project, &settings, catalog)
         }
-        Mounted::Watch(tasks_watch::Group::Watch) => {
+        Mounted::Watch => {
             let settings = tasks_watch::Settings {
                 format,
                 project,
                 prog: tasks_cli::PROG,
             };
             watch(
-                &runtime,
+                runtime,
                 taskloom.fs().os(),
                 &mut taskloom.tasks(),
                 &settings,
-                &catalog,
+                catalog,
             )
         }
     }

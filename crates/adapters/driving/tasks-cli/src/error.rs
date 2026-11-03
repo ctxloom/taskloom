@@ -36,10 +36,40 @@ pub enum CliError {
     LintCheckedNothing,
     /// `schema check` found something wrong with the store's tag rules.
     SchemaFindings { count: usize },
-    /// A status change given its status first and its harp id second (the
-    /// harp id named no task, and the status named one): the command in
-    /// the order it takes.
-    StatusReversed { command: String },
+    /// A spelling that was removed, not aliased: what to use instead.
+    Removed { instead: String },
+    /// A command whose place is built and whose work is not yet.
+    NotBuilt { command: &'static str },
+    /// `plan import`, removed: plans are files, so there is nothing to
+    /// import.
+    PlanImportRemoved,
+}
+
+impl CliError {
+    /// The process exit code, by the owner's rule: 2 when the request is
+    /// invalid on its own content and was refused before any state was read
+    /// (a usage error, a format the command does not speak, a removed
+    /// spelling, and what the use case judged invalid, as
+    /// [`AppError::exit_code`] says); 1 when it ran against state and the
+    /// answer was negative (a `check` that found something, a task that is
+    /// not there, an output that could not be written).
+    pub fn exit_code(&self) -> u8 {
+        match self {
+            CliError::App(error) => error.exit_code(),
+            CliError::Plans(_)
+            | CliError::NotBuilt { .. }
+            | CliError::Output { .. }
+            | CliError::Incomplete { .. }
+            | CliError::LintViolations { .. }
+            | CliError::LintCheckedNothing
+            | CliError::SchemaFindings { .. } => 1,
+            CliError::Usage { .. }
+            | CliError::Format(_)
+            | CliError::LoadoutFormat { .. }
+            | CliError::Removed { .. }
+            | CliError::PlanImportRemoved => 2,
+        }
+    }
 }
 
 impl fmt::Display for CliError {
@@ -61,7 +91,9 @@ impl Diagnostic for CliError {
             CliError::LintViolations { .. } => code!("lint-violations"),
             CliError::LintCheckedNothing => code!("lint-checked-nothing"),
             CliError::SchemaFindings { .. } => code!("schema-findings"),
-            CliError::StatusReversed { .. } => code!("status-reversed"),
+            CliError::Removed { .. } => code!("removed"),
+            CliError::PlanImportRemoved => code!("plan-import-removed"),
+            CliError::NotBuilt { .. } => code!("not-built"),
         }
     }
 
@@ -80,8 +112,9 @@ impl Diagnostic for CliError {
             CliError::LintViolations { count } | CliError::SchemaFindings { count } => {
                 vec![("count", (*count).into())]
             }
-            CliError::LintCheckedNothing => Vec::new(),
-            CliError::StatusReversed { command } => vec![("command", command.as_str().into())],
+            CliError::LintCheckedNothing | CliError::PlanImportRemoved => Vec::new(),
+            CliError::Removed { instead } => vec![("instead", instead.as_str().into())],
+            CliError::NotBuilt { command } => vec![("command", (*command).into())],
         }
     }
 }
@@ -111,8 +144,15 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(CliError::LintViolations { count: 2 }),
         Box::new(CliError::LintCheckedNothing),
         Box::new(CliError::SchemaFindings { count: 1 }),
-        Box::new(CliError::StatusReversed {
-            command: "taskloom status swift-amber \"To Do\"".to_string(),
+        Box::new(CliError::Removed {
+            instead: "tasks add".to_string(),
+        }),
+        Box::new(CliError::PlanImportRemoved),
+        Box::new(CliError::NotBuilt {
+            command: "manage hook stamp-plan",
+        }),
+        Box::new(Notice::Preview {
+            command: "taskloom manage schema permits remove area:cli --yes".to_string(),
         }),
         Box::new(Notice::Project {
             root: "/work/tree".to_string(),
@@ -136,7 +176,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(Notice::Omitted { omitted: 4 }),
         Box::new(Notice::NothingToPrune),
         Box::new(Notice::ReportOnly {
-            command: "taskloom prune --older-than 7d --status Done --yes".to_string(),
+            command: "taskloom tasks prune --older-than 7d --status Done --yes".to_string(),
         }),
     ]
 }

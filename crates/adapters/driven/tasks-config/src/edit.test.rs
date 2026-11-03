@@ -265,7 +265,7 @@ fn test_a_namespace_left_as_it_was_keeps_its_spelling() {
 
 // ------------------------------------------------------------ retiring
 //
-// `taskloom schema import-config` takes the moved keys out of the work
+// `taskloom manage migrate schema` takes the moved keys out of the work
 // root's file once they are in the store: the rest of the file, its other
 // keys, comments and layout, as written.
 

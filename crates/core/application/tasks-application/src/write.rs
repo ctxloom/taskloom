@@ -16,7 +16,7 @@ use crate::project::Projects;
 use crate::rules::{Finding, StoreRules};
 use crate::schema::{self, Declared};
 use crate::task::{task_after, task_cover};
-use crate::{failed, request_command_id, AppError, Task, Written};
+use crate::{failed, request_command_id, AppError, Tag, Task, Written};
 
 /// A write's way to its project and the kernel, borrowed from the service
 /// for one call.
@@ -49,6 +49,29 @@ where
         let before = self.seeded(project).await?;
         let store = self.projects.stores.open(project).await.map_err(failed)?;
         schema::declare_in(&mut self.runner, store, declare, before).await
+    }
+
+    /// What `declare` would leave on `project`'s store's schema stream,
+    /// sent nowhere: the tags after it, and whether they would change.
+    pub(crate) async fn previewing(
+        &mut self,
+        project: &Project,
+        declare: Declare,
+    ) -> Result<Declared, AppError> {
+        tasks::schema::check(&declare).map_err(|r| crate::rejected(&r))?;
+        let before = self.seeded(project).await?;
+        let removed: Vec<tagma_core::Tag> = declare.remove.iter().map(Tag::to_core).collect();
+        let kept = before
+            .tags()
+            .iter()
+            .filter(|t| !removed.contains(t))
+            .cloned();
+        let added = declare.add.iter().map(Tag::to_core);
+        let after = StoreRules::of_tags(kept.chain(added));
+        Ok(Declared {
+            changed: after != before,
+            tags: after.export(),
+        })
     }
 
     /// The command id `operation` sends: derived from the request's key

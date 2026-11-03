@@ -1,7 +1,7 @@
 //! Watching a project's tasks: whether its store has changed since the
 //! last poll, and nothing more. A poll asks the store for its change token
 //! ([`WatchedStores`]), which reads no stream, and answers whether it
-//! moved; a watcher (`taskloom watch`, whose subscriber re-queries the
+//! moved; a watcher (`taskloom tasks watch`, whose subscriber re-queries the
 //! task list on each line) needs no more than that. The token names the
 //! store's handle, so a store opened again is always a change. Where the
 //! project has no store yet, a poll is the store's look for one (for

@@ -3,4 +3,4 @@
 # variables are its args.
 
 output = cannot write the output: { $ext_err_txt }
-project-not-taken = --project is not taken by project { $command }, which acts on this directory's project: only project show takes it
+project-not-taken = --project is not taken by manage doctor { $command }, which acts on this directory's project: only manage project show takes it

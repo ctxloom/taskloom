@@ -1,5 +1,5 @@
 //! The store's tag rules as a read model, projected from the schema stream's `SchemaRetagged` events
-//! (docs/plans/self-hosted-schema.md). What `taskloom schema export`
+//! (docs/plans/self-hosted-schema.md). What `taskloom manage schema export`
 //! prints, and what the application hands tagma (`Rules::from_tags`).
 //! Nothing here interprets a rule: that is tagma's.
 
@@ -39,7 +39,7 @@ impl SchemaView {
     }
 
     /// The schema in tagma syntax, one config tag a line, sorted by its
-    /// canonical spelling: `taskloom schema export`'s output.
+    /// canonical spelling: `taskloom manage schema export`'s output.
     pub fn export(&self) -> Vec<String> {
         let mut lines: Vec<String> = self.tags.iter().map(Tag::to_string).collect();
         lines.sort();

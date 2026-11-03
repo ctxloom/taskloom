@@ -55,7 +55,7 @@ pub trait TaskService {
         query: ListQuery,
     ) -> impl Future<Output = Result<Vocabulary, AppError>> + Send;
     fn lint(&mut self, scope: Scope) -> impl Future<Output = Result<LintReport, AppError>> + Send;
-    /// The store's rules a write is held to, as `taskloom schema show`
+    /// The store's rules a write is held to, as `taskloom manage schema show`
     /// prints them: the work root's project's store's (the seed, where it
     /// has none yet).
     fn tag_schema(&mut self) -> impl Future<Output = Result<SchemaSummary, AppError>> + Send;

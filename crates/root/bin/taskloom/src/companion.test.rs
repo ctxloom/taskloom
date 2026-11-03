@@ -52,7 +52,7 @@ fn predates_the_recheck(info: &Info) -> Option<String> {
 /// a non-zero exit. Run with nothing but a temporary HOME and PATH.
 fn probe(home: &std::path::Path) -> Ran {
     let output = Command::new(binary())
-        .args(["version", "--format", "json"])
+        .args(["manage", "version", "--format", "json"])
         .current_dir(home)
         .isolated(home)
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())

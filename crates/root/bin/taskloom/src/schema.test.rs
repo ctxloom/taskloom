@@ -24,7 +24,7 @@ fn code(stderr: &str) -> String {
 }
 
 fn declare(env: &Env, add: &[&str]) {
-    let mut args = vec!["schema", "declare", "--json"];
+    let mut args = vec!["manage", "schema", "declare", "--yes", "--format", "json"];
     for tag in add {
         args.extend(["--add", tag]);
     }
@@ -33,7 +33,7 @@ fn declare(env: &Env, add: &[&str]) {
 }
 
 fn exported(env: &Env) -> Vec<String> {
-    let ran = env.run(&["schema", "export"]);
+    let ran = env.run(&["manage", "schema", "export"]);
     assert!(ran.ok, "export: {}", ran.stderr);
     ran.stdout.lines().map(str::to_string).collect()
 }
@@ -74,10 +74,15 @@ fn test_schema_show_keeps_its_json_shape_reading_the_store() {
         &env,
         &[r#"tagma.enum:"area:x"=a"#, r#"tagma.enum:"area:x"=b"#],
     );
-    let shown = env.run(&["schema", "show", "--json"]);
+    let shown = env.run(&["manage", "schema", "show", "--format", "json"]);
     assert!(shown.ok, "{}", shown.stderr);
     let doc = shown.json();
-    assert_eq!(env.run(&["schema", "--json"]).json(), doc, "schema is show");
+    assert_eq!(
+        env.run(&["manage", "schema", "show", "--format", "json"])
+            .json(),
+        doc,
+        "schema is show"
+    );
     let targets = doc["targets"].as_array().unwrap();
     let find = |name: &str| {
         targets
@@ -96,13 +101,17 @@ fn test_schema_check_reports_tagmas_findings_and_fails_on_any() {
     let env = Env::new("calm-otter-fox");
     env.seed("Ship it");
     for permit in ["area:cli", "repo:tagma"] {
-        assert!(env.run(&["permit", permit, "--json"]).ok, "{permit}");
+        assert!(
+            env.run(&["manage", "schema", "permits", "add", permit, "--format", "json"])
+                .ok,
+            "{permit}"
+        );
     }
-    let clean = env.run(&["schema", "check", "--json"]);
+    let clean = env.run(&["manage", "schema", "check", "--format", "json"]);
     assert!(clean.ok, "{}", clean.stderr);
     assert_eq!(clean.json(), json!([]));
     declare(&env, &[r#"tagma.permit:"*:secret"=false"#]);
-    let ran = env.run(&["schema", "check", "--json"]);
+    let ran = env.run(&["manage", "schema", "check", "--format", "json"]);
     assert!(!ran.ok, "a finding fails check, as lint");
     assert_eq!(
         ran.json(),
@@ -120,13 +129,16 @@ fn test_schema_declare_answers_the_tags_after_and_whether_they_changed() {
     let env = Env::new("calm-otter-fox");
     env.seed("Ship it");
     let args = [
+        "manage",
         "schema",
         "declare",
+        "--yes",
         "--add",
         "tagma.keys-per-item:lang=1",
         "--remove",
         "tagma.keys-per-item:repo=1",
-        "--json",
+        "--format",
+        "json",
     ];
     let first = env.run(&args);
     assert!(first.ok, "{}", first.stderr);
@@ -141,7 +153,9 @@ fn test_schema_declare_answers_the_tags_after_and_whether_they_changed() {
         .unwrap()
         .contains(&json!("tagma.keys-per-item:repo=1")));
     assert_eq!(env.run(&args).json()["changed"], false);
-    let ran = env.run(&["schema", "declare", "--add", "area:cli", "--json"]);
+    let ran = env.run(&[
+        "manage", "schema", "declare", "--yes", "--add", "area:cli", "--format", "json",
+    ]);
     assert_eq!(code(&ran.stderr), super::codes::schema_not_config());
 }
 
@@ -151,9 +165,11 @@ fn test_schema_declare_answers_the_tags_after_and_whether_they_changed() {
 fn test_a_write_is_refused_on_an_introduced_finding_and_warned_on_an_existing() {
     let env = Env::new("calm-otter-fox");
     let ran = env.run(&[
+        "tasks",
         "add",
         "Ship it",
-        "--json",
+        "--format",
+        "json",
         "--tag",
         "area:cli",
         "--tag",
@@ -165,18 +181,18 @@ fn test_a_write_is_refused_on_an_introduced_finding_and_warned_on_an_existing() 
 
     env.permit_every_tag();
     let ran = env.run(&[
-        "add", "Ship it", "--json", "--tag", "lang:en", "--tag", "lang:fr",
+        "tasks", "add", "Ship it", "--format", "json", "--tag", "lang:en", "--tag", "lang:fr",
     ]);
     assert!(ran.ok, "{}", ran.stderr);
     let harp = ran.json()["harp_id"].as_str().unwrap().to_string();
     declare(&env, &["tagma.keys-per-item:lang=1"]);
-    let ran = env.run(&["tag", &harp, "--add", "x", "--json"]);
+    let ran = env.run(&["tasks", "tag", "add", &harp, "x", "--format", "json"]);
     assert!(ran.ok, "an existing finding never refuses: {}", ran.stderr);
     let warnings = ran.json()["warnings"].clone();
     assert_eq!(warnings.as_array().map(Vec::len), Some(2), "{warnings}");
     assert_eq!(warnings[0]["code"], "too-many-keys");
     assert_eq!(warnings[0]["origin"], "existing");
-    let ran = env.run(&["tag", &harp, "--add", "y"]);
+    let ran = env.run(&["tasks", "tag", "add", &harp, "y"]);
     assert!(ran.ok);
     assert!(
         ran.stderr.contains("too-many-keys"),
@@ -188,7 +204,15 @@ fn test_a_write_is_refused_on_an_introduced_finding_and_warned_on_an_existing() 
 #[test]
 fn test_a_task_may_carry_no_taskloom_namespace_tag() {
     let env = Env::new("calm-otter-fox");
-    let ran = env.run(&["add", "Ship it", "--json", "--tag", "taskloom:x"]);
+    let ran = env.run(&[
+        "tasks",
+        "add",
+        "Ship it",
+        "--format",
+        "json",
+        "--tag",
+        "taskloom:x",
+    ]);
     assert!(!ran.ok);
     assert_eq!(code(&ran.stderr), super::codes::tag_reserved_namespace());
 }
@@ -204,21 +228,39 @@ fn test_no_environment_or_override_affects_tag_rules_and_each_is_refused() {
         r#"tagma.range:"triage:level"="1,2""#,
     )];
     let ran = env.run_with(
-        &["add", "Ship it", "--json", "--tag", "triage:level=4"],
+        &[
+            "tasks",
+            "add",
+            "Ship it",
+            "--format",
+            "json",
+            "--tag",
+            "triage:level=4",
+        ],
         &narrow,
     );
     assert_eq!(code(&ran.stderr), super::codes::key_moved());
     let ran = env.run(&[
+        "tasks",
         "add",
         "Ship it",
-        "--json",
+        "--format",
+        "json",
         "--config-set",
         r#"tag_schema=tagma.range:"triage:level"="1,2""#,
     ]);
     assert_eq!(code(&ran.stderr), super::codes::key_moved());
     assert!(
-        env.run(&["add", "Ship it", "--json", "--tag", "triage:level=4"])
-            .ok
+        env.run(&[
+            "tasks",
+            "add",
+            "Ship it",
+            "--format",
+            "json",
+            "--tag",
+            "triage:level=4"
+        ])
+        .ok
     );
 }
 
@@ -241,11 +283,11 @@ fn test_a_config_file_setting_tag_schema_or_tag_permits_is_refused_naming_the_im
         ),
     ] {
         configure(dir, yaml);
-        let ran = env.run(&["list", "--json"]);
+        let ran = env.run(&["tasks", "list", "--format", "json"]);
         assert!(!ran.ok, "{yaml}");
         assert_eq!(code(&ran.stderr), super::codes::key_moved(), "{yaml}");
         assert!(
-            ran.stderr.contains("schema import-config"),
+            ran.stderr.contains("manage migrate schema"),
             "{}",
             ran.stderr
         );
@@ -265,7 +307,7 @@ fn test_import_config_moves_the_work_roots_permits_into_the_store_once() {
         env.project.path(),
         "schema_version: 1\n# kept\ntag_permits:\n  namespaces:\n    area: [cli]\n    relates: open\n  tags: [urgent]\n",
     );
-    let ran = env.run(&["schema", "import-config", "--json"]);
+    let ran = env.run(&["manage", "migrate", "schema", "--format", "json"]);
     assert!(ran.ok, "{}", ran.stderr);
     let lines = exported(&env);
     for expected in [
@@ -280,8 +322,11 @@ fn test_import_config_moves_the_work_roots_permits_into_the_store_once() {
     }
     let file = disk::read_to_string(env.project.path().join(".taskloom/config.yaml")).unwrap();
     assert_eq!(file, "schema_version: 1\n# kept\n");
-    assert!(env.run(&["list", "--json"]).ok, "the key is gone");
-    let again = env.run(&["schema", "import-config", "--json"]);
+    assert!(
+        env.run(&["tasks", "list", "--format", "json"]).ok,
+        "the key is gone"
+    );
+    let again = env.run(&["manage", "migrate", "schema", "--format", "json"]);
     assert!(
         again.ok,
         "nothing left to import is no error: {}",
@@ -302,7 +347,7 @@ fn test_import_config_moves_go_s_tag_permits_file_into_the_store() {
     let env = Env::new("calm-otter-fox");
     env.seed("Ship it");
     configure(env.project.path(), go);
-    let ran = env.run(&["schema", "import-config", "--json"]);
+    let ran = env.run(&["manage", "migrate", "schema", "--format", "json"]);
     assert!(ran.ok, "{}", ran.stderr);
     assert_eq!(ran.json()["changed"], true);
     let lines = exported(&env);
@@ -334,7 +379,9 @@ fn test_import_config_moves_go_s_tag_permits_file_into_the_store() {
 fn test_permit_and_revoke_edit_the_stores_schema_and_never_a_file() {
     let env = Env::new("calm-otter-fox");
     env.seed("Ship it");
-    let ran = env.run(&["permit", "area:", "--json"]);
+    let ran = env.run(&[
+        "manage", "schema", "permits", "add", "area:", "--format", "json",
+    ]);
     assert!(ran.ok, "{}", ran.stderr);
     assert!(
         disk::read(env.project.path().join(".taskloom/config.yaml")).is_err(),
@@ -348,13 +395,19 @@ fn test_permit_and_revoke_edit_the_stores_schema_and_never_a_file() {
             .any(|l| l.starts_with("tagma.permit:") && l.contains('=')),
         "a permit is a presence: {lines:?}"
     );
-    let ran = env.run(&["add", "Ship it", "--json", "--tag", "lang:en"]);
+    let ran = env.run(&[
+        "tasks", "add", "Ship it", "--format", "json", "--tag", "lang:en",
+    ]);
     assert_eq!(code(&ran.stderr), super::codes::tag_rules());
     assert!(ran.stderr.contains("not-permitted"), "{}", ran.stderr);
-    let carrying = env.run(&["add", "Ship it", "--json", "--tag", "area:cli"]);
+    let carrying = env.run(&[
+        "tasks", "add", "Ship it", "--format", "json", "--tag", "area:cli",
+    ]);
     assert!(carrying.ok, "{}", carrying.stderr);
     let harp = carrying.json()["harp_id"].as_str().unwrap().to_string();
-    let ran = env.run(&["revoke", "area:", "--json"]);
+    let ran = env.run(&[
+        "manage", "schema", "permits", "remove", "area:", "--yes", "--format", "json",
+    ]);
     assert_eq!(code(&ran.stderr), super::codes::permit_in_use());
     assert!(ran.stderr.contains(&harp), "names the task: {}", ran.stderr);
 }

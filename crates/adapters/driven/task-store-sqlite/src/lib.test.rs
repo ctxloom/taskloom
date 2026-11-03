@@ -879,7 +879,7 @@ fn test_reading_another_project_does_not_serve_the_held_one() {
 
 /// A store as the e996ea4 build of taskloom wrote one, on
 /// angzarr-store-sqlite 07154a2 (migrations 0001 to 0004, so 0005 is
-/// pending here): `taskloom add` twice in a project of its own, its two
+/// pending here): `taskloom tasks add` twice in a project of its own, its two
 /// tasks on two `tasks` streams beside its schema stream, closed so the
 /// file holds everything (its log empty).
 const BEFORE_0005: &[u8] = include_bytes!("../testdata/before-0005.db");
