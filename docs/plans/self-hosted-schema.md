@@ -26,7 +26,7 @@ nothing when nothing changes. Malformed config is recorded and reported by
 to tagma.
 
 **Write path.** Every add or tag is validated against the store's rules.
-An `Introduced` finding refuses the write (`tasks-application-tag-rules`,
+An `Introduced` finding refuses the write (`tag-rules-tag-rules`,
 naming tagma's code). `Existing` findings come back as
 `Written::warnings()`, on stderr or in the JSON `warnings`.
 

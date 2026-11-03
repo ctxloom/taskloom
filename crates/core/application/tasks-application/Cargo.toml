@@ -15,6 +15,7 @@ kernel-runner.workspace = true
 ports.workspace = true
 sha2.workspace = true
 tagma-core.workspace = true
+tag-rules.workspace = true
 task-lists.workspace = true
 task-priority.workspace = true
 tasks.workspace = true
@@ -26,6 +27,7 @@ uuid.workspace = true
 # the clock and the delay).
 angzarr-embedded = { workspace = true, features = ["test-support"] }
 ports = { workspace = true, features = ["test-support"] }
+tag-rules = { workspace = true, features = ["test-support"] }
 # Rendering catalogs' English (`english_for!`), for the tests that hold it
 # to Go's.
 angzarr-presentation = { workspace = true, features = ["test-support"] }

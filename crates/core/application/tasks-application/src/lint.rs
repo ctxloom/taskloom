@@ -23,7 +23,7 @@ use angzarr_diagnostic::{code, Arg, Diagnostic};
 use tagma_core::Code;
 
 use crate::read::Scan;
-use crate::rules::{spelled_args, StoreRules};
+use crate::rules::{spelled_args, StoreRules, StoreRulesExt};
 use crate::view::is_terminal;
 use task_priority::placeholders;
 

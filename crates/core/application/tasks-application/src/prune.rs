@@ -40,6 +40,7 @@ use tasks::{
 use crate::calendar::date;
 use crate::lists::Lists;
 use crate::request::given;
+use crate::rules::StoreRulesExt;
 use crate::task::task_cover;
 use crate::write::Writes;
 use crate::{failed, query, rejected, AppError, Project, Shown, Task, DONE};

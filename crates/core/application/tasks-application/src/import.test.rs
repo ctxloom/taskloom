@@ -471,7 +471,7 @@ fn test_a_logged_tag_outside_the_grammar_is_reported_and_the_rest_imported() {
     assert!(project
         .lost
         .iter()
-        .all(|l| l.why.code() == code!("tag-unparseable")));
+        .all(|l| l.why.code() == crate::fakes::tag_code("tag-unparseable")));
     let named: Vec<&str> = project.lost[0]
         .why
         .args()
@@ -520,8 +520,8 @@ fn test_a_logged_tag_in_tagmas_namespace_is_reported_and_left_out() {
     assert_eq!(
         lost,
         [
-            (1, code!("tag-reserved-namespace")),
-            (4, code!("tag-reserved-namespace")),
+            (1, crate::fakes::tag_code("tag-reserved-namespace")),
+            (4, crate::fakes::tag_code("tag-reserved-namespace")),
         ]
     );
     assert_eq!(
@@ -565,8 +565,8 @@ fn test_a_logged_operator_word_tag_is_reported_and_left_out() {
     assert_eq!(
         lost,
         [
-            (1, code!("tag-operator-word")),
-            (2, code!("tag-operator-word")),
+            (1, crate::fakes::tag_code("tag-operator-word")),
+            (2, crate::fakes::tag_code("tag-operator-word")),
         ]
     );
     assert_eq!(project.applied, 2, "the add, and the tag of y");

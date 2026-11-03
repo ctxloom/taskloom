@@ -13,7 +13,7 @@ use tasks::schema::Declare;
 use tasks::{TaskAggregate, TaskCommand};
 
 use crate::project::Projects;
-use crate::rules::{Finding, StoreRules};
+use crate::rules::{Finding, StoreRules, StoreRulesExt};
 use crate::schema::{self, Declared};
 use crate::task::{task_after, task_cover};
 use crate::{failed, request_command_id, AppError, Tag, Task, Written};

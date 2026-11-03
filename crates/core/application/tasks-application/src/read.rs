@@ -17,7 +17,7 @@ use crate::lists::Lists;
 use crate::priority::{self, PriorityNote};
 use crate::project::Projects;
 use crate::request::given;
-use crate::rules::StoreRules;
+use crate::rules::{StoreRules, StoreRulesExt};
 use crate::view::{
     is_active, is_terminal, Row, StatusInfo, Task, DEFAULT_STATUSES, IN_PROGRESS, OPEN,
     STATUS_CLASSES, TERMINAL,

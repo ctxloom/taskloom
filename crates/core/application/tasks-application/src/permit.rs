@@ -22,7 +22,7 @@ use ports::{Clock, CommandIds, Configuration, ConfigurationWriter, ProjectIdenti
 use tasks::schema::Declare;
 
 use crate::lists::Lists;
-use crate::rules::{permit_tag, StoreRules};
+use crate::rules::{permit_tag, StoreRules, StoreRulesExt};
 use crate::schema::{self, Declared};
 use crate::write::Writes;
 use crate::{tags, AppError, Declaration, Tag};

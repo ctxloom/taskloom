@@ -168,6 +168,12 @@ impl AppError {
 }
 
 /// A command not decided, as a use case fails with it.
+impl From<tag_rules::RulesRefusal> for AppError {
+    fn from(refusal: tag_rules::RulesRefusal) -> Self {
+        AppError::TagRefused(Report::of(&refusal))
+    }
+}
+
 impl From<kernel_runner::Unrun> for AppError {
     fn from(unrun: kernel_runner::Unrun) -> AppError {
         match unrun {
@@ -304,14 +310,14 @@ pub const EN_US: (&str, &str) = (
 
 /// The en-US catalogs of every diagnostic a use case returns but its
 /// adapters': the domain's rejections and this crate's errors.
-pub const CATALOGS: [(&str, &str); 3] = [tasks::EN_US, task_priority::EN_US, EN_US];
+pub const CATALOGS: [(&str, &str); 4] =
+    [tasks::EN_US, task_priority::EN_US, tag_rules::EN_US, EN_US];
 
-/// One value of every error this crate defines, of every reason a tag is
-/// refused, and of every reason an import gives for leaving a record behind (not the wrappers, whose codes
+/// One value of every error this crate defines, and of every reason an
+/// import gives for leaving a record behind (not the wrappers, whose codes
 /// are their causes'), for the catalog test.
 #[cfg(any(test, feature = "test-support"))]
 pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
-    let tags = crate::tags::samples().into_iter();
     let mut samples: Vec<Box<dyn Diagnostic>> = vec![
         Box::new(AppError::GaveUp {
             attempts: 10,
@@ -360,8 +366,6 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(crate::Why::HarpTaken),
         Box::new(crate::Why::TaskNotImported),
     ];
-    samples.extend(tags.map(|t| Box::new(t) as Box<dyn Diagnostic>));
-    samples.extend(crate::rules::samples());
     samples.extend(
         crate::lint::samples()
             .into_iter()

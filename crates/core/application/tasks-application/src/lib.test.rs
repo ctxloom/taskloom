@@ -378,7 +378,7 @@ fn test_an_add_with_a_tag_outside_the_grammar_is_refused_and_writes_nothing() {
         ..new_task("Ship it")
     };
     let error = add(&mut service, task).unwrap_err();
-    assert_eq!(error.code(), code!("tag-unparseable"));
+    assert_eq!(error.code(), crate::fakes::tag_code("tag-unparseable"));
     assert!(error.to_string().contains("not ok"), "{error}");
     assert!(service.identity.pins.is_empty(), "no project resolved");
     assert!(service.stores.opened.is_empty());
@@ -395,7 +395,7 @@ fn test_an_add_with_a_blank_tag_is_refused_and_writes_nothing() {
             ..new_task("Ship it")
         };
         let error = add(&mut service, task).unwrap_err();
-        assert_eq!(error.code(), code!("tag-blank"));
+        assert_eq!(error.code(), crate::fakes::tag_code("tag-blank"));
         assert!(service.identity.pins.is_empty(), "no project resolved");
         assert!(service.stores.opened.is_empty());
     }
@@ -411,7 +411,7 @@ fn test_a_write_adding_the_retired_plan_tag_is_refused() {
         ..new_task("Ship it")
     };
     let error = add(&mut service, task).unwrap_err();
-    assert_eq!(error.code(), code!("tag-retired"));
+    assert_eq!(error.code(), crate::fakes::tag_code("tag-retired"));
     assert!(service.stores.opened.is_empty());
     add(&mut service, new_task("Ship it")).unwrap();
     let error = ready(service.tag(change(
@@ -420,7 +420,7 @@ fn test_a_write_adding_the_retired_plan_tag_is_refused() {
         &[],
     )))
     .unwrap_err();
-    assert_eq!(error.code(), code!("tag-retired"));
+    assert_eq!(error.code(), crate::fakes::tag_code("tag-retired"));
     ready(service.tag(change(
         "swift-amber",
         &[],
@@ -438,7 +438,7 @@ fn test_a_tag_naming_a_tag_outside_the_grammar_is_refused_either_way() {
         change("swift-amber", &[], &["a/b"]),
     ] {
         let error = ready(service.tag(change)).unwrap_err();
-        assert_eq!(error.code(), code!("tag-unparseable"));
+        assert_eq!(error.code(), crate::fakes::tag_code("tag-unparseable"));
     }
     assert_eq!(command_ids(&mut service, "swift-amber").len(), 1, "the add");
 }
@@ -525,7 +525,7 @@ fn declare(service: &mut Configured, add: &[&str], remove: &[&str]) {
 fn test_a_write_is_held_to_the_seeded_schema() {
     let mut service = service(&["swift-amber"]);
     let error = add(&mut service, tagged(&["triage:level=9"])).unwrap_err();
-    assert_eq!(error.code(), code!("tag-rules"));
+    assert_eq!(error.code(), crate::fakes::tag_code("tag-rules"));
     assert!(error.to_string().contains("out-of-range"), "{error}");
     assert_eq!(service.identity.writes, 0, "no project bound");
     assert!(service.stores.opened.is_empty(), "no store created");
@@ -797,7 +797,7 @@ fn test_a_tag_with_nothing_to_add_or_remove_is_refused_before_anything_is_read()
     assert_eq!(error.code(), tasks::TaskRejection::TagRequired.code());
     for (add, remove) in [(&[" "][..], &[][..]), (&[][..], &[""][..])] {
         let error = ready(service.tag(change("swift-amber", add, remove))).unwrap_err();
-        assert_eq!(error.code(), code!("tag-blank"));
+        assert_eq!(error.code(), crate::fakes::tag_code("tag-blank"));
     }
     assert!(service.configuration.asked == 0, "no configuration read");
     assert!(service.identity.pins.is_empty(), "no project resolved");

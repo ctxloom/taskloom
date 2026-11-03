@@ -185,7 +185,9 @@ fn old_task(service: &Permits, harp: &str, tags: &[&str]) {
 /// Whether `error` is tagma's `not-permitted` of `tag`.
 fn not_permitted(error: &AppError, tag: &str) -> bool {
     let shown = error.to_string();
-    error.code() == code!("tag-rules") && shown.contains("not-permitted") && shown.contains(tag)
+    error.code() == crate::fakes::tag_code("tag-rules")
+        && shown.contains("not-permitted")
+        && shown.contains(tag)
 }
 
 // ------------------------------------------------------------ admission
@@ -945,7 +947,7 @@ fn test_the_import_refuses_a_declaration_that_is_no_tag() {
         ..OldConfig::default()
     });
     let error = ready(service.import_config()).unwrap_err();
-    assert_eq!(error.code(), code!("tag-unparseable"));
+    assert_eq!(error.code(), crate::fakes::tag_code("tag-unparseable"));
     assert_eq!(service.configuration.retired, 0);
 }
 

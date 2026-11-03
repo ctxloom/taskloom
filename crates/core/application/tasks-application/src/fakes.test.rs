@@ -330,3 +330,15 @@ impl Names for FakeNames {
         unreachable!("the application mints no project id")
     }
 }
+
+/// The code of one of tag-rules' diagnostics, by its suffix (`tag-blank`):
+/// the codes follow the crate that defines them (the owner's ruling,
+/// 2026-11-03), so a test asks that crate's samples, never spells its name.
+pub fn tag_code(suffix: &str) -> &'static str {
+    let found = tag_rules::diagnostic_samples()
+        .iter()
+        .map(|sample| sample.code().to_string())
+        .find(|code| code.strip_suffix(suffix).is_some_and(|p| p.ends_with('-')))
+        .unwrap_or_else(|| panic!("no tag-rules diagnostic {suffix}"));
+    Box::leak(found.into_boxed_str())
+}

@@ -1,0 +1,33 @@
+[package]
+name = "tag-rules"
+version = "0.1.0"
+description = "Tags as a write takes them and the store's tag rules: parsed, admitted and judged by tagma, shared by tasks and plans"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-diagnostic.workspace = true
+tagma-core.workspace = true
+tasks.workspace = true
+
+[dev-dependencies]
+# Rendering catalogs' English (`english_for!`), for the tests that hold it
+# to Go's.
+angzarr-presentation = { workspace = true, features = ["test-support"] }
+fluent-syntax.workspace = true
+mutants.workspace = true
+
+[build-dependencies]
+# The build writes the catalog's source under the crate's name
+# (angzarr_diagnostic::build): no catalog spells its crate's name.
+angzarr-diagnostic = { workspace = true, features = ["build"] }
+
+[features]
+# `diagnostic_samples` and `StoreRules::parsed`, for other crates' tests:
+# their dev-dependency turns it on, and no build of a binary does.
+test-support = []
+
+[lints]
+workspace = true

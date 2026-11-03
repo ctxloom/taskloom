@@ -493,6 +493,7 @@ fn wired_samples() -> Vec<Box<dyn Diagnostic>> {
         crate::diagnostic_samples(),
         angzarr_embedded::diagnostic_samples(),
         tasks_application::diagnostic_samples(),
+        tag_rules::diagnostic_samples(),
         project_application::diagnostic_samples(),
         project_registry::diagnostic_samples(),
         task_store_sqlite::diagnostic_samples(),

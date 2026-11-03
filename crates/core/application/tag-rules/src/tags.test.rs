@@ -1,0 +1,204 @@
+//! Tag strings parsed at the edge of a write.
+
+use super::{parse, parse_all, Tag, TagRefusal};
+use crate::english::English;
+
+fn strings(values: &[&str]) -> Vec<String> {
+    values.iter().map(|v| v.to_string()).collect()
+}
+
+fn tag(namespace: Option<&str>, key: &str, value: Option<&str>) -> Tag {
+    Tag {
+        namespace: namespace.map(str::to_string),
+        key: key.to_string(),
+        value: value.map(str::to_string),
+    }
+}
+
+#[test]
+fn test_a_tag_parses_into_its_components() {
+    assert_eq!(
+        parse(" geo:lat=57.64 "),
+        Some(Ok(tag(Some("geo"), "lat", Some("57.64"))))
+    );
+    assert_eq!(parse("urgent"), Some(Ok(tag(None, "urgent", None))));
+}
+
+#[test]
+fn test_an_empty_tag_is_no_tag() {
+    assert_eq!(parse("   "), None);
+    assert_eq!(parse(""), None);
+}
+
+#[test]
+fn test_a_tag_outside_the_grammar_is_refused_with_why() {
+    let Some(Err(TagRefusal::Unparseable { tag, detail })) = parse(" a b ") else {
+        panic!("refused");
+    };
+    assert_eq!(tag, "a b", "trimmed");
+    assert!(detail.contains("\"a b\""), "{detail}");
+}
+
+#[test]
+fn test_every_tag_is_parsed_in_order() {
+    assert_eq!(
+        parse_all(&strings(&["b", "a=1"])),
+        Ok(vec![tag(None, "b", None), tag(None, "a", Some("1"))])
+    );
+    assert!(matches!(
+        parse_all(&strings(&["ok", "not/ok", "a b"])),
+        Err(TagRefusal::Unparseable { tag, .. }) if tag == "not/ok"
+    ));
+}
+
+// A tag given to a write is a tag given: blank, it is refused, never left
+// out, so `--tag "$UNSET"` cannot write a task without the tag it meant.
+#[test]
+fn test_a_blank_tag_given_is_refused_not_left_out() {
+    for blank in ["", "   "] {
+        assert_eq!(
+            parse_all(&strings(&["b", blank, "a=1"])),
+            Err(TagRefusal::Blank)
+        );
+    }
+}
+
+#[test]
+fn test_a_refusal_renders_its_english() {
+    let refusal = TagRefusal::Unparseable {
+        tag: "a b".to_string(),
+        detail: "why".to_string(),
+    };
+    assert_eq!(
+        refusal.english(),
+        "the tag a b is not a tag in tagma's grammar: why"
+    );
+}
+
+// ------------------------------------------------------------ admission
+//
+// What every task's tag must pass whatever the store's rules. What a
+// value may be (enum, range, type), how many a target holds and whether a
+// tag is permitted are tagma's to judge (schema.test.rs).
+
+use super::{admit, admit_all};
+
+fn refused(spelled: &str) -> Option<TagRefusal> {
+    match parse(spelled)? {
+        Err(refusal) => Some(refusal),
+        Ok(tag) => admit(&tag).err(),
+    }
+}
+
+#[test]
+fn test_an_operator_word_is_refused_in_any_case() {
+    for word in [
+        "and", "AND", "And", "or", "OR", "not", "NOT", " and ", "\"and\"",
+    ] {
+        assert!(
+            matches!(refused(word), Some(TagRefusal::OperatorWord { .. })),
+            "{word}"
+        );
+    }
+    // Only the bare word: with a namespace or a value, a query can match it.
+    for fine in ["x:and", "and=1", "android", "cannot", "note", "north"] {
+        assert_eq!(refused(fine), None, "{fine}");
+    }
+}
+
+#[test]
+fn test_a_tag_outside_the_grammar_is_refused() {
+    for bad in ["urgent*", "+", "*", "foo/bar", "has space"] {
+        assert!(
+            matches!(refused(bad), Some(TagRefusal::Unparseable { .. })),
+            "{bad}"
+        );
+    }
+}
+
+#[test]
+fn test_ordinary_tags_are_admitted() {
+    for tag in [
+        "urgent",
+        "release",
+        "android",
+        "cannot",
+        "note",
+        "north",
+        "v1.2",
+        "a-b_c",
+        "release+",
+        "1.0.0+build.5",
+        "+1",
+        "-1",
+        "tagmatic:foo=bar",
+        "taskloomish:foo",
+        "triage:kind=sparkles",
+    ] {
+        assert_eq!(refused(tag), None, "{tag}");
+    }
+}
+
+#[test]
+fn test_the_tagma_and_taskloom_namespaces_are_the_schemas() {
+    for (tag, root) in [
+        (r#"tagma.arity:"triage:type"=scalar"#, "tagma"),
+        ("tagma:foo", "tagma"),
+        ("tagma.priority_fn:x=y", "tagma"),
+        ("taskloom:x", "taskloom"),
+        (r#"taskloom.priority_fn:"x:y"="1""#, "taskloom"),
+    ] {
+        let Some(TagRefusal::ReservedNamespace { namespace, .. }) = refused(tag) else {
+            panic!("{tag} refused");
+        };
+        assert!(namespace.starts_with(root), "{namespace}");
+    }
+}
+
+#[test]
+fn test_admitting_every_tag_stops_at_the_first_refused() {
+    let given = strings(&["ok", "tagma:x", "and"]);
+    assert!(matches!(
+        admit_all(&given),
+        Err(TagRefusal::ReservedNamespace { .. })
+    ));
+    assert_eq!(
+        admit_all(&strings(&["ok"])),
+        Ok(vec![tag(None, "ok", None)])
+    );
+    assert_eq!(admit_all(&strings(&["ok", " "])), Err(TagRefusal::Blank));
+}
+
+// ------------------------------------------------------------ retired
+
+// Plans replace `ctxloom:plan` (docs/plans/plans-aggregate.md): a write
+// adding it is refused, whatever its value; other ctxloom tags are not.
+#[test]
+fn test_the_retired_plan_tag_is_refused_and_no_other() {
+    let Some(TagRefusal::Retired { tag, target }) = refused(r#"ctxloom:plan="docs/x.plan.md""#)
+    else {
+        panic!("refused as retired");
+    };
+    assert_eq!(target, "ctxloom:plan");
+    assert_eq!(tag, r#"ctxloom:plan="docs/x.plan.md""#);
+    assert!(refused("ctxloom:plan").is_some());
+    assert_eq!(refused("ctxloom:session=calm-otter"), None);
+    assert_eq!(refused("plan=x"), None);
+    let english = TagRefusal::Retired {
+        tag: "ctxloom:plan=x".into(),
+        target: "ctxloom:plan".into(),
+    }
+    .english();
+    assert!(english.contains("plans link"), "{english}");
+}
+
+// Only `ctxloom:plan` is retired: another key of the namespace, or the
+// same key elsewhere, is not.
+#[test]
+fn test_only_the_plan_tag_is_retired() {
+    use super::{is_retired, RETIRED_TAG};
+    assert_eq!(RETIRED_TAG, "ctxloom:plan");
+    assert!(is_retired("ctxloom:plan"));
+    assert!(!is_retired("ctxloom:session"));
+    assert!(!is_retired("plan"));
+}

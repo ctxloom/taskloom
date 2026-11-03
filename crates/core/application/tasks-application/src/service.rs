@@ -24,6 +24,7 @@ use crate::permit::Permitting;
 use crate::project::Projects;
 use crate::prune::Pruner;
 use crate::read::Reading;
+use crate::rules::StoreRulesExt;
 use crate::schema;
 use crate::watch::Watching;
 use crate::write::Writes;

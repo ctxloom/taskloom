@@ -12,6 +12,7 @@ use angzarr_diagnostic::{code, Diagnostic, Report};
 use ports::TagPermits;
 
 use crate::fakes::{ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores};
+use crate::rules::StoreRulesExt;
 use crate::{
     AppError, Declaration, ListQuery, NewTask, Origin, PermitChange, PermitService, SchemaService,
     Scope, Service, TagChange, TaskService, Written, SEEDED_SCHEMA,
@@ -344,11 +345,11 @@ fn test_a_write_introducing_a_tagma_finding_is_refused_naming_its_code() {
     declare(&mut service, &[r#"tagma.enum:"area:x"=a"#], &[]);
     let error = add(&mut service, &["area:x=b"]).unwrap_err();
     let (code, shown) = refusal(&error);
-    assert_eq!(code, code!("tag-rules"));
+    assert_eq!(code, crate::fakes::tag_code("tag-rules"));
     assert!(shown.contains("not-in-enum"), "{shown}");
     assert!(shown.contains("area:x=b"), "{shown}");
     let error = tag(&mut service, "swift-amber", &["area:x=b"], &[]).unwrap_err();
-    assert_eq!(error.code(), code!("tag-rules"));
+    assert_eq!(error.code(), crate::fakes::tag_code("tag-rules"));
     assert!(add(&mut service, &["area:x=a"]).is_ok());
 }
 
@@ -409,7 +410,7 @@ fn test_a_write_adding_a_second_key_to_an_already_over_namespace_is_refused() {
     add(&mut service, &["lang:en", "lang:fr"]).unwrap();
     declare(&mut service, &["tagma.keys-per-item:lang=1"], &[]);
     let error = tag(&mut service, "swift-amber", &["lang:de"], &[]).unwrap_err();
-    assert_eq!(error.code(), code!("tag-rules"));
+    assert_eq!(error.code(), crate::fakes::tag_code("tag-rules"));
 }
 
 // ONE_KEY is gone: one area and one repo a task is the seeded
@@ -474,7 +475,11 @@ fn test_a_task_may_carry_no_tag_in_the_taskloom_namespace() {
         "taskloom.sub:y",
     ] {
         let error = add(&mut service, &[reserved]).unwrap_err();
-        assert_eq!(error.code(), code!("tag-reserved-namespace"), "{reserved}");
+        assert_eq!(
+            error.code(),
+            crate::fakes::tag_code("tag-reserved-namespace"),
+            "{reserved}"
+        );
     }
     assert!(add(&mut service, &["taskloomish:x"]).is_ok());
 }
