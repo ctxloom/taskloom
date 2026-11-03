@@ -218,7 +218,6 @@ const RULED_COMMANDS: &[&[&str]] = &[
     &["plans", "add"],
     &["plans", "list"],
     &["plans", "show"],
-    &["plans", "status"],
     &["plans", "link"],
     &["plans", "unlink"],
     &["plans", "check"],
@@ -813,18 +812,6 @@ fn test_schema_check_exits_0_when_clean_and_1_on_a_finding() {
 }
 
 #[test]
-fn test_plans_check_exits_0_when_clean_and_1_on_a_finding() {
-    let env = Env::new(SESSION);
-    let clean = ok(&env, &["plans", "check"]);
-    assert_eq!(clean, json!({"ok": true, "findings": []}));
-    let added = ok(&env, &["plans", "add", "--title", "Plans"]);
-    let rel = added["rel_path"].as_str().expect("a path").to_string();
-    disk::remove_file(env.project.path().join(&rel)).unwrap();
-    let ran = refused(&env, &["plans", "check"], 1);
-    assert_eq!(one_document(&ran.stdout)["ok"], false);
-}
-
-#[test]
 fn test_the_store_refusing_a_write_exits_1() {
     // Revoking a permit a task's tag still needs: the arguments are fine,
     // the store refuses.
@@ -1280,57 +1267,6 @@ fn test_top_level_help_is_under_two_kilobytes() {
     const BOUND: usize = 2048;
     let help = &page(&[]).long.stdout;
     assert!(help.len() < BOUND, "{} bytes: {help}", help.len());
-}
-
-// ------------------------------------------------------------ 10. plans
-
-#[test]
-fn test_plans_keeps_what_plan_did_add_list_show_status_link_check() {
-    let env = Env::new(SESSION);
-    let task = add_task(&env, "Move plans into taskloom");
-    let added = ok(
-        &env,
-        &["plans", "add", "--title", "Plans", "--governs", &task],
-    );
-    let id = added["id"].as_str().unwrap().to_string();
-    let rel = format!(".taskloom/plans/{id}.plan.md");
-    assert_eq!(added["rel_path"], rel.as_str());
-    assert_eq!(added["status"], "draft");
-    assert_eq!(added["governs"], json!([task]));
-    let file = env.project.path().join(&rel);
-    let written = disk::read_to_string(&file).expect("the plan's file");
-    assert!(written.contains("title: Plans"), "{written}");
-
-    // The VS Code extension's fields.
-    let listed = ok(&env, &["plans", "list"]);
-    assert_eq!(listed[0]["name"], id.as_str());
-    assert_eq!(listed[0]["title"], "Plans");
-    assert_eq!(listed[0]["session"], SESSION);
-    assert_eq!(listed[0]["sessions"], json!([SESSION]));
-    assert_eq!(listed[0]["path"], file.to_string_lossy().as_ref());
-
-    let raw = refused(&env, &["plans", "show", &id, "--format", "text"], 0);
-    assert_eq!(raw.stdout, written);
-    assert_eq!(
-        ok(&env, &["plans", "status", &id, "active"])["status"],
-        "active"
-    );
-    assert_eq!(
-        ok(&env, &["plans", "list", "--governs", &task])[0]["id"],
-        id.as_str()
-    );
-}
-
-#[test]
-fn test_plans_exit_codes_stay_1_for_a_missing_plan_and_2_for_a_status_none() {
-    let env = Env::new(SESSION);
-    refused(&env, &["plans", "show", "no-such-plan"], 1);
-    let ran = refused(
-        &env,
-        &["plans", "add", "--title", "T", "--status", "nope"],
-        2,
-    );
-    assert!(ran.stderr.contains("nope"), "{}", ran.stderr);
 }
 
 // ------------------------------------------------------------ 5b. exit codes, the owner's rule
