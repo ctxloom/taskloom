@@ -1398,16 +1398,46 @@ fn test_removed_plan_import_says_plans_are_files_and_imports_nothing() {
     assert!(!disk::exists(env.home.path().join(".ctxloom")));
 }
 
+/// `args` with `--dry-run --yes`: exit 0, and the output says in text and
+/// in JSON that `--yes` was given and ignored, and what it would do without
+/// `--dry-run` (`needle` names one such operation).
+fn says_yes_was_ignored(env: &Env, args: &[&str], needle: &str) -> Value {
+    let json = ok(env, args);
+    assert_eq!(json["yes_ignored_by_dry_run"], true, "{args:?}: {json}");
+    let would: Vec<&str> = json["would_apply"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{args:?}: a would_apply list: {json}"))
+        .iter()
+        .map(|w| w.as_str().unwrap())
+        .collect();
+    assert!(
+        would.iter().any(|w| w.contains(needle)),
+        "{args:?}: would_apply names {needle}: {would:?}"
+    );
+    let text = refused(env, &[args, &["--format", "text"]].concat(), 0).stdout;
+    assert!(
+        text.contains("--yes"),
+        "{args:?}: says --yes was given: {text}"
+    );
+    assert!(text.contains("--dry-run"), "{args:?}: {text}");
+    assert!(
+        text.contains(needle),
+        "{args:?}: names the operation: {text}"
+    );
+    json
+}
+
 #[test]
-fn test_dry_run_together_with_yes_is_absolute_and_applies_nothing() {
-    // owner ruling 2026-11-03: --dry-run wins over --yes; it previews, exit 0.
+fn test_dry_run_together_with_yes_is_absolute_applies_nothing_and_says_so() {
+    // owner ruling 2026-11-03: --dry-run wins over --yes; it previews, exit
+    // 0, and says that --yes was given and what it would otherwise do.
     let env = Env::new(SESSION);
     let done = ok(&env, &["tasks", "add", "Finished", "--status", "Done"])["harp_id"]
         .as_str()
         .unwrap()
         .to_string();
     ok(&env, &["manage", "schema", "permits", "add", "area:cli"]);
-    let prune = ok(
+    let prune = says_yes_was_ignored(
         &env,
         &[
             "tasks",
@@ -1417,10 +1447,11 @@ fn test_dry_run_together_with_yes_is_absolute_and_applies_nothing() {
             "--dry-run",
             "--yes",
         ],
+        &done,
     );
     assert_eq!(prune["applied"], false);
     assert_eq!(prune["pruned"][0]["harp_id"], done.as_str());
-    refused(
+    says_yes_was_ignored(
         &env,
         &[
             "manage",
@@ -1431,9 +1462,9 @@ fn test_dry_run_together_with_yes_is_absolute_and_applies_nothing() {
             "--dry-run",
             "--yes",
         ],
-        0,
+        "zz:y",
     );
-    refused(
+    says_yes_was_ignored(
         &env,
         &[
             "manage",
@@ -1444,10 +1475,17 @@ fn test_dry_run_together_with_yes_is_absolute_and_applies_nothing() {
             "--dry-run",
             "--yes",
         ],
-        0,
+        "area:cli",
     );
-    let heal = ok(&env, &["manage", "doctor", "heal", "--dry-run", "--yes"]);
+    let marker = env.project.path().join(".project-id");
+    disk::remove_file(&marker).unwrap();
+    let heal = says_yes_was_ignored(
+        &env,
+        &["manage", "doctor", "heal", "--dry-run", "--yes"],
+        ".project-id",
+    );
     assert_eq!(heal["applied"], false);
+    assert!(!disk::exists(&marker), "nothing was written");
     assert_eq!(permitted_keys(&env, "area"), ["cli"], "nothing was applied");
     assert!(
         permitted_keys(&env, "zz").is_empty(),
