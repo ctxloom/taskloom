@@ -1,5 +1,5 @@
 // Go taskloom's tag queries over a set of cases, dumped: the oracle
-// `taskloom list --tag-query` is compared against. Not part of either
+// `taskloom tasks list --tag-query` is compared against. Not part of either
 // build: scripts/compare-go-tag-queries.sh lays this file into Go's
 // internal/shared/tasks package with `go test -overlay`, so the Go
 // checkout is only read.

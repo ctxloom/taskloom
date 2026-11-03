@@ -1,5 +1,5 @@
 // Go taskloom's fold of every log in a directory, dumped as JSON: the oracle
-// `taskloom import` is compared against. Not part of either build: the
+// `taskloom manage migrate tasks` is compared against. Not part of either build: the
 // comparison script lays this file into Go's internal/shared/tasks package
 // with `go test -overlay`, so the Go checkout is only read.
 //

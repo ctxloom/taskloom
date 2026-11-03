@@ -1,7 +1,7 @@
 [package]
 name = "tasks-watch"
 version = "0.1.0"
-description = "taskloom watch: a project's task changes as a JSON Lines stream, debounced, from the watch use case"
+description = "taskloom tasks watch: a project's task changes as a JSON Lines stream, debounced, from the watch use case"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

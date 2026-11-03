@@ -2,11 +2,11 @@
 # vocabulary (tag-vocabulary.proposal.md, section 5, session
 # inept-sixth-stick, as the rulings of 2026-10-27 adapted it): a write
 # adding a tag it does not permit is refused, and only a person widens it,
-# with `taskloom permit` (or narrows it with `taskloom revoke`). The core is
+# with `taskloom manage schema permits add` (or narrows it with `taskloom manage schema permits remove`). The core is
 # copied here, not built in; the factual flags are bare keys of a closed
 # triage: list. The targets the tag schema declares (triage:level, kind,
 # effort, blocks-release, exposed, verdict, audited, blind-gate) need no
-# permit. `taskloom permits` lists what is permitted.
+# permit. `taskloom manage schema permits list` lists what is permitted.
 schema_version: 1
 
 tag_permits:

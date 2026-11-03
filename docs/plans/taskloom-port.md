@@ -1,5 +1,11 @@
 # Plan: finishing the taskloom port
 
+Command names below are the port's, Go's own (`list`, `status`, `lint`, `plan`,
+...). Since the CLI consolidation the commands are noun-verb: `tasks list`,
+`tasks set`, `tasks check`, `plans`, `manage schema ...`, `manage migrate
+...`, `manage doctor ...`, `manage project show`, `manage version`; the old
+names print `removed: use <new command>` and exit 2.
+
 Written 2026-10-20. The Go taskloom is `cmd/taskloom` and
 `internal/shared/tasks` (with `internal/taskloom/{config,engine,workdir}`) in
 the Go ctxloom repository; about 12.9k lines. This plan ports it onto annals
@@ -110,7 +116,7 @@ cutover ("What remains").
     answered it); each poll reads the token, no stream, and answers
     whether it moved. Ruling D7 as the owner cut it (2026-10-30): nothing
     outside the process read the per-stream cursor the watch once kept,
-    and `taskloom watch` reduces every change to Go's `changed` line, so
+    and `taskloom tasks watch` reduces every change to Go's `changed` line, so
     the cursor, its deltas and snapshots are gone; nothing numbers across
     streams. The accepted cost: any commit moves the token, so a commit
     no task sees (a purge after its removal, a purge of nothing) is a
@@ -199,7 +205,7 @@ cutover ("What remains").
   `loadout`, Go's `cmd/taskloom/loadout.yaml` with the reviewed factual
   changes (Decided 11), printed in yaml alone (`--format yaml` is accepted by
   `loadout` only).
-- `adapters/driving/tasks-watch`: `taskloom watch` (hidden, as Go's), Go's
+- `adapters/driving/tasks-watch`: `taskloom tasks watch` (hidden, as Go's, until the CLI consolidation listed it), Go's
   line `{"event":"changed","kind":"tasks","project":<id>}` as JSON Lines
   (presentation's `write_json_line`), once at the start and once per burst
   of commits: the use case is polled each tick (100ms, Go's
@@ -242,7 +248,7 @@ cutover ("What remains").
   (Decided 11; since 2026-10-30 they include dropping its MCP server and
   carrying the MCP instructions' rules in its fragment), so a change in
   Go fails a test until the copy is taken up deliberately.
-- The importer (`taskloom import`, Decided 2): each Go record becomes the
+- The importer (`taskloom manage migrate tasks`, Decided 2): each Go record becomes the
   command that did what it did, run at the instant Go recorded it (annals'
   `Sampled.now`), so `created_at`, `status_set_at` and `deferred_since`
   keep Go's times with no proto change. Records replay in Go's fold order
@@ -265,7 +271,7 @@ cutover ("What remains").
   records out of time order, which the replay order puts right. Re-run
   with tags as tagma's: every task agrees, and all 5200 tags of live
   tasks parse.
-- Healing and repointing: `taskloom project`, its acceptance tests the
+- Healing and repointing: `taskloom manage project`, its acceptance tests the
   binary in a temporary home. A copy that forked its own id is repointed
   to the original's and finds its tasks, its own database then reported
   orphaned and removed by name; a lost marker is shown and healed from the

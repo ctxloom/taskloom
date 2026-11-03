@@ -31,8 +31,8 @@ message SchemaState {
 // first, then the removes, so a tag named in both ends up removed. Refused
 // when it names no tag (SchemaRejection::TagRequired), and when a tag is
 // outside `tagma.*` and `taskloom.*` (SchemaRejection::NotConfig): a task's
-// tag, not a rule. A malformed config tag is recorded: `taskloom schema
-// check` (tagma's check) reports it.
+// tag, not a rule. A malformed config tag is recorded: `taskloom manage
+// schema check` (tagma's check) reports it.
 message Declare {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.tasks.v1.SchemaState"

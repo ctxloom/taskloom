@@ -43,16 +43,17 @@ stream; a store holding no permit as a presence (one from before F6, open
 or closed by `"*:*"=false`) has the seed's permits written on its first
 open, its `=true` permits kept as presences, its other valued ones dropped.
 
-**CLI.** `schema` / `schema show` (same JSON shape as now), `schema
-export`, `schema check` (exits non-zero on findings), `schema declare
---add/--remove`, `schema import-config`. `permit X` adds
+**CLI.** `manage schema show` (same JSON shape as now), `manage schema
+export`, `manage schema check` (exits non-zero on findings), `manage schema
+declare --add/--remove` (a preview unless `--yes`), `manage migrate schema`.
+`manage schema permits add X` adds
 `tagma.permit:"X"`, a presence (`area:` becomes `"area:*"`), and nothing
-else. `revoke` is refused while any task carries a tag it admits, and the
+else. `permits remove` is refused while any task carries a tag it admits, and the
 error lists them. The loadout names each of these commands as person-only.
 
 **Migration.** The `tag_schema`/`tag_permits` keys (home, work root, env,
 `--config-set`) are refused with `tasks-config-key-moved`, which names
-`taskloom schema import-config`. That command declares the work root's
+`taskloom manage migrate schema`. That command declares the work root's
 keys in the store once, then removes them from the file, keeping its other
 keys and comments.
 

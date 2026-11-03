@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compare `taskloom import` with Go taskloom's fold, task by task.
+# Compare `taskloom manage migrate tasks` with Go taskloom's fold, task by task.
 #
 #   scripts/compare-go-import.sh [LOGS]   compare over the Go logs in LOGS
 #                                         (default ~/.ctxloom/tasks)
