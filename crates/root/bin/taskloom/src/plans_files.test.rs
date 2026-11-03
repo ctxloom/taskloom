@@ -24,7 +24,7 @@ use serde_json::{json, Value};
 
 use super::{binary, disk, Env, Isolated, Ran, Temp};
 
-const SESSION: &str = "plans-files-harp";
+const SESSION: &str = "files-only-harp";
 
 /// How long a watch line may take before the stream is judged dead.
 const PATIENCE: Duration = Duration::from_secs(30);
