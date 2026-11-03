@@ -925,7 +925,7 @@ fn test_manage_hook_stamp_plan_is_a_command_of_manage_hook() {
 
 #[test]
 fn test_manage_migrate_has_two_children_tasks_and_schema() {
-    // orchestrator decision, pending owner review: `plan import` is gone.
+    // owner-accepted 2026-11-03: `plan import` is gone.
     assert_eq!(
         names(&page(&["manage", "migrate"]).long.stdout),
         set(&["tasks", "schema"])
@@ -1381,11 +1381,11 @@ fn test_a_task_no_store_holds_is_answered_with_1_on_show_and_on_set() {
     );
 }
 
-// ------------------------------------------------------------ orchestrator decisions, pending owner review
+// ------------------------------------------------------------ owner-accepted 2026-11-03
 
 #[test]
 fn test_removed_plan_import_says_plans_are_files_and_imports_nothing() {
-    // orchestrator decision, pending owner review.
+    // owner-accepted 2026-11-03.
     let env = Env::new(SESSION);
     let ran = refused(&env, &["plan", "import"], 2);
     assert!(
@@ -1399,13 +1399,29 @@ fn test_removed_plan_import_says_plans_are_files_and_imports_nothing() {
 }
 
 #[test]
-fn test_dry_run_together_with_yes_is_a_usage_error() {
-    // orchestrator decision, pending owner review: contradictory flags.
+fn test_dry_run_together_with_yes_is_absolute_and_applies_nothing() {
+    // owner ruling 2026-11-03: --dry-run wins over --yes; it previews, exit 0.
     let env = Env::new(SESSION);
-    add_task(&env, "Seed");
+    let done = ok(&env, &["tasks", "add", "Finished", "--status", "Done"])["harp_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     ok(&env, &["manage", "schema", "permits", "add", "area:cli"]);
-    for args in [
-        &["tasks", "prune", "--dry-run", "--yes"][..],
+    let prune = ok(
+        &env,
+        &[
+            "tasks",
+            "prune",
+            "--older-than",
+            "1ns",
+            "--dry-run",
+            "--yes",
+        ],
+    );
+    assert_eq!(prune["applied"], false);
+    assert_eq!(prune["pruned"][0]["harp_id"], done.as_str());
+    refused(
+        &env,
         &[
             "manage",
             "schema",
@@ -1415,6 +1431,10 @@ fn test_dry_run_together_with_yes_is_a_usage_error() {
             "--dry-run",
             "--yes",
         ],
+        0,
+    );
+    refused(
+        &env,
         &[
             "manage",
             "schema",
@@ -1424,17 +1444,27 @@ fn test_dry_run_together_with_yes_is_a_usage_error() {
             "--dry-run",
             "--yes",
         ],
-        &["manage", "doctor", "heal", "--dry-run", "--yes"],
-    ] {
-        let ran = refused(&env, args, 2);
-        assert_eq!(ran.stdout, "", "{args:?}");
-    }
+        0,
+    );
+    let heal = ok(&env, &["manage", "doctor", "heal", "--dry-run", "--yes"]);
+    assert_eq!(heal["applied"], false);
     assert_eq!(permitted_keys(&env, "area"), ["cli"], "nothing was applied");
+    assert!(
+        permitted_keys(&env, "zz").is_empty(),
+        "nothing was declared"
+    );
+    assert_eq!(
+        ok(&env, &["tasks", "list", "--all"])
+            .as_array()
+            .map(Vec::len),
+        Some(1),
+        "nothing was pruned"
+    );
 }
 
 #[test]
 fn test_tasks_set_clear_trigger_returns_a_deferred_task_to_the_status_it_held() {
-    // orchestrator decision, pending owner review: --clear-trigger survives.
+    // owner-accepted 2026-11-03: --clear-trigger survives.
     let env = Env::new(SESSION);
     let harp = add_task(&env, "Waits");
     ok(
@@ -1459,7 +1489,7 @@ fn test_tasks_set_clear_trigger_returns_a_deferred_task_to_the_status_it_held() 
 
 #[test]
 fn test_tasks_set_clear_trigger_with_trigger_is_a_usage_error() {
-    // orchestrator decision, pending owner review.
+    // owner-accepted 2026-11-03.
     let env = Env::new(SESSION);
     let harp = add_task(&env, "Idle");
     let ran = refused(
