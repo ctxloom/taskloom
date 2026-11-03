@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
+use angzarr_diagnostic::{code, Diagnostic, Report};
 use file_system::{Fs, Perms, Rooted};
 use os::Mode;
 use ports::PlanFiles;
@@ -24,6 +24,10 @@ fn put(fs: &dyn Fs, path: &str, text: &str) {
         .unwrap();
 }
 
+fn at(path: &str) -> String {
+    slashed(&os::fixture(path))
+}
+
 #[test]
 fn the_work_root_is_the_found_one_slash_separated() {
     let (_fs, files) = tree();
@@ -37,70 +41,105 @@ fn no_work_root_is_the_finders_report() {
     let fs: Arc<dyn Fs> = Arc::new(Rooted::temp().unwrap());
     let files = FsPlanFiles::finding_root(fs, || Err(Report::new("no-root-here")));
     assert_eq!(files.work_root().unwrap_err().code(), "no-root-here");
-    assert_eq!(files.read("a.plan.md"), None);
-    assert_eq!(
-        files.create("a.plan.md", b"x").unwrap_err().code(),
-        "no-root-here"
-    );
-    assert!(files.plan_files(".taskloom/plans").is_empty());
 }
 
 #[test]
-fn read_finds_a_relative_path_under_the_root_and_an_absolute_one_as_given() {
+fn read_gives_the_text_and_none_for_a_missing_file_or_one_that_is_not_utf8() {
     let (fs, files) = tree();
     put(&*fs, "/tree/docs/design.plan.md", "inside");
     put(&*fs, "/home/b/v1.plan.md", "outside");
-    assert_eq!(files.read("docs/design.plan.md"), Some(b"inside".to_vec()));
-    let outside = os::fixture("/home/b/v1.plan.md");
+    fs.write_atomic(
+        &os::fixture("/tree/bin.plan.md"),
+        &[0xff, 0xfe],
+        Perms::Exact(Mode::FILE),
+    )
+    .unwrap();
     assert_eq!(
-        files.read(&outside.to_string_lossy()),
-        Some(b"outside".to_vec())
+        files.read(&at("/tree/docs/design.plan.md")),
+        Some("inside".to_string())
     );
-    assert_eq!(files.read("docs/none.plan.md"), None);
+    assert_eq!(
+        files.read(&at("/home/b/v1.plan.md")),
+        Some("outside".to_string())
+    );
+    assert_eq!(files.read(&at("/tree/docs/none.plan.md")), None);
+    assert_eq!(files.read(&at("/tree/bin.plan.md")), None);
 }
 
 #[test]
 fn create_makes_the_file_and_its_directories_and_never_overwrites() {
     let (fs, files) = tree();
+    let path = at("/tree/.taskloom/plans/a.plan.md");
+    assert_eq!(files.create(&path, "first"), Ok(true));
+    assert_eq!(files.create(&path, "second"), Ok(false));
     assert_eq!(
-        files.create(".taskloom/plans/a.plan.md", b"first"),
-        Ok(true)
-    );
-    assert_eq!(
-        files.create(".taskloom/plans/a.plan.md", b"second"),
-        Ok(false)
-    );
-    let written = fs
-        .read(&os::fixture("/tree/.taskloom/plans/a.plan.md"))
-        .unwrap();
-    assert_eq!(written, b"first");
-}
-
-#[test]
-fn a_create_that_fails_says_where_and_why() {
-    let (fs, files) = tree();
-    // A file where its directory must go.
-    put(&*fs, "/tree/.taskloom/plans", "not a directory");
-    let refused = files.create(".taskloom/plans/a.plan.md", b"x").unwrap_err();
-    assert_eq!(refused.code(), code!("create"));
-    assert!(
-        matches!(&refused.args()[0], ("path", Arg::Str(p)) if p == ".taskloom/plans/a.plan.md"),
-        "{refused}"
+        fs.read_to_string(&os::fixture("/tree/.taskloom/plans/a.plan.md"))
+            .unwrap(),
+        "first"
     );
 }
 
 #[test]
-fn plan_files_lists_the_plan_files_directly_under_a_directory_sorted() {
+fn create_in_a_place_that_cannot_hold_it_is_the_create_error() {
     let (fs, files) = tree();
-    put(&*fs, "/tree/.taskloom/plans/b.plan.md", "b");
-    put(&*fs, "/tree/.taskloom/plans/a.plan.md", "a");
-    put(&*fs, "/tree/.taskloom/plans/notes.md", "n");
-    put(&*fs, "/tree/.taskloom/plans/deeper/c.plan.md", "c");
+    put(&*fs, "/tree/blocker", "a file, not a directory");
+    let error = files
+        .create(&at("/tree/blocker/a.plan.md"), "x")
+        .unwrap_err();
+    assert_eq!(error.code(), code!("create"));
+}
+
+#[test]
+fn replace_swaps_the_text_whole_and_a_missing_directory_is_the_replace_error() {
+    let (fs, files) = tree();
+    put(&*fs, "/tree/a.plan.md", "old");
+    assert_eq!(files.replace(&at("/tree/a.plan.md"), "new"), Ok(()));
+    assert_eq!(files.read(&at("/tree/a.plan.md")), Some("new".to_string()));
+    let error = files
+        .replace(&at("/tree/nowhere/a.plan.md"), "x")
+        .unwrap_err();
+    assert_eq!(error.code(), code!("replace"));
+}
+
+#[test]
+fn scan_finds_plan_files_at_any_depth_sorted_and_skips_what_is_not_a_plan_or_is_vcs() {
+    let (fs, files) = tree();
+    for path in [
+        "/tree/b.plan.md",
+        "/tree/a.plan.md",
+        "/tree/docs/deep/c.plan.md",
+        "/tree/.taskloom/plans/d.plan.md",
+        "/tree/notes.md",
+        "/tree/x.plan.txt",
+        "/tree/.git/e.plan.md",
+        "/tree/node_modules/f.plan.md",
+        "/tree/target/g.plan.md",
+    ] {
+        put(&*fs, path, "x");
+    }
     assert_eq!(
-        files.plan_files(".taskloom/plans"),
-        vec![".taskloom/plans/a.plan.md", ".taskloom/plans/b.plan.md"]
+        files.scan(&at("/tree")),
+        [
+            at("/tree/.taskloom/plans/d.plan.md"),
+            at("/tree/a.plan.md"),
+            at("/tree/b.plan.md"),
+            at("/tree/docs/deep/c.plan.md"),
+        ]
     );
-    assert!(files.plan_files("docs").is_empty());
+    assert_eq!(files.scan(&at("/tree/nothing")), Vec::<String>::new());
+}
+
+#[test]
+fn scan_does_not_follow_a_link_to_a_directory() {
+    let (fs, files) = tree();
+    put(&*fs, "/elsewhere/z.plan.md", "x");
+    fs.create_dir_all(&os::fixture("/tree"), Mode::DIR).unwrap();
+    if fs
+        .symlink_dir(&os::fixture("/elsewhere"), &os::fixture("/tree/link"))
+        .is_ok()
+    {
+        assert_eq!(files.scan(&at("/tree")), Vec::<String>::new());
+    }
 }
 
 #[test]

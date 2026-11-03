@@ -5,7 +5,6 @@ use std::io::{self, Write};
 
 use angzarr_presentation::{Catalog, Format};
 use clap::Args;
-use plans_application::Governing;
 use tasks_application::{
     Declaration, ListQuery, Listing, NewTask, PermitChange, PermitService, PruneRequest,
     PruneService, Reach, SchemaService, Scope, ShowQuery, TagChange, TaskService, TaskSet,
@@ -254,14 +253,11 @@ pub struct ShowArgs {
     harp_ids: Vec<String>,
 }
 
-/// The tasks `args` names, and the plans governing each: the tasks'
-/// `show`, then the plans' `governing` of the tasks it found, each in the
-/// project it was found in.
+/// The tasks `args` names.
 pub(crate) async fn show(
     args: ShowArgs,
     ctx: Ctx<'_>,
     service: &mut impl TaskService,
-    plans: &mut impl Governing,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<(), CliError> {
@@ -270,16 +266,7 @@ pub(crate) async fn show(
         harp_ids: args.harp_ids,
     };
     let details = service.show(query).await.map_err(CliError::App)?;
-    let tasks: Vec<_> = details
-        .rows
-        .iter()
-        .map(|row| (row.project.clone(), row.task.harp_id.clone()))
-        .collect();
-    let governing = plans.governing(&tasks).await.map_err(CliError::Plans)?;
-    let view = Detailed {
-        details: &details,
-        governing: &governing,
-    };
+    let view = Detailed { details: &details };
     read_in(&details.reach, ctx.catalog, err)
         .and_then(|()| angzarr_presentation::render(out, ctx.format, &view))
         .map_err(output_failed)

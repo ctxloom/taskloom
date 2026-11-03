@@ -171,7 +171,7 @@ fn test_admitting_every_tag_stops_at_the_first_refused() {
 
 // ------------------------------------------------------------ retired
 
-// Plans replace `ctxloom:plan` (docs/plans/plans-aggregate.md): a write
+// Plans replace `ctxloom:plan` (a plan file's `governs:` frontmatter): a write
 // adding it is refused, whatever its value; other ctxloom tags are not.
 #[test]
 fn test_the_retired_plan_tag_is_refused_and_no_other() {

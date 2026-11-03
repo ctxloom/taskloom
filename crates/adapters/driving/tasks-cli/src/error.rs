@@ -4,7 +4,6 @@ use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
 use angzarr_presentation::UnknownFormat;
-use plans_application::PlanError;
 use tasks_application::AppError;
 
 #[cfg(any(test, feature = "test-support"))]
@@ -14,9 +13,6 @@ use crate::Notice;
 pub enum CliError {
     /// The use case failed: its error's diagnostic.
     App(AppError),
-    /// The plans' half of `show` (the plans governing each task) failed:
-    /// its error's diagnostic.
-    Plans(PlanError),
     /// The answer could not be written out.
     Output { detail: String },
     /// An import left something behind: projects it stopped in, and
@@ -38,8 +34,6 @@ pub enum CliError {
     SchemaFindings { count: usize },
     /// A spelling that was removed, not aliased: what to use instead.
     Removed { instead: String },
-    /// A command whose place is built and whose work is not yet.
-    NotBuilt { command: &'static str },
     /// `plan import`, removed: plans are files, so there is nothing to
     /// import.
     PlanImportRemoved,
@@ -56,9 +50,7 @@ impl CliError {
     pub fn exit_code(&self) -> u8 {
         match self {
             CliError::App(error) => error.exit_code(),
-            CliError::Plans(_)
-            | CliError::NotBuilt { .. }
-            | CliError::Output { .. }
+            CliError::Output { .. }
             | CliError::Incomplete { .. }
             | CliError::LintViolations { .. }
             | CliError::LintCheckedNothing
@@ -82,7 +74,6 @@ impl Diagnostic for CliError {
     fn code(&self) -> &str {
         match self {
             CliError::App(error) => error.code(),
-            CliError::Plans(error) => error.code(),
             CliError::Output { .. } => code!("output"),
             CliError::Incomplete { .. } => code!("import-incomplete"),
             CliError::Usage { .. } => code!("usage"),
@@ -93,14 +84,12 @@ impl Diagnostic for CliError {
             CliError::SchemaFindings { .. } => code!("schema-findings"),
             CliError::Removed { .. } => code!("removed"),
             CliError::PlanImportRemoved => code!("plan-import-removed"),
-            CliError::NotBuilt { .. } => code!("not-built"),
         }
     }
 
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             CliError::App(error) => error.args(),
-            CliError::Plans(error) => error.args(),
             CliError::Output { detail } | CliError::Usage { detail } => {
                 vec![("ext_err_txt", detail.as_str().into())]
             }
@@ -114,7 +103,6 @@ impl Diagnostic for CliError {
             }
             CliError::LintCheckedNothing | CliError::PlanImportRemoved => Vec::new(),
             CliError::Removed { instead } => vec![("instead", instead.as_str().into())],
-            CliError::NotBuilt { command } => vec![("command", (*command).into())],
         }
     }
 }
@@ -148,9 +136,6 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             instead: "tasks add".to_string(),
         }),
         Box::new(CliError::PlanImportRemoved),
-        Box::new(CliError::NotBuilt {
-            command: "manage hook stamp-plan",
-        }),
         Box::new(Notice::Preview {
             command: "taskloom manage schema permits remove area:cli --yes".to_string(),
         }),

@@ -2,7 +2,7 @@
 
 use angzarr_diagnostic::Report;
 
-use crate::{Configuration, ConfigurationWriter, JsonlOp, Mint, PlanFiles, TagPermits, Tasks};
+use crate::{Configuration, ConfigurationWriter, JsonlOp, Mint, PlanFiles, TagPermits};
 
 #[test]
 fn test_a_jsonl_op_is_spelled_as_the_log_spells_it() {
@@ -49,14 +49,20 @@ impl PlanFiles for Files {
     fn work_root(&self) -> Result<String, Report> {
         Ok("/work".to_string())
     }
-    fn read(&self, path: &str) -> Option<Vec<u8>> {
-        (path == "a.plan.md").then(|| b"# A".to_vec())
+    fn read(&self, path: &str) -> Option<String> {
+        (path == "/work/a.plan.md").then(|| "# A".to_string())
     }
-    fn create(&self, path: &str, _text: &[u8]) -> Result<bool, Report> {
-        Ok(path == "new.plan.md")
+    fn replace(&self, path: &str, _text: &str) -> Result<(), Report> {
+        match path == "/work/a.plan.md" {
+            true => Ok(()),
+            false => Err(Report::new("x-missing")),
+        }
     }
-    fn plan_files(&self, dir: &str) -> Vec<String> {
-        vec![format!("{dir}/a.plan.md")]
+    fn create(&self, path: &str, _text: &str) -> Result<bool, Report> {
+        Ok(path == "/work/new.plan.md")
+    }
+    fn scan(&self, root: &str) -> Vec<String> {
+        vec![format!("{root}/a.plan.md")]
     }
 }
 
@@ -66,13 +72,18 @@ impl PlanFiles for Files {
 fn test_borrowed_plan_files_answer_as_the_files_do() {
     let files = &Files;
     assert_eq!(PlanFiles::work_root(&files), Ok("/work".to_string()));
-    assert_eq!(PlanFiles::read(&files, "a.plan.md"), Some(b"# A".to_vec()));
-    assert_eq!(PlanFiles::read(&files, "b.plan.md"), None);
-    assert_eq!(PlanFiles::create(&files, "new.plan.md", b""), Ok(true));
-    assert_eq!(PlanFiles::create(&files, "a.plan.md", b""), Ok(false));
     assert_eq!(
-        PlanFiles::plan_files(&files, "plans"),
-        vec!["plans/a.plan.md".to_string()]
+        PlanFiles::read(&files, "/work/a.plan.md"),
+        Some("# A".to_string())
+    );
+    assert_eq!(PlanFiles::read(&files, "/work/b.plan.md"), None);
+    assert_eq!(PlanFiles::replace(&files, "/work/a.plan.md", ""), Ok(()));
+    assert!(PlanFiles::replace(&files, "/work/b.plan.md", "").is_err());
+    assert_eq!(PlanFiles::create(&files, "/work/new.plan.md", ""), Ok(true));
+    assert_eq!(PlanFiles::create(&files, "/work/a.plan.md", ""), Ok(false));
+    assert_eq!(
+        PlanFiles::scan(&files, "/work/plans"),
+        vec!["/work/plans/a.plan.md".to_string()]
     );
 }
 
@@ -87,26 +98,6 @@ impl Mint for Words {
 #[test]
 fn test_a_borrowed_mint_mints_as_the_mint_does() {
     assert_eq!(Mint::mint(&&Words), "brisk-cedar-otter");
-}
-
-/// Tasks that keep no dead letters of their own.
-struct NoTasks;
-
-impl Tasks for NoTasks {
-    async fn exists(&mut self, _harp_id: &str) -> Result<bool, Report> {
-        Ok(false)
-    }
-    async fn tagged(&mut self, _key: &str) -> Result<Vec<(String, String)>, Report> {
-        Ok(Vec::new())
-    }
-    async fn untag(&mut self, _harp_id: &str, _key: &str, _value: &str) -> Result<(), Report> {
-        Ok(())
-    }
-}
-
-#[test]
-fn test_tasks_dead_letter_nothing_by_default() {
-    assert!(NoTasks.dead_letters().is_empty());
 }
 
 /// A writer that knows nothing of the moved keys.

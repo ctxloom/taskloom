@@ -20,4 +20,3 @@ report-only = removed nothing: this was a report, not a removal; to apply exactl
 removed = removed: use { $instead }
 plan-import-removed = removed: plans are files; there is nothing to import
 preview = changed nothing: this was a preview; to apply exactly this, run it again with --yes: { $command }
-not-built = { $command } is not built yet

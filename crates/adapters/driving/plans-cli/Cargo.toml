@@ -1,7 +1,7 @@
 [package]
 name = "plans-cli"
 version = "0.1.0"
-description = "The plan command group (add, list, show, status, link, unlink, check, import), for any binary to mount: arguments parsed into the plans use cases, and their answers rendered as text or JSON"
+description = "The plan command group (add, list, show, set, tag, link, unlink, check, watch) and the stamp-plan hook, for any binary to mount: arguments parsed into the plans use cases, and their answers rendered as text or JSON"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -13,14 +13,15 @@ clap.workspace = true
 plans-application.workspace = true
 angzarr-presentation.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+# The watch's stop is a future the binary hands in, and its ticks are a
+# trait; this crate starts no runtime.
 
 [dev-dependencies]
 # The test support's block_on_ready.
 angzarr-embedded = { workspace = true, features = ["test-support"] }
 fluent-syntax.workspace = true
-# Its `dead_letter_sample`, a letter for the tests to say.
 plans-application = { workspace = true, features = ["test-support"] }
-serde_json.workspace = true
 
 [build-dependencies]
 # The build writes the catalog's source under the crate's name

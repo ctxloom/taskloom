@@ -1438,39 +1438,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "plan-lists"
-version = "0.1.0"
-dependencies = [
- "angzarr-embedded",
- "plans",
-]
-
-[[package]]
-name = "plans"
-version = "0.1.0"
-dependencies = [
- "angzarr-build",
- "angzarr-diagnostic",
- "angzarr-embedded",
- "angzarr-embedded-macros",
- "fluent-syntax",
- "plans-proto",
- "prost",
-]
-
-[[package]]
 name = "plans-application"
 version = "0.1.0"
 dependencies = [
  "angzarr-diagnostic",
  "angzarr-embedded",
+ "angzarr-yaml",
  "fluent-syntax",
- "kernel-runner",
  "mutants",
- "plan-lists",
- "plans",
  "ports",
- "sha2",
+ "tag-rules",
+ "tagma-core",
  "tasks-application",
 ]
 
@@ -1486,15 +1464,6 @@ dependencies = [
  "plans-application",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "plans-proto"
-version = "0.1.0"
-dependencies = [
- "angzarr-build",
- "prost",
- "prost-types",
 ]
 
 [[package]]
@@ -2439,7 +2408,6 @@ dependencies = [
  "kernel-runner",
  "os",
  "plan-files",
- "plans",
  "plans-application",
  "plans-cli",
  "ports",
@@ -2508,7 +2476,6 @@ dependencies = [
  "angzarr-presentation",
  "clap",
  "fluent-syntax",
- "plans-application",
  "serde",
  "serde_json",
  "tasks-application",
@@ -2545,7 +2512,6 @@ dependencies = [
  "jsonl-task-log",
  "os",
  "plan-files",
- "plans",
  "plans-application",
  "project-application",
  "project-cli",

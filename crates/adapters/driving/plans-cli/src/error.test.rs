@@ -61,15 +61,16 @@ fn every_code_is_prefixed_with_the_crates_name() {
 }
 
 #[test]
-fn a_usage_error_exits_2_and_any_other_1() {
+fn a_request_invalid_on_its_own_content_exits_2_and_any_other_1() {
     use crate::CliError;
     use plans_application::PlanError;
 
     assert_eq!(CliError::NoLink { command: "unlink" }.exit_code(), 2);
     assert_eq!(
-        CliError::UnknownStatus { status: "x".into() }.exit_code(),
+        CliError::Plan(PlanError::UnknownStatus { status: "x".into() }).exit_code(),
         2
     );
+    assert_eq!(CliError::Plan(PlanError::NoChange).exit_code(), 2);
     assert_eq!(
         CliError::Plan(PlanError::NoSuchPlan("p".into())).exit_code(),
         1

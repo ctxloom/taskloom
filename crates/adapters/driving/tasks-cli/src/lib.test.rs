@@ -19,7 +19,7 @@ use tasks_application::{
 
 use angzarr_presentation::Catalog;
 
-use super::{parse, run, run_import, Command, Context, Globals, UseCases};
+use super::{parse, run, run_import, Command, Context, Globals};
 
 mod shapes {
     use tasks_application::{Task, Timestamp};
@@ -93,48 +93,11 @@ struct Fake {
     permit_lists: usize,
     schema: Option<Result<SchemaSummary, AppError>>,
     schemas: usize,
-    /// The plans' answer to `governing` (none for every task when left
-    /// out), and every set of tasks it was asked about.
-    governing: Option<Result<Vec<Vec<String>>, plans_application::PlanError>>,
-    governed: Vec<Vec<(tasks_application::Project, String)>>,
 }
 
-/// The plans' half of `show`, over a [`Fake`]'s answer, which it takes,
-/// recording what it was asked into the fake's `governed`.
-struct FakePlans<'f> {
-    answer: Option<Result<Vec<Vec<String>>, plans_application::PlanError>>,
-    governed: &'f mut Vec<Vec<(tasks_application::Project, String)>>,
-}
-
-impl plans_application::Governing for FakePlans<'_> {
-    async fn governing(
-        &mut self,
-        tasks: &[(tasks_application::Project, String)],
-    ) -> Result<Vec<Vec<String>>, plans_application::PlanError> {
-        self.governed.push(tasks.to_vec());
-        self.answer
-            .take()
-            .unwrap_or_else(|| Ok(vec![Vec::new(); tasks.len()]))
-    }
-}
-
-/// `fake` as the use cases a command runs on: its tasks' half, and its
-/// plans' answer as their half.
-fn run_with<R>(fake: &mut Fake, call: impl FnOnce(UseCases<'_, Fake, FakePlans<'_>>) -> R) -> R {
-    let answer = fake.governing.take();
-    let mut governed = std::mem::take(&mut fake.governed);
-    let result = {
-        let mut plans = FakePlans {
-            answer,
-            governed: &mut governed,
-        };
-        call(UseCases {
-            tasks: fake,
-            plans: &mut plans,
-        })
-    };
-    fake.governed = governed;
-    result
+/// `fake` as the use cases a command runs on.
+fn run_with<R>(fake: &mut Fake, call: impl FnOnce(&mut Fake) -> R) -> R {
+    call(fake)
 }
 
 impl TaskService for Fake {
@@ -990,50 +953,19 @@ fn details(reach: Reach, tasks: Vec<Task>) -> Option<Result<Details, AppError>> 
 }
 
 #[test]
-fn test_show_in_text_names_the_plans_governing_a_task() {
-    let details = details(
-        Reach::Project(project()),
-        vec![shapes::task("swift-amber", "To Do")],
-    );
-    let mut fake = Fake {
-        details,
-        governing: Some(Ok(vec![vec![
-            "brisk-cedar".to_string(),
-            "calm-heron".to_string(),
-        ]])),
-        ..Fake::default()
-    };
-    let ran = run_on(&mut fake, true, &["tasks", "show", "swift-amber"]);
-    assert_eq!(ran.code, 0, "{}", ran.err);
-    assert!(
-        ran.out.contains("\n    plans: brisk-cedar, calm-heron\n"),
-        "{}",
-        ran.out
-    );
-    assert_eq!(
-        fake.governed,
-        [vec![(project(), "swift-amber".to_string())]],
-        "the plans asked about each task found, in its project"
-    );
-}
-
-// The plans' half failing fails `show`, under the plans' error.
-#[test]
-fn test_show_whose_plans_cannot_be_read_says_why() {
+fn test_show_in_text_prints_no_plans_line() {
+    // A task keeps no plan link: the plans' `governs:` is found with
+    // `plans list --governs`.
     let mut fake = Fake {
         details: details(
             Reach::Project(project()),
             vec![shapes::task("swift-amber", "To Do")],
         ),
-        governing: Some(Err(plans_application::PlanError::Failed(
-            angzarr_diagnostic::Report::new("x-broken"),
-        ))),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, false, &["tasks", "show", "swift-amber"]);
-    assert_eq!(ran.code, 1);
-    let envelope: serde_json::Value = serde_json::from_str(&ran.err).unwrap();
-    assert_eq!(envelope["code"], "x-broken", "{}", ran.err);
+    let ran = run_on(&mut fake, true, &["tasks", "show", "swift-amber"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert!(!ran.out.contains("plans:"), "{}", ran.out);
 }
 
 #[test]

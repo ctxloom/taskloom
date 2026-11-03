@@ -77,12 +77,17 @@ tasks-application is the example:
   prefixed with its crate's name and is public (the CLI's JSON carries
   it), so the use cases share the context's `AppError` and codes.
 
-plans-application is laid out the same way: `add.rs` (`Adding`),
-`change.rs` (`Changing`: status, link, unlink), `read.rs` (`Reading`:
-list, show), `check.rs` (`Checking`) and `import.rs` (`Importing`) over
-`project.rs` (`Projects`: resolve, open, a plan's stream, the plan list),
-`write.rs` (`Writes`) and `tree.rs` (`Tree`: the writes and the work
-tree's files), composed by `PlanService` (`service.rs`).
+plans-application is not an aggregate's crate: plans are files, nothing
+in the store (the owner's ruling, 2026-11-03). Its `front.rs` finds a
+file's frontmatter between the `---` fences, reads it and edits it in
+place through angzarr-yaml's editor (the body, comments, ordering and
+unknown keys untouched; a file with none gets a fence block; the editor
+reads each edit back); `plan.rs` is a plan as read (with `superseded`
+derived across files, never written); `watch.rs` what differs between two
+snapshots of the files; `service.rs` the `PlanService`, the use cases over
+the `PlanFiles`, `Tasks` (a task exists; the store's tag rules), `Mint`
+and `Configuration` (`plan_roots`) ports. A plan's tags are held to the
+store's rules by `tag-rules`, the crate tasks share.
 
 The domain crates keep their hand-written markup (`aggregate.rs` beside
 the rules in `lib.rs`) rather than blackjack's generated adapter over a
@@ -159,15 +164,12 @@ Dependencies point inward; a review refuses a change that breaks these:
   projection); a read model never depends on the application layer (a query
   issues no command).
 - Contexts depend one way, downstream on upstream. Plans are downstream of
-  the tasks (a plan's links name task ids; a task names no plan): the plans
-  crates may depend on the tasks' application crate (its published use
-  cases, which plans reach through their own `Tasks` port, `ProjectTasks`;
-  the retired task tag), and no tasks crate names a plan. A view joining
-  the two, such as `show`'s governing plans, is the driving adapter's,
-  composed from each context's own query (`TaskService::show`, then
-  plans-application's `Governing`). A policy could carry it once policies
-  emit facts (ruled, not yet built): today's policies stay within one
-  domain.
+  the tasks (a plan's `governs:` names task ids; a task names no plan, and
+  `tasks show` prints no plans line): plans-application depends on the
+  tasks' application crate for its `Tasks` port (`ProjectTasks`: whether a
+  task exists, and the store's rules) and on `tag-rules`, and no tasks
+  crate names a plan. The task-to-plan lookup is `plans list --governs`,
+  which reads the plan files.
 - Entities are aggregates; anything listed is a projector's read model,
   never an aggregate. Nothing numbers across streams (ruling D7). A watch
   keeps no cursor (the owner's cut of D7, 2026-10-30): it holds only the

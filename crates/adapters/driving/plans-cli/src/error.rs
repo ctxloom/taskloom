@@ -11,20 +11,28 @@ pub enum CliError {
     Plan(PlanError),
     /// The answer could not be written out.
     Output { detail: String },
-    /// A status that is none of the plan statuses: a usage error.
-    UnknownStatus { status: String },
-    /// `plan link` or `unlink` naming no link: a usage error.
+    /// `plans link` or `unlink` naming no link: a usage error.
     NoLink { command: &'static str },
-    /// `plan show` in text, whose answer is the file, of a plan whose file
-    /// is missing.
-    FileMissing { plan: String, path: String },
+    /// The stamp-plan hook was given a payload that is not JSON; `detail`
+    /// is the parser's text.
+    HookPayload { detail: String },
+    /// The stamp-plan hook's payload names no file.
+    HookNoFile,
+    /// The stamp-plan hook could not stamp: said, and the hook ends well
+    /// all the same, since it must not block the edit it follows.
+    HookFailed { error: PlanError },
+    /// The watch could not go on.
+    WatchFailed { error: PlanError },
 }
 
 impl CliError {
-    /// The exit code it ends the command with: 2 for a usage error, else 1.
+    /// The exit code it ends the command with: 2 for a request invalid on
+    /// its own content (a usage error the parser cannot see, a status that
+    /// is none, a tag no rule admits, a blank root), else 1.
     pub fn exit_code(&self) -> u8 {
         match self {
-            CliError::UnknownStatus { .. } | CliError::NoLink { .. } => 2,
+            CliError::NoLink { .. } => 2,
+            CliError::Plan(error) if error.invalid() => 2,
             _ => 1,
         }
     }
@@ -41,9 +49,11 @@ impl Diagnostic for CliError {
         match self {
             CliError::Plan(error) => error.code(),
             CliError::Output { .. } => code!("output"),
-            CliError::UnknownStatus { .. } => code!("unknown-status"),
             CliError::NoLink { .. } => code!("no-link"),
-            CliError::FileMissing { .. } => code!("file-missing"),
+            CliError::HookPayload { .. } => code!("hook-payload"),
+            CliError::HookNoFile => code!("hook-no-file"),
+            CliError::HookFailed { .. } => code!("hook-failed"),
+            CliError::WatchFailed { .. } => code!("watch-failed"),
         }
     }
 
@@ -51,12 +61,12 @@ impl Diagnostic for CliError {
         match self {
             CliError::Plan(error) => error.args(),
             CliError::Output { detail } => vec![("ext_err_txt", detail.as_str().into())],
-            CliError::UnknownStatus { status } => vec![("status", status.as_str().into())],
             CliError::NoLink { command } => vec![("command", (*command).into())],
-            CliError::FileMissing { plan, path } => vec![
-                ("plan", plan.as_str().into()),
-                ("path", path.as_str().into()),
-            ],
+            CliError::HookPayload { detail } => vec![("ext_err_txt", detail.as_str().into())],
+            CliError::HookNoFile => Vec::new(),
+            CliError::HookFailed { error } | CliError::WatchFailed { error } => {
+                vec![("error", Arg::nested(error))]
+            }
         }
     }
 }
@@ -76,13 +86,16 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(CliError::Output {
             detail: "broken pipe".to_string(),
         }),
-        Box::new(CliError::UnknownStatus {
-            status: "nope".to_string(),
-        }),
         Box::new(CliError::NoLink { command: "link" }),
-        Box::new(CliError::FileMissing {
-            plan: "brisk-cedar-otter".to_string(),
-            path: ".taskloom/plans/brisk-cedar-otter.plan.md".to_string(),
+        Box::new(CliError::HookPayload {
+            detail: "expected value at line 1".to_string(),
+        }),
+        Box::new(CliError::HookNoFile),
+        Box::new(CliError::HookFailed {
+            error: PlanError::NoChange,
+        }),
+        Box::new(CliError::WatchFailed {
+            error: PlanError::NoChange,
         }),
     ]
 }

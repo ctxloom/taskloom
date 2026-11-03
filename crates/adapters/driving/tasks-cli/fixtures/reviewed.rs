@@ -15,10 +15,61 @@
 /// The reference loadout document, reviewed.
 pub fn loadout() -> String {
     applied(
-        &applied(include_str!("go/loadout.yaml"), LOADOUT),
-        CONSOLIDATION,
+        &applied(
+            &applied(include_str!("go/loadout.yaml"), LOADOUT),
+            CONSOLIDATION,
+        ),
+        PLANS_AS_FILES,
     )
 }
+
+/// Plans become files (slice C, owner-ruled 2026-11-03), applied after the
+/// changes above: the post-file-edit hook is `taskloom manage hook
+/// stamp-plan` (taskloom is the one writer of a plan's `sessions:`), and a
+/// plan is a `*.plan.md` file whose frontmatter holds its id, status, tags
+/// and the tasks it governs. Each `old` is the text above's result.
+pub const PLANS_AS_FILES: &[(&str, &str)] = &[
+    (
+        concat!(
+            "      2. PostFileEdit matcher=plan files \u{2192} ctxloom hook stamp-plan\n",
+            "         Records the active session's harp name in the file's YAML\n",
+            "         frontmatter `sessions:` list. Plans and sessions cross-reference\n",
+            "         automatically.\n",
+        ),
+        concat!(
+            "      2. PostFileEdit \u{2192} taskloom manage hook stamp-plan\n",
+            "         Records the active session's harp name in a plan file's (`*.plan.md`)\n",
+            "         YAML frontmatter `sessions:` list; taskloom is the one writer of\n",
+            "         that key. Plans and sessions cross-reference automatically.\n",
+        ),
+    ),
+    (
+        r##"      # tools. Plan-file filtering happens inside stamp-plan via
+      # plans.IsPlanFile so the hook is cheap to install on every edit.
+      - command: ctxloom
+        args: [hook, stamp-plan]
+"##,
+        r##"      # tools. Plan-file filtering happens inside stamp-plan (a file named
+      # *.plan.md) so the hook is cheap to install on every edit.
+      - command: taskloom
+        args: [manage, hook, stamp-plan]
+"##,
+    ),
+    (
+        r##"        When you edit a plan file (`CURRENT_PLAN.md`, `*-plan.md`,
+        `docs/*-plan.md`), the active session's harp name is auto-stamped
+        into the file's YAML frontmatter `sessions:` list. Plans and
+        sessions cross-reference without a separate database.
+"##,
+        r##"        When you edit a plan file (`*.plan.md`), the active session's harp
+        name is auto-stamped into the file's YAML frontmatter `sessions:`
+        list. Plans and sessions cross-reference without a separate
+        database. A plan is that file: its frontmatter holds its id, title,
+        status, tags and the tasks it governs (`taskloom plans list
+        --governs <harp>` finds a task's plans).
+"##,
+    ),
+];
 
 /// The CLI consolidation (slice A, owner-ruled 2026-11-03), applied after
 /// the changes above: the commands are `taskloom <noun> <verb>` (`tasks`,

@@ -65,28 +65,86 @@ fn every_code_is_prefixed_with_the_crates_name() {
 #[test]
 fn a_wrapper_is_its_causes_diagnostic() {
     use angzarr_diagnostic::Diagnostic;
+    use tag_rules::{RulesRefusal, TagRefusal};
 
-    use crate::{PathError, PlanError, PlanRejection};
+    use crate::PlanError;
 
-    let rejection = PlanRejection::NotGoverned("t".into());
-    let rejected = PlanError::Rejected(rejection.clone());
-    assert_eq!(rejected.code(), rejection.code());
-    assert_eq!(rejected.to_string(), rejection.to_string());
-    let path = PlanError::Path(PathError::NotAPlanFile("x.md".into()));
+    let refusal = TagRefusal::Blank;
+    assert_eq!(PlanError::Tag(refusal.clone()).code(), refusal.code());
+    let rules = RulesRefusal {
+        findings: "not-in-enum area:x=b".into(),
+    };
     assert_eq!(
-        path.to_string(),
-        concat!(code!("not-a-plan-file"), " path=x.md")
+        PlanError::Rules(rules.clone()).to_string(),
+        rules.to_string()
     );
     let report = angzarr_diagnostic::Report::new("x-busy");
     for wrapper in [
+        PlanError::Config(report.clone()),
         PlanError::NoWorkRoot(report.clone()),
-        PlanError::Identity(report.clone()),
         PlanError::Files(report.clone()),
-        PlanError::Tasks(report.clone()),
-        PlanError::Failed(report),
+        PlanError::Tasks(report),
     ] {
         assert_eq!(wrapper.code(), "x-busy");
     }
+}
+
+#[test]
+fn a_request_invalid_on_its_own_content_is_told_from_one_that_ran_against_state() {
+    use crate::PlanError;
+
+    let report = angzarr_diagnostic::Report::new("x-busy");
+    for invalid in [
+        PlanError::UnknownStatus { status: "x".into() },
+        PlanError::HandSuperseded,
+        PlanError::NoChange,
+        PlanError::BlankTitle,
+        PlanError::NotAPlanPath { path: "x".into() },
+        PlanError::Tag(tag_rules::TagRefusal::Blank),
+        PlanError::Rules(tag_rules::RulesRefusal {
+            findings: "x".into(),
+        }),
+        PlanError::SupersedeSelf { plan: "x".into() },
+        PlanError::SupersedeCycle {
+            plan: "x".into(),
+            target: "y".into(),
+        },
+        PlanError::TagQuery {
+            query: "x".into(),
+            postfix: "y".into(),
+        },
+        PlanError::Config(report.clone()),
+    ] {
+        assert!(invalid.invalid(), "{invalid}");
+    }
+    for negative in [
+        PlanError::NoSuchPlan("x".into()),
+        PlanError::NoSuchTask("x".into()),
+        PlanError::Ambiguous {
+            id: "x".into(),
+            paths: "y".into(),
+        },
+        PlanError::NoId { path: "x".into() },
+        PlanError::Unreadable { path: "x".into() },
+        PlanError::FileExists { path: "x".into() },
+        PlanError::HarpsExhausted { attempts: 1 },
+        PlanError::NoWorkRoot(report.clone()),
+        PlanError::Files(report.clone()),
+        PlanError::Tasks(report),
+    ] {
+        assert!(!negative.invalid(), "{negative}");
+    }
+}
+
+#[test]
+fn a_finding_names_its_file() {
+    use crate::Finding;
+
+    let finding = Finding::NoId {
+        path: "/tree/a.plan.md".into(),
+    };
+    assert_eq!(finding.path(), "/tree/a.plan.md");
+    assert!(finding.to_string().contains("path=/tree/a.plan.md"));
 }
 
 /// The catalog is exported under the crate's package name, and every code

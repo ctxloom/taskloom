@@ -1,29 +1,21 @@
-//! Fakes for the ports the plan service needs besides the ones `lib.test.rs`
-//! writes (the work tree, the tasks, the mint): one project, one in-memory
-//! store whose next write can be preceded by another process's, a clock, a
-//! delay that waits for nothing. Every future is ready at once, so
-//! [`ready`] runs a use case to its end without a runtime, and [`Service`]
-//! runs the use cases as plain calls.
+//! Fakes for the ports the plans tests need: the plan files in memory, the
+//! tasks and rules, the mint and the configuration; and, for the `Tasks`
+//! port over the real tasks use cases, one project and one in-memory store.
+//! Every future is ready at once, so [`ready`] runs a use case to its end
+//! without a runtime.
 
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use angzarr_diagnostic::Report;
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::testing::FaultyStore;
 use angzarr_embedded::StoreError;
-use ports::{Mint, PlanFiles, Project, ProjectIdentity, TaskStores, Tasks};
-
-use crate::{
-    CheckReport, ImportReport, Link, NewPlan, PlanError, PlanQuery, PlanService, PlanStatus,
-    PlanText, PlanView, Plans,
-};
+use ports::{Configuration, Mint, PlanFiles, Project, ProjectIdentity, TaskStores, Tasks};
 
 /// Run a future whose every await is ready at once: the test support's.
 pub use angzarr_embedded::testing::block_on_ready as ready;
-/// How a write goes wrong, and where another process's doings run:
-/// angzarr-ports' faulty store's.
-pub use angzarr_embedded::testing::{At, Fault};
 /// The clock, ids and delay: the ports' stand-ins.
 pub use ports::testing::{FakeClock, FakeDelay};
 
@@ -61,18 +53,13 @@ impl ProjectIdentity for FakeIdentity {
     }
 }
 
-/// The in-memory store, failing what a test says: its next writes
-/// (`fail`), and what another process does just before the next write
-/// (`before(At::Write, ..)`), the race between a use case's read and its
-/// write, forced. Its writes are recorded (`writes`).
+/// The in-memory store.
 pub type Store = FaultyStore<MemoryStore>;
 
-/// The one store, whichever project is asked for, but those `absent`
-/// names, which have none.
+/// The one store, whichever project is asked for.
 #[derive(Default)]
 pub struct FakeStores {
     pub store: Store,
-    pub absent: std::collections::BTreeSet<String>,
 }
 
 impl TaskStores for FakeStores {
@@ -82,61 +69,128 @@ impl TaskStores for FakeStores {
         Ok(&self.store)
     }
 
-    async fn open_existing(&mut self, project: &Project) -> Result<Option<&Store>, StoreError> {
-        Ok((!self.absent.contains(&project.id)).then_some(&self.store))
+    async fn open_existing(&mut self, _: &Project) -> Result<Option<&Store>, StoreError> {
+        Ok(Some(&self.store))
     }
 }
 
-/// The service the tests run.
-pub type Real<F, T, M> = PlanService<FakeIdentity, FakeStores, F, T, M, FakeClock, FakeDelay>;
+/// The plan files, in memory: a map of absolute paths to text, and the
+/// work root `/tree`.
+#[derive(Default)]
+pub struct MemFiles {
+    pub files: RefCell<BTreeMap<String, String>>,
+    /// Paths whose next replace fails.
+    pub deny: RefCell<Vec<String>>,
+}
 
-/// The plan service over `files`, `tasks` and `mint` and the fakes above,
-/// its use cases run to their end as plain calls, each answer unwrapped
-/// where the use case's own answer is not a `Result`.
-pub struct Service<F, T, M>(pub RefCell<Real<F, T, M>>);
-
-impl<F: PlanFiles, T: Tasks, M: Mint> Service<F, T, M> {
-    pub fn new(files: F, tasks: T, mint: M) -> Self {
-        Service(RefCell::new(PlanService::new(
-            FakeIdentity::default(),
-            FakeStores::default(),
-            files,
-            tasks,
-            mint,
-            FakeClock::default(),
-            FakeDelay::default(),
-        )))
+impl MemFiles {
+    pub fn with(files: &[(&str, &str)]) -> MemFiles {
+        MemFiles {
+            files: RefCell::new(
+                files
+                    .iter()
+                    .map(|(p, t)| (p.to_string(), t.to_string()))
+                    .collect(),
+            ),
+            deny: RefCell::default(),
+        }
     }
 
-    pub fn add(&mut self, new: NewPlan) -> Result<PlanView, PlanError> {
-        ready(self.0.get_mut().add(new))
+    pub fn text(&self, path: &str) -> String {
+        self.files.borrow()[path].clone()
+    }
+}
+
+impl PlanFiles for MemFiles {
+    fn work_root(&self) -> Result<String, Report> {
+        Ok("/tree".to_string())
     }
 
-    pub fn set_status(&mut self, plan: &str, status: PlanStatus) -> Result<PlanView, PlanError> {
-        ready(self.0.get_mut().set_status(plan, status))
+    fn read(&self, path: &str) -> Option<String> {
+        self.files.borrow().get(path).cloned()
     }
 
-    pub fn link(&mut self, plan: &str, link: Link) -> Result<PlanView, PlanError> {
-        ready(self.0.get_mut().link(plan, link))
+    fn replace(&self, path: &str, text: &str) -> Result<(), Report> {
+        if self.deny.borrow().iter().any(|d| d == path) {
+            return Err(Report::new("x-denied"));
+        }
+        self.files
+            .borrow_mut()
+            .insert(path.to_string(), text.to_string());
+        Ok(())
     }
 
-    pub fn unlink(&mut self, plan: &str, link: Link) -> Result<PlanView, PlanError> {
-        ready(self.0.get_mut().unlink(plan, link))
+    fn create(&self, path: &str, text: &str) -> Result<bool, Report> {
+        let mut files = self.files.borrow_mut();
+        if files.contains_key(path) {
+            return Ok(false);
+        }
+        files.insert(path.to_string(), text.to_string());
+        Ok(true)
     }
 
-    pub fn list(&self, query: &PlanQuery) -> Vec<PlanView> {
-        ready(self.0.borrow_mut().list(query)).unwrap()
+    fn scan(&self, root: &str) -> Vec<String> {
+        let prefix = format!("{}/", root.trim_end_matches('/'));
+        self.files
+            .borrow()
+            .keys()
+            .filter(|p| p.starts_with(&prefix) && p.ends_with(".plan.md"))
+            .cloned()
+            .collect()
+    }
+}
+
+/// The project's tasks and rules: the ids it holds, and the rules it
+/// states (the seed's where none).
+#[derive(Default)]
+pub struct MemTasks {
+    pub tasks: Vec<&'static str>,
+    pub rules: Option<Vec<String>>,
+    /// How many times the rules were asked for.
+    pub asked: usize,
+}
+
+impl Tasks for MemTasks {
+    async fn exists(&mut self, harp_id: &str) -> Result<bool, Report> {
+        Ok(self.tasks.contains(&harp_id))
     }
 
-    pub fn show(&self, id_or_path: &str) -> Result<PlanText, PlanError> {
-        ready(self.0.borrow_mut().show(id_or_path))
+    async fn rules(&mut self) -> Result<Vec<String>, Report> {
+        self.asked += 1;
+        Ok(self
+            .rules
+            .clone()
+            .unwrap_or_else(|| tag_rules::StoreRules::default().export()))
+    }
+}
+
+/// Ids in the order given, then `last-one-left` for ever.
+pub struct Words(pub RefCell<Vec<&'static str>>);
+
+impl Mint for Words {
+    fn mint(&self) -> String {
+        let mut words = self.0.borrow_mut();
+        match words.is_empty() {
+            true => "last-one-left".to_string(),
+            false => words.remove(0).to_string(),
+        }
+    }
+}
+
+pub fn words(ids: &[&'static str]) -> Words {
+    Words(RefCell::new(ids.to_vec()))
+}
+
+/// A configuration that sets `plan_roots` as given.
+#[derive(Default)]
+pub struct Roots(pub Option<Vec<String>>);
+
+impl Configuration for Roots {
+    fn tag_schema(&mut self) -> Result<Vec<String>, Report> {
+        Ok(Vec::new())
     }
 
-    pub fn check(&self) -> CheckReport {
-        ready(self.0.borrow_mut().check()).unwrap()
-    }
-
-    pub fn import(&mut self, dry_run: bool) -> ImportReport {
-        ready(self.0.get_mut().import(dry_run)).unwrap()
+    fn plan_roots(&mut self) -> Result<Option<Vec<String>>, Report> {
+        Ok(self.0.clone())
     }
 }

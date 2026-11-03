@@ -3,6 +3,8 @@
 # variables are its args.
 
 output = cannot write the output: { $ext_err_txt }
-unknown-status = { $status } is not a plan status: draft, active, superseded, done or abandoned
-no-link = plan { $command } needs --governs <task> (one or more) or --supersedes <plan>
-file-missing = plan { $plan }'s file is missing: { $path }
+no-link = plans { $command } needs --governs <task> (one or more) or --supersedes <plan>
+hook-payload = stamp-plan: the hook payload is not JSON: { $ext_err_txt }
+hook-no-file = stamp-plan: the hook payload names no file (expected tool_input.file_path or tool_input.notebook_path)
+hook-failed = stamp-plan: { $error }
+watch-failed = cannot watch the plan files: { $error }

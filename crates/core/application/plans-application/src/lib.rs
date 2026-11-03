@@ -1,100 +1,123 @@
-//! The plans use cases: `plan add`, `status`, `link`, `unlink`, `list`,
-//! `show`, `check` and `import`, over the plan aggregate, the plan list,
-//! and three ports: the work tree's files ([`PlanFiles`]), the project's
-//! tasks ([`Tasks`]) and the harp mint ([`Mint`]).
+//! The plans use cases over plan files: `list`, `show`, `add`, `set`,
+//! `tag`, `link`, `unlink`, `check` and `stamp`, and the snapshots a watch
+//! compares ([`Snapshot`], [`changes`]).
 //!
-//! [`PlanService`] resolves the project through [`ProjectIdentity`], opens
-//! its store through [`TaskStores`] (a project's plans live in the store its
-//! tasks do), and runs each command through angzarr-embedded's kernel, at
-//! the head it read, the kernel retrying it as every taskloom command is
-//! retried (kernel-runner's `KERNEL_RETRY`); a list is the plan-list
-//! projector caught up from the store. The ports are the only way out: this
-//! crate does no I/O, keeps no clock and starts no runtime.
+//! Plans are files and nothing else: no aggregate, no projection, nothing
+//! in the store. A plan is any `*.plan.md` under the plan roots; its YAML
+//! frontmatter is the one authority for `id`, `title`, `status`, `tags`,
+//! `governs`, `supersedes` and `sessions` ([`front`]); taskloom edits the
+//! frontmatter through angzarr-yaml's editor and touches no other byte,
+//! minting the `id:` (a harp) the first time it writes a file. `superseded`
+//! is never written: it is derived from another plan's `supersedes:`.
 //!
-//! The crate is laid out as tasks-application is (CLAUDE.md, "A context's
-//! application crate"): a unit per use case over only the ports it uses
-//! (`add.rs` `Adding`, `change.rs` `Changing`: status, link and unlink,
-//! `read.rs` `Reading`: list and show, `check.rs` `Checking`, `import.rs`
-//! `Importing`), shared collaborators (`project.rs` `Projects`: resolve,
-//! open, a plan's stream, the plan list caught up; `write.rs` `Writes`:
-//! `Projects` and kernel-runner's `Runner`; `tree.rs` `Tree`: `Writes`
-//! and the work tree's files, a plan viewed and its file's hash tracked),
-//! and `service.rs`, the [`PlanService`] owning the ports once and lending
-//! each call's unit its share.
-//!
-//! The rules the aggregate cannot see are here: a `governs` link names a
-//! task that exists, a `supersedes` link a plan that exists and closes no
-//! cycle, and a path resolves inside the work root. The text is a file, the
-//! store holds its path and hash, and the hash tracks the file: `list`,
-//! `show` and `check` read it and record its new hash when it changed
-//! (`Rehashed`). `check` reports a recorded file that is missing, a plan
-//! file no plan records, and a governed task the project no longer holds.
+//! [`PlanService`] runs the use cases over four ports: the plan files
+//! ([`PlanFiles`]), the project's tasks and rules ([`Tasks`]: whether a
+//! task exists, and the store's tag rules a plan's tags are held to, as a
+//! task's are, through `tag-rules`), the harp mint ([`Mint`]) and the
+//! configuration ([`Configuration`]: `plan_roots`). The ports are the only
+//! way out: this crate does no I/O, keeps no clock and starts no runtime.
 
-mod add;
-mod change;
-mod check;
 mod error;
-mod import;
-mod project;
-mod read;
+pub mod front;
+mod plan;
 mod rules;
 mod service;
 mod tasks;
-mod tree;
-mod write;
+mod watch;
 
-/// A dead letter, as the kernel answers it: angzarr-embedded's.
-pub use angzarr_embedded::{dead_letter_line, DeadLetter};
-pub use plans::{PlanRejection, PlanStatus};
-pub use ports::{Mint, PlanFiles, Project, Tasks};
+pub use front::{Edit, FrontError, Meta};
+pub use ports::{Configuration, Mint, PlanFiles, Tasks};
 
-/// A dead letter as the kernel answers one, from `component`, about the
-/// plan brisk-cedar's stream, its line `DEAD_LETTER <component>:
-/// ROUTER_REASON_UNHANDLED_HANDLER_ERROR`: for a test that hands a use
-/// case, or a driving adapter, a letter a kernel call answered.
-#[cfg(any(test, feature = "test-support"))]
-pub fn dead_letter_sample(component: &str) -> DeadLetter {
-    use angzarr_embedded::v1::{AngzarrDeadLetter, Diagnostic};
-    use angzarr_embedded::CoverExt;
-    DeadLetter {
-        stream: angzarr_embedded::v1::Cover::natural(plans::PLAN_DOMAIN, "brisk-cedar"),
-        at: angzarr_embedded::DeadLetterAt::Sequence(0),
-        letter: AngzarrDeadLetter {
-            source_component: component.to_string(),
-            reason: Some(Diagnostic {
-                code: "ROUTER_REASON_UNHANDLED_HANDLER_ERROR".to_string(),
-                args: Default::default(),
-            }),
-            ..AngzarrDeadLetter::default()
-        },
-    }
-}
-
-pub use add::NewPlan;
-pub use change::Link;
-pub use check::{CheckReport, Finding};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
-pub use error::{PathError, PlanError, CATALOGS, EN_US};
-pub use import::{ImportReport, ImportedPlan, LeftTag};
-pub use project::HARP_ATTEMPTS;
-pub use read::{PlanQuery, PlanText};
-pub use rules::{content_hash, default_path, frontmatter, plan_name, resolve_path, Frontmatter};
-pub use service::{registry, Governing, PlanService, Plans};
+pub use error::{Finding, PlanError, CATALOGS, EN_US};
+pub use plan::{Plan, DEFAULT_STATUS, STATUSES, SUPERSEDED};
+pub use rules::{frontmatter, plan_name, Frontmatter};
+pub use service::{PlanService, Plans, MINT_ATTEMPTS};
 pub use tasks::ProjectTasks;
-pub use tree::PlanView;
+pub use watch::{changes, Change, Delta, Event, Snapshot, Watched};
 
-/// Where a plan's text goes when `plan add` names no path:
-/// `<work-root>/.taskloom/plans/<harp-id>.plan.md`, committed with the work
-/// tree. A plan `plan import` finds outside the work root is copied here.
+/// Where a plan file goes when `plans add` names no path and no root is
+/// configured: `<work-root>/.taskloom/plans/<harp-id>.plan.md`, committed
+/// with the work tree.
 pub const PLANS_DIR: &str = ".taskloom/plans";
 /// A plan file's suffix.
 pub const PLAN_SUFFIX: &str = ".plan.md";
 
+/// The plans a listing selects.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct PlanQuery {
+    /// Only plans in one of these statuses (derived `superseded` too);
+    /// every plan when empty.
+    pub statuses: Vec<String>,
+    /// Only plans whose `governs:` names this task.
+    pub governs: Option<String>,
+    /// Only plans whose tags a postfix tag query selects.
+    pub tag_query: Option<String>,
+}
+
+/// A plan to write.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct NewPlan {
+    pub title: String,
+    /// Where to write it: absolute, or the work root's; `.plan.md`.
+    pub path: Option<String>,
+    /// draft (the default), active, done or abandoned.
+    pub status: Option<String>,
+    /// Tasks it governs; each must exist.
+    pub governs: Vec<String>,
+}
+
+/// Fields of a plan to set; at least one.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct SetPlan {
+    pub title: Option<String>,
+    pub status: Option<String>,
+}
+
+/// A link a plan makes.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Link {
+    /// To a task it governs.
+    Governs(String),
+    /// To a plan it supersedes (an id, or a path).
+    Supersedes(String),
+}
+
+/// A plan with its file's text.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct PlanText {
+    pub plan: Plan,
+    pub content: String,
+}
+
+/// What `check` found.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct CheckReport {
+    pub findings: Vec<Finding>,
+}
+
+impl CheckReport {
+    /// Whether anything was found.
+    pub fn failed(&self) -> bool {
+        !self.findings.is_empty()
+    }
+}
+
+/// What `stamp` did.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Stamp {
+    /// The session was written to the file's `sessions:` (and an id, if
+    /// the file had none).
+    Stamped,
+    /// The file already held the session and an id.
+    Already,
+    /// There is no session to stamp.
+    NoSession,
+    /// The path is no plan file, or is not there.
+    NotAPlan,
+}
+
 #[cfg(test)]
 #[path = "fakes.test.rs"]
 mod fakes;
-
-#[cfg(test)]
-#[path = "lib.test.rs"]
-mod tests;

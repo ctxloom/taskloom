@@ -1,7 +1,7 @@
 [package]
 name = "plan-files"
 version = "0.1.0"
-description = "The work tree's plan files through the file-system seam, behind the PlanFiles port"
+description = "The plan files through the file-system seam, behind the PlanFiles port"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

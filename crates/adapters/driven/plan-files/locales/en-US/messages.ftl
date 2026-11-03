@@ -3,3 +3,4 @@
 # variables are its args.
 
 create = cannot create the plan file { $path }: { $ext_err_txt }
+replace = cannot write the plan file { $path }: { $ext_err_txt }

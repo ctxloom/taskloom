@@ -32,7 +32,6 @@ use std::io::{self, Write};
 use angzarr_diagnostic::Diagnostic;
 use angzarr_presentation::{Catalog, CatalogError, Format, Render, Source, UnknownFormat};
 use clap::{Args, Parser, Subcommand};
-use plans_application::Governing;
 use tasks_application::{
     dead_letter_line, DeadLetter, PermitService, PruneService, RuleWarning, SchemaService,
     TaskService, Written,
@@ -72,7 +71,6 @@ pub struct Context {
 pub fn catalog(adapters: &[Source]) -> Result<Catalog, CatalogError> {
     let mut sources = vec![EN_US];
     sources.extend(tasks_application::CATALOGS);
-    sources.extend(plans_application::CATALOGS);
     sources.extend_from_slice(adapters);
     Catalog::en_us(&sources)
 }
@@ -206,8 +204,6 @@ pub enum Command {
     Version,
     /// `loadout`.
     Loadout,
-    /// `manage hook stamp-plan`: only its place is built.
-    StampPlan,
 }
 
 impl Globals {
@@ -401,33 +397,20 @@ pub fn removed(args: &[OsString]) -> Option<CliError> {
     Some(instead(replaced))
 }
 
-/// The use cases a task command runs on: the tasks', and the plans'
-/// query naming the plans governing each task `show` shows (the tasks know
-/// no plan).
-pub struct UseCases<'a, S, P> {
-    pub tasks: &'a mut S,
-    pub plans: &'a mut P,
-}
-
 /// Run `command` under the global flags against `use_cases`, writing to
 /// `out` and `err` with messages from `catalog`; the exit code.
-pub async fn run<S, P>(
+pub async fn run<S>(
     command: Command,
     globals: Globals,
     context: &Context,
     catalog: &Catalog,
-    use_cases: UseCases<'_, S, P>,
+    service: &mut S,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8
 where
     S: TaskService + PruneService + PermitService + SchemaService,
-    P: Governing,
 {
-    let UseCases {
-        tasks: service,
-        plans,
-    } = use_cases;
     if let Command::Loadout = command {
         // Printed in its own format.
         let printed = companion::loadout(globals.format, out);
@@ -447,7 +430,7 @@ where
         Command::Tasks(tasks) => match tasks {
             Tasks::Add(args) => commands::add(args, ctx, service, out, err).await,
             Tasks::Set(args) => commands::set(args, ctx, service, out, err).await,
-            Tasks::Show(args) => commands::show(args, ctx, service, plans, out, err).await,
+            Tasks::Show(args) => commands::show(args, ctx, service, out, err).await,
             Tasks::Check => commands::check(ctx, service, out, err).await,
             Tasks::Summary => commands::summary(ctx, service, out, err).await,
             Tasks::Tag(TagCommand::Add(args)) => {
@@ -479,9 +462,6 @@ where
         },
         Command::ImportConfig => commands::import_config(ctx, service, out).await,
         Command::Version => version(context, format, out),
-        Command::StampPlan => Err(CliError::NotBuilt {
-            command: "manage hook stamp-plan",
-        }),
         // Answered above: it has its own format.
         Command::Loadout => Ok(()),
     };

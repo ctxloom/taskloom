@@ -1,7 +1,7 @@
 //! The renderings beyond what the command tests read.
 
 use angzarr_presentation::{render, Format, Render};
-use plans_application::{PlanStatus, PlanView};
+use plans_application::{CheckReport, Finding, Plan};
 
 use super::*;
 
@@ -17,33 +17,51 @@ fn json(view: &impl Render) -> serde_json::Value {
     serde_json::from_slice(&out).unwrap()
 }
 
+fn plan() -> Plan {
+    Plan::parse(
+        "/tree/old.plan.md",
+        "---\nid: old-one\nstatus: active\n---\n# Old\n",
+    )
+}
+
 #[test]
-fn a_governed_task_gone_is_a_finding_in_text_and_json() {
-    let report = plans_application::CheckReport {
-        findings: vec![plans_application::Finding::MissingTask {
-            plan: "plan-1".into(),
-            task: "task-a".into(),
-        }],
-    };
-    assert_eq!(text(&Checked(&report)), "missing task: plan-1 task-a\n");
+fn a_plans_json_names_what_supersedes_it() {
+    let mut superseded = plan();
+    superseded.status = "superseded".into();
+    superseded.superseded_by = vec!["new-one".into()];
+    let shown = json(&Written(&superseded));
+    assert_eq!(shown["superseded_by"], serde_json::json!(["new-one"]));
+    assert_eq!(shown["status"], "superseded");
     assert_eq!(
-        json(&Checked(&report)),
-        serde_json::json!({"ok": false, "findings": [
-            {"kind": "missing_task", "plan": "plan-1", "task": "task-a"}
-        ]})
+        text(&Written(&superseded)),
+        "old-one [superseded] Old (/tree/old.plan.md)\n"
     );
 }
 
 #[test]
-fn a_superseded_plans_json_names_its_successor() {
-    let plan = PlanView {
-        harp_id: "old".into(),
-        status: PlanStatus::Superseded,
-        superseded_by: "new".into(),
-        ..PlanView::default()
+fn a_lists_json_is_an_array_and_its_text_a_line_a_plan() {
+    let plans = vec![plan(), plan()];
+    assert_eq!(json(&Listed(&plans)).as_array().map(Vec::len), Some(2));
+    assert_eq!(text(&Listed(&plans)).lines().count(), 2);
+    assert_eq!(text(&Listed(&[])), "");
+    assert_eq!(json(&Listed(&[])), serde_json::json!([]));
+}
+
+#[test]
+fn a_check_with_a_finding_is_not_ok_and_says_it_in_the_catalog() {
+    let catalog = Catalog::en_us(&[crate::EN_US, plans_application::EN_US]).unwrap();
+    let report = CheckReport {
+        findings: vec![Finding::NoId {
+            path: "/tree/bare.plan.md".into(),
+        }],
     };
-    let shown = json(&Moved(&plan));
-    assert_eq!(shown["superseded_by"], "new");
-    assert_eq!(shown["status"], "superseded");
-    assert_eq!(text(&Moved(&plan)), "old superseded\n");
+    let view = Checked {
+        report: &report,
+        catalog: &catalog,
+    };
+    assert_eq!(json(&view)["ok"], false);
+    assert_eq!(
+        text(&view),
+        "/tree/bare.plan.md: the file has no id (taskloom gives it one the first time it writes the file)\n"
+    );
 }

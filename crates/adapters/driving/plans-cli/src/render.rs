@@ -1,113 +1,83 @@
 //! The plan commands' answers as a person reads them (text) or a program
 //! does (JSON: one document, for jq). A plan's JSON keeps the fields the VS
 //! Code extension reads (ctxloom-vscode `plans-data.ts`): `path`
-//! (absolute), `name`, `title`, `session` (the origin session) and
-//! `sessions` (the frontmatter's, else `[]`); and adds the plan's own.
+//! (absolute), `name`, `title`, `session` (the first of `sessions`) and
+//! `sessions`; and adds the plan's own.
 
 use std::io::{self, Write};
 
-use angzarr_presentation::Render;
-use plans_application::{CheckReport, Finding, PlanText, PlanView};
+use angzarr_presentation::{Catalog, Render};
+use plans_application::{CheckReport, Plan, PlanText};
 use serde::Serialize;
 
 /// A plan as JSON.
 #[derive(Serialize, Debug)]
 pub struct PlanJson<'a> {
+    /// Null until taskloom first writes the file.
+    pub id: Option<&'a str>,
     /// Absolute.
     pub path: &'a str,
+    /// The file's name without `.plan.md`.
     pub name: &'a str,
     pub title: &'a str,
-    /// The session it was added in.
-    pub session: &'a str,
-    /// Its file's frontmatter `sessions:`.
-    pub sessions: &'a [String],
-    pub id: &'a str,
-    /// As recorded: work-root-relative.
-    pub rel_path: &'a str,
-    pub status: &'static str,
-    pub content_hash: &'a str,
+    pub status: &'a str,
+    pub tags: &'a [String],
     pub governs: &'a [String],
     pub supersedes: &'a [String],
-    /// Null unless superseded.
-    pub superseded_by: Option<&'a str>,
+    /// The ids of the plans superseding this one.
+    pub superseded_by: &'a [String],
+    /// The first of `sessions`; empty when there are none.
+    pub session: &'a str,
+    pub sessions: &'a [String],
 }
 
 impl<'a> PlanJson<'a> {
-    pub fn of(plan: &'a PlanView) -> PlanJson<'a> {
+    pub fn of(plan: &'a Plan) -> PlanJson<'a> {
         PlanJson {
-            path: &plan.abs_path,
+            id: plan.id.as_deref(),
+            path: &plan.path,
             name: &plan.name,
             title: &plan.title,
-            session: &plan.origin_session,
-            sessions: &plan.sessions,
-            id: &plan.harp_id,
-            rel_path: &plan.path,
-            status: plan.status.name(),
-            content_hash: &plan.content_hash,
+            status: &plan.status,
+            tags: &plan.tags,
             governs: &plan.governs,
             supersedes: &plan.supersedes,
-            superseded_by: (!plan.superseded_by.is_empty()).then_some(plan.superseded_by.as_str()),
+            superseded_by: &plan.superseded_by,
+            session: plan.session(),
+            sessions: &plan.sessions,
         }
     }
 }
 
-/// `plan list`'s line for `plan`.
-fn line(out: &mut dyn Write, plan: &PlanView) -> io::Result<()> {
+/// A plan's line: its id (a dash where it has none), status, title and
+/// path.
+fn line(out: &mut dyn Write, plan: &Plan) -> io::Result<()> {
     writeln!(
         out,
         "{} [{}] {} ({})",
-        plan.harp_id,
-        plan.status.name(),
+        plan.id.as_deref().unwrap_or("-"),
+        plan.status,
         plan.title,
         plan.path
     )
 }
 
-/// `plan add`'s answer.
-pub struct Added<'a>(pub &'a PlanView);
+/// `plans add`'s, `set`'s, `tag`'s, `link`'s and `unlink`'s answer: the
+/// plan as it is now.
+pub struct Written<'a>(pub &'a Plan);
 
-impl Render for Added<'_> {
+impl Render for Written<'_> {
     fn json(&self) -> impl Serialize + '_ {
         PlanJson::of(self.0)
     }
 
     fn text(&self, out: &mut dyn Write) -> io::Result<()> {
-        writeln!(out, "added {} {}", self.0.harp_id, self.0.path)
+        line(out, self.0)
     }
 }
 
-/// `plan status`'s answer.
-pub struct Moved<'a>(pub &'a PlanView);
-
-impl Render for Moved<'_> {
-    fn json(&self) -> impl Serialize + '_ {
-        PlanJson::of(self.0)
-    }
-
-    fn text(&self, out: &mut dyn Write) -> io::Result<()> {
-        writeln!(out, "{} {}", self.0.harp_id, self.0.status.name())
-    }
-}
-
-/// `plan link` and `unlink`'s answer: the plan after the last link, and a
-/// line for each link made or removed.
-pub struct Linked<'a> {
-    pub plan: &'a PlanView,
-    pub lines: &'a [String],
-}
-
-impl Render for Linked<'_> {
-    fn json(&self) -> impl Serialize + '_ {
-        PlanJson::of(self.plan)
-    }
-
-    fn text(&self, out: &mut dyn Write) -> io::Result<()> {
-        self.lines.iter().try_for_each(|l| writeln!(out, "{l}"))
-    }
-}
-
-/// `plan list`'s answer.
-pub struct Listed<'a>(pub &'a [PlanView]);
+/// `plans list`'s answer.
+pub struct Listed<'a>(pub &'a [Plan]);
 
 impl Render for Listed<'_> {
     fn json(&self) -> impl Serialize + '_ {
@@ -123,73 +93,60 @@ impl Render for Listed<'_> {
 struct ShownJson<'a> {
     #[serde(flatten)]
     plan: PlanJson<'a>,
-    content: Option<&'a str>,
+    content: &'a str,
 }
 
-/// `plan show`'s answer: in text the plan's markdown, raw; in JSON the plan
-/// and its content.
+/// `plans show`'s answer: in text the plan's markdown, raw; in JSON the
+/// plan and its content.
 pub struct Shown<'a>(pub &'a PlanText);
 
 impl Render for Shown<'_> {
     fn json(&self) -> impl Serialize + '_ {
         ShownJson {
             plan: PlanJson::of(&self.0.plan),
-            content: self.0.content.as_deref(),
+            content: &self.0.content,
         }
     }
 
     fn text(&self, out: &mut dyn Write) -> io::Result<()> {
-        out.write_all(self.0.content.as_deref().unwrap_or_default().as_bytes())
+        out.write_all(self.0.content.as_bytes())
     }
 }
 
-/// A finding as JSON, tagged by its kind.
 #[derive(Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum FindingJson<'a> {
-    Missing { plan: &'a str, path: &'a str },
-    MissingTask { plan: &'a str, task: &'a str },
-    Unregistered { path: &'a str },
-}
-
-#[derive(Serialize)]
-struct CheckJson<'a> {
+struct CheckJson {
     ok: bool,
-    findings: Vec<FindingJson<'a>>,
+    findings: Vec<angzarr_presentation::Envelope>,
 }
 
-/// `plan check`'s answer.
-pub struct Checked<'a>(pub &'a CheckReport);
+/// `plans check`'s answer: each finding as a diagnostic, its catalog
+/// message in text, its envelope (code, args, message) in JSON.
+pub struct Checked<'a> {
+    pub report: &'a CheckReport,
+    pub catalog: &'a Catalog,
+}
 
 impl Render for Checked<'_> {
     fn json(&self) -> impl Serialize + '_ {
         CheckJson {
-            ok: !self.0.failed(),
+            ok: !self.report.failed(),
             findings: self
-                .0
+                .report
                 .findings
                 .iter()
-                .map(|finding| match finding {
-                    Finding::Missing { plan, path } => FindingJson::Missing { plan, path },
-                    Finding::MissingTask { plan, task } => FindingJson::MissingTask { plan, task },
-                    Finding::Unregistered { path } => FindingJson::Unregistered { path },
-                })
+                .map(|finding| self.catalog.envelope(finding))
                 .collect(),
         }
     }
 
     fn text(&self, out: &mut dyn Write) -> io::Result<()> {
-        if self.0.findings.is_empty() {
-            return writeln!(out, "plans: no drift");
+        if self.report.findings.is_empty() {
+            return writeln!(out, "plans: no findings");
         }
-        self.0
+        self.report
             .findings
             .iter()
-            .try_for_each(|finding| match finding {
-                Finding::Missing { plan, path } => writeln!(out, "missing: {plan} {path}"),
-                Finding::MissingTask { plan, task } => writeln!(out, "missing task: {plan} {task}"),
-                Finding::Unregistered { path } => writeln!(out, "unregistered: {path}"),
-            })
+            .try_for_each(|finding| writeln!(out, "{}", self.catalog.message(finding)))
     }
 }
 

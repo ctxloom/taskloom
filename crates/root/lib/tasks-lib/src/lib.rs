@@ -59,18 +59,11 @@ pub type Tasks = tasks_application::Service<
 pub type Import =
     tasks_application::Importer<ProjectRegistry<HarpNames>, SqliteStores, System, JsonlTaskLogDir>;
 
-/// The plans use cases over the default adapters: the plan files in the
-/// work tree, the project's tasks through the tasks use cases, plan ids
-/// from harp, and the store the tasks are in.
-pub type Plans = PlanService<
-    ProjectRegistry<HarpNames>,
-    SqliteStores,
-    FsPlanFiles,
-    ProjectTasks<Tasks>,
-    HarpNames,
-    System,
-    System,
->;
+/// The plans use cases over the default adapters: the plan files on the
+/// filesystem, the project's tasks and rules through the tasks use cases,
+/// plan ids from harp, and the configuration that says where the plan
+/// files are. Plans keep nothing in the store: they only read its rules.
+pub type Plans = PlanService<FsPlanFiles, ProjectTasks<Tasks>, HarpNames, TaskloomConfig>;
 
 /// The project use cases over the registry (surveying and changing it
 /// mints nothing: no names) and the SQLite store's integrity check.
@@ -149,18 +142,6 @@ impl Taskloom {
     /// needs one, so a command that needs neither (`version`, `loadout`)
     /// touches nothing, and runs with no working directory.
     pub fn tasks(&self) -> Tasks {
-        // The work root is sought when the configuration is read, by a
-        // registry that mints nothing; with none (no working directory),
-        // the home's config alone, and the call that resolves a project
-        // says why.
-        let finder = self.registry(());
-        let config = TaskloomConfig::finding_root(
-            Arc::clone(&self.fs),
-            self.env.home.clone(),
-            move || finder.work_root().ok(),
-            self.vars.clone(),
-            self.config_set.clone(),
-        );
         tasks_application::Service::new(
             self.registry(HarpNames),
             SqliteStores::new(Arc::clone(&self.fs)),
@@ -168,7 +149,24 @@ impl Taskloom {
             System,
             System,
         )
-        .with_configuration(config)
+        .with_configuration(self.config())
+    }
+
+    /// The configuration, from the work root's config (where there is a
+    /// work root), the home's, the variables (the configuration reads the
+    /// UTF-8 ones) and the overrides. The work root is sought when the
+    /// configuration is read, by a registry that mints nothing; with none
+    /// (no working directory), the home's config alone, and the call that
+    /// resolves a project says why.
+    fn config(&self) -> TaskloomConfig {
+        let finder = self.registry(());
+        TaskloomConfig::finding_root(
+            Arc::clone(&self.fs),
+            self.env.home.clone(),
+            move || finder.work_root().ok(),
+            self.vars.clone(),
+            self.config_set.clone(),
+        )
     }
 
     /// The importer over the JSONL task logs under HOME
@@ -182,9 +180,11 @@ impl Taskloom {
         )
     }
 
-    /// The plans use cases, acting on `project` when one is pinned (else
-    /// the work root's), their files in the working directory's work root.
-    /// Building them does no I/O, as [`Taskloom::tasks`]'s.
+    /// The plans use cases, reading the tasks and rules of `project` when
+    /// one is pinned (else the work root's), the plan files wherever the
+    /// configuration's `plan_roots` say (else the working directory's work
+    /// root and its `.taskloom/plans`). Building them does no I/O, as
+    /// [`Taskloom::tasks`]'s.
     pub fn plans(&self, project: Option<String>) -> Plans {
         let finder = self.registry(());
         let files = FsPlanFiles::finding_root(Arc::clone(&self.fs), move || {
@@ -193,15 +193,11 @@ impl Taskloom {
                 .map_err(|e| angzarr_diagnostic::Report::of(&e))
         });
         PlanService::new(
-            self.registry(HarpNames),
-            SqliteStores::new(Arc::clone(&self.fs)),
             files,
-            ProjectTasks::new(self.tasks(), project.clone()),
+            ProjectTasks::new(self.tasks(), project),
             HarpNames,
-            System,
-            System,
+            self.config(),
         )
-        .pinned(project)
     }
 
     /// The project use cases.

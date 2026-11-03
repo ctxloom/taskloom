@@ -1,660 +1,750 @@
-//! The service beyond the reviewed use cases: its races, forced (the store
-//! runs another process's write between the service's read and its
-//! write: the racing test, not a racing product), a supersede left half
-//! done, the hash recorded once, the pinned project, and an import's
-//! reruns.
+//! The plans use cases over in-memory plan files, tasks and rules.
 
-use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
+use angzarr_diagnostic::{code, Diagnostic};
 
-use angzarr_diagnostic::{Diagnostic, Report};
-use angzarr_embedded::angzarr_ports::memory::MemoryStore;
-use angzarr_embedded::v1::{CommandBook, Cover};
-use angzarr_embedded::{CommandBookExt, CoverExt, Kernel, Sampled};
-use plans::{PlanCommand, PlanRejection};
-use ports::{Mint, PlanFiles, Tasks, Timestamp, Uuid};
+use super::*;
+use crate::fakes::{ready, words, MemFiles, MemTasks, Roots, Words};
 
-use super::registry;
-use crate::fakes::{ready, At, Fault, Service};
-use crate::{content_hash, Link, NewPlan, PlanError, PlanQuery, PlanStatus, Plans};
-use tasks_application::RETIRED_TAG;
+type Fake = PlanService<MemFiles, MemTasks, Words, Roots>;
 
-#[derive(Default)]
-struct Files(RefCell<BTreeMap<String, Vec<u8>>>);
-
-impl Files {
-    fn put(&self, path: &str, text: &str) {
-        self.0
-            .borrow_mut()
-            .insert(path.to_string(), text.as_bytes().to_vec());
-    }
-    fn text(&self, path: &str) -> Option<String> {
-        self.0
-            .borrow()
-            .get(path)
-            .map(|b| String::from_utf8(b.clone()).unwrap())
-    }
+fn text(id: &str, extra: &str) -> String {
+    format!("---\nid: {id}\n{extra}---\n# {id}\n")
 }
 
-impl PlanFiles for Files {
-    fn work_root(&self) -> Result<String, Report> {
-        Ok("/tree".to_string())
-    }
-    fn read(&self, path: &str) -> Option<Vec<u8>> {
-        self.0.borrow().get(path).cloned()
-    }
-    fn create(&self, path: &str, text: &[u8]) -> Result<bool, Report> {
-        let mut files = self.0.borrow_mut();
-        if files.contains_key(path) {
-            return Ok(false);
-        }
-        files.insert(path.to_string(), text.to_vec());
-        Ok(true)
-    }
-    fn plan_files(&self, dir: &str) -> Vec<String> {
-        let prefix = format!("{dir}/");
-        self.0
-            .borrow()
-            .keys()
-            .filter(|p| p.starts_with(&prefix) && !p[prefix.len()..].contains('/'))
-            .cloned()
-            .collect()
-    }
-}
-
-/// Tasks by harp id, each with its `ctxloom:plan` values.
-#[derive(Default)]
-struct FakeTasks(RefCell<BTreeMap<String, BTreeSet<String>>>);
-
-impl FakeTasks {
-    fn with(tasks: &[(&str, &[&str])]) -> FakeTasks {
-        let fake = FakeTasks::default();
-        for (harp, values) in tasks {
-            fake.0.borrow_mut().insert(
-                harp.to_string(),
-                values.iter().map(|v| v.to_string()).collect(),
-            );
-        }
-        fake
-    }
-}
-
-impl Tasks for &FakeTasks {
-    async fn exists(&mut self, harp_id: &str) -> Result<bool, Report> {
-        Ok(self.0.borrow().contains_key(harp_id))
-    }
-    async fn tagged(&mut self, key: &str) -> Result<Vec<(String, String)>, Report> {
-        assert_eq!(key, RETIRED_TAG);
-        Ok(self
-            .0
-            .borrow()
-            .iter()
-            .flat_map(|(h, vs)| vs.iter().map(move |v| (h.clone(), v.clone())))
-            .collect())
-    }
-    async fn untag(&mut self, harp_id: &str, _: &str, value: &str) -> Result<(), Report> {
-        self.0.borrow_mut().get_mut(harp_id).unwrap().remove(value);
-        Ok(())
-    }
-}
-
-/// Mints `plan-1`, `plan-2`, ... after any scripted ids.
-#[derive(Default)]
-struct Counter(RefCell<(u32, Vec<String>)>);
-
-impl Mint for Counter {
-    fn mint(&self) -> String {
-        let mut state = self.0.borrow_mut();
-        if !state.1.is_empty() {
-            return state.1.remove(0);
-        }
-        state.0 += 1;
-        format!("plan-{}", state.0)
-    }
-}
-
-fn new(title: &str) -> NewPlan {
-    NewPlan {
-        title: title.to_string(),
-        ..NewPlan::default()
-    }
-}
-
-/// Run `command` on plan `harp`'s stream in `store` directly, as another
-/// process would.
-fn other_process(store: &MemoryStore, harp: &str, command: PlanCommand) {
-    let registry = registry();
-    let sampled = Sampled {
-        now: Timestamp {
-            seconds: 1_800_000_000,
-            nanos: 0,
+fn service(files: &[(&str, &str)]) -> Fake {
+    PlanService::new(
+        MemFiles::with(files),
+        MemTasks {
+            tasks: vec!["swift-amber-falcon", "calm-otter-dune"],
+            ..MemTasks::default()
         },
-        command_id: Uuid::from_bytes([0xee; 16]),
-    };
-    let book = CommandBook::command_of(
-        Cover::natural(plans::PLAN_DOMAIN, harp),
-        &plans::messages::PlanCommand::from(&command),
-    );
-    ready(
-        Kernel::new(&registry)
-            .on_retryable(kernel_runner::KERNEL_RETRY)
-            .handle::<plans::PlanAggregate, _>(store, book, &sampled),
+        words(&["first-minted-id", "second-minted-id"]),
+        Roots(None),
     )
-    .unwrap_or_else(|failure| panic!("{failure:?}"));
+}
+
+fn names(plans: &[Plan]) -> Vec<&str> {
+    plans.iter().map(|p| p.name.as_str()).collect()
+}
+
+fn listed(service: &mut Fake, query: &PlanQuery) -> Vec<Plan> {
+    ready(service.list(query)).unwrap()
+}
+
+fn code(error: PlanError) -> String {
+    error.code().to_string()
 }
 
 #[test]
-fn a_write_landing_between_the_read_and_the_write_is_decided_again_and_both_land() {
-    let tasks = FakeTasks::with(&[("task-a", &[]), ("task-b", &[])]);
-    let (files, mint) = (Files::default(), Counter::default());
-    let mut service = Service::new(&files, &tasks, &mint);
-    service.add(new("One")).unwrap();
-    service.0.borrow().stores.store.before(
-        At::Write,
-        Box::new(|store: &MemoryStore| {
-            other_process(store, "plan-1", PlanCommand::Govern("task-b".into()))
-        }),
-    );
-    let plan = service
-        .link("plan-1", Link::Governs("task-a".into()))
-        .unwrap();
-    assert_eq!(plan.governs, vec!["task-a", "task-b"]);
-    let service = service.0.borrow();
-    assert_eq!(service.delay.slept.len(), 1, "one conflict, one wait");
-}
-
-/// A store that cannot say is the kernel's to retry, under the service's
-/// backoff and on its delay port: the kernel's tries are the attempts,
-/// never its retries times the service's; once they are spent the service
-/// gives up at once, and a store that answers again within them lands the
-/// change.
-#[test]
-fn a_store_that_cannot_say_is_retried_by_the_kernel_alone() {
-    let tasks = FakeTasks::with(&[("task-a", &[])]);
-    let (files, mint) = (Files::default(), Counter::default());
-    let mut service = Service::new(&files, &tasks, &mint);
-    service.add(new("One")).unwrap();
-    service.0.get_mut().retry = kernel_runner::backoff(
-        kernel_runner::KERNEL_RETRY.initial_backoff,
-        kernel_runner::KERNEL_RETRY.max_backoff,
-        3,
-    );
-    let before = service.0.borrow().stores.store.writes().len();
-    service
-        .0
-        .borrow()
-        .stores
-        .store
-        .fail(std::iter::repeat_n(Fault::Unavailable, 3));
-    let error = service
-        .link("plan-1", Link::Governs("task-a".into()))
-        .unwrap_err();
-    assert!(
-        matches!(&error, PlanError::GaveUp { attempts: 3, error } if error.code() == store_unavailable()),
-        "{error:?}"
-    );
-    {
-        let service = service.0.borrow();
-        assert_eq!(
-            service.stores.store.writes().len() - before,
-            3,
-            "the kernel's tries alone"
-        );
-        assert_eq!(service.delay.slept.len(), 2, "a wait between tries");
-    }
-    service
-        .0
-        .borrow()
-        .stores
-        .store
-        .fail(std::iter::repeat_n(Fault::Unavailable, 2));
-    let plan = service
-        .link("plan-1", Link::Governs("task-a".into()))
-        .unwrap();
-    assert_eq!(plan.governs, vec!["task-a"]);
+fn the_default_roots_are_the_work_tree_and_taskloom_plans_each_file_once() {
+    let mut s = service(&[
+        ("/tree/docs/in-tree.plan.md", &text("aa-bb", "")),
+        ("/tree/.taskloom/plans/in-plans.plan.md", &text("cc-dd", "")),
+        ("/tree/docs/readme.md", "not a plan"),
+        ("/elsewhere/outside.plan.md", &text("ee-ff", "")),
+    ]);
+    let all = listed(&mut s, &PlanQuery::default());
+    assert_eq!(names(&all), ["in-plans", "in-tree"]);
 }
 
 #[test]
-fn a_race_won_by_the_same_change_comes_back_as_its_refusal() {
-    let (files, tasks, mint) = (Files::default(), FakeTasks::default(), Counter::default());
-    let mut service = Service::new(&files, &tasks, &mint);
-    service.add(new("One")).unwrap();
-    service.0.borrow().stores.store.before(
-        At::Write,
-        Box::new(|store: &MemoryStore| {
-            other_process(store, "plan-1", PlanCommand::SetStatus(PlanStatus::Active))
-        }),
-    );
-    assert_eq!(
-        service.set_status("plan-1", PlanStatus::Active),
-        Err(PlanError::Rejected(PlanRejection::StatusUnchanged(
-            PlanStatus::Active
-        )))
-    );
-}
-
-#[test]
-fn a_supersede_of_a_plan_another_supersedes_is_refused_naming_it() {
-    let (files, tasks, mint) = (Files::default(), FakeTasks::default(), Counter::default());
-    let mut service = Service::new(&files, &tasks, &mint);
-    for title in ["One", "Two", "Three"] {
-        service.add(new(title)).unwrap();
-    }
-    service
-        .link("plan-2", Link::Supersedes("plan-1".into()))
-        .unwrap();
-    assert_eq!(
-        service.link("plan-3", Link::Supersedes("plan-1".into())),
-        Err(PlanError::AlreadySuperseded {
-            plan: "plan-1".into(),
-            by: "plan-2".into()
-        })
-    );
-    assert_eq!(
-        service.link("plan-2", Link::Supersedes("plan-1".into())),
-        Err(PlanError::Rejected(PlanRejection::AlreadySupersedes(
-            "plan-1".into()
-        )))
-    );
-    assert_eq!(
-        service.link("plan-1", Link::Supersedes("plan-1".into())),
-        Err(PlanError::Rejected(PlanRejection::SupersedesItself))
-    );
-}
-
-#[test]
-fn a_supersede_left_half_done_is_finished_by_linking_again() {
-    let (files, tasks, mint) = (Files::default(), FakeTasks::default(), Counter::default());
-    let mut service = Service::new(&files, &tasks, &mint);
-    service.add(new("One")).unwrap();
-    service.add(new("Two")).unwrap();
-    // The first write landed; the second never did.
-    other_process(
-        service.0.borrow().stores.store.inner(),
-        "plan-2",
-        PlanCommand::Supersede("plan-1".into()),
-    );
-    service
-        .link("plan-2", Link::Supersedes("plan-1".into()))
-        .unwrap();
-    let one = service.show("plan-1").unwrap().plan;
-    assert_eq!(
-        (one.status, one.superseded_by.as_str()),
-        (PlanStatus::Superseded, "plan-2")
-    );
-}
-
-#[test]
-fn an_unlink_left_half_done_is_finished_by_unlinking_again() {
-    let (files, tasks, mint) = (Files::default(), FakeTasks::default(), Counter::default());
-    let mut service = Service::new(&files, &tasks, &mint);
-    service.add(new("One")).unwrap();
-    service.add(new("Two")).unwrap();
-    service
-        .link("plan-2", Link::Supersedes("plan-1".into()))
-        .unwrap();
-    other_process(
-        service.0.borrow().stores.store.inner(),
-        "plan-2",
-        PlanCommand::Unsupersede("plan-1".into()),
-    );
-    service
-        .unlink("plan-2", Link::Supersedes("plan-1".into()))
-        .unwrap();
-    assert_eq!(
-        service.show("plan-1").unwrap().plan.status,
-        PlanStatus::Active
-    );
-    assert_eq!(
-        service.unlink("plan-2", Link::Supersedes("plan-1".into())),
-        Err(PlanError::Rejected(PlanRejection::NotSuperseded(
-            "plan-1".into()
-        )))
-    );
-}
-
-// An unlink left half done the other way (its first write landed, so the
-// target is still marked by the plan that no longer supersedes it) is
-// finished by linking again: the plan's half is written, the target's,
-// already there, is not.
-#[test]
-fn a_link_over_an_unlink_left_half_done_writes_only_the_missing_half() {
-    let (files, tasks, mint) = (Files::default(), FakeTasks::default(), Counter::default());
-    let mut service = Service::new(&files, &tasks, &mint);
-    service.add(new("One")).unwrap();
-    service.add(new("Two")).unwrap();
-    service
-        .link("plan-2", Link::Supersedes("plan-1".into()))
-        .unwrap();
-    other_process(
-        service.0.borrow().stores.store.inner(),
-        "plan-2",
-        PlanCommand::Unsupersede("plan-1".into()),
-    );
-    let two = service
-        .link("plan-2", Link::Supersedes("plan-1".into()))
-        .unwrap();
-    assert_eq!(two.supersedes, ["plan-1"]);
-    let one = service.show("plan-1").unwrap().plan;
-    assert_eq!(
-        (one.status, one.superseded_by.as_str()),
-        (PlanStatus::Superseded, "plan-2")
-    );
-}
-
-#[test]
-fn unlink_governs_removes_the_link_and_a_missing_plan_is_named() {
-    let tasks = FakeTasks::with(&[("task-a", &[])]);
-    let (files, mint) = (Files::default(), Counter::default());
-    let mut service = Service::new(&files, &tasks, &mint);
-    service
-        .add(NewPlan {
-            governs: vec!["task-a".into(), "task-a".into()],
-            ..new("One")
-        })
-        .unwrap();
-    let plan = service
-        .unlink("plan-1", Link::Governs("task-a".into()))
-        .unwrap();
-    assert!(plan.governs.is_empty());
-    assert_eq!(
-        service.unlink("plan-9", Link::Governs("task-a".into())),
-        Err(PlanError::NoSuchPlan("plan-9".into()))
-    );
-    assert_eq!(
-        service.set_status("plan-9", PlanStatus::Active),
-        Err(PlanError::NoSuchPlan("plan-9".into()))
-    );
-}
-
-#[test]
-fn an_edit_is_recorded_once_however_often_it_is_read() {
-    let (files, tasks, mint) = (Files::default(), FakeTasks::default(), Counter::default());
-    let mut service = Service::new(&files, &tasks, &mint);
-    service.add(new("One")).unwrap();
-    files.put(".taskloom/plans/plan-1.plan.md", "edited");
-    let before = service.0.borrow().stores.store.writes().len();
-    service.list(&PlanQuery::default());
-    service.show("plan-1").unwrap();
-    service.check();
-    assert_eq!(service.0.borrow().stores.store.writes().len(), before + 1);
-    let shown = service.show("plan-1").unwrap();
-    assert_eq!(shown.plan.content_hash, content_hash(b"edited"));
-    assert_eq!(shown.content.as_deref(), Some("edited"));
-}
-
-#[test]
-fn a_new_plans_file_carries_its_title_and_session_and_the_list_its_sessions() {
-    let (files, tasks, mint) = (Files::default(), FakeTasks::default(), Counter::default());
-    let mut service = Service::new(&files, &tasks, &mint);
-    let plan = service
-        .add(NewPlan {
-            session: "inept-sixth-stick".into(),
-            status: PlanStatus::Active,
-            ..new("  Plans: phase 2  ")
-        })
-        .unwrap();
-    assert_eq!(plan.title, "Plans: phase 2");
-    assert_eq!(plan.status, PlanStatus::Active);
-    assert_eq!(plan.sessions, vec!["inept-sixth-stick"]);
-    let text = files.text(".taskloom/plans/plan-1.plan.md").unwrap();
-    assert!(text.contains("title: \"Plans: phase 2\""), "{text}");
-}
-
-#[test]
-fn an_add_the_aggregate_would_refuse_writes_no_file() {
-    let (files, tasks, mint) = (Files::default(), FakeTasks::default(), Counter::default());
-    let mut service = Service::new(&files, &tasks, &mint);
-    assert_eq!(
-        service.add(new("  ")),
-        Err(PlanError::Rejected(PlanRejection::EmptyTitle))
-    );
-    assert_eq!(
-        service.add(NewPlan {
-            status: PlanStatus::Done,
-            ..new("T")
-        }),
-        Err(PlanError::Rejected(PlanRejection::InitialStatus(
-            PlanStatus::Done
-        )))
-    );
-    assert!(files.0.borrow().is_empty());
-}
-
-#[test]
-fn a_minted_id_a_plan_holds_is_minted_again() {
-    let (files, tasks) = (Files::default(), FakeTasks::default());
-    let mint = Counter(RefCell::new((0, vec!["plan-1".into(), "plan-1".into()])));
-    let mut service = Service::new(&files, &tasks, &mint);
-    assert_eq!(service.add(new("One")).unwrap().harp_id, "plan-1");
-    // plan-1 twice more, both held, then the counter's plan-1, then plan-2.
-    assert_eq!(service.add(new("Two")).unwrap().harp_id, "plan-2");
-}
-
-#[test]
-fn the_pinned_project_is_the_one_resolved() {
-    let (files, tasks, mint) = (Files::default(), FakeTasks::default(), Counter::default());
-    let service = Service::new(&files, &tasks, &mint);
-    let pinned = service
-        .0
-        .into_inner()
-        .pinned(Some("calm-mute-otter".into()));
-    let mut service = Service(RefCell::new(pinned));
-    service.add(new("One")).unwrap();
-    assert!(service
-        .0
-        .borrow()
-        .identity
-        .pins
-        .iter()
-        .all(|pin| pin.as_deref() == Some("calm-mute-otter")));
-    assert!(service.0.get_mut().dead_letters().is_empty());
-}
-
-#[test]
-fn an_external_plan_tagged_again_after_its_import_is_its_copys_plan() {
-    let files = Files::default();
-    files.put("/home/b/v1.plan.md", "# V1\n");
-    let tasks = FakeTasks::with(&[("task-a", &["/home/b/v1.plan.md"]), ("task-b", &[])]);
-    let mint = Counter::default();
-    let mut service = Service::new(&files, &tasks, &mint);
-    let first = service.import(false);
-    assert!(first.plans[0].new);
-    assert!(!first.left_any());
-    tasks
-        .0
-        .borrow_mut()
-        .get_mut("task-b")
-        .unwrap()
-        .insert("/home/b/v1.plan.md".into());
-    let again = service.import(false);
-    assert_eq!(again.plans.len(), 1);
-    assert!(!again.plans[0].new);
-    assert_eq!(again.plans[0].path, ".taskloom/plans/plan-1.plan.md");
-    assert_eq!(again.plans[0].governs, vec!["task-a", "task-b"]);
-    assert_eq!(service.list(&PlanQuery::default()).len(), 1);
-}
-
-#[test]
-fn an_import_with_a_value_left_says_so() {
-    let files = Files::default();
-    let tasks = FakeTasks::with(&[("task-a", &["gone.plan.md"])]);
-    let mint = Counter::default();
-    let mut service = Service::new(&files, &tasks, &mint);
-    let report = service.import(false);
-    assert!(report.left_any());
-    assert!(report.plans.is_empty() && report.retired.is_empty());
-    assert_eq!(tasks.0.borrow()["task-a"].len(), 1, "its tag is kept");
-}
-
-/// A failure no retry mends (a stream holding an event no plan reads) is
-/// the service's to report as it is, never given up on as retried.
-#[test]
-fn a_failure_no_retry_mends_is_reported_not_given_up() {
-    use angzarr_embedded::v1::EventPage;
-    use angzarr_embedded::{Append, EventStore, StreamRef, Write};
-    let tasks = FakeTasks::with(&[("task-a", &[])]);
-    let (files, mint) = (Files::default(), Counter::default());
-    let mut service = Service::new(&files, &tasks, &mint);
-    service.add(new("One")).unwrap();
-    service.0.borrow().stores.store.before(
-        At::Write,
-        Box::new(|store: &MemoryStore| {
-            let cover = Cover::natural(plans::PLAN_DOMAIN, "plan-1");
-            let page = EventPage {
-                sequence: 1,
-                payload: Some(angzarr_embedded::Any {
-                    type_url: "/ctxloom.plans.v9.Unknown".to_string(),
-                    value: Vec::new(),
-                }),
-                meta: None,
-            };
-            let write = Write {
-                events: Some(Append {
-                    stream: StreamRef::try_from(&cover).unwrap(),
-                    expected: 1,
-                    pages: std::slice::from_ref(&page),
-                }),
-                ..Write::default()
-            };
-            ready(EventStore::write(store, write)).unwrap();
-        }),
-    );
-    let error = service
-        .link("plan-1", Link::Governs("task-a".into()))
-        .unwrap_err();
-    assert!(matches!(error, PlanError::Failed(_)), "{error:?}");
-}
-
-// `show`'s plans: each task's governing plans, in the order asked, read
-// from its own project's store; none for a task no plan governs, or in a
-// project with no store.
-#[test]
-fn the_plans_governing_each_task_are_answered_in_the_order_asked() {
-    use crate::Governing;
-    let tasks = FakeTasks::with(&[("done", &[]), ("to-do", &[])]);
-    let (files, mint) = (Files::default(), Counter::default());
-    let mut service = Service::new(&files, &tasks, &mint);
-    let governs = |ids: &[&str]| ids.iter().map(|id| id.to_string()).collect();
-    service
-        .add(NewPlan {
-            governs: governs(&["done"]),
-            ..new("One")
-        })
-        .unwrap();
-    service
-        .add(NewPlan {
-            governs: governs(&["done", "to-do"]),
-            ..new("Two")
-        })
-        .unwrap();
-    let here = crate::fakes::project();
-    let elsewhere = ports::Project {
-        id: "brisk-tall-oak".to_string(),
-        ..crate::fakes::project()
-    };
-    let real = service.0.get_mut();
-    real.stores.absent.insert(elsewhere.id.clone());
-    let asked = [
-        (here.clone(), "done".to_string()),
-        (here.clone(), "nope".to_string()),
-        (elsewhere, "done".to_string()),
-        (here, "to-do".to_string()),
+fn configured_roots_replace_the_defaults_and_a_relative_one_is_the_work_roots() {
+    let files = [
+        ("/tree/docs/a.plan.md", text("aa-bb", "")),
+        ("/tree/other/b.plan.md", text("cc-dd", "")),
+        ("/far/c.plan.md", text("ee-ff", "")),
     ];
-    let governing = ready(real.governing(&asked)).unwrap();
-    let ids = |ids: &[&str]| -> Vec<String> { ids.iter().map(|id| id.to_string()).collect() };
+    let borrowed: Vec<(&str, &str)> = files.iter().map(|(p, t)| (*p, t.as_str())).collect();
+    for (roots, expected) in [
+        (vec!["docs"], vec!["a"]),
+        (vec!["./docs/../other"], vec!["b"]),
+        (vec!["/far"], vec!["c"]),
+        (vec!["docs", "/far"], vec!["c", "a"]), // by path
+        (vec![], vec![]),
+    ] {
+        let mut s = service(&borrowed);
+        s.config = Roots(Some(roots.iter().map(|r| r.to_string()).collect()));
+        let found = listed(&mut s, &PlanQuery::default());
+        assert_eq!(names(&found), expected, "{roots:?}");
+    }
+}
+
+#[test]
+fn list_filters_by_status_governs_and_tags_and_refuses_what_is_none() {
+    let mut s = service(&[
+        (
+            "/tree/a.plan.md",
+            &text(
+                "aa-bb",
+                "status: active\ntags: [area:cli]\ngoverns: [swift-amber-falcon]\n",
+            ),
+        ),
+        (
+            "/tree/b.plan.md",
+            &text(
+                "cc-dd",
+                "tags: [human:decision]\ngoverns: [swift-amber-falcon, calm-otter-dune]\n",
+            ),
+        ),
+        (
+            "/tree/c.plan.md",
+            &text(
+                "ee-ff",
+                "status: done\ntags: [area:cli]\nsupersedes: [cc-dd]\n",
+            ),
+        ),
+    ]);
+    let mut by = |statuses: &[&str], governs: Option<&str>, tag_query: Option<&str>| {
+        let query = PlanQuery {
+            statuses: statuses.iter().map(|s| s.to_string()).collect(),
+            governs: governs.map(str::to_string),
+            tag_query: tag_query.map(str::to_string),
+        };
+        names(&listed(&mut s, &query))
+            .iter()
+            .map(|n| n.to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(by(&["active"], None, None), ["a"]);
+    assert_eq!(by(&["superseded"], None, None), ["b"], "derived");
+    assert_eq!(by(&["active", "done"], None, None), ["a", "c"]);
+    assert_eq!(by(&[], Some("swift-amber-falcon"), None), ["a", "b"]);
+    assert_eq!(by(&[], Some("calm-otter-dune"), None), ["b"]);
+    assert_eq!(by(&[], None, Some("area:cli")), ["a", "c"]);
     assert_eq!(
-        governing,
-        [
-            ids(&["plan-1", "plan-2"]),
-            ids(&[]),
-            ids(&[]),
-            ids(&["plan-2"])
-        ]
+        by(&[], None, Some("area:cli/human:decision/or")),
+        ["a", "b", "c"]
+    );
+    assert_eq!(by(&[], Some("swift-amber-falcon"), Some("area:cli")), ["a"]);
+    assert_eq!(by(&[], None, Some("area:cli/not")), ["b"]);
+
+    let bad = PlanQuery {
+        statuses: vec!["nonsense".into()],
+        ..PlanQuery::default()
+    };
+    assert_eq!(
+        code(ready(s.list(&bad)).unwrap_err()),
+        code!("unknown-status")
+    );
+    let malformed = PlanQuery {
+        tag_query: Some("and".into()),
+        ..PlanQuery::default()
+    };
+    let error = ready(s.list(&malformed)).unwrap_err();
+    assert_eq!(code(error), code!("tag-query"));
+}
+
+#[test]
+fn the_rules_are_asked_for_only_when_a_tag_query_needs_them() {
+    let mut s = service(&[("/tree/a.plan.md", &text("aa-bb", ""))]);
+    listed(&mut s, &PlanQuery::default());
+    assert_eq!(s.tasks.asked, 0);
+    listed(
+        &mut s,
+        &PlanQuery {
+            tag_query: Some("area:cli".into()),
+            ..PlanQuery::default()
+        },
+    );
+    assert_eq!(s.tasks.asked, 1);
+}
+
+#[test]
+fn show_takes_an_id_or_a_path_and_a_file_outside_the_roots_by_its_path() {
+    let mut s = service(&[
+        ("/tree/docs/a.plan.md", &text("aa-bb", "")),
+        ("/tree/docs/b.plan.md", &text("aa-bb", "")),
+        ("/tree/docs/c.plan.md", &text("cc-dd", "title: C\n")),
+        ("/elsewhere/d.plan.md", &text("ee-ff", "")),
+    ]);
+    let by_id = ready(s.show("cc-dd")).unwrap();
+    assert_eq!(by_id.plan.title, "C");
+    assert_eq!(by_id.content, text("cc-dd", "title: C\n"));
+    let by_path = ready(s.show("docs/c.plan.md")).unwrap();
+    assert_eq!(by_path.plan.path, "/tree/docs/c.plan.md");
+    let absolute = ready(s.show("/tree/docs/../docs/c.plan.md")).unwrap();
+    assert_eq!(absolute.plan.id.as_deref(), Some("cc-dd"));
+    let outside = ready(s.show("/elsewhere/d.plan.md")).unwrap();
+    assert_eq!(outside.plan.id.as_deref(), Some("ee-ff"));
+
+    let ambiguous = ready(s.show("aa-bb")).unwrap_err();
+    assert_eq!(code(ambiguous.clone()), code!("ambiguous"));
+    assert!(
+        ambiguous.to_string().contains("/tree/docs/b.plan.md"),
+        "{ambiguous}"
+    );
+    assert_eq!(
+        code(ready(s.show("nope")).unwrap_err()),
+        code!("no-such-plan")
+    );
+    assert_eq!(
+        code(ready(s.show("docs/missing.plan.md")).unwrap_err()),
+        code!("no-such-plan")
     );
 }
 
-// The plan list is kept caught up across the service's reads: a read
-// after another reads each stream's first event (what tells a stream
-// written again from the one seen) and what was written since, never the
-// whole store again, and lists the same.
 #[test]
-fn a_second_list_reads_only_what_was_written_since() {
-    let tasks = FakeTasks::default();
-    let (files, mint) = (Files::default(), Counter::default());
-    let mut service = Service::new(&files, &tasks, &mint);
-    service.add(new("One")).unwrap();
-    service.add(new("Two")).unwrap();
-    let pages = |service: &Service<_, _, _>| service.0.borrow().stores.store.unit_pages();
-    let titles = |service: &Service<_, _, _>| {
-        let listed = service.list(&PlanQuery::default());
-        listed.into_iter().map(|p| p.title).collect::<Vec<_>>()
-    };
-
-    let before = pages(&service);
-    assert_eq!(titles(&service), ["One", "Two"]);
-    let first = pages(&service);
-    assert!(first > before, "the first list folds the streams");
-    assert_eq!(titles(&service), ["One", "Two"]);
-    let second = pages(&service);
-    assert_eq!(second - first, 2, "each stream's first event, once");
-
-    service.add(new("Three")).unwrap();
-    let before = pages(&service);
-    assert_eq!(titles(&service), ["One", "Two", "Three"]);
-    assert_eq!(
-        pages(&service) - before,
-        2 + 1,
-        "the two first events seen, and the new stream's one event"
-    );
+fn show_of_a_superseded_plan_derives_the_status() {
+    let mut s = service(&[
+        ("/tree/a.plan.md", &text("aa-bb", "status: active\n")),
+        ("/tree/b.plan.md", &text("cc-dd", "supersedes: [aa-bb]\n")),
+        (
+            "/elsewhere/c.plan.md",
+            &text("ee-ff", "supersedes: [cc-dd]\n"),
+        ),
+    ]);
+    assert_eq!(ready(s.show("aa-bb")).unwrap().plan.status, "superseded");
+    assert_eq!(ready(s.show("cc-dd")).unwrap().plan.status, "draft");
 }
 
-// A stream the plan list cannot fold (an event no plan reads, as a newer
-// build could write) fails the read, as the task list's does, and is
-// handed again to the next, which fails too: the list never skips it.
 #[test]
-fn a_stream_the_plan_list_cannot_fold_fails_every_read() {
-    use angzarr_embedded::v1::EventPage;
-    use angzarr_embedded::{Append, EventStore, StreamRef, Write};
-    let tasks = FakeTasks::default();
-    let (files, mint) = (Files::default(), Counter::default());
-    let mut service = Service::new(&files, &tasks, &mint);
-    service.add(new("One")).unwrap();
-    service.add(new("Two")).unwrap();
-    assert_eq!(service.list(&PlanQuery::default()).len(), 2);
-    let cover = Cover::natural(plans::PLAN_DOMAIN, "plan-1");
-    let page = EventPage {
-        sequence: 1,
-        payload: Some(angzarr_embedded::Any {
-            type_url: "/ctxloom.plans.v9.Unknown".to_string(),
-            value: Vec::new(),
-        }),
-        meta: None,
-    };
-    let write = Write {
-        events: Some(Append {
-            stream: StreamRef::try_from(&cover).unwrap(),
-            expected: 1,
-            pages: std::slice::from_ref(&page),
-        }),
-        ..Write::default()
-    };
-    ready(EventStore::write(
-        service.0.borrow().stores.store.inner(),
-        write,
+fn set_writes_only_the_asked_scalars_and_mints_an_id_on_a_first_write() {
+    let mut s = service(&[("/tree/a.plan.md", "---\ntitle: Old\n---\n# Body\n")]);
+    let plan = ready(s.set(
+        "a.plan.md",
+        SetPlan {
+            title: Some("New".into()),
+            status: Some("active".into()),
+        },
     ))
     .unwrap();
-    for _ in 0..2 {
-        let error = ready(service.0.borrow_mut().list(&PlanQuery::default())).unwrap_err();
-        assert!(matches!(error, PlanError::Failed(_)), "{error:?}");
-    }
+    assert_eq!(plan.id.as_deref(), Some("first-minted-id"));
+    assert_eq!(plan.title, "New");
+    assert_eq!(plan.status, "active");
+    assert_eq!(
+        s.files.text("/tree/a.plan.md"),
+        "---\ntitle: New\nid: first-minted-id\nstatus: active\n---\n# Body\n"
+    );
+    let again = ready(s.set(
+        "first-minted-id",
+        SetPlan {
+            status: Some("done".into()),
+            ..SetPlan::default()
+        },
+    ))
+    .unwrap();
+    assert_eq!(
+        again.id.as_deref(),
+        Some("first-minted-id"),
+        "the id is kept"
+    );
 }
 
-/// angzarr-ports' code for a store that could not say: its code, whatever
-/// the cause.
-fn store_unavailable() -> String {
-    use angzarr_embedded::angzarr_ports::{Cause, StoreError};
-    StoreError::Unavailable(Cause::new("", []))
-        .code()
-        .to_string()
+#[test]
+fn set_refuses_what_is_invalid_before_it_looks_at_any_file() {
+    let mut s = service(&[]);
+    let set = |title: Option<&str>, status: Option<&str>| SetPlan {
+        title: title.map(str::to_string),
+        status: status.map(str::to_string),
+    };
+    let refused = |s: &mut Fake, change| code(ready(s.set("no-such", change)).unwrap_err());
+    assert_eq!(refused(&mut s, set(None, None)), code!("no-change"));
+    assert_eq!(refused(&mut s, set(Some("  "), None)), code!("blank-title"));
+    assert_eq!(
+        refused(&mut s, set(None, Some("superseded"))),
+        code!("hand-superseded")
+    );
+    assert_eq!(
+        refused(&mut s, set(None, Some("nonsense"))),
+        code!("unknown-status")
+    );
+    assert_eq!(refused(&mut s, set(Some("T"), None)), code!("no-such-plan"));
+}
+
+#[test]
+fn a_file_that_cannot_be_edited_is_left_alone() {
+    let broken = "---\ntitle: [unclosed\n---\n# B\n";
+    let mut s = service(&[("/tree/b.plan.md", broken)]);
+    let error = ready(s.set(
+        "b.plan.md",
+        SetPlan {
+            status: Some("active".into()),
+            ..SetPlan::default()
+        },
+    ))
+    .unwrap_err();
+    assert_eq!(code(error), code!("frontmatter"));
+    assert_eq!(s.files.text("/tree/b.plan.md"), broken);
+}
+
+#[test]
+fn a_file_that_cannot_be_written_is_the_files_report() {
+    let mut s = service(&[("/tree/a.plan.md", &text("aa-bb", ""))]);
+    s.files.deny.borrow_mut().push("/tree/a.plan.md".into());
+    let error = ready(s.set(
+        "aa-bb",
+        SetPlan {
+            title: Some("T".into()),
+            ..SetPlan::default()
+        },
+    ))
+    .unwrap_err();
+    assert_eq!(code(error), "x-denied");
+}
+
+#[test]
+fn add_writes_a_new_file_with_a_minted_id_under_the_first_root() {
+    let mut s = service(&[]);
+    let plan = ready(s.add(NewPlan {
+        title: "Fresh: plan".into(),
+        governs: vec!["swift-amber-falcon".into()],
+        ..NewPlan::default()
+    }))
+    .unwrap();
+    assert_eq!(plan.id.as_deref(), Some("first-minted-id"));
+    assert_eq!(plan.path, "/tree/.taskloom/plans/first-minted-id.plan.md");
+    assert_eq!(plan.status, "draft");
+    assert_eq!(plan.governs, ["swift-amber-falcon"]);
+    assert_eq!(
+        s.files.text(&plan.path),
+        "---\nid: first-minted-id\ntitle: \"Fresh: plan\"\nstatus: draft\ngoverns:\n  - swift-amber-falcon\n---\n\n# Fresh: plan\n"
+    );
+
+    s.config = Roots(Some(vec!["docs".into(), "/far".into()]));
+    let there = ready(s.add(NewPlan {
+        title: "T".into(),
+        status: Some("active".into()),
+        ..NewPlan::default()
+    }))
+    .unwrap();
+    assert_eq!(there.path, "/tree/docs/second-minted-id.plan.md");
+    assert_eq!(there.status, "active");
+    let named = ready(s.add(NewPlan {
+        title: "T".into(),
+        path: Some("notes/mine.plan.md".into()),
+        ..NewPlan::default()
+    }))
+    .unwrap();
+    assert_eq!(named.path, "/tree/notes/mine.plan.md");
+}
+
+#[test]
+fn add_refuses_a_bad_request_and_a_taken_path_and_never_mints_a_taken_id() {
+    let mut s = service(&[("/tree/x.plan.md", &text("first-minted-id", ""))]);
+    let add = |s: &mut Fake, new| code(ready(s.add(new)).unwrap_err());
+    let titled = |title: &str| NewPlan {
+        title: title.into(),
+        ..NewPlan::default()
+    };
+    assert_eq!(add(&mut s, titled(" ")), code!("blank-title"));
+    assert_eq!(
+        add(
+            &mut s,
+            NewPlan {
+                status: Some("superseded".into()),
+                ..titled("T")
+            }
+        ),
+        code!("hand-superseded")
+    );
+    assert_eq!(
+        add(
+            &mut s,
+            NewPlan {
+                path: Some("x.md".into()),
+                ..titled("T")
+            }
+        ),
+        code!("not-a-plan-path")
+    );
+    assert_eq!(
+        add(
+            &mut s,
+            NewPlan {
+                governs: vec!["ghost-task".into()],
+                ..titled("T")
+            }
+        ),
+        code!("no-such-task")
+    );
+    assert_eq!(
+        add(
+            &mut s,
+            NewPlan {
+                path: Some("x.plan.md".into()),
+                ..titled("T")
+            }
+        ),
+        code!("file-exists")
+    );
+    // The first minted id is in use, so the second is taken; the refused
+    // adds above minted what they minted.
+    let mut s = service(&[("/tree/x.plan.md", &text("first-minted-id", ""))]);
+    let plan = ready(s.add(titled("T"))).unwrap();
+    assert_eq!(plan.id.as_deref(), Some("second-minted-id"));
+}
+
+#[test]
+fn ids_that_are_all_taken_exhaust_the_mint() {
+    let mut s = service(&[("/tree/x.plan.md", &text("last-one-left", ""))]);
+    s.mint = words(&[]);
+    let error = ready(s.add(NewPlan {
+        title: "T".into(),
+        ..NewPlan::default()
+    }))
+    .unwrap_err();
+    assert_eq!(code(error), code!("harps-exhausted"));
+}
+
+fn tags_of(s: &mut Fake, plan: &str) -> Vec<String> {
+    ready(s.show(plan)).unwrap().plan.tags
+}
+
+#[test]
+fn a_tag_added_is_held_to_the_stores_rules_and_a_tag_removed_is_not() {
+    let mut s = service(&[("/tree/a.plan.md", &text("aa-bb", "tags: [area:cli]\n"))]);
+    s.tasks.rules = Some(vec!["tagma.permit:\"*:*\"".to_string()]);
+    let plan = ready(s.tag("aa-bb", "human:decision", true)).unwrap();
+    assert_eq!(plan.tags, ["area:cli", "human:decision"]);
+    assert_eq!(
+        s.files.text("/tree/a.plan.md"),
+        text("aa-bb", "tags: [area:cli, human:decision]\n")
+    );
+
+    // Closed to everything but the seeded vocabulary.
+    s.tasks.rules = None;
+    let refused = ready(s.tag("aa-bb", "area:other", true)).unwrap_err();
+    assert!(refused.invalid(), "{refused}");
+    assert_eq!(tags_of(&mut s, "aa-bb"), ["area:cli", "human:decision"]);
+    // Taking one out asks nothing of the rules.
+    let plan = ready(s.tag("aa-bb", "area:cli", false)).unwrap();
+    assert_eq!(plan.tags, ["human:decision"]);
+}
+
+#[test]
+fn a_tag_no_rule_could_admit_is_refused_before_a_file_is_read() {
+    let mut s = service(&[]);
+    for tag in [
+        "ctxloom:plan=\"x\"",
+        "and",
+        "tagma.permit:x",
+        " ",
+        "not a tag (((",
+    ] {
+        let error = ready(s.tag("no-such", tag, true)).unwrap_err();
+        assert!(error.invalid(), "{tag}: {error}");
+    }
+    assert_eq!(s.tasks.asked, 0);
+}
+
+#[test]
+fn a_tag_already_there_and_a_tag_absent_write_nothing() {
+    let mut s = service(&[("/tree/a.plan.md", &text("aa-bb", "tags: [area:cli]\n"))]);
+    s.tasks.rules = Some(vec!["tagma.permit:\"*:*\"".to_string()]);
+    s.files.deny.borrow_mut().push("/tree/a.plan.md".into());
+    assert!(ready(s.tag("aa-bb", "area:cli", true)).is_ok());
+    assert!(ready(s.tag("aa-bb", "area:none", false)).is_ok());
+}
+
+#[test]
+fn a_tag_is_found_to_remove_by_its_canonical_form_and_written_as_the_file_had_it() {
+    let mut s = service(&[(
+        "/tree/a.plan.md",
+        &text("aa-bb", "tags: [\"  area:cli\", priority=3]\n"),
+    )]);
+    let plan = ready(s.tag("aa-bb", "priority=3", false)).unwrap();
+    assert_eq!(plan.tags, ["  area:cli"]);
+}
+
+#[test]
+fn link_governs_needs_a_task_that_exists_and_is_idempotent() {
+    let mut s = service(&[("/tree/a.plan.md", &text("aa-bb", ""))]);
+    let governs = |t: &str| Link::Governs(t.to_string());
+    let plan = ready(s.link("aa-bb", governs("swift-amber-falcon"), true)).unwrap();
+    assert_eq!(plan.governs, ["swift-amber-falcon"]);
+    let before = s.files.text("/tree/a.plan.md");
+    ready(s.link("aa-bb", governs("swift-amber-falcon"), true)).unwrap();
+    assert_eq!(s.files.text("/tree/a.plan.md"), before, "linked once");
+    let error = ready(s.link("aa-bb", governs("ghost-task"), true)).unwrap_err();
+    assert_eq!(code(error), code!("no-such-task"));
+    assert_eq!(s.files.text("/tree/a.plan.md"), before);
+    // A task that is gone can still be unlinked.
+    s.tasks.tasks.clear();
+    let plan = ready(s.link("aa-bb", governs("swift-amber-falcon"), false)).unwrap();
+    assert_eq!(plan.governs, Vec::<String>::new());
+    ready(s.link("aa-bb", governs("swift-amber-falcon"), false)).unwrap();
+}
+
+#[test]
+fn link_supersedes_names_a_plan_by_id_or_path_and_refuses_self_and_cycles() {
+    let mut s = service(&[
+        ("/tree/a.plan.md", &text("aa-bb", "")),
+        ("/tree/b.plan.md", &text("cc-dd", "")),
+        ("/tree/c.plan.md", &text("ee-ff", "")),
+        ("/tree/noid.plan.md", "# no id\n"),
+    ]);
+    let supersedes = |t: &str| Link::Supersedes(t.to_string());
+    let a_before = s.files.text("/tree/a.plan.md");
+    let plan = ready(s.link("cc-dd", supersedes("aa-bb"), true)).unwrap();
+    assert_eq!(plan.supersedes, ["aa-bb"]);
+    assert_eq!(
+        s.files.text("/tree/a.plan.md"),
+        a_before,
+        "the superseded file is not written"
+    );
+    assert_eq!(ready(s.show("aa-bb")).unwrap().plan.status, "superseded");
+    ready(s.link("ee-ff", supersedes("b.plan.md"), true)).unwrap();
+    assert_eq!(ready(s.show("ee-ff")).unwrap().plan.supersedes, ["cc-dd"]);
+
+    let refused = |s: &mut Fake, plan: &str, target: &str| {
+        code(ready(s.link(plan, supersedes(target), true)).unwrap_err())
+    };
+    assert_eq!(refused(&mut s, "aa-bb", "aa-bb"), code!("supersede-self"));
+    assert_eq!(
+        refused(&mut s, "aa-bb", "a.plan.md"),
+        code!("supersede-self")
+    );
+    assert_eq!(refused(&mut s, "aa-bb", "cc-dd"), code!("supersede-cycle"));
+    assert_eq!(
+        refused(&mut s, "aa-bb", "ee-ff"),
+        code!("supersede-cycle"),
+        "through another plan"
+    );
+    assert_eq!(
+        refused(&mut s, "aa-bb", "ghost-plan"),
+        code!("no-such-plan")
+    );
+    assert_eq!(refused(&mut s, "aa-bb", "noid.plan.md"), code!("no-id"));
+
+    let plan = ready(s.link("cc-dd", supersedes("a.plan.md"), false)).unwrap();
+    assert_eq!(
+        plan.supersedes,
+        Vec::<String>::new(),
+        "unlinked by path too"
+    );
+    assert_eq!(ready(s.show("aa-bb")).unwrap().plan.status, "draft");
+}
+
+#[test]
+fn check_finds_each_fault_and_names_the_file() {
+    let mut s = service(&[
+        (
+            "/tree/good.plan.md",
+            &text(
+                "aa-bb",
+                "tags: [human:decision]\ngoverns: [swift-amber-falcon]\n",
+            ),
+        ),
+        ("/tree/yaml.plan.md", "---\nid: cc-dd\ntitle: [x\n---\n"),
+        ("/tree/noid.plan.md", "---\ntitle: T\n---\n"),
+        ("/tree/bare.plan.md", "# bare\n"),
+        ("/tree/dup1.plan.md", &text("ee-ff", "")),
+        ("/tree/dup2.plan.md", &text("ee-ff", "")),
+        ("/tree/tag.plan.md", &text("gg-hh", "tags: [area:nope]\n")),
+        (
+            "/tree/gov.plan.md",
+            &text("ii-jj", "governs: [ghost-task]\n"),
+        ),
+        (
+            "/tree/sup.plan.md",
+            &text("kk-ll", "supersedes: [ghost-plan, kk-ll, aa-bb]\n"),
+        ),
+        ("/tree/stat.plan.md", &text("mm-nn", "status: banana\n")),
+        ("/tree/hand.plan.md", &text("oo-pp", "status: superseded\n")),
+    ]);
+    let report = ready(s.check()).unwrap();
+    assert!(report.failed());
+    let by_path = |path: &str| -> Vec<String> {
+        report
+            .findings
+            .iter()
+            .filter(|f| f.path() == format!("/tree/{path}.plan.md"))
+            .map(|f| f.code().to_string())
+            .collect()
+    };
+    assert_eq!(by_path("good"), Vec::<String>::new());
+    assert_eq!(by_path("yaml"), [code!("finding-frontmatter")]);
+    assert_eq!(by_path("noid"), [code!("finding-no-id")]);
+    assert_eq!(by_path("bare"), [code!("finding-no-id")]);
+    assert_eq!(by_path("dup1"), [code!("finding-duplicate-id")]);
+    assert_eq!(by_path("dup2"), [code!("finding-duplicate-id")]);
+    assert_eq!(by_path("tag"), [code!("finding-tag")]);
+    assert_eq!(by_path("gov"), [code!("finding-governs")]);
+    assert_eq!(
+        by_path("sup"),
+        [
+            code!("finding-supersedes"),
+            code!("finding-supersedes-self")
+        ]
+    );
+    assert_eq!(by_path("stat"), [code!("finding-status")]);
+    assert_eq!(by_path("hand"), [code!("finding-hand-superseded")]);
+    let paths: Vec<&str> = report.findings.iter().map(Finding::path).collect();
+    let mut sorted = paths.clone();
+    sorted.sort();
+    assert_eq!(paths, sorted, "in path order");
+}
+
+#[test]
+fn check_of_sound_plans_finds_nothing_and_asks_the_rules_only_when_there_are_tags() {
+    let mut s = service(&[
+        (
+            "/tree/a.plan.md",
+            &text("aa-bb", "governs: [swift-amber-falcon]\n"),
+        ),
+        (
+            "/tree/b.plan.md",
+            &text("cc-dd", "supersedes: [aa-bb]\nstatus: done\n"),
+        ),
+    ]);
+    let report = ready(s.check()).unwrap();
+    assert!(!report.failed(), "{report:?}");
+    assert_eq!(s.tasks.asked, 0);
+}
+
+#[test]
+fn check_names_a_file_the_roots_found_but_could_not_read() {
+    struct Unreadable(MemFiles);
+    impl PlanFiles for Unreadable {
+        fn work_root(&self) -> Result<String, angzarr_diagnostic::Report> {
+            self.0.work_root()
+        }
+        fn read(&self, path: &str) -> Option<String> {
+            (!path.contains("secret"))
+                .then(|| self.0.read(path))
+                .flatten()
+        }
+        fn replace(&self, path: &str, text: &str) -> Result<(), angzarr_diagnostic::Report> {
+            self.0.replace(path, text)
+        }
+        fn create(&self, path: &str, text: &str) -> Result<bool, angzarr_diagnostic::Report> {
+            self.0.create(path, text)
+        }
+        fn scan(&self, root: &str) -> Vec<String> {
+            self.0.scan(root)
+        }
+    }
+    let mut s = PlanService::new(
+        Unreadable(MemFiles::with(&[("/tree/secret.plan.md", "x")])),
+        MemTasks::default(),
+        words(&[]),
+        Roots(None),
+    );
+    let report = ready(s.check()).unwrap();
+    assert_eq!(report.findings.len(), 1);
+    assert_eq!(report.findings[0].code(), code!("finding-unreadable"));
+}
+
+#[test]
+fn stamp_appends_the_session_once_and_mints_an_id_for_a_file_without() {
+    let mut s = service(&[
+        ("/tree/a.plan.md", &text("aa-bb", "sessions:\n  - older\n")),
+        ("/elsewhere/b.plan.md", "# Plan\n\nBody.\n"),
+        ("/tree/notes.md", "---\ntitle: n\n---\n"),
+    ]);
+    assert_eq!(
+        s.stamp("/tree/a.plan.md", "this-session"),
+        Ok(Stamp::Stamped)
+    );
+    assert_eq!(
+        s.files.text("/tree/a.plan.md"),
+        text("aa-bb", "sessions:\n  - older\n  - this-session\n")
+    );
+    assert_eq!(
+        s.stamp("/tree/a.plan.md", "this-session"),
+        Ok(Stamp::Already)
+    );
+    assert_eq!(
+        s.stamp("/elsewhere/b.plan.md", "this-session"),
+        Ok(Stamp::Stamped)
+    );
+    assert_eq!(
+        s.files.text("/elsewhere/b.plan.md"),
+        "---\nid: first-minted-id\nsessions:\n  - this-session\n---\n# Plan\n\nBody.\n"
+    );
+    assert_eq!(
+        s.stamp("/tree/notes.md", "this-session"),
+        Ok(Stamp::NotAPlan)
+    );
+    assert_eq!(
+        s.stamp("/tree/gone.plan.md", "this-session"),
+        Ok(Stamp::NotAPlan)
+    );
+    assert_eq!(s.stamp("/tree/a.plan.md", ""), Ok(Stamp::NoSession));
+    assert_eq!(s.files.text("/tree/notes.md"), "---\ntitle: n\n---\n");
+}
+
+#[test]
+fn stamp_of_a_file_that_has_the_session_but_no_id_only_mints_the_id() {
+    let mut s = service(&[(
+        "/tree/a.plan.md",
+        "---\nsessions: [this-session]\n---\n# A\n",
+    )]);
+    assert_eq!(s.stamp("a.plan.md", "this-session"), Ok(Stamp::Stamped));
+    assert_eq!(
+        s.files.text("/tree/a.plan.md"),
+        "---\nsessions: [this-session]\nid: first-minted-id\n---\n# A\n"
+    );
+}
+
+#[test]
+fn stamp_of_a_file_it_cannot_edit_is_the_error_and_leaves_it() {
+    let broken = "---\ntitle: [x\n---\n";
+    let mut s = service(&[("/tree/a.plan.md", broken)]);
+    let error = s.stamp("/tree/a.plan.md", "this-session").unwrap_err();
+    assert_eq!(code(error), code!("frontmatter"));
+    assert_eq!(s.files.text("/tree/a.plan.md"), broken);
+}
+
+#[test]
+fn a_snapshot_holds_each_files_metadata_and_body() {
+    let mut s = service(&[(
+        "/tree/a.plan.md",
+        "---\nid: aa-bb\ntitle: A\ntags: [area:cli]\n---\n# A\nbody\n",
+    )]);
+    let snapshot = s.snapshot().unwrap();
+    let watched = &snapshot["/tree/a.plan.md"];
+    assert_eq!(watched.id.as_deref(), Some("aa-bb"));
+    assert_eq!(watched.meta.title.as_deref(), Some("A"));
+    assert_eq!(watched.meta.tags, ["area:cli"]);
+    assert_eq!(watched.body, "# A\nbody\n");
+    assert_eq!(watched.invalid, None);
+}
+
+#[test]
+fn paths_are_normalized_and_placed() {
+    assert_eq!(normalized("/a/./b/../c//d"), "/a/c/d");
+    assert_eq!(normalized("C:\\a\\..\\b"), "C:/b");
+    assert_eq!(normalized("/.."), "/");
+    assert!(is_absolute("/a") && is_absolute("C:/a") && is_absolute("C:\\a"));
+    assert!(!is_absolute("a/b") && !is_absolute("./a") && !is_absolute(""));
+    assert_eq!(placed(Some("/tree"), "docs/x"), Some("/tree/docs/x".into()));
+    assert_eq!(placed(Some("/tree"), "/abs/x"), Some("/abs/x".into()));
+    assert_eq!(placed(None, "docs/x"), None);
+}
+
+#[test]
+fn a_missing_work_root_is_said_for_a_relative_path_not_an_absolute_one() {
+    struct Rootless;
+    impl PlanFiles for Rootless {
+        fn work_root(&self) -> Result<String, angzarr_diagnostic::Report> {
+            Err(angzarr_diagnostic::Report::new("x-no-root"))
+        }
+        fn read(&self, _: &str) -> Option<String> {
+            Some("# P\n".into())
+        }
+        fn replace(&self, _: &str, _: &str) -> Result<(), angzarr_diagnostic::Report> {
+            Ok(())
+        }
+        fn create(&self, _: &str, _: &str) -> Result<bool, angzarr_diagnostic::Report> {
+            Ok(true)
+        }
+        fn scan(&self, _: &str) -> Vec<String> {
+            Vec::new()
+        }
+    }
+    let mut s = PlanService::new(
+        Rootless,
+        MemTasks::default(),
+        words(&[]),
+        Roots(Some(vec!["/abs".into()])),
+    );
+    assert_eq!(ready(s.show("/abs/p.plan.md")).unwrap().content, "# P\n");
+    let error = ready(s.show("p.plan.md")).unwrap_err();
+    assert_eq!(code(error), "x-no-root");
+    s.config = Roots(None);
+    assert_eq!(
+        code(ready(s.list(&PlanQuery::default())).unwrap_err()),
+        "x-no-root"
+    );
 }

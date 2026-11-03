@@ -73,12 +73,9 @@ os = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "656a780bbd
 file-system = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "656a780bbde168dfc61d7ea3cb119e96fa0766a2" }
 file-lock = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "656a780bbde168dfc61d7ea3cb119e96fa0766a2" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
-plans-proto = { path = "crates/core/wire/plans-proto" }
 tasks = { path = "crates/core/domain/tasks" }
 task-lists = { path = "crates/core/read-model/task-lists" }
 task-priority = { path = "crates/core/read-model/task-priority" }
-plans = { path = "crates/core/domain/plans" }
-plan-lists = { path = "crates/core/read-model/plan-lists" }
 plans-application = { path = "crates/core/application/plans-application" }
 kernel-runner = { path = "crates/core/application/kernel-runner" }
 ports = { path = "crates/core/ports/ports" }

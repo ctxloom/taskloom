@@ -6,14 +6,17 @@
 //! overrides bound there), and hands the frontend the command parsed only
 //! the use case it runs: the tasks use cases for the task commands, the
 //! schema and `tasks watch`; the importer, the only reader of the JSONL task
-//! logs, for `manage migrate tasks`; the plans use cases for `plans`; and
-//! the project use cases for `manage project` and `manage doctor`. `tasks
-//! watch` streams the project's changes until SIGINT or SIGTERM (on Windows
-//! Ctrl-C, Ctrl-Break, or the console's close, logoff or shutdown; never
-//! at a closed stdin). It holds no logic of its own, and wires no adapter.
+//! logs, for `manage migrate tasks`; the plans use cases, over plan files,
+//! for `plans` and the `manage hook stamp-plan` hook; and the project use
+//! cases for `manage project` and `manage doctor`. `tasks watch` streams
+//! the project's changes, and `plans watch` the plan files', until SIGINT
+//! or SIGTERM (on Windows Ctrl-C, Ctrl-Break, or the console's close,
+//! logoff or shutdown; never at a closed stdin). It holds no logic of its
+//! own, and wires no adapter.
 
-use std::io::{self, IsTerminal};
+use std::io::{self, IsTerminal, Read};
 use std::process::ExitCode;
+use std::time::Duration;
 
 use tasks_cli::Context;
 use tasks_lib::Taskloom;
@@ -46,7 +49,7 @@ enum Command {
     Tasks(TasksVerb),
     /// Plan files, their status and links
     #[command(subcommand)]
-    Plans(plans_cli::Command),
+    Plans(PlansVerb),
     /// The store's rules, migrations, hooks and diagnosis
     #[command(subcommand)]
     Manage(Manage),
@@ -62,6 +65,15 @@ enum TasksVerb {
     Task(tasks_cli::Tasks),
     #[command(flatten)]
     Watch(tasks_watch::Group),
+}
+
+/// The verbs of `plans`: the plan commands, and `watch` mounted beside them.
+#[derive(clap::Subcommand, Debug)]
+enum PlansVerb {
+    #[command(flatten)]
+    Plan(plans_cli::Command),
+    #[command(flatten)]
+    Watch(plans_cli::Group),
 }
 
 /// The groups of `manage`.
@@ -116,6 +128,8 @@ enum Routed {
 enum Mounted {
     Import,
     Watch,
+    PlansWatch,
+    StampPlan,
     Plans(plans_cli::Command),
     Project(project_cli::Command),
 }
@@ -129,12 +143,13 @@ impl From<Command> for Routed {
             Command::Tasks(TasksVerb::Watch(tasks_watch::Group::Watch)) => {
                 Routed::Mounted(Mounted::Watch)
             }
-            Command::Plans(plans) => Routed::Mounted(Mounted::Plans(plans)),
+            Command::Plans(PlansVerb::Plan(plans)) => Routed::Mounted(Mounted::Plans(plans)),
+            Command::Plans(PlansVerb::Watch(plans_cli::Group::Watch)) => {
+                Routed::Mounted(Mounted::PlansWatch)
+            }
             Command::Loadout => Routed::Tasks(tasks_cli::Command::Loadout),
             Command::Manage(Manage::Version) => Routed::Tasks(tasks_cli::Command::Version),
-            Command::Manage(Manage::Hook(Hook::StampPlan)) => {
-                Routed::Tasks(tasks_cli::Command::StampPlan)
-            }
+            Command::Manage(Manage::Hook(Hook::StampPlan)) => Routed::Mounted(Mounted::StampPlan),
             Command::Manage(Manage::Schema(schema)) => {
                 Routed::Tasks(tasks_cli::Command::Schema(schema))
             }
@@ -228,8 +243,74 @@ fn project_group(
     ))
 }
 
-/// The `plans` group, over the plans use cases: the plan files in the work
-/// tree and the project's store.
+/// How often `plans watch` looks at the plan files: the work tree is
+/// walked each time, so less often than the task store's token is polled.
+const PLANS_POLL: Duration = Duration::from_millis(500);
+
+/// `plans watch`'s ticks: [`PLANS_POLL`], on the runtime's timer.
+struct PlanTicks(tasks_watch::Interval);
+
+impl plans_cli::Ticks for PlanTicks {
+    async fn tick(&mut self) {
+        tasks_watch::Ticks::tick(&mut self.0).await;
+    }
+}
+
+/// `taskloom plans watch`: the plan files' changes on stdout, until
+/// interrupted.
+fn plans_watch<P: plans_cli::Plans>(
+    runtime: &tokio::runtime::Runtime,
+    os: &dyn os::Os,
+    plans: &mut P,
+    settings: &plans_cli::Settings,
+    catalog: &angzarr_presentation::Catalog,
+) -> ExitCode {
+    let code = runtime.block_on(async {
+        let stop = match os.stop_signal() {
+            Ok(stop) => stop,
+            Err(e) => {
+                eprintln!("{}: cannot listen for signals: {e}", tasks_cli::PROG);
+                return 1;
+            }
+        };
+        let mut ticks = PlanTicks(tasks_watch::Interval::every(PLANS_POLL));
+        plans_cli::watch(
+            plans,
+            settings,
+            &mut ticks,
+            stop,
+            catalog,
+            &mut io::stdout().lock(),
+            &mut io::stderr().lock(),
+        )
+        .await
+    });
+    ExitCode::from(code)
+}
+
+/// `taskloom manage hook stamp-plan`: the session recorded in the plan
+/// file the hook payload on stdin names.
+fn stamp_plan(
+    taskloom: &Taskloom,
+    project: Option<String>,
+    settings: &plans_cli::Settings,
+    catalog: &angzarr_presentation::Catalog,
+) -> ExitCode {
+    let mut payload = String::new();
+    // A payload that cannot be read is the hook's to say, as an empty one.
+    let _ = io::stdin().lock().read_to_string(&mut payload);
+    let mut plans = taskloom.plans(project);
+    ExitCode::from(plans_cli::stamp(
+        &payload,
+        settings,
+        catalog,
+        &mut plans,
+        &mut io::stderr().lock(),
+    ))
+}
+
+/// The `plans` group, over the plans use cases: the plan files wherever
+/// the plan roots are, and the project's tasks and rules.
 fn plan_group(
     runtime: &tokio::runtime::Runtime,
     taskloom: &Taskloom,
@@ -316,19 +397,12 @@ fn main() -> ExitCode {
         }
     };
     let mut service = taskloom.tasks();
-    // The plans name the plans governing each task `show` shows, in the
-    // project each was found in.
-    let mut plans = taskloom.plans(globals.project.clone());
-    let use_cases = tasks_cli::UseCases {
-        tasks: &mut service,
-        plans: &mut plans,
-    };
     ExitCode::from(runtime.block_on(tasks_cli::run(
         command,
         globals,
         &context,
         &catalog,
-        use_cases,
+        &mut service,
         &mut stdout.lock(),
         &mut stderr.lock(),
     )))
@@ -349,6 +423,11 @@ fn mounted(
         Err(code) => return ExitCode::from(code),
     };
     let project = globals.project;
+    let plan_settings = || plans_cli::Settings {
+        format,
+        session: context.session.clone(),
+        prog: tasks_cli::PROG,
+    };
     match routed {
         Mounted::Import => import(runtime, taskloom, project, format, catalog),
         Mounted::Project(group) => {
@@ -360,13 +439,16 @@ fn mounted(
             project_group(taskloom, group, &settings, catalog)
         }
         Mounted::Plans(group) => {
-            let settings = plans_cli::Settings {
-                format,
-                session: context.session.clone(),
-                prog: tasks_cli::PROG,
-            };
-            plan_group(runtime, taskloom, group, project, &settings, catalog)
+            plan_group(runtime, taskloom, group, project, &plan_settings(), catalog)
         }
+        Mounted::PlansWatch => plans_watch(
+            runtime,
+            taskloom.fs().os(),
+            &mut taskloom.plans(project),
+            &plan_settings(),
+            catalog,
+        ),
+        Mounted::StampPlan => stamp_plan(taskloom, project, &plan_settings(), catalog),
         Mounted::Watch => {
             let settings = tasks_watch::Settings {
                 format,
