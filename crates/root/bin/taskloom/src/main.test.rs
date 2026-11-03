@@ -1624,6 +1624,9 @@ mod import;
 #[path = "plan.test.rs"]
 mod plan;
 
+#[path = "plans_files.test.rs"]
+mod plans_files;
+
 #[path = "project.test.rs"]
 mod project;
 
