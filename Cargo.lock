@@ -2552,6 +2552,7 @@ dependencies = [
  "angzarr-diagnostic",
  "angzarr-embedded",
  "angzarr-presentation",
+ "base64",
  "clap",
  "fluent-syntax",
  "os",
@@ -2559,6 +2560,7 @@ dependencies = [
  "serde_json",
  "tasks-application",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

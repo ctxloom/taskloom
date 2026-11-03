@@ -9,14 +9,17 @@ publish.workspace = true
 
 [dependencies]
 angzarr-diagnostic.workspace = true
+base64.workspace = true
 clap.workspace = true
 # Flavor: what the help says stops the watch (Ctrl-C and SIGTERM, or on
 # Windows Ctrl-C, Ctrl-Break and the console's close, logoff or shutdown).
 os.workspace = true
 angzarr-presentation.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 tasks-application.workspace = true
 tokio.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 # The test support's block_on_ready.
@@ -25,7 +28,6 @@ angzarr-embedded = { workspace = true, features = ["test-support"] }
 # to Go's.
 angzarr-presentation = { workspace = true, features = ["test-support"] }
 fluent-syntax.workspace = true
-serde_json.workspace = true
 
 [build-dependencies]
 # The build writes the catalog's source under the crate's name

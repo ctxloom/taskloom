@@ -29,10 +29,11 @@ use crate::schema;
 use crate::watch::Watching;
 use crate::write::Writes;
 use crate::{
-    AppError, DeadLetter, Declaration, Declared, Details, LintReport, ListQuery, Listing, NewTask,
-    PermitChange, PermitList, PermitService, Permitted, PruneRequest, PruneService, Pruning,
-    RuleFinding, SchemaService, SchemaSummary, Scope, ShowQuery, StatusChange, Statuses, Summary,
-    TagChange, TextEdit, Vocabulary, Watch, WatchRequest, WatchService, Written,
+    AppError, DeadLetter, Declaration, Declared, Details, Found, LintReport, ListQuery, Listing,
+    NewTask, PermitChange, PermitList, PermitService, Permitted, Positions, PruneRequest,
+    PruneService, Pruning, RuleFinding, SchemaService, SchemaSummary, Scope, ShowQuery,
+    StatusChange, Statuses, Summary, TagChange, TextEdit, Vocabulary, Watch, WatchRequest,
+    WatchService, Written,
 };
 
 /// The use cases a driving adapter calls for a task: the writes (add,
@@ -410,5 +411,17 @@ where
 
     async fn poll(&mut self, watch: &mut Watch) -> Result<bool, AppError> {
         self.watching().poll(watch).await
+    }
+
+    async fn heads(&mut self, watch: &Watch) -> Result<Positions, AppError> {
+        self.watching().heads(watch).await
+    }
+
+    async fn after(
+        &mut self,
+        watch: &Watch,
+        positions: &Positions,
+    ) -> Result<Vec<Found>, AppError> {
+        self.watching().after(watch, positions).await
     }
 }

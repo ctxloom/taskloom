@@ -131,7 +131,7 @@ pub use tags::{
 };
 pub use task::Written;
 pub use view::{text_hash, Row, Shown, StatusInfo, Task};
-pub use watch::{Watch, WatchRequest, WatchService};
+pub use watch::{Found, Positions, Seen, StreamKey, Watch, WatchRequest, WatchService};
 
 // Used across the crate's modules by these paths; nothing outside uses them.
 #[cfg(test)]

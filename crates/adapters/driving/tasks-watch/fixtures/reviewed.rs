@@ -1,7 +1,9 @@
-//! What `taskloom watch --help` says at length: unix's words (Go's
+//! What `taskloom tasks watch --help` says at length: unix's words (Go's
 //! `taskloom watch` help, with the store and closed-stdin changes Rust's
-//! watch already carried), with the departures the human reviewed and
-//! approved applied on the hosts they apply to.
+//! watch already carried, and, with consolidation slice D (2026-11-03),
+//! the cursor, the heartbeat and the exit codes: those words are the
+//! slice's, pending the owner's review), with the departures the human
+//! reviewed and approved applied on the hosts they apply to.
 //!
 //! Each departure is an exact `(old, new)` pair on unix's words, as
 //! registration-cli's are (`registration-cli/fixtures/reviewed.rs`). Each
@@ -10,14 +12,18 @@
 
 /// Unix's words: what stops the watch is Go's (`Ctrl-C / SIGTERM`).
 pub const ON_UNIX: &str =
-    "Watch the project's task store and emit a JSONL event whenever it changes.
+    "Watch the project's task store and write one line per task event, resumable.
 
 Long-lived: runs until interrupted (Ctrl-C / SIGTERM); a closed stdin does not
-stop it. One line at once, then one per burst of changes, e.g.
-{\"event\":\"changed\",\"kind\":\"tasks\",\"project\":\"swift-amber-falcon\"}. A GUI
-subscribes to this and re-queries the task list on each event, so it stays live
-without polling or watching the store files itself (the watch plumbing lives in
-the backend, not the client).";
+stop it. A priming line at once, then one line per event with its stream,
+sequence and the task as it is then, each carrying a cursor, e.g.
+{\"v\":1,\"event\":\"changed\",\"project\":\"swift-amber-falcon\",...,\"cursor\":\"eyJ2...\"}.
+Pass a line's cursor as --since to resume after it: the lines you missed are
+replayed, none twice. Cursors are per stream, so no order across tasks is
+promised. A stream pruned since is reported once as expired. A heartbeat
+line comes after each --heartbeat quiet seconds (default 15, 0 for none).
+Exit 2 for a cursor that is malformed, of an unknown version or another
+project's; 1 for a project with no store.";
 
 /// Departures on Windows (the human's ruling of 2026-10-28): the help
 /// names what stops the watch there, as the os crate's stop signal hears

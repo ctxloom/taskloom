@@ -104,3 +104,65 @@ fn test_every_code_is_under_the_crates_name_with_its_message() {
         []
     );
 }
+
+#[test]
+fn test_an_invalid_cursor_is_exit_2_and_everything_else_exit_1() {
+    let invalid = [
+        WatchError::CursorMalformed,
+        WatchError::CursorVersion {
+            found: 2,
+            supported: 1,
+        },
+        WatchError::CursorForeign {
+            cursor_project: "a".to_string(),
+            project: "b".to_string(),
+        },
+    ];
+    for error in invalid {
+        assert_eq!(error.exit_code(), 2, "{error}");
+    }
+    let ran = [
+        WatchError::NoProject,
+        WatchError::UnknownProject {
+            project: "p".to_string(),
+        },
+        WatchError::Output {
+            detail: "gone".to_string(),
+        },
+        WatchError::App(AppError::HarpsExhausted { attempts: 1 }),
+    ];
+    for error in ran {
+        assert_eq!(error.exit_code(), 1, "{error}");
+    }
+}
+
+#[test]
+fn test_the_cursor_errors_say_what_to_do_and_name_the_versions() {
+    assert_eq!(
+        WatchError::CursorVersion {
+            found: 999,
+            supported: 1
+        }
+        .english(),
+        "the cursor is version 999; this taskloom reads version 1"
+    );
+    assert_eq!(
+        WatchError::CursorForeign {
+            cursor_project: "jolly-mute-magma".to_string(),
+            project: "swift-amber-falcon".to_string()
+        }
+        .english(),
+        "the cursor belongs to project jolly-mute-magma, not to swift-amber-falcon"
+    );
+    assert_eq!(
+        WatchError::CursorMalformed.english(),
+        "--since is not a cursor: pass the cursor of a watch line, unchanged"
+    );
+    assert_eq!(
+        WatchError::UnknownProject {
+            project: "no-such".to_string()
+        }
+        .english(),
+        "no project no-such has a store here"
+    );
+}

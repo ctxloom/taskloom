@@ -127,7 +127,7 @@ enum Routed {
 /// The commands that are no task use case's.
 enum Mounted {
     Import,
-    Watch,
+    Watch(tasks_watch::Args),
     PlansWatch,
     StampPlan,
     Plans(plans_cli::Command),
@@ -140,8 +140,8 @@ impl From<Command> for Routed {
             Command::Tasks(TasksVerb::Task(tasks)) => {
                 Routed::Tasks(tasks_cli::Command::Tasks(tasks))
             }
-            Command::Tasks(TasksVerb::Watch(tasks_watch::Group::Watch)) => {
-                Routed::Mounted(Mounted::Watch)
+            Command::Tasks(TasksVerb::Watch(tasks_watch::Group::Watch(args))) => {
+                Routed::Mounted(Mounted::Watch(args))
             }
             Command::Plans(PlansVerb::Plan(plans)) => Routed::Mounted(Mounted::Plans(plans)),
             Command::Plans(PlansVerb::Watch(plans_cli::Group::Watch)) => {
@@ -187,8 +187,8 @@ fn import(
     )))
 }
 
-/// `taskloom tasks watch`: the project's changes on stdout, polled every
-/// debounce, until interrupted.
+/// `taskloom tasks watch`: the project's task events on stdout, polled every
+/// `POLL`, until interrupted.
 fn watch<W: tasks_application::WatchService>(
     runtime: &tokio::runtime::Runtime,
     os: &dyn os::Os,
@@ -209,7 +209,7 @@ fn watch<W: tasks_application::WatchService>(
         };
         // Stdin is not watched: the VS Code extension starts the watch
         // with stdin from /dev/null.
-        let mut ticks = tasks_watch::Interval::every(tasks_watch::DEBOUNCE);
+        let mut ticks = tasks_watch::Interval::every(tasks_watch::POLL);
         tasks_watch::run(
             service,
             settings,
@@ -449,10 +449,12 @@ fn mounted(
             catalog,
         ),
         Mounted::StampPlan => stamp_plan(taskloom, project, &plan_settings(), catalog),
-        Mounted::Watch => {
+        Mounted::Watch(args) => {
             let settings = tasks_watch::Settings {
                 format,
                 project,
+                since: args.since,
+                heartbeat: tasks_watch::heartbeat_ticks(args.heartbeat),
                 prog: tasks_cli::PROG,
             };
             watch(

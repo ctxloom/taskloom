@@ -487,6 +487,8 @@ mod ticked {
             let settings = Settings {
                 format: angzarr_presentation::Format::Json,
                 project: None,
+                since: None,
+                heartbeat: None,
                 prog: "taskloom",
             };
             let catalog = super::super::super::catalog().unwrap();

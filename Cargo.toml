@@ -107,6 +107,8 @@ tagma-proto = { git = "https://github.com/benjaminabbitt/tagma", rev = "021e8b00
 harp-core = { git = "https://github.com/benjaminabbitt/harp", rev = "e27196f5a425ffcf8e443aab95d2bf085cd2b134" }
 
 # Third-party, for the adapters and the composition root.
+# The watch cursor's text: base64url of JSON (already in the graph).
+base64 = "0.22"
 clap = { version = "4.5", features = ["derive", "string"] }
 # The catalogs' tests read each catalog's messages and variables.
 fluent-syntax = "0.11"
