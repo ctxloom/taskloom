@@ -1389,6 +1389,9 @@ mod codes;
 #[path = "companion.test.rs"]
 mod companion;
 
+#[path = "grammar.test.rs"]
+mod grammar;
+
 #[path = "import.test.rs"]
 mod import;
 
