@@ -1506,11 +1506,15 @@ fn test_in_json_a_stream_writes_one_document_a_line() {
     assert!(added.ok, "{}", added.stderr);
     env.permit_every_tag();
     let watching = watch::Watching::start(&env, &["--format", "json"]);
-    assert_eq!(one_document(&watching.line())["event"], "changed");
+    // Priming line, then a change (owner-authorised with slice D approval
+    // 2026-11-03: the first was `changed` and the second named `kind`).
+    let primed = one_document(&watching.line());
+    assert_eq!(primed["event"], "primed");
+    assert_eq!(primed["kind"], "tasks");
     let harp = one_document(&added.stdout)["harp_id"].to_string();
     let tagged = env.run(&["tasks", "tag", "add", harp.trim_matches('"'), "x"]);
     assert!(tagged.ok, "{}", tagged.stderr);
-    assert_eq!(one_document(&watching.line())["kind"], "tasks");
+    assert_eq!(one_document(&watching.line())["event"], "changed");
     if let Some(status) = watching.stop("INT") {
         assert!(status.success(), "SIGINT is a clean end: {status}");
     }

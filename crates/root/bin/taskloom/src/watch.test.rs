@@ -1,5 +1,5 @@
 //! Acceptance: `taskloom tasks watch`, the real binary in a temporary home: its
-//! first line at once, a line for a task another process adds, one JSON
+//! priming line at once, a line for a task another process adds, one JSON
 //! document a line, and a clean exit at SIGINT or SIGTERM (on Windows, at
 //! a Ctrl-Break sent to its process group). Each watch runs
 //! with stdin from /dev/null, as the VS Code extension starts it, and a
@@ -134,9 +134,34 @@ impl Drop for Watching {
     }
 }
 
-/// The stream's line, for `project`.
-fn event(project: &str) -> Value {
-    serde_json::json!({"event": "changed", "kind": "tasks", "project": project})
+/// The stream's priming line, for `project` (owner-authorised with slice D
+/// approval 2026-11-03: it was `{"event":"changed","kind":"tasks",
+/// "project":...}`, now the versioned `primed` line carrying a cursor,
+/// whose resumed forms `watch_cursor.test.rs` holds).
+fn primed(line: &str, project: &str) -> Value {
+    let mut line = one_document(line);
+    let cursor = line["cursor"].take();
+    assert!(cursor.as_str().is_some_and(|c| !c.is_empty()), "{line}");
+    assert_eq!(
+        line,
+        serde_json::json!({"v": 1, "event": "primed", "kind": "tasks", "project": project, "cursor": null})
+    );
+    cursor
+}
+
+/// A change line for the task `text`, for `project`: the event, its stream
+/// and sequence, the task as it is, and a cursor (owner-authorised with
+/// slice D approval 2026-11-03; the line was the same as the priming one,
+/// naming no task).
+fn changed(line: &str, project: &str, text: &str) -> Value {
+    let line = one_document(line);
+    assert_eq!(line["v"], 1, "{line}");
+    assert_eq!(line["event"], "changed", "{line}");
+    assert_eq!(line["project"], project, "{line}");
+    assert_eq!(line["sequence"], 0, "{line}");
+    assert_eq!(line["task"]["text"], text, "{line}");
+    assert!(line["cursor"].as_str().is_some_and(|c| !c.is_empty()));
+    line
 }
 
 #[test]
@@ -152,11 +177,11 @@ fn test_watch_writes_a_line_at_once_and_one_for_a_task_another_process_adds() {
     let watching = Watching::start(&env, &[]);
     // A subscriber renders the current state from the first line, so it
     // comes before any change; one JSON document a line.
-    assert_eq!(one_document(&watching.line()), event(&project));
+    primed(&watching.line(), &project);
 
     let added = env.run(&["tasks", "add", "After"]);
     assert!(added.ok, "{}", added.stderr);
-    assert_eq!(one_document(&watching.line()), event(&project));
+    changed(&watching.line(), &project, "After");
 
     if let Some(status) = watching.stop("INT") {
         assert!(status.success(), "SIGINT is a clean end: {status}");
@@ -172,12 +197,27 @@ fn test_watch_ends_cleanly_at_sigterm_and_watches_a_pinned_project() {
         .as_str()
         .unwrap()
         .to_string();
-    let elsewhere = Env::new("watch-term-elsewhere");
+    // Owner-authorised with slice D approval 2026-11-03: the watch ran from
+    // a home that had never heard of the project, and the old watch wrote
+    // its priming line for it all the same (the bug slice D reverses: an
+    // unknown project exits 1). It now runs in the same home, from another
+    // work tree, which is what pinning a project is for.
+    let Env {
+        home,
+        project: here,
+        ..
+    } = env;
+    let elsewhere = Env {
+        home,
+        project: super::Temp::new(),
+        session: "watch-term-elsewhere",
+    };
     let watching = Watching::start(&elsewhere, &["--project", &project, "--format", "json"]);
-    assert_eq!(one_document(&watching.line()), event(&project));
+    primed(&watching.line(), &project);
     if let Some(status) = watching.stop("TERM") {
         assert!(status.success(), "SIGTERM is a clean end: {status}");
     }
+    drop(here);
 }
 
 /// Go's watch stops at os.Interrupt and SIGTERM, which on Windows are
@@ -193,7 +233,7 @@ fn test_watch_ends_cleanly_at_a_ctrl_break_on_windows() {
     let env = Env::new("watch-break-harp");
     env.seed("Seed");
     let watching = Watching::start(&env, &[]);
-    assert_eq!(one_document(&watching.line())["event"], "changed");
+    assert_eq!(one_document(&watching.line())["event"], "primed");
     let status = watching.ctrl_break();
     assert!(status.success(), "a Ctrl-Break is a clean end: {status}");
 }
@@ -230,7 +270,7 @@ fn test_watch_with_stdin_from_dev_null_stays_up_and_answers_each_change() {
     let env = Env::new("watch-devnull-harp");
     env.seed("Seed");
     let mut watching = Watching::start(&env, &[]);
-    assert_eq!(one_document(&watching.line())["event"], "changed");
+    assert_eq!(one_document(&watching.line())["event"], "primed");
 
     let added = env.run(&["tasks", "add", "Another"]);
     assert!(added.ok, "{}", added.stderr);
@@ -550,25 +590,32 @@ mod ticked {
     }
 
     #[test]
-    fn test_a_commit_no_task_sees_is_a_line() {
-        // The watch keeps no tasks to compare: any commit moves the token,
-        // and the subscriber re-queries to find the same tasks.
+    fn test_a_commit_no_task_sees_is_no_line() {
+        // Owner-authorised with slice D approval 2026-11-03: it was a line
+        // each (D7: no cursor, so any commit moved the token and was a
+        // change to re-query on). Lines are now per task event: the token
+        // moved, no task stream did, nothing is written.
         let (lines, tasks) = watched(|_| vec![Step::Elsewhere, Step::Quiet]);
-        assert_eq!(lines, 2, "the first, and the commit's");
+        assert_eq!(lines, 1, "only the priming line");
         assert_eq!(tasks, ["Pruned", "Kept"]);
     }
 
     #[test]
-    fn test_a_prune_and_a_mint_on_its_harp_between_two_polls_is_the_new_task() {
-        // The harp freed and minted again unseen: the stream restarted,
-        // shorter than the one the watch last read.
+    fn test_a_prune_and_a_mint_on_its_harp_as_long_as_before_is_not_seen_by_the_cursor() {
+        // Owner-authorised with slice D approval 2026-11-03. The harp freed
+        // and minted again unseen: the stream restarted. The cursor is a
+        // next sequence per stream, so a stream that is shorter than the
+        // watch last read is expired (watch_cursor.test.rs), but one that
+        // is as long again (here one event, as before) is told from the
+        // old only by its events, which a sequence cannot do. A known limit
+        // of the owner's cursor; the mint needs the same random harp again.
         let (lines, tasks) = watched(|harp| {
             vec![
                 Step::Reminted(harp.to_string(), "Again".to_string()),
                 Step::Quiet,
             ]
         });
-        assert_eq!(lines, 2, "the first, and the new task's");
+        assert_eq!(lines, 1, "only the priming line");
         let mut tasks = tasks;
         tasks.sort();
         assert_eq!(tasks, ["Again", "Kept"]);
