@@ -222,12 +222,12 @@ fn test_a_tag_in_use_is_spelled_canonically_with_its_counts() {
 // What a store permits, as a program reads it, in the shape the old
 // tag_permits had: each namespace in order, open with no keys (a pattern
 // `ns:*`) or closed to its sorted keys (`ns:key`); the flat tags (and any
-// other pattern, as declared); the rules' targets. A store declaring none
-// says so, its targets still listed.
+// other pattern, as declared); the rules' targets. Every store is an
+// allowlist (F6), so there is no flag saying whether it declares any: one
+// permitting nothing lists none, its targets still listed.
 #[test]
 fn test_the_permits_are_each_namespace_open_or_closed_the_flat_tags_and_the_targets() {
     let declared = PermitList {
-        closed: true,
         patterns: [
             "area:cli",
             "area:mcp",
@@ -243,7 +243,6 @@ fn test_the_permits_are_each_namespace_open_or_closed_the_flat_tags_and_the_targ
     assert_eq!(
         serde_json::to_value(PermitsJson::of(&declared)).unwrap(),
         json!({
-            "declared": true,
             "namespaces": [
                 {"namespace": "area", "open": false, "keys": ["cli", "mcp"]},
                 {"namespace": "relates", "open": true, "keys": []},
@@ -252,14 +251,13 @@ fn test_the_permits_are_each_namespace_open_or_closed_the_flat_tags_and_the_targ
             "schema_targets": ["triage:kind"],
         })
     );
-    let undeclared = PermitList {
-        closed: false,
+    let nothing = PermitList {
         patterns: vec![],
         schema_targets: vec!["triage:kind".to_string()],
     };
     assert_eq!(
-        serde_json::to_value(PermitsJson::of(&undeclared)).unwrap(),
-        json!({"declared": false, "namespaces": [], "tags": [], "schema_targets": ["triage:kind"]})
+        serde_json::to_value(PermitsJson::of(&nothing)).unwrap(),
+        json!({"namespaces": [], "tags": [], "schema_targets": ["triage:kind"]})
     );
 }
 

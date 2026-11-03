@@ -2,7 +2,8 @@
 //! store ([`tasks::schema`]), holding the store's tag rules as tagma
 //! config tags ([`crate::rules`]), seeded with [`crate::SEEDED_SCHEMA`] when a
 //! store is written first (and on the first write to a store with no
-//! schema stream), and changed only by a person
+//! schema stream, or with its permits from before every store was an
+//! allowlist: [`seed_in`]), and changed only by a person
 //! ([`crate::PermitService::declare`], `permit`, `revoke`, `schema
 //! import-config`). No file layer (home, work root,
 //! `TASKLOOM_CONFIG_TAG_SCHEMA`, `--config-set`) is read for them: a layer
@@ -10,7 +11,7 @@
 //! ([`ports::Configuration::moved`]).
 //!
 //! A read (a listing, lint, `schema show`) never writes: a store with no
-//! schema stream is read as if seeded.
+//! schema stream, or with its old permits, is read as if seeded.
 
 use std::future::Future;
 
@@ -65,7 +66,7 @@ pub trait SchemaService {
 
 /// The schema stream of a store: one per store, its fixed name its
 /// natural key.
-fn schema_stream() -> Cover {
+pub(crate) fn schema_stream() -> Cover {
     Cover::natural(SCHEMA_DOMAIN, SCHEMA_STREAM)
 }
 
@@ -105,11 +106,13 @@ async fn rules_after<St: Store>(
     }
 }
 
-/// `store`'s rules after seeding its schema stream, where it has no
-/// history, with [`crate::SEEDED_SCHEMA`]: a stream already declared is loaded
-/// and nothing is shaped or sent. The seed is sent at the head loaded (empty), so two
-/// writers seeding at once land it once, the second, shaping again, finding
-/// it there.
+/// `store`'s rules after seeding its schema stream: where it has no
+/// history, with [`crate::SEEDED_SCHEMA`]; where it holds permits from
+/// before every store was an allowlist, with the seed's permits, its old
+/// ones made presences ([`seeding`]). A stream that holds what it is read
+/// as is loaded and nothing is shaped or sent. The seeding is sent at the
+/// head loaded, so two writers seeding at once land it once, the second,
+/// shaping again, finding it there.
 pub(crate) async fn seed_in<St, C, D>(
     runner: &mut Runner<'_, C, D>,
     store: &St,
@@ -120,21 +123,12 @@ where
     D: Delay + Jitter + Send,
 {
     let held = schema_now(store, runner.registry).await?;
-    if held.declared {
+    if seeding(&held).is_none() {
         return Ok(StoreRules::of(&held));
     }
-    let seed = Declare {
-        add: StoreRules::default()
-            .tags()
-            .iter()
-            .cloned()
-            .map(Tag::from)
-            .collect(),
-        remove: Vec::new(),
-    };
     let unseeded = |schema: &SchemaAggregate| {
         let held = schema.state().clone();
-        let send = (!held.declared).then(|| SchemaCommand::from(seed.clone()));
+        let send = seeding(&held).map(SchemaCommand::from);
         (send, held)
     };
     let command_id = runner.clock.command_id();
@@ -145,6 +139,29 @@ where
         Some(handled) => rules_after(store, runner.registry, &handled).await,
         None => Ok(StoreRules::of(&held)),
     }
+}
+
+/// The declare that leaves `held` holding the rules it is read as
+/// ([`StoreRules::of`]): the seed, on a stream with no history; on one
+/// holding its permits from before every store was an allowlist, those
+/// permits as presences and the seed's beside them; `None` where it holds
+/// them already.
+fn seeding(held: &SchemaState) -> Option<Declare> {
+    let read = StoreRules::of(held);
+    let holds = StoreRules::held(held);
+    let missing = |from: &StoreRules, of: &StoreRules| -> Vec<Tag> {
+        from.tags()
+            .iter()
+            .filter(|tag| !of.holds(tag))
+            .cloned()
+            .map(Tag::from)
+            .collect()
+    };
+    let declare = Declare {
+        add: missing(&read, &holds),
+        remove: missing(&holds, &read),
+    };
+    (!declare.add.is_empty() || !declare.remove.is_empty()).then_some(declare)
 }
 
 /// Each of `spelled` parsed as a schema tag: refused at the first that is

@@ -30,18 +30,24 @@ An `Introduced` finding refuses the write (`tasks-application-tag-rules`,
 naming tagma's code). `Existing` findings come back as
 `Written::warnings()`, on stderr or in the JSON `warnings`.
 
-**Seed.** `SEEDED_SCHEMA` (33 tags) is the old 16 rewritten: one tag per
-enum value, `lo..hi` ranges, `tagma.keys-per-item:area=1`/`repo=1` (which
-replace `ONE_KEY`), and `taskloom.priority_fn`/`decay_fn`. It is written
-when a store is made, and on first open of a store with no schema stream.
-No permits, so the world stays open.
+**Seed.** `SEEDED_SCHEMA` is the old 16 rewritten: one tag per enum value,
+`lo..hi` ranges, `tagma.keys-per-item:area=1`/`repo=1` (which replace
+`ONE_KEY`), and `taskloom.priority_fn`/`decay_fn`; and its permits, for
+every store is an allowlist from when it is made (the owner's ruling F6,
+2026-11-02): one for each target the seed constrains, and the core
+vocabulary every project copies (the factual flags, `human:`'s keys,
+`relates:`, `touches:`, `sig:`, `queue:`, `landed:`, `platform:`'s keys).
+A project's own `area:` and `repo:` keys it permits itself. The seed is
+written when a store is made, and on first open of a store with no schema
+stream; a store holding no permit as a presence (one from before F6, open
+or closed by `"*:*"=false`) has the seed's permits written on its first
+open, its `=true` permits kept as presences, its other valued ones dropped.
 
 **CLI.** `schema` / `schema show` (same JSON shape as now), `schema
 export`, `schema check` (exits non-zero on findings), `schema declare
 --add/--remove`, `schema import-config`. `permit X` adds
-`tagma.permit:"X"=true` (`area:` becomes `"area:*"`). The first permit also
-adds `"*:*"=false` plus a permit for each target the schema declares rules
-on. `revoke` is refused while any task carries a tag it admits, and the
+`tagma.permit:"X"`, a presence (`area:` becomes `"area:*"`), and nothing
+else. `revoke` is refused while any task carries a tag it admits, and the
 error lists them. The loadout names each of these commands as person-only.
 
 **Migration.** The `tag_schema`/`tag_permits` keys (home, work root, env,
@@ -76,10 +82,12 @@ and `Finding::ManyKeys`; `Configuration::{tag_schema, tag_permits}`,
 - **Seeding** is sent at the head read (empty), so two writers seed once.
   A read never writes: a store with no schema stream reads as seeded; the
   first write (and `schema export`) records the seed.
-- **First permit** permits every exact target (`arity`, `type`, `enum`,
-  `range`) the rules constrain; a `keys-per-item` namespace is not opened
-  by it (`schema check` then reports `rule-on-unpermitted` for one no
-  permit admits).
+- **No first permit** (F6): the seed permits every exact target (`arity`,
+  `type`, `enum`, `range`) it constrains; a `keys-per-item` namespace is
+  not opened by it, so a new store's `schema check` reports
+  `rule-on-unpermitted` for `area` and `repo` until the project permits
+  one of each. The import permits each target the file declared rules for,
+  as the file admitted a declared target without a permit.
 - **`schema export`** prints tagma syntax in every format, as `loadout`
   prints yaml.
 - **Lint** reports one violation a broken rule (tagma's code, the tags,

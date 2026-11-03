@@ -7,7 +7,8 @@
 //! check` is `tagma_core::Rules::check`. Pure: what the store holds is
 //! read elsewhere, and handed in.
 //!
-//! taskloom keeps only what is its own: the seed ([`SEEDED_SCHEMA`]), the
+//! taskloom keeps only what is its own: the seed ([`SEEDED_SCHEMA`]: every
+//! store an allowlist from when it is made, F6), the
 //! `taskloom.*` namespace (`taskloom.priority_fn`, `taskloom.decay_fn`:
 //! ranking, not constraint, so never tagma's: taskloom's own evaluator,
 //! task-priority, reads them), the `semver` comparator it registers with
@@ -38,6 +39,9 @@ pub const TASKLOOM_NAMESPACE: &str = "taskloom";
 /// tagma's namespace: its facets, every one a config tag.
 pub(crate) const TAGMA_NAMESPACE: &str = "tagma";
 
+/// tagma's permit facet: `tagma.permit:<pattern>`, a presence (F6).
+const PERMIT: &str = "tagma.permit";
+
 /// The formula facets, taskloom's own: `taskloom.<facet>:<target>=<formula>`.
 pub(crate) const PRIORITY_FN: &str = "taskloom.priority_fn";
 pub(crate) const DECAY_FN: &str = "taskloom.decay_fn";
@@ -46,9 +50,15 @@ pub(crate) const DECAY_FN: &str = "taskloom.decay_fn";
 /// `triage:*` baseline that was `DEFAULT_TAG_SCHEMA`, in tagma's facets
 /// (one tag per enum value, `lo..hi` ranges), the formulas in
 /// `taskloom.*`, and one `area` and one `repo` a task
-/// (`tagma.keys-per-item`, which was lint's `ONE_KEY`). No permit: the
-/// world is open (tagma's implicit `"*:*"=true`) until a first permit.
-pub const SEEDED_SCHEMA: [&str; 33] = [
+/// (`tagma.keys-per-item`, which was lint's `ONE_KEY`); and its permits,
+/// for every store is an allowlist from when it is made (the owner's
+/// ruling F6, 2026-11-02): each target the seed constrains, and the core
+/// vocabulary copied into every project (tag-vocabulary.proposal.md
+/// section 2; rulings 13 and 14): the factual flags, `human:`'s keys,
+/// `relates:`, `touches:`, `sig:`, `queue:` and `landed:` open, and
+/// `platform:`'s keys (not `ctxloom:plan`, which plans retired). A
+/// project's own (its `area:` and `repo:` keys) it permits itself.
+pub const SEEDED_SCHEMA: [&str; 62] = [
     r#"tagma.arity:"triage:level"=scalar"#,
     r#"tagma.arity:"triage:verdict"=scalar"#,
     r#"tagma.arity:"triage:audited"=scalar"#,
@@ -82,6 +92,35 @@ pub const SEEDED_SCHEMA: [&str; 33] = [
     r#"tagma.keys-per-item:repo=1"#,
     r#"taskloom.decay_fn:"triage:kind"="{{triage:exposed=*}} > 0 ? 1 + {{age_days}}/({{age_days}}+90) : {{triage:blind-gate=*}} > 0 ? 1 + {{age_days}}/({{age_days}}+30) : {{triage:kind=capability}} > 0 ? 0.4 + 0.6 * 0.5 ** ({{age_days}}/120) : {{triage:kind=chore}} > 0 ? 0.5 + 0.5 * 0.5 ** ({{age_days}}/180) : 1""#,
     r#"taskloom.priority_fn:"triage:kind"="({{triage:level}} > 0 ? 2 ** (3 - {{triage:level}}) : 0.1) * {{age_factor}} * (1 + {{triage:blocks-release=*}}) / (1 + {{triage:effort}}/2)""#,
+    r#"tagma.permit:"triage:audited""#,
+    r#"tagma.permit:"triage:blind-gate""#,
+    r#"tagma.permit:"triage:blocks-release""#,
+    r#"tagma.permit:"triage:effort""#,
+    r#"tagma.permit:"triage:exposed""#,
+    r#"tagma.permit:"triage:kind""#,
+    r#"tagma.permit:"triage:level""#,
+    r#"tagma.permit:"triage:verdict""#,
+    r#"tagma.permit:"triage:security""#,
+    r#"tagma.permit:"triage:data-loss""#,
+    r#"tagma.permit:"triage:crashes""#,
+    r#"tagma.permit:"triage:no-workaround""#,
+    r#"tagma.permit:"triage:regression""#,
+    r#"tagma.permit:"triage:silent-no-op""#,
+    r#"tagma.permit:"triage:flaky""#,
+    r#"tagma.permit:"human:decision""#,
+    r#"tagma.permit:"human:voice""#,
+    r#"tagma.permit:"human:authority""#,
+    r#"tagma.permit:"human:verify""#,
+    r#"tagma.permit:"human:prerequisite""#,
+    r#"tagma.permit:"human:action""#,
+    r#"tagma.permit:"relates:*""#,
+    r#"tagma.permit:"touches:*""#,
+    r#"tagma.permit:"sig:*""#,
+    r#"tagma.permit:"queue:*""#,
+    r#"tagma.permit:"landed:*""#,
+    r#"tagma.permit:"platform:linux""#,
+    r#"tagma.permit:"platform:macos""#,
+    r#"tagma.permit:"platform:windows""#,
 ];
 
 /// A store's rules, as read: its schema tags (the seed, where its stream
@@ -101,13 +140,45 @@ impl Default for StoreRules {
 }
 
 impl StoreRules {
-    /// The rules `state` folds to: its tags once the stream is declared,
-    /// the seed before.
+    /// The rules `state` folds to, as every store is read: the seed where
+    /// the stream has no history; else its tags, a store's from before
+    /// every store was an allowlist read as one ([`StoreRules::allowlisted`]).
     pub(crate) fn of(state: &SchemaState) -> StoreRules {
         match state.declared {
-            true => StoreRules::of_tags(state.tags.iter().map(Tag::to_core)),
+            true => StoreRules::held(state).allowlisted(),
             false => StoreRules::default(),
         }
+    }
+
+    /// The tags `state` holds, as it holds them: what [`StoreRules::of`]
+    /// reads, before it is read.
+    pub(crate) fn held(state: &SchemaState) -> StoreRules {
+        StoreRules::of_tags(state.tags.iter().map(Tag::to_core))
+    }
+
+    /// These rules as an allowlist's (F6): as they are where a permit is
+    /// declared as a presence; else, from before permits were presences,
+    /// each `tagma.permit` carrying a value dropped, its `=true` patterns
+    /// kept as presences (its `"*:*"=false` closed the store; every store
+    /// is closed now), and the seed's permits declared, as a store made
+    /// now is.
+    fn allowlisted(self) -> StoreRules {
+        if self.facet(PERMIT).any(|tag| tag.value.is_none()) {
+            return self;
+        }
+        let (valued, rules): (Vec<_>, Vec<_>) = self
+            .tags
+            .into_iter()
+            .partition(|tag| tag.namespace.as_deref() == Some(PERMIT));
+        let kept = valued
+            .into_iter()
+            .filter(|tag| tag.value.as_deref() == Some("true"))
+            .map(|tag| permit_tag(&tag.key));
+        let seeded = StoreRules::default()
+            .facet(PERMIT)
+            .cloned()
+            .collect::<Vec<_>>();
+        StoreRules::of_tags(rules.into_iter().chain(kept).chain(seeded))
     }
 
     /// The rules `spelled` declare, and nothing else: for tests.
@@ -116,16 +187,12 @@ impl StoreRules {
         StoreRules::of_tags(spelled.iter().map(|s| tagma_core::Tag::parse(s).unwrap()))
     }
 
-    fn of_tags(tags: impl Iterator<Item = tagma_core::Tag>) -> StoreRules {
+    /// The rules `tags` declare, sorted and each once.
+    pub(crate) fn of_tags(tags: impl Iterator<Item = tagma_core::Tag>) -> StoreRules {
         let mut tags: Vec<tagma_core::Tag> = tags.collect();
         tags.sort_by_key(ToString::to_string);
         tags.dedup();
         StoreRules { tags }
-    }
-
-    /// The rules with `tags` declared beside them.
-    pub(crate) fn extend(&mut self, tags: &[tagma_core::Tag]) {
-        *self = StoreRules::of_tags(self.tags.drain(..).chain(tags.iter().cloned()));
     }
 
     /// The tags, sorted by their canonical spelling.
@@ -215,7 +282,8 @@ impl StoreRules {
     }
 
     /// The exact targets the rules constrain (`arity`, `type`, `enum`,
-    /// `range`), sorted, each once: what a first permit keeps admitted.
+    /// `range`), sorted, each once: what `taskloom permits` lists beside
+    /// the permits.
     pub(crate) fn targets(&self) -> Vec<String> {
         let exact = ["tagma.arity", "tagma.type", "tagma.enum", "tagma.range"];
         let targets: BTreeSet<String> = exact
@@ -226,18 +294,13 @@ impl StoreRules {
         targets.into_iter().collect()
     }
 
-    /// The patterns `tagma.permit:<pattern>=true` declares, sorted: what
+    /// The patterns `tagma.permit:<pattern>` declares, sorted: what
     /// `taskloom permits` lists.
     pub(crate) fn permits(&self) -> Vec<String> {
-        self.facet("tagma.permit")
-            .filter(|tag| tag.value.as_deref() == Some("true"))
+        self.facet(PERMIT)
+            .filter(|tag| tag.value.is_none())
             .map(|tag| tag.key.clone())
             .collect()
-    }
-
-    /// Whether the world is closed: `tagma.permit:"*:*"=false` declared.
-    pub(crate) fn closed(&self) -> bool {
-        self.holds(&closing())
     }
 
     /// How many targets an `enum` or `range` is declared for: what lint
@@ -291,17 +354,12 @@ impl StoreRules {
     }
 }
 
-/// The tag that closes the world: `tagma.permit:"*:*"=false`.
-pub(crate) fn closing() -> tagma_core::Tag {
-    permit_tag("*:*", false)
-}
-
-/// `tagma.permit:<pattern>=<admitted>`.
-pub(crate) fn permit_tag(pattern: &str, admitted: bool) -> tagma_core::Tag {
+/// `tagma.permit:<pattern>`: the permit of `pattern`, a presence.
+pub(crate) fn permit_tag(pattern: &str) -> tagma_core::Tag {
     tagma_core::Tag {
-        namespace: Some("tagma.permit".to_string()),
+        namespace: Some(PERMIT.to_string()),
         key: pattern.to_string(),
-        value: Some(admitted.to_string()),
+        value: None,
     }
 }
 

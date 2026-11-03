@@ -102,8 +102,8 @@ plans-cli = { path = "crates/adapters/driving/plans-cli" }
 # 2.0.0 comparator a `type=semver` target orders by (`tagma_core::semver`),
 # and its Tag message (tagma-proto), pinned by full commit; bumps are
 # deliberate commits.
-tagma-core = { git = "https://github.com/benjaminabbitt/tagma", rev = "f57068f14b90d0ae0b132f99be087c647d74e055" }
-tagma-proto = { git = "https://github.com/benjaminabbitt/tagma", rev = "f57068f14b90d0ae0b132f99be087c647d74e055" }
+tagma-core = { git = "https://github.com/benjaminabbitt/tagma", rev = "021e8b00f6343e188fa579ee70c9cd4a5ffce4bc" }
+tagma-proto = { git = "https://github.com/benjaminabbitt/tagma", rev = "021e8b00f6343e188fa579ee70c9cd4a5ffce4bc" }
 
 # Task and project ids: harp's word lists, as Go's harp ports them.
 harp-core = { git = "https://github.com/benjaminabbitt/harp", rev = "e27196f5a425ffcf8e443aab95d2bf085cd2b134" }

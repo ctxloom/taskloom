@@ -16,10 +16,12 @@ use task_priority::MAX;
 
 pub(crate) type Fake = Service<FakeIdentity, FakeStores, FakeNames, FakeClock, FakeDelay>;
 
+/// A service whose project's store permits every tag, so a read is
+/// judged by the rules it is about alone.
 pub(crate) fn service(names: &[&str]) -> Fake {
     Service::new(
-        FakeIdentity::default(),
-        FakeStores::default(),
+        FakeIdentity::bound(),
+        FakeStores::permitting_every_tag(),
         FakeNames::of(names),
         FakeClock::default(),
         FakeDelay::default(),

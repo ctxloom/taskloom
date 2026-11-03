@@ -274,7 +274,12 @@ fn seeded() -> Fake {
     add(&mut service, "Shipped", Some("Done"), &[]);
     add(&mut service, "Put away", Some("Archived"), &[]);
     add(&mut service, "Still to do", None, &[]);
-    add(&mut service, "Shipped too", Some("Done"), &["release"]);
+    add(
+        &mut service,
+        "Shipped too",
+        Some("Done"),
+        &["queue:release"],
+    );
     service
 }
 
@@ -359,10 +364,10 @@ fn test_a_tag_query_narrows_the_selection() {
     let mut service = seeded();
     later(&mut service);
     let mut tagged = request(false);
-    tagged.tag_query = Some("release".to_string());
+    tagged.tag_query = Some("queue:release".to_string());
     let pruning = prune(&mut service, tagged).unwrap();
     assert_eq!(harps(&pruning), ["done-two"]);
-    assert_eq!(pruning.tag_query.as_deref(), Some("release"));
+    assert_eq!(pruning.tag_query.as_deref(), Some("queue:release"));
     assert_eq!(pruning.tasks_remaining, 3);
 }
 
@@ -536,7 +541,7 @@ fn test_a_survivor_naming_a_pruned_task_is_reported_and_left_as_written() {
         &mut service,
         "Follows old-task, and old-task again; not old-task-two",
         None,
-        &["relates:old-task", "plain"],
+        &["relates:old-task", "sig:plain"],
     );
     let waiting = NewTask {
         text: "Waiting".to_string(),
@@ -566,8 +571,8 @@ fn test_a_survivor_naming_a_pruned_task_is_reported_and_left_as_written() {
         ..ListQuery::default()
     };
     let listing = ready(service.list(all)).unwrap();
-    assert_eq!(listing.rows[0].task.tags[0].to_string(), "plain");
-    assert_eq!(listing.rows[0].task.tags[1].to_string(), "relates:old-task");
+    assert_eq!(listing.rows[0].task.tags[0].to_string(), "relates:old-task");
+    assert_eq!(listing.rows[0].task.tags[1].to_string(), "sig:plain");
 }
 
 #[test]
@@ -627,7 +632,7 @@ fn test_a_task_retagged_out_of_the_query_since_the_selection_is_not_pruned() {
     later(&mut service);
     let untag: TaskCommand = tasks::Retag {
         add: Vec::new(),
-        remove: vec![crate::parse_tag("release").unwrap().unwrap()],
+        remove: vec![crate::parse_tag("queue:release").unwrap().unwrap()],
     }
     .into();
     service.stores.store.before(
@@ -635,7 +640,7 @@ fn test_a_task_retagged_out_of_the_query_since_the_selection_is_not_pruned() {
         Box::new(move |store: &MemoryStore| run(store, "done-two", untag)),
     );
     let mut tagged = request(true);
-    tagged.tag_query = Some("release".to_string());
+    tagged.tag_query = Some("queue:release".to_string());
     let pruning = prune(&mut service, tagged).unwrap();
     assert!(pruning.pruned.is_empty());
     assert!(listed(&mut service).contains(&"done-two".to_string()));
@@ -796,7 +801,7 @@ fn test_a_half_done_prune_is_finished_whatever_this_prune_selects_by() {
     let mut service = half_pruned();
     let mut archived = request(true);
     archived.statuses = vec!["Archived".to_string()];
-    archived.tag_query = Some("release".to_string());
+    archived.tag_query = Some("queue:release".to_string());
     let pruning = prune(&mut service, archived).unwrap();
     assert_eq!(harps(&pruning), ["done-one"]);
     assert_eq!(pruning.events_removed, 2);
@@ -817,7 +822,7 @@ fn test_a_half_done_prune_finished_by_another_meanwhile_is_skipped() {
     );
     let mut archived = request(true);
     archived.statuses = vec!["Archived".to_string()];
-    archived.tag_query = Some("release".to_string());
+    archived.tag_query = Some("queue:release".to_string());
     let pruning = prune(&mut service, archived).unwrap();
     assert!(pruning.pruned.is_empty());
     assert_eq!(pruning.events_removed, 0);

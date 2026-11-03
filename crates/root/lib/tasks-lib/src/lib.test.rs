@@ -644,8 +644,8 @@ fn test_the_process_is_read_from_its_variables_and_working_directory() {
 }
 
 // Tag permits, wired: `permit` declares them in the project's store, and
-// no config file is written; a tag no permit admits is then refused, until
-// it is permitted.
+// no config file is written; a tag no permit admits is refused, from the
+// store's first write (F6) until it is permitted.
 #[test]
 fn test_a_projects_permits_refuse_a_tag_until_it_is_permitted() {
     let dirs = Dirs::new();
@@ -722,7 +722,7 @@ fn test_taskloom_s_proposed_permits_refuse_an_invented_area_and_admit_a_declared
     .unwrap();
     assert_eq!(written.task.tags.len(), 7);
     let listed = block_on(taskloom.tasks().permits()).unwrap();
-    assert!(listed.closed);
+    assert!(listed.patterns.contains(&"area:platform".to_string()));
     assert!(listed
         .schema_targets
         .contains(&"triage:blind-gate".to_string()));

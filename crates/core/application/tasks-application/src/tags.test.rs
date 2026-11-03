@@ -176,8 +176,12 @@ fn tags(spelled: &[&str]) -> Vec<Tag> {
     spelled.iter().map(|s| parse(s).unwrap().unwrap()).collect()
 }
 
+/// `triage:type` declared scalar, in a store permitting every tag.
 fn scalar() -> StoreRules {
-    StoreRules::parsed(&[r#"tagma.arity:"triage:type"=scalar"#])
+    StoreRules::parsed(&[
+        r#"tagma.arity:"triage:type"=scalar"#,
+        r#"tagma.permit:"*:*""#,
+    ])
 }
 
 #[test]

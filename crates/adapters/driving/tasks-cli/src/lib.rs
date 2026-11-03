@@ -151,11 +151,11 @@ pub enum Command {
     Prune(commands::PruneArgs),
     /// Permit a tag in this project's store (a tagma.permit rule): a
     /// namespace, any key (`area:`); a key of a namespace (`area:cli`); or
-    /// a flat tag, a key with no namespace. The first permit closes the
-    /// store to every tag no permit admits (the targets its rules
-    /// constrain stay permitted): a write adding one is refused. A
-    /// person's command: an agent runs it only with the human's permission
-    /// for that change.
+    /// a flat tag, a key with no namespace. A store refuses every tag no
+    /// permit admits from when it is made, seeded with the permits of its
+    /// rules' targets and the core vocabulary: a write adding one is
+    /// refused. A person's command: an agent runs it only with the human's
+    /// permission for that change.
     Permit(commands::PermitArgs),
     /// Revoke a tag permit, spelled as `permit` takes it; refused, naming
     /// them, while any task (whatever its status) still carries a tag it
@@ -163,8 +163,8 @@ pub enum Command {
     Revoke(commands::PermitArgs),
     /// List what this project's store permits: each namespace, open to any
     /// key or closed to its keys; the flat tags; and the targets the
-    /// store's rules constrain. A store that declares no permit permits
-    /// every tag its rules admit. Read-only.
+    /// store's rules constrain. A tag none of them admits is refused on
+    /// write. Read-only.
     Permits,
     /// Print the store's tag rules a write is held to: each declared
     /// target and its facets (scalar, enum, range, type), and its

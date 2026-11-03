@@ -156,11 +156,10 @@ fn test_a_scalar_target_holding_two_values_is_one_violation() {
 #[test]
 fn test_a_closed_rows_permits_and_keys_are_left_alone() {
     let schema = schema(&[
-        r#"tagma.permit:"*:*"=false"#,
         "tagma.keys-per-item:area=1",
         r#"tagma.enum:"x:k"=a"#,
-        r#"tagma.permit:"x:*"=true"#,
-        r#"tagma.permit:"area:*"=true"#,
+        r#"tagma.permit:"x:*""#,
+        r#"tagma.permit:"area:*""#,
     ]);
     let mut open = row("p", "open", &["lang:en", "area:a", "area:b", "x:k=b"]);
     open.task.status = "To Do".to_string();

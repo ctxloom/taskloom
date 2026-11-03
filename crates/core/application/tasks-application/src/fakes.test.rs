@@ -49,6 +49,16 @@ pub struct FakeIdentity {
     pub rootless: Option<String>,
 }
 
+impl FakeIdentity {
+    /// A work root whose project is bound already: [`project`].
+    pub fn bound() -> FakeIdentity {
+        FakeIdentity {
+            bound: Some(project()),
+            ..FakeIdentity::default()
+        }
+    }
+}
+
 impl ProjectIdentity for FakeIdentity {
     fn for_write(&mut self, pinned: Option<&str>) -> Result<Project, Report> {
         self.pins.push(pinned.map(str::to_string));
@@ -102,6 +112,38 @@ pub fn run(store: &MemoryStore, harp: &str, command: tasks::TaskCommand) {
             .handle::<tasks::TaskAggregate, _>(
                 store,
                 CommandBook::command_of(crate::task_cover(harp), &command),
+                &sampled,
+            ),
+    )
+    .unwrap_or_else(|failure| panic!("{failure:?}"));
+}
+
+/// Declare `tags` on `store`'s schema stream directly, as a store holding
+/// them already does: what an old store's schema, or one a test begins
+/// from, holds.
+pub fn declared(store: &MemoryStore, tags: &[&str]) {
+    let registry = crate::registry();
+    let sampled = Sampled {
+        now: Timestamp {
+            seconds: 1_700_000_000,
+            nanos: 0,
+        },
+        command_id: Uuid::from_bytes([0xdd; 16]),
+    };
+    let declare = tasks::schema::Declare {
+        add: tags
+            .iter()
+            .map(|t| tagma_core::Tag::parse(t).unwrap().into())
+            .collect(),
+        remove: Vec::new(),
+    };
+    let cover = crate::schema::schema_stream();
+    ready(
+        Kernel::new(&registry)
+            .on_retryable(kernel_runner::KERNEL_RETRY)
+            .handle::<tasks::schema::SchemaAggregate, _>(
+                store,
+                CommandBook::command_of(cover, &tasks::schema::SchemaCommand::from(declare)),
                 &sampled,
             ),
     )
@@ -162,6 +204,25 @@ pub struct FakeStores {
     pub others: std::collections::BTreeMap<String, Flaky>,
     pub handle: u64,
     pub before_token: Option<Meanwhile>,
+}
+
+impl FakeStores {
+    /// Stores whose store was made permitting every tag: its schema stream
+    /// holds the seed's rules and, for its permits, `tagma.permit:"*:*"`,
+    /// so a test of anything but the permits writes whatever tags it names
+    /// (every store is an allowlist, F6). With [`FakeIdentity::bound`],
+    /// whose project it is.
+    pub fn permitting_every_tag() -> FakeStores {
+        let stores = FakeStores::default();
+        let mut tags: Vec<&str> = crate::SEEDED_SCHEMA
+            .iter()
+            .copied()
+            .filter(|spelled| !spelled.starts_with("tagma.permit:"))
+            .collect();
+        tags.push(r#"tagma.permit:"*:*""#);
+        declared(stores.store.inner(), &tags);
+        stores
+    }
 }
 
 impl WatchedStores for FakeStores {

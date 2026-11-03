@@ -325,7 +325,6 @@ where
     async fn permits(&mut self) -> Result<PermitList, AppError> {
         let rules = self.parts().projects.rules_for(None).await?;
         Ok(PermitList {
-            closed: rules.closed(),
             patterns: rules.permits(),
             schema_targets: rules.targets(),
         })
