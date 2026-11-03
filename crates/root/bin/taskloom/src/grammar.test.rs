@@ -234,6 +234,7 @@ const RULED_COMMANDS: &[&[&str]] = &[
     &["manage", "schema", "tags", "list"],
     &["manage", "schema", "statuses", "list"],
     &["manage", "migrate"],
+    // PROPOSAL, pending owner review: the doctor spelling is not ruled.
     &["manage", "doctor", "heal"],
     &["manage", "doctor", "repoint"],
     &["manage", "doctor", "orphans"],
@@ -904,6 +905,7 @@ fn test_manage_project_show_names_the_project() {
 }
 
 #[test]
+// PROPOSAL, pending owner review: the spelling `manage doctor heal|repoint|orphans [remove]` is not ruled.
 fn test_manage_doctor_heal_reports_nothing_to_change_in_a_sound_project() {
     let env = Env::new(SESSION);
     add_task(&env, "Seed");
@@ -1009,6 +1011,7 @@ fn test_permits_remove_previews_by_default_dry_run_removes_nothing_and_yes_remov
 }
 
 #[test]
+// PROPOSAL, pending owner review: the spelling `manage doctor heal|repoint|orphans [remove]` is not ruled.
 fn test_doctor_heal_previews_by_default_dry_run_writes_nothing_and_yes_heals() {
     let env = Env::new(SESSION);
     add_task(&env, "Seed");
@@ -1080,6 +1083,7 @@ impl Forked {
 }
 
 #[test]
+// PROPOSAL, pending owner review: the spelling `manage doctor heal|repoint|orphans [remove]` is not ruled.
 fn test_doctor_repoint_previews_by_default_dry_run_binds_nothing_and_yes_binds() {
     let world = Forked::new();
     let before = world.marker();
@@ -1108,6 +1112,7 @@ fn test_doctor_repoint_previews_by_default_dry_run_binds_nothing_and_yes_binds()
 }
 
 #[test]
+// PROPOSAL, pending owner review: the spelling `manage doctor heal|repoint|orphans [remove]` is not ruled.
 fn test_doctor_orphans_remove_previews_by_default_dry_run_keeps_it_and_yes_removes() {
     let world = Forked::new();
     let made = world.run(&[
@@ -1151,7 +1156,7 @@ fn test_doctor_orphans_remove_previews_by_default_dry_run_keeps_it_and_yes_remov
 
 #[test]
 fn test_each_command_is_described_in_one_line_in_its_parents_list() {
-    // The bound is a proposal (an open question in the report).
+    // PROPOSAL, pending owner review (not a ruling).
     const LONGEST: usize = 80;
     for page in pages() {
         for (name, about) in page.children() {
@@ -1172,7 +1177,7 @@ fn test_each_command_is_described_in_one_line_in_its_parents_list() {
 
 #[test]
 fn test_each_commands_help_opens_with_exactly_one_short_line() {
-    // The bound is a proposal (an open question in the report).
+    // PROPOSAL, pending owner review (not a ruling).
     const LONGEST: usize = 80;
     for page in pages().iter().filter(|p| !p.path.is_empty()) {
         let lines = preamble(&page.long.stdout);
@@ -1239,7 +1244,7 @@ fn test_only_loadout_mentions_yaml_as_a_format() {
 
 #[test]
 fn test_top_level_help_is_under_two_kilobytes() {
-    // The bound is a proposal (an open question in the report); today's
+    // PROPOSAL, pending owner review (not a ruling); today's
     // is about 5 KB.
     const BOUND: usize = 2048;
     let help = &page(&[]).long.stdout;
@@ -1295,4 +1300,79 @@ fn test_plans_exit_codes_stay_1_for_a_missing_plan_and_2_for_a_status_none() {
         2,
     );
     assert!(ran.stderr.contains("nope"), "{}", ran.stderr);
+}
+
+// ------------------------------------------------------------ 5b. exit codes, the owner's rule
+// 2: invalid on its own content, refused before state is read. 1: it ran
+// against state and the answer was negative.
+
+#[test]
+fn test_an_out_of_range_tag_value_is_refused_with_2_and_adds_nothing() {
+    let env = Env::new(SESSION);
+    let harp = add_task(&env, "Seed");
+    // The seeded rules: triage:level is 1-5.
+    let ran = refused(
+        &env,
+        &["tasks", "add", "Tagged", "--tag", "triage:level=7"],
+        2,
+    );
+    assert!(ran.stderr.contains("out-of-range"), "{}", ran.stderr);
+    refused(&env, &["tasks", "tag", "add", &harp, "triage:level=7"], 2);
+    assert_eq!(shown(&env, &harp)["tags"], json!([]));
+    assert_eq!(
+        ok(&env, &["tasks", "list"]).as_array().map(Vec::len),
+        Some(1)
+    );
+}
+
+#[test]
+fn test_a_value_outside_a_declared_enum_is_refused_with_2() {
+    let env = Env::new(SESSION);
+    permit_every_tag(&env);
+    ok(
+        &env,
+        &[
+            "manage",
+            "schema",
+            "declare",
+            "--yes",
+            "--add",
+            r#"tagma.enum:"area:x"=a"#,
+            "--add",
+            r#"tagma.enum:"area:x"=b"#,
+        ],
+    );
+    let harp = add_task(&env, "Seed");
+    let ran = refused(&env, &["tasks", "tag", "add", &harp, "area:x=c"], 2);
+    assert!(ran.stderr.contains("not-in-enum"), "{}", ran.stderr);
+    assert_eq!(shown(&env, &harp)["tags"], json!([]));
+    ok(&env, &["tasks", "tag", "add", &harp, "area:x=b"]);
+}
+
+#[test]
+fn test_adding_a_deferred_task_with_no_trigger_is_refused_with_2() {
+    let env = Env::new(SESSION);
+    add_task(&env, "Seed");
+    let ran = refused(&env, &["tasks", "add", "Waits", "--status", "Deferred"], 2);
+    assert_eq!(ran.stdout, "");
+    assert_eq!(
+        ok(&env, &["tasks", "list", "--all"])
+            .as_array()
+            .map(Vec::len),
+        Some(1)
+    );
+}
+
+#[test]
+fn test_a_task_no_store_holds_is_answered_with_1_on_show_and_on_set() {
+    let env = Env::new(SESSION);
+    add_task(&env, "Seed");
+    let shown = refused(&env, &["tasks", "show", "no-such-task"], 1);
+    assert_eq!(shown.stdout, "");
+    refused(&env, &["tasks", "set", "no-such-task", "--text", "X"], 1);
+    refused(
+        &env,
+        &["tasks", "set", "no-such-task", "--status", "Done"],
+        1,
+    );
 }
