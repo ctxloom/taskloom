@@ -1333,6 +1333,8 @@ fn test_check_finds_a_file_with_no_id() {
 struct Watching {
     child: Option<Child>,
     lines: Receiver<String>,
+    /// Every line received so far, as written.
+    said: std::cell::RefCell<Vec<String>>,
 }
 
 impl Watching {
@@ -1361,7 +1363,13 @@ impl Watching {
         Watching {
             child: Some(child),
             lines,
+            said: std::cell::RefCell::default(),
         }
+    }
+
+    /// Every line received so far, as written.
+    fn said(&self) -> Vec<String> {
+        self.said.borrow().clone()
     }
 
     fn line(&self) -> Value {
@@ -1369,6 +1377,7 @@ impl Watching {
             .lines
             .recv_timeout(PATIENCE)
             .unwrap_or_else(|e| panic!("no line from plans watch: {e}"));
+        self.said.borrow_mut().push(line.clone());
         serde_json::from_str(&line).unwrap_or_else(|e| panic!("not JSON ({e}): {line:?}"))
     }
 
@@ -1396,58 +1405,130 @@ impl Drop for Watching {
     }
 }
 
+/// The body no event line may ever carry: distinctive, so any echo of a
+/// file's text shows.
+const BODY_MARKER: &str = "ZEBRA-QUARTZ-BODY-MARKER";
+
 #[test]
-fn test_watch_primes_then_emits_a_line_for_each_plan_file_created_modified_and_deleted() {
-    // PROPOSAL, pending owner review: a line is
-    // {"event":"changed","kind":"plans","path":"<absolute path of the plan file>"};
-    // the priming line is the same without "path" and is written once the
-    // watch is established, so a change after it is never missed. The line
-    // does not say which of create, modify or delete it was.
+fn test_watch_primes_then_says_what_metadata_changed_in_each_plan_file() {
+    // owner ruling 2026-11-03: plans watch carries changed metadata.
+    // PROPOSAL, pending owner review (the field names): a line is
+    // {"event":"created|changed|deleted","kind":"plans","id":<id or null>,
+    //  "path":"<absolute path>","changes":{...}} where `changes` has an entry
+    // per frontmatter key that differs: `id`, `title`, `status` as
+    // {"from":..,"to":..} (null where the key is absent); `tags`, `governs`,
+    // `supersedes`, `sessions` as {"added":[..],"removed":[..]}; and
+    // "body":true where only the markdown differs. A created file lists
+    // every key it has as an addition; a deleted one has no changes. The
+    // priming line is {"event":"changed","kind":"plans"}, with no path,
+    // written once the watch is established, so a change after it is never
+    // missed. No line carries the body or any file text.
     let env = world();
-    let modified = write_plan(
-        &env,
-        "docs/modify.plan.md",
-        &plan_text("quiet-amber-falcon", "", "# m\n"),
-    );
-    let deleted = write_plan(
-        &env,
-        "docs/delete.plan.md",
-        &plan_text("brisk-cedar-otter", "", "# d\n"),
-    );
     let watch = Watching::start(&env);
 
     let primed = watch.line();
-    assert_eq!(primed["event"], "changed", "{primed}");
-    assert_eq!(primed["kind"], "plans", "{primed}");
+    assert_eq!(primed, json!({"event": "changed", "kind": "plans"}));
 
-    // Created: and a file that is no plan before it says nothing.
-    write_plan(&env, "docs/notes.md", "not a plan\n");
+    // A file that is no plan says nothing; a created plan says what it has.
+    write_plan(
+        &env,
+        "docs/notes.md",
+        &format!("{BODY_MARKER} not a plan\n"),
+    );
     let created = write_plan(
         &env,
-        "docs/create.plan.md",
-        &plan_text("calm-river-stone", "", "# c\n"),
+        "docs/watched.plan.md",
+        &plan_text(
+            "quiet-amber-falcon",
+            "title: Watched\nstatus: active\ntags: [area:cli]\ngoverns: [swift-amber-falcon]\n",
+            &format!("# Watched\n\n{BODY_MARKER}\n"),
+        ),
     );
     let seen = watch.until(&created);
-    assert!(
-        seen.iter().all(|l| l["path"] == s(&created).as_str()),
-        "a non-plan file made a line: {seen:?}"
+    assert_eq!(seen.len(), 1, "a non-plan file made a line: {seen:?}");
+    let line = &seen[0];
+    assert_eq!(line["event"], "created", "{line}");
+    assert_eq!(line["kind"], "plans");
+    assert_eq!(line["id"], "quiet-amber-falcon");
+    assert_eq!(line["path"], s(&created).as_str());
+    assert_eq!(
+        line["changes"],
+        json!({
+            "id": {"from": null, "to": "quiet-amber-falcon"},
+            "title": {"from": null, "to": "Watched"},
+            "status": {"from": null, "to": "active"},
+            "tags": {"added": ["area:cli"], "removed": []},
+            "governs": {"added": ["swift-amber-falcon"], "removed": []},
+        })
     );
-    for line in &seen {
-        assert_eq!(
-            (&line["event"], &line["kind"]),
-            (&json!("changed"), &json!("plans"))
-        );
-    }
 
+    // A tag added through the CLI: only the tags differ.
+    ok(
+        &env,
+        &[
+            "plans",
+            "tag",
+            "add",
+            "quiet-amber-falcon",
+            "human:decision",
+        ],
+    );
+    let line = watch.until(&created).pop().unwrap();
+    assert_eq!(line["event"], "changed", "{line}");
+    assert_eq!(line["id"], "quiet-amber-falcon");
+    assert_eq!(
+        line["changes"],
+        json!({"tags": {"added": ["human:decision"], "removed": []}})
+    );
+    ok(
+        &env,
+        &["plans", "tag", "remove", "quiet-amber-falcon", "area:cli"],
+    );
+    let line = watch.until(&created).pop().unwrap();
+    assert_eq!(
+        line["changes"],
+        json!({"tags": {"added": [], "removed": ["area:cli"]}})
+    );
+
+    // A status change.
+    ok(
+        &env,
+        &["plans", "set", "quiet-amber-falcon", "--status", "done"],
+    );
+    let line = watch.until(&created).pop().unwrap();
+    assert_eq!(line["event"], "changed", "{line}");
+    assert_eq!(
+        line["changes"],
+        json!({"status": {"from": "active", "to": "done"}})
+    );
+
+    // A body-only edit: the frontmatter is as it was.
+    let text = read(&created);
     disk::write(
-        &modified,
-        plan_text("quiet-amber-falcon", "title: edited\n", "# m\n"),
+        &created,
+        text.replace(&format!("{BODY_MARKER}\n"), "something else entirely\n"),
     )
     .unwrap();
-    watch.until(&modified);
+    let line = watch.until(&created).pop().unwrap();
+    assert_eq!(line["event"], "changed", "{line}");
+    assert_eq!(line["changes"], json!({"body": true}));
 
-    disk::remove_file(&deleted).unwrap();
-    watch.until(&deleted);
+    // Deleted: the last known id and path, and nothing changed.
+    disk::remove_file(&created).unwrap();
+    let line = watch.until(&created).pop().unwrap();
+    assert_eq!(line["event"], "deleted", "{line}");
+    assert_eq!(line["kind"], "plans");
+    assert_eq!(line["id"], "quiet-amber-falcon");
+    assert_eq!(line["path"], s(&created).as_str());
+    assert_eq!(line["changes"], json!({}));
+
+    // No line, from the priming one to the last, carried the body.
+    let said = watch.said();
+    assert!(!said.is_empty());
+    assert!(
+        said.iter().all(|l| !l.contains(BODY_MARKER)),
+        "an event carried the body: {said:?}"
+    );
 }
 
 #[test]
