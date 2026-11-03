@@ -43,8 +43,9 @@ fn test_store_export_writes_the_projects_database_as_jsonl_and_leaves_it_as_it_w
         .map(|p| &p["page"]["payload"])
         .filter(|payload| payload["@type"] == "/ctxloom.tasks.v1.TaskAdded")
         .collect();
-    assert_eq!(added.len(), 2, "each task's addition, expanded");
-    assert_eq!(added[0]["text"].as_str().map(str::len), Some(5));
+    let mut texts: Vec<&str> = added.iter().filter_map(|p| p["text"].as_str()).collect();
+    texts.sort_unstable();
+    assert_eq!(texts, ["first", "second"], "each task's addition, expanded");
     let end = &records.last().unwrap()["end"];
     let between = records.len() - 2;
     assert_eq!(end["records"], between.to_string());
