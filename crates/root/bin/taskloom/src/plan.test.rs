@@ -85,8 +85,8 @@ fn show_names_the_plans_governing_each_task_and_none_for_a_task_ungoverned() {
     let mut both = [first, second];
     both.sort();
     let line = format!("\n    plans: {}\n", both.join(", "));
-    for global in [false, true] {
-        let mut args = vec![
+    {
+        let args = vec![
             "tasks",
             "show",
             governed.as_str(),
@@ -94,9 +94,6 @@ fn show_names_the_plans_governing_each_task_and_none_for_a_task_ungoverned() {
             "--format",
             "text",
         ];
-        if global {
-            args.push("--global");
-        }
         let shown = world.run(&args);
         assert!(shown.ok, "{}", shown.stderr);
         assert_eq!(

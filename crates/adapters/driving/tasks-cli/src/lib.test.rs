@@ -956,6 +956,28 @@ fn test_set_sends_the_text_then_the_status_under_distinct_derived_keys() {
     assert_eq!((fake.edits.len(), fake.moved.len()), (1, 1));
 }
 
+// `--global` is removed: the cross-project case is `--project <id>` per
+// project. A stub, refused before anything runs.
+#[test]
+fn test_global_is_a_removed_flag_refused_with_2() {
+    for args in [
+        &["tasks", "list", "--global"][..],
+        &["--global", "tasks", "summary"],
+        &["manage", "schema", "tags", "list", "--global"],
+    ] {
+        let mut fake = Fake::default();
+        let ran = run_on(&mut fake, true, args);
+        assert_eq!(ran.code, 2, "{args:?}");
+        assert_eq!(ran.out, "", "{args:?}");
+        assert!(
+            ran.err.contains("removed: use --project <id> per project"),
+            "{args:?}: {}",
+            ran.err
+        );
+        assert!(fake.listed.is_empty() && fake.summed.is_empty() && fake.counts.is_empty());
+    }
+}
+
 // ------------------------------------------------------------ show
 
 fn details(reach: Reach, tasks: Vec<Task>) -> Option<Result<Details, AppError>> {
@@ -1027,14 +1049,13 @@ fn test_show_passes_its_ids_and_names_the_project_on_stderr() {
     let ran = run_on(
         &mut fake,
         true,
-        &["--project", "p", "tasks", "show", "swift-amber", "--global"],
+        &["--project", "p", "tasks", "show", "swift-amber"],
     );
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(
         fake.shows,
         [ShowQuery {
             project: Some("p".to_string()),
-            global: true,
             harp_ids: vec!["swift-amber".to_string()],
         }]
     );
@@ -1093,7 +1114,7 @@ fn test_show_across_projects_heads_each_task_with_its_project() {
     let ran = run_on(
         &mut fake,
         true,
-        &["tasks", "show", "swift-amber", "calm-otter", "--global"],
+        &["tasks", "show", "swift-amber", "calm-otter"],
     );
     assert_eq!(
         ran.out,
@@ -1151,7 +1172,6 @@ fn test_summary_counts_each_status_then_names_those_in_progress() {
         fake.summed,
         [Scope {
             project: Some("p".to_string()),
-            ..Scope::default()
         }]
     );
     assert_eq!(
@@ -1187,11 +1207,10 @@ fn test_summary_across_projects_names_each_task_with_its_project() {
         }),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["tasks", "summary", "--global"]);
-    assert!(fake.summed[0].global);
+    let ran = run_on(&mut fake, true, &["tasks", "summary"]);
     assert_eq!(
         ran.out,
-        "Projects: 2 (--global)\n\nIn Progress\t1\nTo Do\t2\n\n\
+        "Projects: 2 (every project)\n\nIn Progress\t1\nTo Do\t2\n\n\
          In-progress: swift-amber (/work/tree (jolly-mute-magma))\n"
     );
     let quiet = Summary {
@@ -1230,22 +1249,13 @@ fn test_statuses_are_a_line_each_or_gos_array() {
     let ran = run_on(
         &mut fake,
         true,
-        &[
-            "--project",
-            "p",
-            "manage",
-            "schema",
-            "statuses",
-            "list",
-            "--global",
-        ],
+        &["--project", "p", "manage", "schema", "statuses", "list"],
     );
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(
         fake.taxonomies,
         [Scope {
             project: Some("p".to_string()),
-            global: true,
         }]
     );
     assert_eq!(
@@ -1328,7 +1338,6 @@ fn test_tags_passes_its_filters_and_aligns_its_counts() {
             "ship",
             "--tag-query",
             "x",
-            "--global",
             "--config-set",
             "tag_schema=x",
         ],
@@ -1341,7 +1350,6 @@ fn test_tags_passes_its_filters_and_aligns_its_counts() {
             statuses: vec!["@open".to_string(), "Done".to_string()],
             tag_query: Some("x".to_string()),
             term: Some("ship".to_string()),
-            global: true,
             ..ListQuery::default()
         }]
     );
@@ -1382,13 +1390,10 @@ fn test_tags_with_none_in_use_says_how_to_apply_one() {
         },
         &[],
     );
-    let ran = run_on(
-        &mut fake,
-        true,
-        &["manage", "schema", "tags", "list", "--global"],
-    );
+    let ran = run_on(&mut fake, true, &["manage", "schema", "tags", "list"]);
     assert!(
-        ran.out.starts_with("Projects: 3 (--global)\n\n(no tags"),
+        ran.out
+            .starts_with("Projects: 3 (every project)\n\n(no tags"),
         "{}",
         ran.out
     );
@@ -1430,7 +1435,6 @@ fn test_lint_says_each_violation_and_exits_1_for_any() {
             "p",
             "tasks",
             "check",
-            "--global",
             "--config-set",
             "tag_schema=x",
         ],
@@ -1440,7 +1444,6 @@ fn test_lint_says_each_violation_and_exits_1_for_any() {
         fake.linted,
         [Scope {
             project: Some("p".to_string()),
-            global: true,
         }]
     );
     assert_eq!(
@@ -1481,7 +1484,7 @@ fn test_lint_across_projects_names_each_violations_project() {
         report_of_lint: lint_report(every, 3, 1),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["tasks", "check", "--global"]);
+    let ran = run_on(&mut fake, true, &["tasks", "check"]);
     assert_eq!(
         ran.out,
         "swift-amber (jolly-mute-magma): area:x=c: not-in-enum (allowed=a, allowed=b)\n"
@@ -1571,7 +1574,6 @@ fn test_list_passes_its_filters() {
             "urgent/not",
             "--term",
             "docs",
-            "--global",
             "--sort",
             "priority",
             "--limit",
@@ -1591,7 +1593,6 @@ fn test_list_passes_its_filters() {
             all: true,
             tag_query: Some("urgent/not".to_string()),
             term: Some("docs".to_string()),
-            global: true,
             limit: Some(5),
             sort: Some("priority".to_string()),
         }]
@@ -1732,16 +1733,16 @@ fn test_list_across_projects_is_headed_by_their_count_and_each_project() {
         ))),
         ..Fake::default()
     };
-    let ran = run_on(&mut fake, true, &["tasks", "list", "--global"]);
+    let ran = run_on(&mut fake, true, &["tasks", "list"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert_eq!(
         ran.out,
-        "Projects: 2 (--global)\n\n\
+        "Projects: 2 (every project)\n\n\
          Project: /work/tree (jolly-mute-magma)\n\
          [ ] swift-amber  To Do        Ship it\n\n"
     );
-    assert_eq!(ran.err, "", "an asked-for --global says nothing");
-    let ran = run_on(&mut fake, false, &["tasks", "list", "--global"]);
+    assert_eq!(ran.err, "", "a read of every project says nothing");
+    let ran = run_on(&mut fake, false, &["tasks", "list"]);
     let rows: Vec<serde_json::Value> = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(rows[0]["harp_id"], "swift-amber");
     assert_eq!(rows[0]["created_at"], "1970-01-01T00:00:00Z");
@@ -1760,7 +1761,7 @@ fn test_list_across_projects_for_want_of_one_says_why_on_stderr() {
         ..Fake::default()
     };
     let ran = run_on(&mut fake, true, &["tasks", "list"]);
-    assert_eq!(ran.out, "Projects: 0 (--global)\n\n(no tasks)\n");
+    assert_eq!(ran.out, "Projects: 0 (every project)\n\n(no tasks)\n");
     assert!(
         ran.err
             .starts_with("taskloom: no project here: /tmp/x is in no git repository"),
@@ -1802,11 +1803,7 @@ fn test_list_compact_is_each_tasks_headline_in_json() {
         },
         vec![shapes::task("calm-otter", "To Do")],
     )));
-    let ran = run_on(
-        &mut fake,
-        false,
-        &["tasks", "list", "--compact", "--global"],
-    );
+    let ran = run_on(&mut fake, false, &["tasks", "list", "--compact"]);
     let rows: Vec<serde_json::Value> = serde_json::from_str(&ran.out).unwrap();
     let keys: Vec<&String> = rows[0].as_object().unwrap().keys().collect();
     assert_eq!(

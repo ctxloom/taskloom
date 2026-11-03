@@ -1,5 +1,9 @@
 # Plan: finishing the taskloom port
 
+`--global` was removed (owner ruling 2026-11-03): read another project with
+`--project <id>`, in a shell loop for several; the old flag prints `removed:
+use --project <id> per project`. Mentions of it below are history.
+
 Command names below are the port's, Go's own (`list`, `status`, `lint`, `plan`,
 ...). Since the CLI consolidation the commands are noun-verb: `tasks list`,
 `tasks set`, `tasks check`, `plans`, `manage schema ...`, `manage migrate

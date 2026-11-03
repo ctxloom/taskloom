@@ -24,7 +24,7 @@ not-found = no task holds { $count ->
 ambiguous = { $count ->
     [one] a harp id is
    *[other] harp ids are
-} held by more than one project ({ $held }): pass --project <id> instead of --global to choose one
+} held by more than one project ({ $held }): pass --project <id> to choose one
 permit-malformed = { $permit } is not a permit: give a namespace (area:), a namespace's key (area:cli) or a flat tag (urgent), with no value
 permit-not-declared = { $permit } is not among this store's tag permits, so there is nothing to revoke
 permit-in-use = { $permit } cannot be revoked: { $count ->

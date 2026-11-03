@@ -488,6 +488,35 @@ fn test_json_flag_after_the_command_is_refused_with_use_format_json() {
 }
 
 #[test]
+fn test_global_is_removed_everywhere_and_says_use_project_per_project() {
+    // owner ruling 2026-11-03: --global removed; the cross-project case is
+    // `--project <id>` in a shell loop.
+    let env = Env::new(SESSION);
+    for args in [
+        &["tasks", "list", "--global"][..],
+        &["tasks", "show", "swift-amber", "--global"],
+        &["tasks", "summary", "--global"],
+        &["tasks", "check", "--global"],
+        &["manage", "schema", "tags", "list", "--global"],
+        &["manage", "schema", "statuses", "list", "--global"],
+        &["--global", "tasks", "list"],
+    ] {
+        let ran = refused(&env, args, 2);
+        assert!(
+            ran.stderr
+                .contains("removed: use --project <id> per project"),
+            "{args:?}: {}",
+            ran.stderr
+        );
+        assert_eq!(ran.stdout, "", "{args:?}: nothing ran");
+    }
+    assert!(!disk::exists(env.home.path().join(".ctxloom")));
+    for page in pages() {
+        assert!(!page.long.stdout.contains("--global"), "{}", page.name());
+    }
+}
+
+#[test]
 fn test_json_flag_before_the_command_is_refused_with_use_format_json() {
     let env = Env::new(SESSION);
     let ran = refused(&env, &["--json", "tasks", "list"], 2);
@@ -838,7 +867,7 @@ fn test_permits_add_list_remove_under_manage_schema() {
 }
 
 #[test]
-fn test_schema_tags_list_keeps_status_term_tag_query_and_global() {
+fn test_schema_tags_list_keeps_status_term_and_tag_query() {
     let env = Env::new(SESSION);
     permit_every_tag(&env);
     let harp = add_task(&env, "Releasing");
@@ -852,7 +881,6 @@ fn test_schema_tags_list_keeps_status_term_tag_query_and_global() {
     assert_eq!(list(&["--status", "@open"]), one);
     assert_eq!(list(&["--term", "releas"]), one);
     assert_eq!(list(&["--tag-query", "release"]), one);
-    assert_eq!(list(&["--global"]), one);
     assert_eq!(
         list(&["--status", "Done"]),
         json!([]),
@@ -876,7 +904,6 @@ fn test_schema_statuses_list_names_the_defaults_in_display_order() {
         names,
         ["In Progress", "To Do", "Deferred", "Done", "Archived"]
     );
-    ok(&env, &["manage", "schema", "statuses", "list", "--global"]);
 }
 
 #[test]

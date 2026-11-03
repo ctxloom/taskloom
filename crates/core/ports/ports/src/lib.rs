@@ -62,8 +62,8 @@ pub trait ProjectIdentity {
     fn for_read(&mut self, pinned: Option<&str>) -> Result<Option<Project>, Report>;
 
     /// Every project with a directory of its own under the projects
-    /// directory, by id: what a read across every project (`--global`)
-    /// spans. A project's root is the path the registry first holds for
+    /// directory, by id: what a read with no project, outside
+    /// every work root, spans. A project's root is the path the registry first holds for
     /// it, canonical, or empty where it holds none.
     fn every_project(&mut self) -> Result<Vec<Project>, Report>;
 

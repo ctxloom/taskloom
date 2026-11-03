@@ -769,7 +769,7 @@ fn test_a_relative_path_is_never_resolved_against_the_top_when_the_cwd_is_gone()
 }
 
 #[test]
-fn test_a_read_spans_every_project_when_asked_or_outside_any_work_root() {
+fn test_a_read_spans_every_project_outside_any_work_root_and_one_by_its_id() {
     let env = Env::new("global-harp");
     env.seed("in the first");
     let (repo, empty_repo) = (Temp::new(), Temp::new());
@@ -788,14 +788,17 @@ fn test_a_read_spans_every_project_when_asked_or_outside_any_work_root() {
         texts(&here.json().as_array().unwrap().clone(), "text"),
         ["in the first"]
     );
-    let every = env.run(&["tasks", "list", "--global", "--format", "json"]);
-    assert!(every.ok, "{}", every.stderr);
-    assert_eq!(every.stderr, "", "asked for: nothing to explain");
-    let rows = every.json().as_array().unwrap().clone();
-    let mut seen = texts(&rows, "text");
-    seen.sort();
-    assert_eq!(seen, ["in the first", "in the repo"]);
-    assert!(rows.iter().all(|r| r["project_id"].is_string()), "{rows:?}");
+    // Another project is read by its id, one project at a time.
+    let there = env.run_in(
+        repo.path(),
+        &["manage", "project", "show", "--format", "json"],
+        &[],
+    );
+    let id = there.json()["project_id"].as_str().unwrap().to_string();
+    let other = env.run(&["tasks", "list", "--project", &id, "--format", "json"]);
+    assert!(other.ok, "{}", other.stderr);
+    let rows = other.json().as_array().unwrap().clone();
+    assert_eq!(texts(&rows, "text"), ["in the repo"]);
 
     let fallback = env.run_outside(&["tasks", "list", "--format", "json"]);
     assert!(fallback.ok, "{}", fallback.stderr);
@@ -807,7 +810,7 @@ fn test_a_read_spans_every_project_when_asked_or_outside_any_work_root() {
     );
     let text = env.run_outside(&["tasks", "list", "--format", "text"]);
     assert!(
-        text.stdout.starts_with("Projects: 2 (--global)\n"),
+        text.stdout.starts_with("Projects: 2 (every project)\n"),
         "{}",
         text.stdout
     );
@@ -1370,10 +1373,6 @@ fn test_in_json_each_read_writes_one_document_and_errors_an_envelope() {
         "json",
     ]);
     assert_eq!(narrowed[0]["headline"], "Ship it");
-    assert_eq!(
-        jq.ok(&["tasks", "list", "--global", "--format", "json"])[0]["harp_id"],
-        harp
-    );
     jq.refused(
         &["tasks", "list", "--status", "@done", "--format", "json"],
         &codes::unknown_status_class(),
@@ -1383,7 +1382,7 @@ fn test_in_json_each_read_writes_one_document_and_errors_an_envelope() {
         jq.ok(&["tasks", "show", harp, "--format", "json"])["text"],
         "Ship it"
     );
-    let twice = jq.ok(&["tasks", "show", harp, harp, "--global", "--format", "json"]);
+    let twice = jq.ok(&["tasks", "show", harp, harp, "--format", "json"]);
     assert_eq!(twice.as_array().map(Vec::len), Some(2));
     jq.refused(
         &["tasks", "show", harp, "no-such-task", "--format", "json"],
@@ -1392,7 +1391,7 @@ fn test_in_json_each_read_writes_one_document_and_errors_an_envelope() {
 
     for args in [
         &["tasks", "summary", "--format", "json"][..],
-        &["tasks", "summary", "--global", "--format", "json"],
+        &["tasks", "summary", "--format", "json"],
     ] {
         let summary = jq.ok(args);
         assert_eq!(summary["counts"]["To Do"], 1, "{args:?}");
@@ -1414,7 +1413,7 @@ fn test_in_json_each_read_writes_one_document_and_errors_an_envelope() {
     for args in [
         &["manage", "schema", "tags", "list", "--format", "json"][..],
         &[
-            "manage", "schema", "tags", "list", "--global", "--status", "@open", "--format", "json",
+            "manage", "schema", "tags", "list", "--status", "@open", "--format", "json",
         ],
     ] {
         assert_eq!(

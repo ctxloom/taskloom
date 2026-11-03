@@ -219,7 +219,7 @@ fn test_a_listing_across_projects_has_a_table_for_each() {
     };
     assert_eq!(
         rendered(|out| render(out, Format::Text, &listed)),
-        "Projects: 2 (--global)\n\n\
+        "Projects: 2 (every project)\n\n\
          Project: /work/tree (jolly-mute-magma)\n\
          [ ] swift-amber  To Do        Ship it\n\n\
          Project: brisk-tall-oak\n\

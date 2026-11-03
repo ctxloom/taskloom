@@ -18,7 +18,7 @@ use tasks_presentation::{
 
 /// The heading of an answer read across every project.
 pub fn projects_heading(out: &mut dyn Write, projects: usize) -> io::Result<()> {
-    writeln!(out, "Projects: {projects} (--global)\n")
+    writeln!(out, "Projects: {projects} (every project)\n")
 }
 
 /// How wide the status column is: wide enough for every default status.

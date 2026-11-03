@@ -1,8 +1,8 @@
 //! The reads: which projects a read reaches, every live task in them, and
 //! the listing taken from those tasks.
 //!
-//! A read is about the project the work root resolves to, or with
-//! `global` about every project with a store (`--global`). A read that
+//! A read is about the project the work root resolves to (or the one
+//! pinned; the CLI has no flag that reads every project). A read that
 //! finds no project falls back to every project when the working
 //! directory lies in no work root of its own (no CTXLOOM_ROOT, no git
 //! repository); inside a work root it reads nothing.
@@ -25,27 +25,25 @@ use crate::view::{
 use crate::{failed, query, AppError, Project, Shown, Tag};
 
 /// The tasks to show, by id, every one of which must be found: in the
-/// work root's project, or with `global` in every project.
+/// work root's project (or the one pinned).
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct ShowQuery {
     pub project: Option<String>,
-    pub global: bool,
     pub harp_ids: Vec<String>,
 }
 
 /// Where a read that takes no filter reads: the work root's project (or
-/// the one pinned), or with `global` every project.
+/// the one pinned).
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct Scope {
     pub project: Option<String>,
-    pub global: bool,
 }
 
 /// Which tasks to list. By default the active ones: neither terminal nor
 /// Deferred. `all` lists every task; naming statuses (or the classes
 /// `@open` and `@terminal`) lists exactly the tasks in them. A term keeps
 /// those whose text mentions it, case-insensitively, and a tag query those
-/// it selects. `global` reads every project. A term, tag query, sort or
+/// it selects. A term, tag query, sort or
 /// limit given blank (a limit of 0) is refused ([`AppError::Blank`]),
 /// never read as none.
 #[derive(Clone, PartialEq, Debug, Default)]
@@ -57,8 +55,6 @@ pub struct ListQuery {
     pub tag_query: Option<String>,
     /// A substring of the text, any case.
     pub term: Option<String>,
-    /// Every project's tasks, not the work root's project's.
-    pub global: bool,
     /// At most this many tasks, the rest counted as omitted; `None` for
     /// no limit. A limit of 0 is given blank, and refused.
     pub limit: Option<usize>,
@@ -88,7 +84,7 @@ pub enum Reach {
     /// No project, in a work root of its own: nothing was read.
     NoProject,
     /// Every project with a store: `projects` of them. `fallback` is the
-    /// working directory when no project there led to it, not `global`.
+    /// working directory, which no project led to.
     Every {
         projects: usize,
         fallback: Option<String>,
@@ -359,17 +355,10 @@ where
     }
 
     /// Every live task the read reaches: `pinned`'s project, the work
-    /// root's, or with `global` (or no project, outside a work root) every
-    /// project's.
-    pub(crate) async fn scan(
-        &mut self,
-        pinned: Option<&str>,
-        global: bool,
-    ) -> Result<Scan, AppError> {
+    /// root's, or (no project, outside a work root) every project's.
+    pub(crate) async fn scan(&mut self, pinned: Option<&str>) -> Result<Scan, AppError> {
         self.projects.refuse_moved()?;
-        let fallback = if global {
-            None
-        } else {
+        let fallback = {
             let found = self
                 .projects
                 .identity
@@ -426,7 +415,7 @@ where
 
     /// The counts by status of every task `scope` reaches.
     pub(crate) async fn summary(&mut self, scope: Scope) -> Result<Summary, AppError> {
-        let scan = self.scan(scope.project.as_deref(), scope.global).await?;
+        let scan = self.scan(scope.project.as_deref()).await?;
         let mut counts = BTreeMap::new();
         for row in &scan.rows {
             *counts.entry(row.task.status.clone()).or_insert(0) += 1;
@@ -445,7 +434,7 @@ where
 
     /// The default statuses, and those in use where `scope` reaches.
     pub(crate) async fn statuses(&mut self, scope: Scope) -> Result<Statuses, AppError> {
-        let scan = self.scan(scope.project.as_deref(), scope.global).await?;
+        let scan = self.scan(scope.project.as_deref()).await?;
         let others: BTreeSet<&str> = scan
             .rows
             .iter()
@@ -471,7 +460,7 @@ where
         let tag_query = given(query.tag_query.as_deref(), "tag_query")?;
         query::check(tag_query).map_err(|e| AppError::TagQuery(Report::of(&e)))?;
         let filter = StatusFilter::parse(&query.statuses)?;
-        let scan = self.scan(query.project.as_deref(), query.global).await?;
+        let scan = self.scan(query.project.as_deref()).await?;
         let rules = scan.rules();
         let rows = matching(scan.rows, &filter, term, tag_query, &rules)?;
         let shown = rules.shown();
@@ -496,7 +485,7 @@ where
 
     /// Every task `scope` reaches, and the schema, linted.
     pub(crate) async fn lint(&mut self, scope: Scope) -> Result<LintReport, AppError> {
-        let scan = self.scan(scope.project.as_deref(), scope.global).await?;
+        let scan = self.scan(scope.project.as_deref()).await?;
         let (violations, checked_targets) = lint::lint(&scan);
         Ok(LintReport {
             reach: scan.reach,
@@ -507,7 +496,7 @@ where
 
     /// The tasks `query` names, every one of them found once.
     pub(crate) async fn show(&mut self, query: ShowQuery) -> Result<Details, AppError> {
-        let scan = self.scan(query.project.as_deref(), query.global).await?;
+        let scan = self.scan(query.project.as_deref()).await?;
         let (mut rows, mut missing, mut held) = (Vec::new(), Vec::new(), Vec::new());
         for id in &query.harp_ids {
             let found: Vec<&Row> = scan.rows.iter().filter(|r| r.task.harp_id == *id).collect();
@@ -552,7 +541,7 @@ where
             return Err(AppError::Blank { field: "limit" });
         }
         let filter = StatusFilter::parse(&query.statuses)?;
-        let scan = self.scan(query.project.as_deref(), query.global).await?;
+        let scan = self.scan(query.project.as_deref()).await?;
         let rules = scan.rules();
         // Each project's whole population is ranked, not the page the
         // filters leave, by its own store's formulas.

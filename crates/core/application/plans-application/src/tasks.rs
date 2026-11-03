@@ -29,7 +29,6 @@ impl<S: TaskService> Tasks for ProjectTasks<S> {
     async fn exists(&mut self, harp_id: &str) -> Result<bool, Report> {
         let query = ShowQuery {
             project: self.project.clone(),
-            global: false,
             harp_ids: vec![harp_id.to_string()],
         };
         match self.service.show(query).await {

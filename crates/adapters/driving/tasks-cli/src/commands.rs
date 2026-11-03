@@ -197,9 +197,6 @@ pub struct ListArgs {
     /// Include the tasks hidden by default: Done, Archived and Deferred.
     #[arg(long)]
     all: bool,
-    /// Every project's tasks, not just this project's.
-    #[arg(long)]
-    global: bool,
     /// The order: priority, highest first, each project's tasks ranked
     /// against all of its own; the default is the order added (across
     /// projects, by project and then id).
@@ -235,7 +232,6 @@ pub(crate) async fn list(
         all: args.all,
         tag_query: args.tag_query,
         term: args.term,
-        global: args.global,
         limit: args.limit,
         sort: args.sort,
     };
@@ -256,9 +252,6 @@ pub struct ShowArgs {
     /// The tasks' ids: every one must be found.
     #[arg(required = true, num_args = 1..)]
     harp_ids: Vec<String>,
-    /// Find them in every project, not just this one.
-    #[arg(long)]
-    global: bool,
 }
 
 /// The tasks `args` names, and the plans governing each: the tasks'
@@ -274,7 +267,6 @@ pub(crate) async fn show(
 ) -> Result<(), CliError> {
     let query = ShowQuery {
         project: ctx.project,
-        global: args.global,
         harp_ids: args.harp_ids,
     };
     let details = service.show(query).await.map_err(CliError::App)?;
@@ -527,51 +519,35 @@ pub(crate) async fn import_config(
     angzarr_presentation::render(out, ctx.format, &DeclaredView(&declared)).map_err(output_failed)
 }
 
-#[derive(Args, Debug)]
-pub struct GlobalArgs {
-    /// Every project, not just this one.
-    #[arg(long)]
-    global: bool,
-}
-
-impl GlobalArgs {
-    fn scope(&self, ctx: Ctx<'_>) -> Scope {
-        Scope {
-            project: ctx.project,
-            global: self.global,
-        }
+/// The scope of a read that takes no filter: the work root's project, or
+/// the one pinned.
+fn scope(ctx: Ctx<'_>) -> Scope {
+    Scope {
+        project: ctx.project,
     }
 }
 
 pub(crate) async fn summary(
-    args: GlobalArgs,
     ctx: Ctx<'_>,
     service: &mut impl TaskService,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<(), CliError> {
     let (format, catalog) = (ctx.format, ctx.catalog);
-    let summary = service
-        .summary(args.scope(ctx))
-        .await
-        .map_err(CliError::App)?;
+    let summary = service.summary(scope(ctx)).await.map_err(CliError::App)?;
     reached(&summary.reach, catalog, err)
         .and_then(|()| angzarr_presentation::render(out, format, &Summed(&summary)))
         .map_err(output_failed)
 }
 
 pub(crate) async fn statuses(
-    args: GlobalArgs,
     ctx: Ctx<'_>,
     service: &mut impl TaskService,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<(), CliError> {
     let (format, catalog) = (ctx.format, ctx.catalog);
-    let statuses = service
-        .statuses(args.scope(ctx))
-        .await
-        .map_err(CliError::App)?;
+    let statuses = service.statuses(scope(ctx)).await.map_err(CliError::App)?;
     // With no project the defaults are still the answer: only a read of
     // every project for want of one is worth saying.
     let noticed = match statuses.reach {
@@ -596,9 +572,6 @@ pub struct TagsArgs {
     /// Count only the tasks this tag query selects (see `list --help`).
     #[arg(long = "tag-query")]
     tag_query: Option<String>,
-    /// Every project's tags, not just this project's.
-    #[arg(long)]
-    global: bool,
 }
 
 pub(crate) async fn tags(
@@ -613,7 +586,6 @@ pub(crate) async fn tags(
         statuses: args.status,
         tag_query: args.tag_query,
         term: args.term,
-        global: args.global,
         ..ListQuery::default()
     };
     let vocabulary = service.tags(query).await.map_err(CliError::App)?;
@@ -625,14 +597,13 @@ pub(crate) async fn tags(
 /// Check the tasks' tags, then refuse when it found a violation or checked no target, so
 /// that CI sees it in the exit code.
 pub(crate) async fn check(
-    args: GlobalArgs,
     ctx: Ctx<'_>,
     service: &mut impl TaskService,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<(), CliError> {
     let (format, catalog) = (ctx.format, ctx.catalog);
-    let report = service.lint(args.scope(ctx)).await.map_err(CliError::App)?;
+    let report = service.lint(scope(ctx)).await.map_err(CliError::App)?;
     let view = Linted {
         report: &report,
         catalog,

@@ -117,7 +117,7 @@ pub enum Tasks {
     Tag(TagCommand),
     /// Count the tasks in each status
     #[command(after_help = "Examples:\n  taskloom tasks summary")]
-    Summary(commands::GlobalArgs),
+    Summary,
     /// Remove old finished tasks (a preview unless --yes)
     #[command(
         after_help = "Examples:\n  taskloom tasks prune --older-than 30d\n  taskloom tasks prune --older-than 30d --yes"
@@ -125,7 +125,7 @@ pub enum Tasks {
     Prune(commands::PruneArgs),
     /// Check every task's tags against the store's rules; exit 1 on a finding
     #[command(after_help = "Examples:\n  taskloom tasks check")]
-    Check(commands::GlobalArgs),
+    Check,
 }
 
 /// The verbs of `tasks tag`.
@@ -182,7 +182,7 @@ pub enum TagsCommand {
 pub enum StatusesCommand {
     /// List the statuses, in display order
     #[command(after_help = "Examples:\n  taskloom manage schema statuses list")]
-    List(commands::GlobalArgs),
+    List,
 }
 
 /// The commands of `manage schema`: [`commands::SchemaCommand`] and the
@@ -350,6 +350,9 @@ pub fn removed(args: &[OsString]) -> Option<CliError> {
     if words.contains(&"--json") {
         return Some(instead("--format json"));
     }
+    if words.contains(&"--global") {
+        return Some(instead("--project <id> per project"));
+    }
     let mut rest = words.iter().copied();
     let mut positional = Vec::new();
     while let Some(word) = rest.next() {
@@ -445,8 +448,8 @@ where
             Tasks::Add(args) => commands::add(args, ctx, service, out, err).await,
             Tasks::Set(args) => commands::set(args, ctx, service, out, err).await,
             Tasks::Show(args) => commands::show(args, ctx, service, plans, out, err).await,
-            Tasks::Check(args) => commands::check(args, ctx, service, out, err).await,
-            Tasks::Summary(args) => commands::summary(args, ctx, service, out, err).await,
+            Tasks::Check => commands::check(ctx, service, out, err).await,
+            Tasks::Summary => commands::summary(ctx, service, out, err).await,
             Tasks::Tag(TagCommand::Add(args)) => {
                 commands::tag(args, true, ctx, service, out, err).await
             }
@@ -470,8 +473,8 @@ where
             Vocabulary::Tags(TagsCommand::List(args)) => {
                 commands::tags(args, ctx, service, out, err).await
             }
-            Vocabulary::Statuses(StatusesCommand::List(args)) => {
-                commands::statuses(args, ctx, service, out, err).await
+            Vocabulary::Statuses(StatusesCommand::List) => {
+                commands::statuses(ctx, service, out, err).await
             }
         },
         Command::ImportConfig => commands::import_config(ctx, service, out).await,

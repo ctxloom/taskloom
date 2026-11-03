@@ -309,12 +309,8 @@ fn test_a_ranking_that_means_little_says_so() {
 #[test]
 fn test_every_project_is_ranked_in_its_own_section() {
     let mut service = with_two_projects();
-    service.identity.bound = Some(named("zulu-proj"));
-    let query = ListQuery {
-        global: true,
-        ..by_priority()
-    };
-    let listing = ready(service.list(query)).unwrap();
+    service.identity.rootless = Some("/tmp/somewhere".to_string());
+    let listing = ready(service.list(by_priority())).unwrap();
     let ranked: Vec<(&str, Option<f64>)> = listing
         .ranked()
         .map(|(row, priority)| (row.project.id.as_str(), priority))
@@ -537,40 +533,6 @@ fn with_two_projects() -> Fake {
 }
 
 #[test]
-fn test_global_reads_every_project_by_project_then_harp() {
-    let mut service = with_two_projects();
-    service.identity.bound = Some(named("zulu-proj"));
-    let query = ListQuery {
-        global: true,
-        ..ListQuery::default()
-    };
-    let listing = ready(service.list(query)).unwrap();
-    let rows: Vec<(&str, &str)> = listing
-        .rows
-        .iter()
-        .map(|r| (r.project.id.as_str(), r.task.harp_id.as_str()))
-        .collect();
-    assert_eq!(
-        rows,
-        [
-            ("alpha-proj", "alpha-two"),
-            ("alpha-proj", "brisk-three"),
-            ("zulu-proj", "zesty-one")
-        ]
-    );
-    assert_eq!(
-        listing.reach,
-        Reach::Every {
-            projects: 2,
-            fallback: None
-        },
-        "the project with no store is not counted"
-    );
-    assert_eq!(listing.project(), None);
-    assert!(listing.reach.is_every());
-}
-
-#[test]
 fn test_no_project_outside_a_work_root_reads_every_project_saying_where() {
     let mut service = with_two_projects();
     service.identity.rootless = Some("/tmp/somewhere".to_string());
@@ -583,6 +545,22 @@ fn test_no_project_outside_a_work_root_reads_every_project_saying_where() {
         }
     );
     assert_eq!(listing.rows.len(), 3);
+    let rows: Vec<(&str, &str)> = listing
+        .rows
+        .iter()
+        .map(|r| (r.project.id.as_str(), r.task.harp_id.as_str()))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("alpha-proj", "alpha-two"),
+            ("alpha-proj", "brisk-three"),
+            ("zulu-proj", "zesty-one")
+        ],
+        "by project, then harp; the project with no store is not counted"
+    );
+    assert_eq!(listing.project(), None);
+    assert!(listing.reach.is_every());
 }
 
 #[test]
@@ -597,21 +575,22 @@ fn test_a_project_found_is_read_alone_rootless_or_not() {
 }
 
 #[test]
-fn test_a_global_read_whose_projects_cannot_be_named_fails_with_why() {
+fn test_a_read_whose_projects_cannot_be_named_fails_with_why() {
     let mut service = service(&[]);
     service.identity.fails = Some(angzarr_diagnostic::Report::new("x-registry"));
-    let query = ListQuery {
-        global: true,
-        ..ListQuery::default()
-    };
-    assert_eq!(ready(service.list(query)).unwrap_err().code(), "x-registry");
+    assert_eq!(
+        ready(service.list(ListQuery::default()))
+            .unwrap_err()
+            .code(),
+        "x-registry"
+    );
 }
 
 #[test]
 fn test_a_tag_query_over_every_project_tells_their_tasks_apart() {
     let mut service = with_two_projects();
+    service.identity.rootless = Some("/tmp/somewhere".to_string());
     let query = ListQuery {
-        global: true,
         tag_query: Some("x/not".to_string()),
         ..ListQuery::default()
     };
@@ -672,11 +651,11 @@ fn test_show_across_projects_fails_on_an_id_two_hold_naming_them() {
     service.identity.bound = Some(named("zulu-proj"));
     add(&mut service, "in zulu", "To Do");
     service.identity.every = vec![named("alpha-proj"), named("zulu-proj")];
-    let global = ShowQuery {
-        global: true,
-        ..asked(&["swift-amber", "calm-otter"])
-    };
-    let error = ready(service.show(global.clone())).unwrap_err();
+    // Outside every project, the read reaches them all.
+    service.identity.bound = None;
+    service.identity.rootless = Some("/tmp/somewhere".to_string());
+    let across = asked(&["swift-amber", "calm-otter"]);
+    let error = ready(service.show(across.clone())).unwrap_err();
     assert_eq!(
         error,
         AppError::Ambiguous {
@@ -694,10 +673,11 @@ fn test_show_across_projects_fails_on_an_id_two_hold_naming_them() {
     );
     let one = ShowQuery {
         harp_ids: vec!["calm-otter".to_string()],
-        ..global
+        ..across
     };
     let details = ready(service.show(one)).unwrap();
     assert_eq!(details.rows[0].project.id, "alpha-proj");
+    service.identity.bound = Some(named("zulu-proj"));
     let here = ready(service.show(asked(&["swift-amber"]))).unwrap();
     assert_eq!(here.rows[0].task.text, "in zulu", "this project's alone");
 }
@@ -745,11 +725,8 @@ fn test_a_summary_counts_every_task_by_status_and_names_those_in_progress() {
 #[test]
 fn test_a_summary_across_projects_sums_them() {
     let mut service = with_two_projects();
-    let global = Scope {
-        global: true,
-        ..Scope::default()
-    };
-    let summary = ready(service.summary(global)).unwrap();
+    service.identity.rootless = Some("/tmp/somewhere".to_string());
+    let summary = ready(service.summary(Scope::default())).unwrap();
     assert_eq!(summary.counts.get("To Do"), Some(&3));
     assert!(summary.reach.is_every());
 }
