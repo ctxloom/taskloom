@@ -1642,3 +1642,6 @@ mod snapshot;
 
 #[path = "watch.test.rs"]
 mod watch;
+
+#[path = "watch_cursor.test.rs"]
+mod watch_cursor;
