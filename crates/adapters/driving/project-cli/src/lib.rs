@@ -130,7 +130,7 @@ pub fn run<A: ProjectAdmin, C: StoreCheck>(
         Ok(()) => 0,
         Err(error) => {
             let _ = report(&error, settings, catalog, err);
-            1
+            error.exit_code()
         }
     }
 }

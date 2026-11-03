@@ -16,6 +16,17 @@ pub enum CliError {
     ProjectNotTaken { command: String },
 }
 
+impl CliError {
+    /// The exit code: 2 for a request invalid on its own content (a pin the
+    /// command does not take), 1 otherwise.
+    pub fn exit_code(&self) -> u8 {
+        match self {
+            CliError::ProjectNotTaken { .. } => 2,
+            CliError::Project(_) | CliError::Output { .. } => 1,
+        }
+    }
+}
+
 impl fmt::Display for CliError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         angzarr_diagnostic::display(self, f)

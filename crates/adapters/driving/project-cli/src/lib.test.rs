@@ -514,7 +514,7 @@ fn test_project_is_refused_by_every_command_but_show() {
                 &mut err,
             );
             let err = String::from_utf8(err).unwrap();
-            assert_eq!(code, 1, "{args:?}");
+            assert_eq!(code, 2, "{args:?}");
             assert!(out.is_empty(), "{args:?}");
             let expected = format!(
                 "--project is not taken by manage doctor {command}, which acts on this directory's project: only manage project show takes it"
