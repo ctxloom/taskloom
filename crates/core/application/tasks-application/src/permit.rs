@@ -3,18 +3,17 @@
 //! [`PermitService`], which a person runs from the command line.
 //!
 //! A permit is spelled as the tag it permits, without a value, and is the
-//! tagma pattern it declares (`tagma.permit:<pattern>=true`):
+//! tagma pattern it declares (`tagma.permit:<pattern>`, a presence):
 //!
 //! - `area:` permits the namespace `area`, any key: `"area:*"`;
 //! - `area:cli` permits the key `cli` of the namespace `area`: `"area:cli"`;
 //! - `urgent` permits the flat tag `urgent` (no namespace): `urgent`.
 //!
-//! The first permit closes the store's world (`tagma.permit:"*:*"=false`)
-//! and keeps admitted every target the store's rules constrain (a permit
-//! for each), so a declared `triage:*` target stays writable. From then on
-//! a write adding a tag no permit admits is refused, by tagma's
-//! `not-permitted`. Where no permit is declared, tagma's implicit
-//! `"*:*"=true` admits every tag.
+//! Every store is an allowlist from when it is made (the owner's ruling
+//! F6, 2026-11-02: "An undeclared tag is REFUSED when written. A namespace
+//! or tag has to be permitted by an explicit command first."): it is
+//! seeded with its permits ([`crate::SEEDED_SCHEMA`]), and a write adding a
+//! tag no permit admits is refused, by tagma's `not-permitted`.
 
 use std::fmt;
 use std::future::Future;
@@ -23,7 +22,7 @@ use ports::{Clock, CommandIds, Configuration, ConfigurationWriter, ProjectIdenti
 use tasks::schema::Declare;
 
 use crate::lists::Lists;
-use crate::rules::{closing, permit_tag, StoreRules};
+use crate::rules::{permit_tag, StoreRules};
 use crate::schema::{self, Declared};
 use crate::write::Writes;
 use crate::{tags, AppError, Declaration, Tag};
@@ -62,9 +61,8 @@ pub struct PermitList {
 /// handed it.
 pub trait PermitService {
     /// Permit `change.permit`, declared on the work root's project's
-    /// store. Where the store declares no permits yet, this is where it
-    /// starts to: the world is closed, every target the rules constrain
-    /// permitted, and every tag not permitted is refused from then on.
+    /// store, and nothing else: the store refuses what no permit admits
+    /// from when it is made.
     fn permit(
         &mut self,
         change: PermitChange,
@@ -122,17 +120,12 @@ where
             .identity
             .for_write(None)
             .map_err(AppError::Identity)?;
-        let rules = self.writes.seeded(&project).await?;
-        let mut add = vec![permit.tag()];
-        if !rules.closed() {
-            add.extend(first_permits(&rules));
-        }
         let declared = self
             .writes
             .declaring(
                 &project,
                 Declare {
-                    add: add.into_iter().map(Tag::from).collect(),
+                    add: vec![permit.tag().into()],
                     remove: Vec::new(),
                 },
             )
@@ -196,19 +189,6 @@ where
     }
 }
 
-/// What a first permit declares beside its own: the world closed, and a
-/// permit for every target the rules constrain, so they stay writable.
-fn first_permits(rules: &StoreRules) -> Vec<tagma_core::Tag> {
-    let mut tags = vec![closing()];
-    tags.extend(
-        rules
-            .targets()
-            .iter()
-            .map(|target| permit_tag(target, true)),
-    );
-    tags
-}
-
 impl<I, S, G, C, D> Permitting<'_, I, S, G, C, D>
 where
     I: ProjectIdentity,
@@ -232,6 +212,11 @@ where
         for declaration in &schema {
             add.extend(imported(declaration)?);
         }
+        // The file admitted a target it declared rules for without a
+        // permit: each is permitted, as the file's own permits are.
+        let declared = StoreRules::of_tags(add.iter().cloned());
+        add.extend(declared.targets().iter().map(|target| permit_tag(target)));
+        add.extend(permits.iter().flat_map(permitted));
         let project = self
             .writes
             .projects
@@ -239,17 +224,6 @@ where
             .for_write(None)
             .map_err(AppError::Identity)?;
         let rules = self.writes.seeded(&project).await?;
-        if let Some(permits) = &permits {
-            add.extend(permitted(permits));
-            if !rules.closed() {
-                // Every target the store's rules, and those imported,
-                // constrain stays admitted, as the old permits admitted a
-                // declared target without a permit.
-                let mut after = rules.clone();
-                after.extend(&add);
-                add.extend(first_permits(&after));
-            }
-        }
         let declared = match add.is_empty() {
             true => Declared {
                 tags: rules.export(),
@@ -320,14 +294,14 @@ fn permitted(permits: &ports::TagPermits) -> Vec<tagma_core::Tag> {
     let mut tags = Vec::new();
     for (namespace, permit) in &permits.namespaces {
         match permit {
-            ports::NamespacePermit::Open => tags.push(permit_tag(&format!("{namespace}:*"), true)),
+            ports::NamespacePermit::Open => tags.push(permit_tag(&format!("{namespace}:*"))),
             ports::NamespacePermit::Closed(keys) => tags.extend(
                 keys.iter()
-                    .map(|key| permit_tag(&format!("{namespace}:{key}"), true)),
+                    .map(|key| permit_tag(&format!("{namespace}:{key}"))),
             ),
         }
     }
-    tags.extend(permits.flat.iter().map(|key| permit_tag(key, true)));
+    tags.extend(permits.flat.iter().map(|key| permit_tag(key)));
     tags
 }
 
@@ -345,7 +319,7 @@ impl<I, S: TaskStores, G, C, D> Permitting<'_, I, S, G, C, D> {
             Some(store) => self.lists.rows(project, store, projects.registry).await?,
             None => Vec::new(),
         };
-        let alone = tagma_core::Rules::from_tags(&[closing(), permit.tag()]);
+        let alone = tagma_core::Rules::from_tags(&[permit.tag()]);
         let mut harp_ids: Vec<String> = rows
             .into_iter()
             .filter(|row| {
@@ -445,9 +419,9 @@ impl Permit {
         }
     }
 
-    /// `tagma.permit:<pattern>=true`.
+    /// `tagma.permit:<pattern>`.
     fn tag(&self) -> tagma_core::Tag {
-        permit_tag(&self.pattern, true)
+        permit_tag(&self.pattern)
     }
 }
 
