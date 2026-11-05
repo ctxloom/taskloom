@@ -421,7 +421,12 @@ Where the port differs from Go:
   is a diagnostic (`tasks-application-priority-*`), a line on stderr or
   one of `priority_warning`'s lines. Every task's JSON, the CLI's too,
   carries `derived_priority`, null unless sorted by it, a whole number
-  written without a fraction as Go writes it.
+  written without a fraction as Go writes it. It also carries
+  `deferred_since` (after `created_at`; an addition to Go's shape, for
+  ctxloom's trigger evaluation, which reads the CLI's JSON): the RFC 3339
+  instant the task last entered Deferred while it is Deferred, null
+  otherwise (a revived task is not deferred since then). The watch lines
+  carry no task shape, so none.
 - The loadout is Go's document with the reviewed changes (Decided 11),
   without Go's MCP server: taskloom is CLI-only. Its install text is a
   placeholder until the human writes it ("Parity and the cutover").
@@ -900,7 +905,7 @@ restarted on a freed harp is under "Where it stands".
 
 Trigger evaluation (deciding whether a deferred task's revive condition has
 fired) is ctxloom's, run by its triage agent; taskloom only exposes
-`deferred_since`. It ports with ctxloom, not here.
+`deferred_since` (in the task JSON). It ports with ctxloom, not here.
 
 ## Inventory of the Go surface
 

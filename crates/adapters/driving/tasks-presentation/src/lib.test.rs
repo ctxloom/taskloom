@@ -28,6 +28,7 @@ fn task(harp: &str, status: &str) -> Task {
             seconds: 1_781_058_920,
             nanos: 837_009_562,
         },
+        deferred_since: None,
     }
 }
 
@@ -68,10 +69,26 @@ fn test_a_task_as_json_is_gos_shape_in_gos_order() {
     "a"
   ],
   "created_at": "2026-06-10T02:35:20.837009562Z",
+  "deferred_since": null,
   "derived_priority": null
 }
 "#
     );
+}
+
+#[test]
+fn test_a_deferred_task_writes_when_it_was_deferred_in_rfc3339_and_any_other_null() {
+    let mut task = task("swift-amber", "Deferred");
+    task.trigger = "later".to_string();
+    task.deferred_since = Some(Timestamp {
+        seconds: 1_781_058_930,
+        nanos: 500_000_000,
+    });
+    let written: serde_json::Value = serde_json::from_str(&json(&task)).unwrap();
+    assert_eq!(written["deferred_since"], "2026-06-10T02:35:30.5Z");
+    task.deferred_since = None;
+    let written: serde_json::Value = serde_json::from_str(&json(&task)).unwrap();
+    assert!(written["deferred_since"].is_null());
 }
 
 #[test]

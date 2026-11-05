@@ -16,7 +16,8 @@ use time::OffsetDateTime;
 /// A task as JSON: its fields in this order, each tag in its canonical
 /// spelling. Every tag, hidden ones too: hiding is for what a person
 /// reads, and a program reads this. `derived_priority` is null but in a
-/// listing sorted by priority.
+/// listing sorted by priority; `deferred_since` is null but while the
+/// task is Deferred.
 #[derive(Serialize)]
 pub struct TaskJson<'a> {
     harp_id: &'a str,
@@ -28,6 +29,8 @@ pub struct TaskJson<'a> {
     origin_session: &'a str,
     tags: Vec<String>,
     created_at: String,
+    /// When the task was deferred, while it is Deferred; null otherwise.
+    deferred_since: Option<String>,
     #[serde(serialize_with = "go_number")]
     derived_priority: Option<f64>,
 }
@@ -44,6 +47,7 @@ impl<'a> TaskJson<'a> {
             origin_session: &task.origin_session,
             tags: spelled(&task.tags),
             created_at: rfc3339(task.created_at),
+            deferred_since: task.deferred_since.map(rfc3339),
             derived_priority: None,
         }
     }

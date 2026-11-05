@@ -49,8 +49,33 @@ fn test_a_task_carries_its_state_and_the_values_derived_from_it() {
             origin_session: "calm-otter-fox".to_string(),
             tags: vec![tag("a"), tag("b")],
             created_at: at,
+            deferred_since: None,
         }
     );
+}
+
+#[test]
+fn test_a_deferred_task_carries_when_it_was_deferred_and_a_revived_one_does_not() {
+    let since = Timestamp {
+        seconds: 1_700_000_100,
+        nanos: 7,
+    };
+    let deferred = TaskState {
+        harp_id: "swift-amber".to_string(),
+        status: "Deferred".to_string(),
+        trigger: "the release".to_string(),
+        deferred_since: Some(since),
+        ..TaskState::default()
+    };
+    assert_eq!(Task::of(&deferred).deferred_since, Some(since));
+    // The state remembers when the task last entered Deferred; a task
+    // that left it is not deferred since then.
+    let revived = TaskState {
+        status: "To Do".to_string(),
+        trigger: String::new(),
+        ..deferred
+    };
+    assert_eq!(Task::of(&revived).deferred_since, None);
 }
 
 #[test]

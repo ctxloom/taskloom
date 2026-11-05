@@ -36,6 +36,7 @@ mod shapes {
             origin_session: String::new(),
             tags: Vec::new(),
             created_at: Timestamp::default(),
+            deferred_since: None,
         }
     }
 }

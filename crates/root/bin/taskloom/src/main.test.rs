@@ -1125,6 +1125,37 @@ impl Jq {
 }
 
 #[test]
+fn test_in_json_a_deferred_task_carries_deferred_since_and_a_revived_one_does_not() {
+    let jq = Jq::new("jq-deferred-since-harp");
+    let harp = jq.harp.as_str();
+    let fresh = jq.ok(&["tasks", "show", harp, "--format", "json"]);
+    assert!(fresh["deferred_since"].is_null(), "never deferred");
+    let deferred = jq.ok(&[
+        "tasks",
+        "set",
+        harp,
+        "--status",
+        "Deferred",
+        "--trigger",
+        "later",
+        "--format",
+        "json",
+    ]);
+    let since = deferred["deferred_since"].as_str().expect("deferred_since");
+    assert!(since.starts_with("20") && since.ends_with('Z'), "{since}");
+    let shown = jq.ok(&["tasks", "show", harp, "--format", "json"]);
+    assert_eq!(
+        shown["deferred_since"], since,
+        "show writes the same instant"
+    );
+    let revived = jq.ok(&["tasks", "set", harp, "--clear-trigger", "--format", "json"]);
+    assert!(
+        revived["deferred_since"].is_null(),
+        "not deferred since, once revived"
+    );
+}
+
+#[test]
 fn test_in_json_each_change_writes_one_document_and_errors_an_envelope() {
     let jq = Jq::new("jq-change-harp");
     let harp = jq.harp.as_str();
