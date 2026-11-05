@@ -80,9 +80,9 @@ angzarr-store-transfer = { git = "https://github.com/angzarr-io/angzarr", rev = 
 # `file-system` (the seam all file I/O goes through) and `file-lock`
 # (advisory locks over both). On angzarr core dd59566a, as the crates above
 # (angzarr-platform's transfer/export-old-line, unmerged).
-os = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "5771284d1e32cea9af1616a0867d19ad6208fd33" }
-file-system = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "5771284d1e32cea9af1616a0867d19ad6208fd33" }
-file-lock = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "5771284d1e32cea9af1616a0867d19ad6208fd33" }
+os = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "7b448a82293746f430e0f962d1e9d1beede78c7c" }
+file-system = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "7b448a82293746f430e0f962d1e9d1beede78c7c" }
+file-lock = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "7b448a82293746f430e0f962d1e9d1beede78c7c" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
 plans-proto = { path = "crates/core/wire/plans-proto" }
 tasks = { path = "crates/core/domain/tasks" }
