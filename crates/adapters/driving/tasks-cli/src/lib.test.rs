@@ -3339,6 +3339,25 @@ fn test_schema_init_dry_run_wins_over_yes_and_says_what_it_would_do() {
 }
 
 #[test]
+fn test_schema_init_says_in_text_that_a_preview_changed_nothing_and_an_applied_one_does_not() {
+    let answer = || Fake {
+        declared: schema_declared(&["tagma.keys-per-item:area=1"], true),
+        ..Fake::default()
+    };
+    let previewed = run_on(&mut answer(), true, &["manage", "schema", "init"]);
+    assert_eq!(previewed.code, 0, "{}", previewed.err);
+    assert_eq!(
+        previewed.out,
+        "preview, nothing was changed:\ndeclared: the store's tag rules are now\n  tagma.keys-per-item:area=1\n"
+    );
+    let applied = run_on(&mut answer(), true, &["manage", "schema", "init", "--yes"]);
+    assert_eq!(
+        applied.out,
+        "declared: the store's tag rules are now\n  tagma.keys-per-item:area=1\n"
+    );
+}
+
+#[test]
 fn test_schema_init_refuses_an_unknown_template_as_a_usage_error() {
     let mut fake = Fake::default();
     let ran = run_on(

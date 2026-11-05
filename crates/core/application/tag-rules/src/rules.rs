@@ -322,3 +322,7 @@ pub fn samples() -> Vec<Box<dyn Diagnostic>> {
         })),
     ]
 }
+
+#[cfg(test)]
+#[path = "rules.test.rs"]
+mod tests;

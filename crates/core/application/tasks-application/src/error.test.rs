@@ -245,6 +245,10 @@ fn test_a_request_the_content_or_the_state_forbids_is_declined_with_48() {
             permit: "x".into(),
             harp_ids: vec!["a".into()],
         },
+        AppError::SchemaInitConflict {
+            template: "general".into(),
+            held: String::new(),
+        },
     ];
     for error in declined {
         assert_eq!(status(&error), 48, "{error:?}");

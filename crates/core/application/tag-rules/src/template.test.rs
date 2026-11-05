@@ -225,3 +225,20 @@ fn test_the_ctxloom_template_adds_to_the_general_default_but_for_the_formula() {
     let conflict = missing(&held, &wanted(Template::Ctxloom, &[])).unwrap_err();
     assert_eq!(conflict.held.len(), 1);
 }
+
+#[test]
+fn test_a_permit_of_another_namespace_does_not_stand_for_an_area_permit() {
+    // Valued or not, a permit that is not an area's leaves `area:*` to add.
+    for held in [
+        r#"tagma.permit:"lang:*""#,
+        r#"tagma.permit:"human:action""#,
+        r#"tagma.permit:"lang:*"=true"#,
+        r#"tagma.permit:"area:cli"=true"#,
+    ] {
+        let found = missing(&rules(&[held]), &wanted(Template::General, &[])).unwrap();
+        assert!(
+            spelled(&found).contains(&r#"tagma.permit:"area:*""#.to_string()),
+            "{held}"
+        );
+    }
+}
