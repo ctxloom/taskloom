@@ -26,6 +26,12 @@ fn task(harp: &str, status: &str) -> Task {
     }
 }
 
+/// The instant a listing was read.
+const NOW: Timestamp = Timestamp {
+    seconds: 1_800_000_000,
+    nanos: 0,
+};
+
 fn rendered(write: impl FnOnce(&mut Vec<u8>) -> std::io::Result<()>) -> String {
     let mut out = Vec::new();
     write(&mut out).unwrap();
@@ -35,7 +41,7 @@ fn rendered(write: impl FnOnce(&mut Vec<u8>) -> std::io::Result<()>) -> String {
 #[test]
 fn test_an_empty_table_says_so() {
     assert_eq!(
-        rendered(|out| table(out, &[], &Shown::default())),
+        rendered(|out| table(out, &[], &Shown::default(), NOW)),
         "(no tasks)\n"
     );
 }
@@ -48,11 +54,46 @@ fn test_a_table_aligns_ids_and_statuses_and_separates_tasks() {
     let (done, deferred) = (task("swift-amber-x", "Done"), deferred);
     let tasks = [&done, &deferred];
     assert_eq!(
-        rendered(|out| table(out, &tasks, &Shown::default())),
+        rendered(|out| table(out, &tasks, &Shown::default(), NOW)),
         "[x] swift-amber-x  Done         Ship it\n\
          \n\
          [ ] calm-otter     Deferred     Ship it  (trigger: the release)  [a, b]\n"
     );
+}
+
+// A Deferred task says how long it has been deferred, in the largest
+// whole unit: days, then hours, then minutes (never less than a minute,
+// nor negative).
+#[test]
+fn test_a_deferred_task_says_how_long_it_has_been_deferred() {
+    let deferred = |ago: i64| {
+        let mut t = task("calm-otter", "Deferred");
+        t.trigger = "the release".to_string();
+        t.deferred_since = Some(Timestamp {
+            seconds: NOW.seconds - ago,
+            nanos: 0,
+        });
+        t
+    };
+    for (ago, said) in [
+        (3 * 86_400 + 86_399, "3d"),
+        (86_400, "1d"),
+        (86_399, "23h"),
+        (3600, "1h"),
+        (3599, "59m"),
+        (60, "1m"),
+        (59, "0m"),
+        (-30, "0m"),
+    ] {
+        let task = deferred(ago);
+        assert_eq!(
+            rendered(|out| table(out, &[&task], &Shown::default(), NOW)),
+            format!(
+                "[ ] calm-otter  Deferred     Ship it  (trigger: the release, deferred {said})\n"
+            ),
+            "{ago}"
+        );
+    }
 }
 
 #[test]
@@ -63,7 +104,7 @@ fn test_a_table_aligns_wide_characters_by_their_display_width() {
     );
     let tasks = [&wide, &narrow];
     assert_eq!(
-        rendered(|out| table(out, &tasks, &Shown::default())),
+        rendered(|out| table(out, &tasks, &Shown::default(), NOW)),
         "[ ] swift-amber  \u{5b8c}\u{4e86}         Ship it\n\
          \n\
          [ ] calm-otter   To Do        Ship it\n"
@@ -119,6 +160,7 @@ fn listing(reach: Reach, tasks: &[Task], shown: Shown) -> Listing {
         omitted: 0,
         priorities: None,
         priority_notes: Vec::new(),
+        now: NOW,
     }
 }
 
@@ -267,7 +309,7 @@ fn test_a_hidden_tag_is_left_out_of_text_and_kept_in_json() {
     );
     let tasks = [&tagged];
     assert_eq!(
-        rendered(|out| table(out, &tasks, &shown)),
+        rendered(|out| table(out, &tasks, &shown, NOW)),
         "[ ] swift-amber  To Do        Ship it  [triage:kind=defect, x]\n"
     );
     let json: serde_json::Value = serde_json::from_str(&rendered(|out| {
@@ -289,7 +331,7 @@ fn test_a_hidden_tag_is_left_out_of_text_and_kept_in_json() {
     // Every tag hidden: no brackets at all.
     let all = hiding(&[r#"tagma.hide:"*:*"=true"#, "tagma.hide:x=true"]);
     assert_eq!(
-        rendered(|out| table(out, &tasks, &all)),
+        rendered(|out| table(out, &tasks, &all, NOW)),
         "[ ] swift-amber  To Do        Ship it\n"
     );
 }

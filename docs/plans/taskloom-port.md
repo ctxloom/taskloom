@@ -342,6 +342,20 @@ cutover ("What remains").
     answered by Go's own `filterTasks` (`scripts/compare-go-tag-queries.sh`,
     writing `go.tsv`) and tagma-core alike, and no tagma-core change was
     needed.
+    An addition to Go's: each Deferred candidate (one with a
+    `deferred_since`) carries one more derived tag beside the presence
+    tag, `taskloom.internal:deferred-hours=<n>`, the whole hours from
+    `deferred_since` to the instant the read was taken (the clock seam;
+    0 for a future one), never stored. So `deferred-hours=+` selects every
+    deferral and `deferred-hours>=336` those deferred two weeks or more,
+    composing with every other atom, with `--status`, `--term`, `--limit`,
+    and wherever a tag query is taken (`tags list`, `prune`, whose
+    `--status Deferred` then selects by it). The default view still hides
+    Deferred, so a deferrals query names `--status Deferred` (or `--all`).
+    A date is not expressible (hours only; prune's age parser is not
+    reused: a tag query's atoms hold no `30d`). The text table says how
+    long each Deferred task has been deferred beside its trigger
+    (`(trigger: later, deferred 3d)`, the largest whole unit).
   - Display hiding: tagma's `HideConfig` from the schema's hide facts,
     `tagma:*` hidden by default, in text; JSON keeps every tag, as Go's.
   - The importer converts at its boundary: a Go tag that does not parse is

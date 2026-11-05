@@ -1156,6 +1156,48 @@ fn test_in_json_a_deferred_task_carries_deferred_since_and_a_revived_one_does_no
 }
 
 #[test]
+fn test_list_selects_deferrals_by_the_hours_deferred_and_text_says_how_long() {
+    let jq = Jq::new("jq-deferrals-harp");
+    let harp = jq.harp.as_str();
+    jq.ok(&[
+        "tasks",
+        "set",
+        harp,
+        "--status",
+        "Deferred",
+        "--trigger",
+        "later",
+        "--format",
+        "json",
+    ]);
+    let listed = |query: &str| {
+        let args = [
+            "tasks",
+            "list",
+            "--status",
+            "Deferred",
+            "--tag-query",
+            query,
+            "--format",
+            "json",
+        ];
+        jq.ok(&args).as_array().expect("array").len()
+    };
+    assert_eq!(listed("taskloom.internal:deferred-hours=+"), 1);
+    assert_eq!(listed("taskloom.internal:deferred-hours<1"), 1, "just now");
+    assert_eq!(listed("taskloom.internal:deferred-hours>=1"), 0);
+    let text = jq
+        .env
+        .run(&["tasks", "list", "--status", "Deferred", "--format", "text"]);
+    assert!(text.ok, "{}", text.stderr);
+    assert!(
+        text.stdout.contains("(trigger: later, deferred 0m)"),
+        "{}",
+        text.stdout
+    );
+}
+
+#[test]
 fn test_in_json_each_change_writes_one_document_and_errors_an_envelope() {
     let jq = Jq::new("jq-change-harp");
     let harp = jq.harp.as_str();

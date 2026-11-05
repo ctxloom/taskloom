@@ -215,7 +215,11 @@ pub struct ListArgs {
     /// operator after (human:decision/area:cli/and, human:decision/not).
     /// Operators: and, or, not; atoms [ns:]key[op value]
     /// with op one of = != > >= < <= ~, and * (any) or + (present) for a
-    /// namespace, key or value.
+    /// namespace, key or value. Every Deferred task also carries the
+    /// derived tag taskloom.internal:deferred-hours, the whole hours since
+    /// it was deferred: deferred-hours=+ is every deferral, >=336 those
+    /// deferred two weeks or more (name --status Deferred or --all, which
+    /// the default view hides).
     #[arg(long = "tag-query")]
     tag_query: Option<String>,
 }

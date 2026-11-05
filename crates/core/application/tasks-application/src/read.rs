@@ -10,7 +10,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use coded_diagnostic::Report;
-use ports::{Clock, Configuration, ProjectIdentity, TaskStores};
+use ports::{Clock, Configuration, ProjectIdentity, TaskStores, Timestamp};
 
 use crate::lint::{self, LintReport};
 use crate::lists::Lists;
@@ -162,6 +162,8 @@ pub struct Listing {
     pub searched: bool,
     /// How many tasks `limit` cut off the end.
     pub omitted: usize,
+    /// When it was read: what a task's time since deferred is measured to.
+    pub now: Timestamp,
     /// Each row's derived priority, in the rows' order, when the listing
     /// is sorted by it.
     pub priorities: Option<Vec<f64>>,
@@ -298,6 +300,7 @@ pub(crate) fn matching(
     filter: &StatusFilter,
     term: Option<&str>,
     tag_query: Option<&str>,
+    now: Timestamp,
     rules: &StoreRules,
 ) -> Result<Vec<Row>, AppError> {
     let candidates: Vec<Row> = rows
@@ -308,10 +311,14 @@ pub(crate) fn matching(
     let ids: Vec<String> = (0..candidates.len()).map(|i| i.to_string()).collect();
     let selected = query::select(
         tag_query,
-        candidates
-            .iter()
-            .zip(&ids)
-            .map(|(row, id)| (id.as_str(), row.task.tags.as_slice())),
+        candidates.iter().zip(&ids).map(|(row, id)| {
+            (
+                id.as_str(),
+                row.task.tags.as_slice(),
+                row.task.deferred_since,
+            )
+        }),
+        now,
         rules,
     )
     .map_err(|e| AppError::TagQuery(Report::of(&e)))?;
@@ -462,7 +469,8 @@ where
         let filter = StatusFilter::parse(&query.statuses)?;
         let scan = self.scan(query.project.as_deref()).await?;
         let rules = scan.rules();
-        let rows = matching(scan.rows, &filter, term, tag_query, &rules)?;
+        let now = self.clock.now();
+        let rows = matching(scan.rows, &filter, term, tag_query, now, &rules)?;
         let shown = rules.shown();
         let mut counts: BTreeMap<String, TagCount> = BTreeMap::new();
         for row in &rows {
@@ -543,21 +551,19 @@ where
         let filter = StatusFilter::parse(&query.statuses)?;
         let scan = self.scan(query.project.as_deref()).await?;
         let rules = scan.rules();
+        let now = self.clock.now();
         // Each project's whole population is ranked, not the page the
         // filters leave, by its own store's formulas.
         let ranked = match by_priority {
-            true => {
-                let now = self.clock.now();
-                Some(priority::rank_rows(
-                    &scan.rows,
-                    |project| priority::formulas(&scan.rules_of(project)),
-                    now,
-                    scan.reach.is_every(),
-                )?)
-            }
+            true => Some(priority::rank_rows(
+                &scan.rows,
+                |project| priority::formulas(&scan.rules_of(project)),
+                now,
+                scan.reach.is_every(),
+            )?),
             false => None,
         };
-        let matched = matching(scan.rows, &filter, term, tag_query, &rules)?;
+        let matched = matching(scan.rows, &filter, term, tag_query, now, &rules)?;
         let mut hidden = Hidden::default();
         let mut rows: Vec<Row> = if query.all || filter.is_explicit() {
             matched
@@ -602,6 +608,7 @@ where
             hidden,
             searched: term.is_some() || tag_query.is_some(),
             omitted,
+            now,
             priorities: ranked.as_ref().map(|ranked| rows_priorities(&rows, ranked)),
             priority_notes: ranked.map(|ranked| ranked.notes).unwrap_or_default(),
             rows,

@@ -102,7 +102,7 @@ pub enum Tasks {
     Add(commands::AddArgs),
     /// List active tasks; --all adds the finished and Deferred
     #[command(
-        after_help = "Examples:\n  taskloom tasks list --term parser\n  taskloom tasks list --all --tag-query human:decision\n\nTasks keep no plan link. To find the plans governing a task, run `taskloom plans\nlist --governs <harp>`; to find the tasks a plan governs, `taskloom plans show\n<plan>` lists its `governs:` harps, then `taskloom tasks show <harp>...`."
+        after_help = "Examples:\n  taskloom tasks list --all --tag-query human:decision\n  taskloom tasks list --status Deferred --tag-query taskloom.internal:deferred-hours>=336/area:cli/and\n\nTasks keep no plan link. To find the plans governing a task, run `taskloom plans\nlist --governs <harp>`; to find the tasks a plan governs, `taskloom plans show\n<plan>` lists its `governs:` harps, then `taskloom tasks show <harp>...`."
     )]
     List(commands::ListArgs),
     /// Show tasks whole

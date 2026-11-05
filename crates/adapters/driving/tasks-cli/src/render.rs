@@ -9,7 +9,7 @@ use presentation::{text, Catalog, Envelope, Render};
 use serde::Serialize;
 use tasks_application::{
     Declared, Details, LintReport, Listing, PermitList, Permitted, Reach, Row, RuleFinding,
-    SchemaSummary, Shown, StatusInfo, Statuses, Summary, Tag, Task, Vocabulary,
+    SchemaSummary, Shown, StatusInfo, Statuses, Summary, Tag, Task, Timestamp, Vocabulary,
 };
 pub(crate) use tasks_presentation::{headline, project_label, CompactJson, RowJson};
 use tasks_presentation::{
@@ -33,10 +33,26 @@ fn shown(tags: &[Tag], shown: &Shown) -> Vec<String> {
         .collect()
 }
 
+/// How long before `now` `since` was, in its largest whole unit (`3d`,
+/// `5h`, `12m`); `0m` under a minute, or for a future instant.
+fn age(since: Timestamp, now: Timestamp) -> String {
+    let seconds = (now.seconds - since.seconds).max(0);
+    match seconds {
+        s if s >= 86_400 => format!("{}d", s / 86_400),
+        s if s >= 3600 => format!("{}h", s / 3600),
+        s => format!("{}m", s / 60),
+    }
+}
+
 /// The list view: one line per task, blank lines between, the id column as
 /// wide as the widest id, columns measured in display width, the tags
 /// `shown` shows; `(no tasks)` for none.
-pub fn table(out: &mut dyn Write, tasks: &[&Task], shown: &Shown) -> io::Result<()> {
+pub fn table(
+    out: &mut dyn Write,
+    tasks: &[&Task],
+    shown: &Shown,
+    now: Timestamp,
+) -> io::Result<()> {
     if tasks.is_empty() {
         return writeln!(out, "(no tasks)");
     }
@@ -52,7 +68,10 @@ pub fn table(out: &mut dyn Write, tasks: &[&Task], shown: &Shown) -> io::Result<
         let check = if task.checked { "x" } else { " " };
         let mut line = headline(&task.text);
         if !task.trigger.is_empty() {
-            line = format!("{line}  (trigger: {})", task.trigger);
+            let since = task.deferred_since.map_or(String::new(), |since| {
+                format!(", deferred {}", age(since, now))
+            });
+            line = format!("{line}  (trigger: {}{since})", task.trigger);
         }
         let tags = self::shown(&task.tags, shown);
         if !tags.is_empty() {
@@ -117,14 +136,14 @@ fn row_view(row: &Row, priority: Option<f64>, compact: bool, attributed: bool) -
 }
 
 /// `rows` as tables, one for each project in turn, each headed by it.
-pub fn tables(out: &mut dyn Write, rows: &[Row], shown: &Shown) -> io::Result<()> {
+pub fn tables(out: &mut dyn Write, rows: &[Row], shown: &Shown, now: Timestamp) -> io::Result<()> {
     if rows.is_empty() {
         return writeln!(out, "(no tasks)");
     }
     for group in rows.chunk_by(|a, b| a.project.id == b.project.id) {
         writeln!(out, "Project: {}", project_label(&group[0].project))?;
         let tasks: Vec<&Task> = group.iter().map(|row| &row.task).collect();
-        table(out, &tasks, shown)?;
+        table(out, &tasks, shown, now)?;
         writeln!(out)?;
     }
     Ok(())
@@ -170,11 +189,11 @@ impl Render for Listed<'_> {
             Reach::NoProject => {}
             Reach::Every { projects, .. } => {
                 projects_heading(out, *projects)?;
-                return tables(out, &listing.rows, &listing.shown);
+                return tables(out, &listing.rows, &listing.shown, listing.now);
             }
         }
         let tasks: Vec<&Task> = listing.tasks().collect();
-        table(out, &tasks, &listing.shown)
+        table(out, &tasks, &listing.shown, listing.now)
     }
 }
 

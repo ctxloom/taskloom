@@ -274,6 +274,7 @@ where
         let selection = Selection {
             statuses: &pruning.statuses,
             before,
+            now,
             tag_query,
             rules: &rules,
         };
@@ -435,6 +436,8 @@ async fn purge_removed<S: Store + Purge>(
 struct Selection<'a> {
     statuses: &'a [String],
     before: Timestamp,
+    /// When the prune ran: what a derived tag measures to.
+    now: Timestamp,
     tag_query: Option<&'a str>,
     rules: &'a crate::rules::StoreRules,
 }
@@ -453,7 +456,8 @@ impl Selection<'_> {
             self.tag_query,
             tasks
                 .iter()
-                .map(|t| (t.harp_id.as_str(), t.tags.as_slice())),
+                .map(|t| (t.harp_id.as_str(), t.tags.as_slice(), deferred(t))),
+            self.now,
             self.rules,
         )
         .map_err(|e| AppError::TagQuery(Report::of(&e)))?;
@@ -480,11 +484,17 @@ impl Selection<'_> {
         self.dated(task)
             && query::select(
                 self.tag_query,
-                [(task.harp_id.as_str(), task.tags.as_slice())],
+                [(task.harp_id.as_str(), task.tags.as_slice(), deferred(task))],
+                self.now,
                 self.rules,
             )
             .is_ok_and(|matched| matched.contains(&task.harp_id))
     }
+}
+
+/// When `task` was deferred, while it is Deferred (as a read shows it).
+fn deferred(task: &TaskState) -> Option<Timestamp> {
+    task.deferred_since.filter(|_| !task.trigger.is_empty())
 }
 
 /// The statuses asked for, trimmed and empties dropped: at least one, and

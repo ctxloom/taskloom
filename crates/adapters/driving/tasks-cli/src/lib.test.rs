@@ -1487,6 +1487,7 @@ fn listing_in(reach: Reach, tasks: Vec<Task>) -> Listing {
         searched: false,
         omitted: 0,
         priorities: None,
+        now: tasks_application::Timestamp::default(),
         priority_notes: Vec::new(),
     }
 }

@@ -1021,3 +1021,115 @@ fn malformed() -> task_priority::PriorityError {
         reason: String::new(),
     }
 }
+
+// ------------------------------------------------------------ deferrals
+
+/// A service holding, in order: a To Do task, `old` Deferred at clock
+/// second 1000, `new` Deferred at clock second 5000 (tagged `area:cli`),
+/// and a Done task; with each Deferred task's `deferred_since` seconds.
+fn with_deferrals() -> (Fake, i64, i64) {
+    let mut service = service(&["todo", "old", "new", "done"]);
+    add(&mut service, "To Do", "To Do");
+    service.clock.seconds = 1000;
+    add(&mut service, "Old", "Deferred");
+    service.clock.seconds = 5000;
+    tagged(&mut service, "New", "Deferred", &["area:cli"]);
+    add(&mut service, "Done", "Done");
+    let listing = ready(service.list(statuses(&["Deferred"]))).unwrap();
+    let since = |id: &str| {
+        let task = listing.tasks().find(|t| t.harp_id == id).unwrap();
+        task.deferred_since.unwrap().seconds
+    };
+    let (old, new) = (since("old"), since("new"));
+    (service, old, new)
+}
+
+/// Make the clock read `seconds` at its next reading.
+fn now_is(service: &mut Fake, seconds: i64) {
+    service.clock.seconds = seconds - 1_700_000_000 - 1;
+}
+
+fn queried(tag_query: &str) -> ListQuery {
+    ListQuery {
+        statuses: vec!["Deferred".to_string()],
+        tag_query: Some(tag_query.to_string()),
+        ..ListQuery::default()
+    }
+}
+
+#[test]
+fn test_a_tag_query_lists_the_deferrals_deferred_at_least_that_many_hours() {
+    let (mut service, old, new) = with_deferrals();
+    assert!(new > old);
+    let hours = |service: &mut Fake, now, query: &str| {
+        now_is(service, now);
+        ids(service, queried(query))
+    };
+    let at_least_a_day = "taskloom.internal:deferred-hours>=24";
+    assert_eq!(
+        hours(&mut service, old + 86_400, at_least_a_day),
+        ["old"],
+        "with --status Deferred"
+    );
+    assert_eq!(
+        hours(&mut service, old + 86_399, at_least_a_day),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        hours(
+            &mut service,
+            new + 3600,
+            "taskloom.internal:deferred-hours=+"
+        ),
+        ["old", "new"],
+        "every deferral, never the To Do or Done task"
+    );
+    assert_eq!(
+        hours(
+            &mut service,
+            new + 3600,
+            "taskloom.internal:deferred-hours>=1/area:cli/and"
+        ),
+        ["new"],
+        "composed with a tag"
+    );
+}
+
+#[test]
+fn test_the_default_view_still_hides_the_deferrals_a_query_matched() {
+    let (mut service, old, _) = with_deferrals();
+    now_is(&mut service, old + 86_400);
+    let query = ListQuery {
+        statuses: Vec::new(),
+        ..queried("taskloom.internal:deferred-hours>=24")
+    };
+    let listing = ready(service.list(query)).unwrap();
+    assert_eq!(listing.rows.len(), 0);
+    assert_eq!(listing.hidden.deferred, 1, "and says so");
+    now_is(&mut service, old + 86_400);
+    let query = ListQuery {
+        statuses: Vec::new(),
+        all: true,
+        ..queried("taskloom.internal:deferred-hours>=24")
+    };
+    assert_eq!(ids(&mut service, query), ["old"], "--all shows them");
+}
+
+#[test]
+fn test_a_deferral_query_is_counted_and_tagged_like_any_other() {
+    let (mut service, _, new) = with_deferrals();
+    now_is(&mut service, new + 86_400);
+    let found = counted(
+        &mut service,
+        queried("taskloom.internal:deferred-hours>=24"),
+    );
+    assert_eq!(found, [count("area:cli", 0, 1)]);
+}
+
+#[test]
+fn test_a_listing_says_when_it_was_read() {
+    let (mut service, old, _) = with_deferrals();
+    now_is(&mut service, old + 90);
+    let listing = ready(service.list(ListQuery::default())).unwrap();
+    assert_eq!(listing.now.seconds, old + 90);
+}

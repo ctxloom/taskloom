@@ -17,6 +17,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use coded_diagnostic::{code, Arg, Diagnostic};
+use ports::Timestamp;
 use tagma_core::Index;
 
 use crate::rules::StoreRules;
@@ -27,6 +28,13 @@ use tagma_core::semver::{Semver, SEMVER};
 /// hold a tag in it too, which changes nothing: the presence tag is on
 /// every candidate already.
 const PRESENCE_NAMESPACE: &str = "taskloom.internal";
+
+/// The key of the derived tag a Deferred task carries, in
+/// [`PRESENCE_NAMESPACE`]: the whole hours since it was deferred, never
+/// stored. `taskloom.internal:deferred-hours=+` selects the Deferred tasks
+/// (with a trigger), `taskloom.internal:deferred-hours>=336` those deferred
+/// at least 14 days, and it composes with every other atom.
+pub const DEFERRED_HOURS: &str = "deferred-hours";
 
 /// The item the schema's type declarations are indexed under: no harp id,
 /// since a harp has no colon.
@@ -63,13 +71,15 @@ impl Diagnostic for QueryError {
     }
 }
 
-/// The ids of `candidates` (`(harp id, tags)`) that `query` selects under
+/// The ids of `candidates` (`(harp id, tags, deferred since)`) that `query`
+/// selects, read at `now` (what a derived tag measures to), under
 /// the store's `rules` (its `tagma.type` declarations), or why the query is malformed. No query selects every
 /// candidate; a blank one is refused before it gets here
 /// ([`crate::AppError::Blank`]), and tagma judges one that reaches it.
 pub fn select<'a>(
     query: Option<&str>,
-    candidates: impl IntoIterator<Item = (&'a str, &'a [Tag])>,
+    candidates: impl IntoIterator<Item = (&'a str, &'a [Tag], Option<Timestamp>)>,
+    now: Timestamp,
     rules: &StoreRules,
 ) -> Result<BTreeSet<String>, QueryError> {
     let mut index = Index::new();
@@ -82,9 +92,10 @@ pub fn select<'a>(
         index.add_item(TYPE_CONFIG_ITEM, types);
     }
     let mut ids = BTreeSet::new();
-    for (id, tags) in candidates {
+    for (id, tags, deferred_since) in candidates {
         let mut tags: Vec<tagma_core::Tag> = tags.iter().map(Tag::to_core).collect();
         tags.push(presence());
+        tags.extend(deferred_hours(deferred_since, now));
         index.add_item(id, tags);
         ids.insert(id.to_string());
     }
@@ -100,8 +111,23 @@ pub fn select<'a>(
 
 /// Refuse `query` if it is malformed, whatever it would be run over.
 pub fn check(query: Option<&str>) -> Result<(), QueryError> {
-    select(query, [], &StoreRules::default()).map(|_| ())
+    select(query, [], Timestamp::default(), &StoreRules::default()).map(|_| ())
 }
+
+/// The derived tag of a task deferred at `since`, read at `now`: whole
+/// hours, none when it is not deferred, and none for a task deferred
+/// after `now`.
+fn deferred_hours(since: Option<Timestamp>, now: Timestamp) -> Option<tagma_core::Tag> {
+    let since = since?;
+    let hours = (now.seconds - since.seconds).max(0) / SECONDS_PER_HOUR;
+    Some(tagma_core::Tag {
+        namespace: Some(PRESENCE_NAMESPACE.to_string()),
+        key: DEFERRED_HOURS.to_string(),
+        value: Some(hours.to_string()),
+    })
+}
+
+const SECONDS_PER_HOUR: i64 = 3600;
 
 /// The tag every candidate carries, so that it takes part in the query.
 fn presence() -> tagma_core::Tag {
