@@ -316,10 +316,18 @@ cutover ("What remains").
     namespace, a declared enum or range (non-finite refused) and
     `type=semver` (a strict SemVer 2.0.0 parser written here). Removed
     tags are never checked. A scalar target's new value displaces the
-    task's old one in the application, before `Retag`, resolved against
-    the task as the retag's own unit of work reads it (so a value another
-    process set meanwhile is displaced too): decide never reads the
-    schema.
+    task's old one in the application, before `Retag`: the retag is shaped
+    from the task as the kernel loads it and sent at that head, STRICT
+    (kernel-runner's `Runner::shaped`), so a write landing between is
+    stale and the kernel loads and shapes it again, displacing a value
+    another process set meanwhile too. Decide never reads the schema.
+    Not taken: collapsing in decide, the command naming the scalar targets
+    among its tags (`scalar_targets` on `AddTask` and `Retag`; parked in
+    ctxloom-rs, `ba448dd`), which fixed a stale removal that a retry
+    re-sending one command carried, a retry this shape never makes; and
+    the schema as the domain's rules, which are versioned reference data
+    whose version is stamped on every event, where the schema is a
+    project's mutable configuration.
   - The tag schema (Go's `tagschema`): the seven facets, immutable, the
     default declaring nothing; Go's `DefaultTagSchema` is the baseline a
     project's declarations extend, the last of a facet and target
@@ -486,6 +494,30 @@ task.
 - **JSON escapes no HTML** where Go's encoder escapes `<`, `>` and `&`:
   normalize it when comparing the Go and Rust binaries ("Parity and
   cutover").
+- **The acting session is dropped on every command but add.** Go stamps
+  `session` on `status`, `text`, `remove`, `tag` and `untag` (`log.go`);
+  the domain keeps `origin_session` on `AddTask` alone, and the kernel
+  records no actor, so the importer keeps one session per task (Decided
+  2 says "sessions"; it is adds' only), and the task-by-task comparison
+  with Go's fold cannot see the loss, since Go's `Task` has no acting
+  session either. ctxloom's trigger evaluation, the
+  one consumer of `deferred_since`, gathers evidence by session. Either an
+  actor on the command (an angzarr question, better than a field per
+  command) or this written under "Where the port differs from Go".
+- **Decided 6 (purge frees the harp) buys the projector's fingerprint,
+  `unpurged`, the remove-then-purge re-check, a watch resyncing on a
+  freed harp and angzarr's audit hole (a command redelivered after its
+  stream is purged is decided again), for a namespace of millions of
+  three-word harps against ~1.2k tasks.** Go freed harps because its log
+  file grew. A prune that records `TaskRemoved{PRUNED}` and keeps the
+  stream would retire all of that; if space is the driver, it is a store
+  concern (snapshot and truncate), not the domain's. Say what purge is
+  for, or drop it.
+- **A same-status `SetStatus` records `StatusChanged` and resets
+  `status_set_at`**, so `status Done` on a Done task moves it past prune's
+  cut. Go does the same. `Retag` records nothing when nothing changes;
+  `SetStatus` has no such rule. Keep the asymmetry and say why, or give
+  `SetStatus` the rule and list it under the differences.
 
 ## What remains
 
@@ -641,7 +673,9 @@ Loose ends outside the steps:
   this one, for a fork that gathered tasks on both sides. A harp held on
   both sides is re-minted, and the result says so. Not started: it needs a
   tasks use case reading one project's store into another's, beyond the
-  identity ports.
+  identity ports. It is also Decided 4's remedy: the store is keyed by the
+  committed id, so giving a clone an id of its own later means merging
+  what it wrote meanwhile; "revisit if that bites" lands here.
 
 ## Purging a stream in annals
 
