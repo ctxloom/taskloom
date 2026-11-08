@@ -8,8 +8,9 @@ use std::sync::{Mutex, PoisonError};
 
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::angzarr_router::error::CodedError;
+use angzarr_embedded::angzarr_router::hpb::{ProjectRequest, ProjectResponse};
 use angzarr_embedded::testing::block_on_ready as ready;
-use angzarr_embedded::v1::{CommandBook, Cover, EventBook, Projection, Uuid};
+use angzarr_embedded::v1::{CommandBook, Cover, Uuid};
 use angzarr_embedded::{
     CatchUp, CommandBookExt, CoverExt, Kernel, ProjectorHandler, Registry, Sampled,
 };
@@ -45,7 +46,8 @@ impl ProjectorHandler for Recorder {
         "recorder"
     }
 
-    async fn dispatch(&self, events: &EventBook) -> Result<Projection, CodedError> {
+    async fn dispatch(&self, request: &ProjectRequest) -> Result<ProjectResponse, CodedError> {
+        let events = request.events.clone().unwrap_or_default();
         {
             let mut failing = self.failing.lock().unwrap_or_else(PoisonError::into_inner);
             if *failing > 0 {
@@ -59,12 +61,7 @@ impl ProjectorHandler for Recorder {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push((root, first, events.pages.len()));
-        Ok(Projection {
-            cover: events.cover.clone(),
-            projector: self.name().to_string(),
-            next_sequence: events.next_sequence,
-            projection: None,
-        })
+        Ok(ProjectResponse { projection: None })
     }
 }
 

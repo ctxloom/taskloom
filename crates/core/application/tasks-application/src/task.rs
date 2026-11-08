@@ -57,7 +57,7 @@ pub(crate) async fn caused<S: ReadStore>(
     Ok(slice.pages.iter().any(|page| {
         matches!(
             page.meta.as_ref().and_then(|meta| meta.causation.as_ref()),
-            Some(Causation::CommandId(id)) if id == command_id
+            Some(Causation::Command(cause)) if cause.command_id.as_ref() == Some(command_id)
         )
     }))
 }

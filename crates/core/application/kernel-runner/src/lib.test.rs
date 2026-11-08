@@ -84,7 +84,7 @@ fn run_as(id: u8, store: &mut Flaky, delay: &mut FakeDelay, attempts: u32) -> Ra
         retry: backoff(10 * MS, 30 * MS, attempts),
         dead_letters: &mut dead_letters,
     };
-    ready(runner.run::<TaskAggregate, _, _>(store, book(add()), &command_id))
+    ready(runner.run::<TaskAggregate, TaskRejection, _>(store, book(add()), &command_id))
 }
 
 fn events(store: &Flaky) -> usize {
@@ -112,7 +112,7 @@ fn test_the_kernel_retries_under_taskloom_s_backoff() {
         KERNEL_RETRY,
         angzarr_embedded::OnRetryable {
             max_retries: 9,
-            max_race_runs: 10,
+            max_race_runs: std::num::NonZeroU32::new(10).unwrap(),
             initial_backoff: 10 * MS,
             multiplier: 2.0,
             max_backoff: Duration::from_secs(1),
@@ -315,7 +315,7 @@ fn test_a_store_that_never_answers_is_given_up_at_the_kernels_cap_under_its_key(
     };
     let id = Uuid::from_bytes([1; 16]);
     let Err(Unrun::GaveUp { attempts, error }) =
-        ready(runner.run::<TaskAggregate, _, _>(&store, book(add()), &id))
+        ready(runner.run::<TaskAggregate, TaskRejection, _>(&store, book(add()), &id))
     else {
         panic!("gave up");
     };
@@ -342,7 +342,7 @@ fn test_a_command_is_stamped_with_the_clock_and_the_id_given() {
         dead_letters: &mut dead_letters,
     };
     let id = Uuid::from_bytes([7; 16]);
-    ready(runner.run::<TaskAggregate, _, _>(&store, book(add()), &id))
+    ready(runner.run::<TaskAggregate, TaskRejection, _>(&store, book(add()), &id))
         .unwrap()
         .unwrap();
     let cover = stream();
@@ -362,7 +362,11 @@ fn test_a_command_is_stamped_with_the_clock_and_the_id_given() {
     );
     assert_eq!(
         meta.causation,
-        Some(angzarr_embedded::v1::event_meta::Causation::CommandId(id))
+        Some(angzarr_embedded::v1::event_meta::Causation::Command(
+            angzarr_embedded::v1::CommandCause {
+                command_id: Some(id)
+            }
+        ))
     );
 }
 
@@ -419,8 +423,12 @@ fn test_a_command_whose_shape_declines_the_task_loaded_is_not_sent() {
         let text = task.state().text.clone();
         ((text == "Something else").then(removal), text)
     };
-    let shaped =
-        ready(runner.shaped::<TaskAggregate, _, _, _, _>(&store, &stream(), &command_id, other));
+    let shaped = ready(runner.shaped::<TaskAggregate, TaskRejection, _, _, _>(
+        &store,
+        &stream(),
+        &command_id,
+        other,
+    ));
     let Ok(Ok((None, seen))) = shaped else {
         panic!("declined");
     };
@@ -428,8 +436,12 @@ fn test_a_command_whose_shape_declines_the_task_loaded_is_not_sent() {
     assert_eq!(events(&store), 1, "nothing sent");
 
     let this = |task: &TaskAggregate| ((task.state().text == "Ship it").then(removal), ());
-    let shaped =
-        ready(runner.shaped::<TaskAggregate, _, _, _, _>(&store, &stream(), &command_id, this));
+    let shaped = ready(runner.shaped::<TaskAggregate, TaskRejection, _, _, _>(
+        &store,
+        &stream(),
+        &command_id,
+        this,
+    ));
     assert!(matches!(shaped, Ok(Ok((Some(_), ())))));
     assert_eq!(events(&store), 2, "the removal landed");
 }
@@ -467,8 +479,12 @@ fn test_a_shaped_command_that_loses_the_race_is_shaped_again_on_the_new_head() {
         seen.push(task.state().text.clone());
         (Some(removal()), ())
     };
-    let shaped =
-        ready(runner.shaped::<TaskAggregate, _, _, _, _>(&store, &stream(), &command_id, shape));
+    let shaped = ready(runner.shaped::<TaskAggregate, TaskRejection, _, _, _>(
+        &store,
+        &stream(),
+        &command_id,
+        shape,
+    ));
     assert!(matches!(shaped, Ok(Ok((Some(_), ())))));
     assert!(store.ran(At::Read));
     assert_eq!(
@@ -490,12 +506,21 @@ fn test_a_shaped_command_the_domain_refuses_comes_back_typed() {
     let command_id = Uuid::from_bytes([9; 16]);
     let mut runner = runner(&registry, &mut clock, &mut delay);
     let twice = |_: &TaskAggregate| (Some(removal()), ());
-    ready(runner.shaped::<TaskAggregate, _, _, _, _>(&store, &stream(), &command_id, twice))
-        .unwrap()
-        .unwrap();
+    ready(runner.shaped::<TaskAggregate, TaskRejection, _, _, _>(
+        &store,
+        &stream(),
+        &command_id,
+        twice,
+    ))
+    .unwrap()
+    .unwrap();
     let again = Uuid::from_bytes([10; 16]);
-    let shaped =
-        ready(runner.shaped::<TaskAggregate, _, _, _, _>(&store, &stream(), &again, twice));
+    let shaped = ready(runner.shaped::<TaskAggregate, TaskRejection, _, _, _>(
+        &store,
+        &stream(),
+        &again,
+        twice,
+    ));
     let Ok(Err(refusal)) = shaped else {
         panic!("refused");
     };

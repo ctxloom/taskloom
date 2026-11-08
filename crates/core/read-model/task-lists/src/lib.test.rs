@@ -107,10 +107,10 @@ fn book(harp: &str, payload: Any) -> CommandBook {
         page: Some(CommandPage {
             body: Some(command_page::Body::Command(Command {
                 payload: Some(payload),
+                handling: None,
             })),
             ..CommandPage::default()
         }),
-        handling: None,
     }
 }
 
@@ -475,39 +475,41 @@ fn test_a_restarted_stream_read_by_another_process_is_the_new_task() {
 /// the stream, its length, and the list's name.
 #[test]
 fn test_the_list_answers_each_book_with_its_projection() {
+    use angzarr_embedded::angzarr_router::hpb::ProjectRequest;
     use angzarr_embedded::ProjectorHandler;
     let book = angzarr_embedded::v1::EventBook {
         cover: Some(cover(FIRST)),
         next_sequence: 0,
         ..angzarr_embedded::v1::EventBook::default()
     };
-    let answered = ready(TaskLists::default().dispatch(&book)).unwrap();
-    assert_eq!(answered.projector, "task-list");
-    assert_eq!(answered.cover, Some(cover(FIRST)));
-    assert_eq!(answered.next_sequence, 0);
+    let request = ProjectRequest { events: Some(book) };
+    let answered = ready(TaskLists::default().dispatch(&request)).unwrap();
+    assert_eq!(ProjectorHandler::name(&TaskLists::default()), "task-list");
+    assert_eq!(answered.projection, None, "the list keeps its own state");
 }
 
 /// An event the tasks domain cannot read fails its book as a bug naming
 /// the type it could not read; the list keeps nothing of it.
 #[test]
 fn test_an_unreadable_event_is_the_lists_bug_naming_its_type() {
+    use angzarr_embedded::angzarr_router::hpb::ProjectRequest;
     use angzarr_embedded::ProjectorHandler;
     let unknown = "/toy.v9.Unknown";
     let book = angzarr_embedded::v1::EventBook {
         cover: Some(cover(FIRST)),
         pages: vec![angzarr_embedded::v1::EventPage {
             sequence: 0,
-            payload: Some(Any {
+            body: Some(angzarr_embedded::v1::event_page::Body::Event(Any {
                 type_url: unknown.to_string(),
                 value: Vec::new(),
-            }),
+            })),
             meta: None,
         }],
         next_sequence: 1,
         snapshot: None,
     };
     let list = TaskLists::default();
-    let error = ready(list.dispatch(&book)).unwrap_err();
+    let error = ready(list.dispatch(&ProjectRequest { events: Some(book) })).unwrap_err();
     assert_eq!(
         error.extras.get("cause.type_url").map(String::as_str),
         Some(unknown),

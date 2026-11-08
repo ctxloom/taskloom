@@ -11,10 +11,13 @@
 //!   `ctx.recorded_at()` the instant its events are recorded at: no clock;
 //! - a status change and a retag return `Option`: a change that changes
 //!   nothing records nothing;
-//! - every refusal is message-only, a [`TaskRejection`] as a
-//!   `Failed::Rejected` (FAILED_PRECONDITION): a key (`code!(...)`, under the crate's name) and its
-//!   args, never English, business-fatal. A stream with history refuses an
-//!   add ([`TaskRejection::TaskExists`]), by the router's `had_prior_events`;
+//! - every refusal is a typed refusal message of the protos, listed in the
+//!   command's `refuses(..)` and refused under the status its message
+//!   declares (`refusal.rs`); the rules raise a [`crate::TaskRejection`], a
+//!   key (`code!(...)`, under the crate's name) and its args, never English,
+//!   which the application reads back from the refusal's type. A stream with
+//!   history refuses an add ([`crate::TaskRejection::TaskExists`]), by the
+//!   router's `had_prior_events`;
 //! - one `#[applies]` per event, assigning what the event carries, an add's
 //!   and a status change's instant, and when it deferred the task, its
 //!   page's `recorded_at` (or an old event's `at` and `deferred_since`): at
@@ -23,13 +26,16 @@
 //!   task replayed;
 //! - no snapshot: a task's stream is short, and every load replays it.
 
-use angzarr_embedded::markup::{Context, Failed, PageContext};
+use angzarr_embedded::markup::{Context, Failed, PageContext, Refuses};
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd};
 
+use crate::refusal::refuse;
 use crate::{
-    retagged, status_changed, task_added, task_removed, text_edited, AddTask, EditText, RemoveTask,
-    Retag, Retagged, SetStatus, StatusChanged, TaskAdded, TaskCommand, TaskEvent, TaskRejection,
-    TaskRemoved, TaskState, TextEdited,
+    retagged, status_changed, task_added, task_removed, text_edited, AddTask, Blank, EditText,
+    HarpIdRequired, NoTask, RemoveTask, Removed, Retag, Retagged, SetStatus, StatusChanged,
+    StatusRequired, StatusReserved, TagRequired, TaskAdded, TaskCommand, TaskEvent, TaskExists,
+    TaskRejection, TaskRemoved, TaskState, TextEdited, TextRequired, TriggerRequired,
+    TriggerWithStatus, Unresolved,
 };
 
 /// The task aggregate: one task, folded from its stream.
@@ -62,47 +68,106 @@ impl TaskAggregate {
     /// add sent to another stream is refused before this runs): refused on
     /// a stream with history (the harp id is taken), recorded at
     /// `ctx.recorded_at()`.
-    #[handles_cmd(AddTask, rooted_by = harp_id)]
-    fn add_task(&self, cmd: AddTask, ctx: &Context) -> Result<TaskAdded, Failed<TaskRejection>> {
+    #[handles_cmd(AddTask, rooted_by = harp_id, refuses(TaskExists, HarpIdRequired, TextRequired, Unresolved, Blank, StatusReserved, TriggerWithStatus, TriggerRequired))]
+    fn add_task(
+        &self,
+        cmd: AddTask,
+        ctx: &Context,
+    ) -> Result<TaskAdded, Failed<Refuses<Self, AddTask>>> {
         let taken = ctx.command.had_prior_events;
-        Ok(task_added(&self.task, taken, &cmd)?)
+        task_added(&self.task, taken, &cmd).map_err(|rejection| {
+            refuse!(
+                TaskRejection,
+                rejection,
+                Refuses<Self, AddTask>,
+                [TaskExists{harp_id} => TaskExists, HarpIdRequired => HarpIdRequired, TextRequired => TextRequired, Unresolved{field} => Unresolved, Blank{field} => Blank, StatusReserved{status} => StatusReserved, TriggerWithStatus{status, defers} => TriggerWithStatus, TriggerRequired => TriggerRequired]
+            )
+        })
     }
 
     /// Change the status, the trigger, or both; `None` when it changes
     /// nothing.
-    #[handles_cmd(SetStatus)]
+    #[handles_cmd(
+        SetStatus,
+        refuses(
+            NoTask,
+            Removed,
+            Unresolved,
+            Blank,
+            StatusReserved,
+            StatusRequired,
+            TriggerWithStatus,
+            TriggerRequired
+        )
+    )]
     fn set_status(
         &self,
         cmd: SetStatus,
         ctx: &Context,
-    ) -> Result<Option<StatusChanged>, Failed<TaskRejection>> {
+    ) -> Result<Option<StatusChanged>, Failed<Refuses<Self, SetStatus>>> {
         let _ = ctx;
-        Ok(status_changed(&self.task, &cmd)?)
+        status_changed(&self.task, &cmd).map_err(|rejection| {
+            refuse!(
+                TaskRejection,
+                rejection,
+                Refuses<Self, SetStatus>,
+                [NoTask => NoTask, Removed{harp_id} => Removed, Unresolved{field} => Unresolved, Blank{field} => Blank, StatusReserved{status} => StatusReserved, StatusRequired => StatusRequired, TriggerWithStatus{status, defers} => TriggerWithStatus, TriggerRequired => TriggerRequired]
+            )
+        })
     }
 
     /// Replace the text whole.
-    #[handles_cmd(EditText)]
-    fn edit_text(&self, cmd: EditText, ctx: &Context) -> Result<TextEdited, Failed<TaskRejection>> {
+    #[handles_cmd(EditText, refuses(NoTask, Removed, TextRequired))]
+    fn edit_text(
+        &self,
+        cmd: EditText,
+        ctx: &Context,
+    ) -> Result<TextEdited, Failed<Refuses<Self, EditText>>> {
         let _ = ctx;
-        Ok(text_edited(&self.task, &cmd)?)
+        text_edited(&self.task, &cmd).map_err(|rejection| {
+            refuse!(
+                TaskRejection,
+                rejection,
+                Refuses<Self, EditText>,
+                [NoTask => NoTask, Removed{harp_id} => Removed, TextRequired => TextRequired]
+            )
+        })
     }
 
     /// Add and remove tags; `None` when the tags held do not change.
-    #[handles_cmd(Retag)]
-    fn retag(&self, cmd: Retag, ctx: &Context) -> Result<Option<Retagged>, Failed<TaskRejection>> {
+    #[handles_cmd(Retag, refuses(NoTask, Removed, TagRequired))]
+    fn retag(
+        &self,
+        cmd: Retag,
+        ctx: &Context,
+    ) -> Result<Option<Retagged>, Failed<Refuses<Self, Retag>>> {
         let _ = ctx;
-        Ok(retagged(&self.task, &cmd)?)
+        retagged(&self.task, &cmd).map_err(|rejection| {
+            refuse!(
+                TaskRejection,
+                rejection,
+                Refuses<Self, Retag>,
+                [NoTask => NoTask, Removed{harp_id} => Removed, TagRequired => TagRequired]
+            )
+        })
     }
 
     /// Remove the task, keeping its stream and its harp id.
-    #[handles_cmd(RemoveTask)]
+    #[handles_cmd(RemoveTask, refuses(NoTask, Removed))]
     fn remove_task(
         &self,
         cmd: RemoveTask,
         ctx: &Context,
-    ) -> Result<TaskRemoved, Failed<TaskRejection>> {
+    ) -> Result<TaskRemoved, Failed<Refuses<Self, RemoveTask>>> {
         let _ = ctx;
-        Ok(task_removed(&self.task, &cmd)?)
+        task_removed(&self.task, &cmd).map_err(|rejection| {
+            refuse!(
+                TaskRejection,
+                rejection,
+                Refuses<Self, RemoveTask>,
+                [NoTask => NoTask, Removed{harp_id} => Removed]
+            )
+        })
     }
 
     #[applies(TaskAdded)]

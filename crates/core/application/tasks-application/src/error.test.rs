@@ -176,3 +176,33 @@ fn test_no_task_is_the_domains_refusal_of_a_missing_task_and_nothing_else() {
     assert!(!refused.is_no_task());
     assert!(!AppError::NoProject.is_no_task());
 }
+
+/// A refusal's business status is the protos' option alone, read where the
+/// refusal is made: how a refusal reaches a person (its code, args and
+/// English, its exit code) is keyed by its type, so a status edited in a
+/// proto cannot change it.
+#[test]
+fn test_no_application_source_reads_a_refusals_status() {
+    let sources = [
+        ("error.rs", include_str!("error.rs")),
+        ("add.rs", include_str!("add.rs")),
+        ("prune.rs", include_str!("prune.rs")),
+        ("import.rs", include_str!("import.rs")),
+        ("project.rs", include_str!("project.rs")),
+        ("schema.rs", include_str!("schema.rs")),
+        ("write.rs", include_str!("write.rs")),
+    ];
+    for (name, source) in sources {
+        for forbidden in [
+            "BusinessStatus",
+            "REFUSAL_STATUS",
+            "with_status",
+            ".status()",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{name} reads {forbidden}: a status is the proto's option alone"
+            );
+        }
+    }
+}

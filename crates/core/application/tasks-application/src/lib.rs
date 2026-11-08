@@ -67,16 +67,16 @@ pub use angzarr_embedded::{dead_letter_line, DeadLetter};
 /// case, or a driving adapter, a letter a kernel call answered.
 #[cfg(any(test, feature = "test-support"))]
 pub fn dead_letter_sample(component: &str) -> DeadLetter {
-    use angzarr_embedded::v1::{AngzarrDeadLetter, Diagnostic};
+    use angzarr_embedded::v1::{angzarr_dead_letter, AngzarrDeadLetter, Diagnostic};
     DeadLetter {
         stream: task_cover("swift-amber"),
         at: angzarr_embedded::DeadLetterAt::Sequence(0),
         letter: AngzarrDeadLetter {
             source_component: component.to_string(),
-            reason: Some(Diagnostic {
+            why: Some(angzarr_dead_letter::Why::Reason(Diagnostic {
                 code: "ROUTER_REASON_UNHANDLED_HANDLER_ERROR".to_string(),
                 args: Default::default(),
-            }),
+            })),
             ..AngzarrDeadLetter::default()
         },
     }

@@ -988,10 +988,12 @@ fn a_stream_the_task_list_cannot_fold_fails_every_read() {
     let cover = Cover::natural(tasks::TASK_DOMAIN, "first");
     let page = EventPage {
         sequence: 1,
-        payload: Some(angzarr_embedded::Any {
-            type_url: "/ctxloom.tasks.v9.Unknown".to_string(),
-            value: Vec::new(),
-        }),
+        body: Some(angzarr_embedded::v1::event_page::Body::Event(
+            angzarr_embedded::Any {
+                type_url: "/ctxloom.tasks.v9.Unknown".to_string(),
+                value: Vec::new(),
+            },
+        )),
         meta: None,
     };
     let write = Write {

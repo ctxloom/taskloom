@@ -42,8 +42,9 @@ allow-git = [
   # os, file-system and file-lock: the platform crates every adapter
   # builds on.
   "https://github.com/angzarr-io/angzarr-platform",
-  # angzarr-build: the Rust domain layer generated from protos.
-  "https://github.com/angzarr-io/angzarr-cli",
+  # angzarr-build and angzarr-codegen: the Rust domain layer generated from
+  # protos.
+  "https://github.com/angzarr-io/angzarr-build",
   # angzarr-embedded: angzarr's in-app runtime, its markup, diagnostics and
   # SQLite store.
   "https://github.com/angzarr-io/angzarr-embedded",

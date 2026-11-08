@@ -15,9 +15,8 @@ import "tagma/v1/tag.proto";
 // The store's tag rules, folded from the schema stream.
 message SchemaState {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_AGGREGATE
-    domain: "schema"
-    name: "Schema"
+    component_name: "schema"
+    aggregate: {domain: "schema"}
   };
 
   // Normalized: unique, sorted by their canonical spelling.
@@ -37,6 +36,8 @@ message Declare {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.tasks.v1.SchemaState"
     emits: ["ctxloom.tasks.v1.SchemaRetagged"]
+    refuses: "ctxloom.tasks.v1.SchemaTagRequired"
+    refuses: "ctxloom.tasks.v1.SchemaNotConfig"
   };
 
   repeated tagma.v1.Tag add = 1;
@@ -49,4 +50,16 @@ message SchemaRetagged {
   option (io.angzarr.v1.event) = {component: "ctxloom.tasks.v1.SchemaState"};
 
   repeated tagma.v1.Tag tags = 1;
+}
+
+// A declare adding and removing nothing.
+message SchemaTagRequired {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+}
+
+// A tag outside `tagma.*` and `taskloom.*`: a task's tag, not a rule.
+message SchemaNotConfig {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string tag = 1;
 }

@@ -271,7 +271,8 @@ fn test_a_task_state_round_trips_through_its_wire_form() {
 // under its own type url and back whole.
 #[test]
 fn test_the_schema_payloads_round_trip_under_their_own_type_urls() {
-    use crate::{Declare, SchemaCommand, SchemaEvent, SchemaRetagged};
+    use crate::schema::{SchemaCommand, SchemaEvent};
+    use crate::{Declare, SchemaRetagged};
 
     let tag = |s: &str| Tag::from(tagma_core::Tag::parse(s).unwrap());
     let event = SchemaEvent::SchemaRetagged(SchemaRetagged {

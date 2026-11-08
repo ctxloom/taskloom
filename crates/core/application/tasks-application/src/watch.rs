@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 
 use angzarr_diagnostic::Report;
+use angzarr_embedded::v1::event_page::Body;
 use angzarr_embedded::v1::{Cover, EventPage};
 use angzarr_embedded::{Domain, PageContext, Payload, ReadStore, ReadUnit, StreamRef};
 use ports::{HeldToken, Project, ProjectIdentity, WatchedStores};
@@ -274,7 +275,9 @@ impl<I, S: WatchedStores> Watching<'_, I, S> {
 
 /// `page` folded into `task`.
 fn fold(task: &mut TaskAggregate, cover: &Cover, page: &EventPage) -> Result<(), AppError> {
-    let payload = page.payload.clone().unwrap_or_default();
+    let Some(Body::Event(payload)) = page.body.clone() else {
+        return Ok(());
+    };
     let event = TaskEvent::from_any(&payload).map_err(|e| AppError::Failed(Report::of(&e)))?;
     let at = PageContext {
         cover: Some(cover),

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use angzarr_diagnostic::{code, Arg, Diagnostic};
 use angzarr_embedded::angzarr_store_sqlite::{SqlError, SqliteStore};
 use angzarr_ports::angzarr_proto::v1::event_meta::Causation;
-use angzarr_ports::angzarr_proto::v1::{EventMeta, EventPage, Uuid};
+use angzarr_ports::angzarr_proto::v1::{event_page, CommandCause, EventMeta, EventPage, Uuid};
 use angzarr_ports::{
     Cause, EventStore, PositionKey, PositionStore, Purge, StoreError, StreamRef, Watch, Write,
 };
@@ -117,19 +117,20 @@ fn stream(n: u8) -> StreamRef<'static> {
 fn event(sequence: u64, command: u8) -> EventPage {
     let id = Uuid::from_bytes([command; 16]);
     EventPage {
-        payload: Some(Any {
+        body: Some(event_page::Body::Event(Any {
             type_url: "/test.v1.Event".to_string(),
             value: sequence.to_be_bytes().to_vec(),
-        }),
+        })),
         meta: Some(EventMeta {
-            causation: Some(Causation::CommandId(id.clone())),
+            causation: Some(Causation::Command(CommandCause {
+                command_id: Some(id.clone()),
+            })),
             correlation_id: Some(id),
             recorded_at: Some(Timestamp {
                 seconds: 100 + sequence as i64,
                 nanos: 0,
             }),
             rules_version: "markup-1".to_string(),
-            ..EventMeta::default()
         }),
         sequence,
     }

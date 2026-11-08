@@ -20,13 +20,19 @@
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
-use angzarr_embedded::markup::{Context, Failed};
+use angzarr_embedded::markup::{Context, Failed, Refuses};
 use angzarr_embedded::v1::Uuid;
 use angzarr_embedded::{ids, WireError};
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd};
 
-use crate::{normalized, Tag};
-pub use crate::{Declare, SchemaCommand, SchemaEvent, SchemaRetagged};
+use crate::refusal::refuse;
+use crate::{normalized, SchemaNotConfig, SchemaTagRequired, Tag};
+pub use crate::{Declare, SchemaRetagged};
+
+/// The schema aggregate's commands.
+pub type SchemaCommand = crate::SchemaStateCommand;
+/// The schema aggregate's events.
+pub type SchemaEvent = crate::SchemaStateEvent;
 
 /// The schema stream's domain: its `Cover.domain`. Not [`crate::TASK_DOMAIN`],
 /// so a task list, which projects the tasks domain, never lists it.
@@ -205,14 +211,21 @@ impl SchemaAggregate {
 )]
 impl SchemaAggregate {
     /// Add and remove schema tags; `None` when the rules do not change.
-    #[handles_cmd(Declare)]
+    #[handles_cmd(Declare, refuses(SchemaTagRequired, SchemaNotConfig))]
     fn declare(
         &self,
         cmd: Declare,
         ctx: &Context,
-    ) -> Result<Option<SchemaRetagged>, Failed<SchemaRejection>> {
+    ) -> Result<Option<SchemaRetagged>, Failed<Refuses<Self, Declare>>> {
         let _ = ctx;
-        Ok(declared(&self.schema, &cmd)?)
+        declared(&self.schema, &cmd).map_err(|rejection| {
+            refuse!(
+                SchemaRejection,
+                rejection,
+                Refuses<Self, Declare>,
+                [TagRequired => SchemaTagRequired, NotConfig{tag} => SchemaNotConfig]
+            )
+        })
     }
 
     #[applies(SchemaRetagged)]

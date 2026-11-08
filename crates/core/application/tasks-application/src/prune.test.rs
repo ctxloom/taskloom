@@ -990,7 +990,7 @@ fn removed<'a>(
     for (n, command) in commands.into_iter().enumerate() {
         let book = CommandBook::command_of(task_cover("swift-amber"), &command);
         let id = Uuid::from_bytes([u8::try_from(n + 1).unwrap(); 16]);
-        ready(runner.run::<tasks::TaskAggregate, _, _>(store, book, &id))
+        ready(runner.run::<tasks::TaskAggregate, tasks::TaskRejection, _>(store, book, &id))
             .unwrap()
             .unwrap();
     }

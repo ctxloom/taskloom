@@ -51,8 +51,11 @@ fn remove_for(service: &mut Fake, harp: &str, reason: RemovalReason) {
         retry: service.retry,
         dead_letters: &mut service.dead_letters,
     };
-    let outcome =
-        ready(runner.run::<tasks::TaskAggregate, _, _>(&service.stores.store, book, &command_id));
+    let outcome = ready(runner.run::<tasks::TaskAggregate, tasks::TaskRejection, _>(
+        &service.stores.store,
+        book,
+        &command_id,
+    ));
     assert!(matches!(outcome, Ok(Ok(_))));
 }
 

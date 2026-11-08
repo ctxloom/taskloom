@@ -28,7 +28,9 @@ use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use angzarr_embedded::angzarr_router::error::CodedError;
-use angzarr_embedded::v1::{Cover, EventBook, Projection};
+use angzarr_embedded::angzarr_router::hpb::{ProjectRequest, ProjectResponse};
+use angzarr_embedded::v1::event_page::Body;
+use angzarr_embedded::v1::{Cover, EventBook};
 use angzarr_embedded::{CatchUp, Domain, PageContext, Payload, PayloadError, ProjectorHandler};
 use tasks::{RemovalReason, TaskAggregate, TaskEvent, TaskState, TASK_DOMAIN};
 
@@ -95,7 +97,9 @@ impl TaskList {
         };
         let mut pruned = false;
         for page in &book.pages {
-            let event = page.payload.clone().unwrap_or_default();
+            let Some(Body::Event(event)) = page.body.clone() else {
+                continue;
+            };
             let at = PageContext {
                 cover: book.cover.as_ref(),
                 sequence: page.sequence,
@@ -152,14 +156,11 @@ impl ProjectorHandler for TaskLists {
         "task-list"
     }
 
-    async fn dispatch(&self, events: &EventBook) -> Result<Projection, CodedError> {
-        self.list().project(events).map_err(|error| bug(&error))?;
-        Ok(Projection {
-            cover: events.cover.clone(),
-            projector: self.name().to_string(),
-            next_sequence: events.next_sequence,
-            projection: None,
-        })
+    async fn dispatch(&self, request: &ProjectRequest) -> Result<ProjectResponse, CodedError> {
+        if let Some(events) = &request.events {
+            self.list().project(events).map_err(|error| bug(&error))?;
+        }
+        Ok(ProjectResponse { projection: None })
     }
 }
 

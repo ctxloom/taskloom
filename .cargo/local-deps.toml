@@ -1,4 +1,4 @@
-# Build against local sibling checkouts of angzarr-cli and tagma,
+# Build against local sibling checkouts of angzarr-build and tagma,
 # while changing one of them and this workspace together:
 #
 #     cp .cargo/local-deps.toml .cargo/config.toml     # on
@@ -15,8 +15,9 @@
 # restore it (`git checkout Cargo.lock`) before committing, and once the
 # sibling's change is pushed, bump the rev in Cargo.toml instead.
 
-[patch."https://github.com/angzarr-io/angzarr-cli"]
-angzarr-build = { path = "../../angzarr/angzarr-cli/main/crates/angzarr-build" }
+[patch."https://github.com/angzarr-io/angzarr-build"]
+angzarr-build = { path = "../../angzarr/angzarr-build/main/crates/angzarr-build" }
+angzarr-codegen = { path = "../../angzarr/angzarr-build/main/crates/angzarr-codegen" }
 
 [patch."https://github.com/benjaminabbitt/tagma"]
 tagma-core = { path = "../../kvtag/crates/tagma-core" }

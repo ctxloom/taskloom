@@ -10,7 +10,7 @@ use angzarr_embedded::CommandBookExt;
 use kernel_runner::Runner;
 use ports::{Clock, CommandIds, Delay, Jitter, Project, TaskStores};
 use tasks::schema::Declare;
-use tasks::{TaskAggregate, TaskCommand};
+use tasks::{TaskAggregate, TaskCommand, TaskRejection};
 
 use crate::project::Projects;
 use crate::rules::{Finding, StoreRules, StoreRulesExt};
@@ -99,7 +99,7 @@ where
         let book = CommandBook::command_of(task_cover(harp_id), &command);
         let handled = self
             .runner
-            .run::<TaskAggregate, _, _>(store, book, &command_id)
+            .run::<TaskAggregate, TaskRejection, _>(store, book, &command_id)
             .await??;
         task_after(store, self.runner.registry, harp_id, &handled).await
     }

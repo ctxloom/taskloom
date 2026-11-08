@@ -16,9 +16,8 @@ import "tagma/v1/tag.proto";
 // terminal, the text hash, a priority) are computed when read, never stored.
 message TaskState {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_AGGREGATE
-    domain: "tasks"
-    name: "Task"
+    component_name: "task"
+    aggregate: {domain: "tasks"}
   };
 
   // The task's identity ("swift-amber"): what humans and references use.
@@ -65,6 +64,14 @@ message AddTask {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.tasks.v1.TaskState"
     emits: ["ctxloom.tasks.v1.TaskAdded"]
+    refuses: "ctxloom.tasks.v1.TaskExists"
+    refuses: "ctxloom.tasks.v1.HarpIdRequired"
+    refuses: "ctxloom.tasks.v1.TextRequired"
+    refuses: "ctxloom.tasks.v1.Unresolved"
+    refuses: "ctxloom.tasks.v1.Blank"
+    refuses: "ctxloom.tasks.v1.StatusReserved"
+    refuses: "ctxloom.tasks.v1.TriggerWithStatus"
+    refuses: "ctxloom.tasks.v1.TriggerRequired"
   };
 
   string harp_id = 1;
@@ -104,6 +111,14 @@ message SetStatus {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.tasks.v1.TaskState"
     emits: ["ctxloom.tasks.v1.StatusChanged"]
+    refuses: "ctxloom.tasks.v1.NoTask"
+    refuses: "ctxloom.tasks.v1.Removed"
+    refuses: "ctxloom.tasks.v1.Unresolved"
+    refuses: "ctxloom.tasks.v1.Blank"
+    refuses: "ctxloom.tasks.v1.StatusReserved"
+    refuses: "ctxloom.tasks.v1.StatusRequired"
+    refuses: "ctxloom.tasks.v1.TriggerWithStatus"
+    refuses: "ctxloom.tasks.v1.TriggerRequired"
   };
 
   // Given, never blank.
@@ -118,6 +133,9 @@ message EditText {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.tasks.v1.TaskState"
     emits: ["ctxloom.tasks.v1.TextEdited"]
+    refuses: "ctxloom.tasks.v1.NoTask"
+    refuses: "ctxloom.tasks.v1.Removed"
+    refuses: "ctxloom.tasks.v1.TextRequired"
   };
 
   string text = 1;
@@ -131,6 +149,9 @@ message Retag {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.tasks.v1.TaskState"
     emits: ["ctxloom.tasks.v1.Retagged"]
+    refuses: "ctxloom.tasks.v1.NoTask"
+    refuses: "ctxloom.tasks.v1.Removed"
+    refuses: "ctxloom.tasks.v1.TagRequired"
   };
 
   repeated tagma.v1.Tag add = 1;
@@ -141,6 +162,8 @@ message RemoveTask {
   option (io.angzarr.v1.command) = {
     component: "ctxloom.tasks.v1.TaskState"
     emits: ["ctxloom.tasks.v1.TaskRemoved"]
+    refuses: "ctxloom.tasks.v1.NoTask"
+    refuses: "ctxloom.tasks.v1.Removed"
   };
 
   RemovalReason reason = 1;
@@ -240,3 +263,87 @@ message TaskRemoved {
 }
 
 // endregion events
+
+// region refusals
+//
+// One typed refusal per reason a command is refused, each listed in the
+// `refuses` of exactly the commands that can raise it. The status is the
+// gRPC meaning of what is refused, declared here and nowhere else; the
+// code, args and text a person reads are the domain's `TaskRejection`
+// (`rejection.rs`), mapped from the refusal's TYPE, never its status.
+
+// An add without a harp id.
+message HarpIdRequired {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+}
+
+// An add to a stream that already holds a task: the harp id is taken.
+message TaskExists {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_ALREADY_EXISTS;
+
+  string harp_id = 1;
+}
+
+// A command to a stream holding no task.
+message NoTask {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+}
+
+// A command to a removed task.
+message Removed {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp_id = 1;
+}
+
+// Text that is empty once trimmed.
+message TextRequired {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+}
+
+// A status change giving neither a status nor a trigger.
+message StatusRequired {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+}
+
+// A status starting with the status-class sigil.
+message StatusReserved {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string status = 1;
+}
+
+// Deferred without a revive trigger, given or already held: the task's
+// state decides it, so a precondition.
+message TriggerRequired {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+}
+
+// A retag with no tag once trimmed.
+message TagRequired {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+}
+
+// A field given blank (`field` names it as the wire does).
+message Blank {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string field = 1;
+}
+
+// A trigger given with a status other than `defers`.
+message TriggerWithStatus {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string status = 1;
+  string defers = 2;
+}
+
+// A command missing a status the application resolves for it (`field`:
+// `defers` or `initial`).
+message Unresolved {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string field = 1;
+}
+// endregion

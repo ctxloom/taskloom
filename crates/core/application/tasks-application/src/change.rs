@@ -10,7 +10,7 @@
 
 use angzarr_embedded::v1::Cover;
 use ports::{Clock, CommandIds, Configuration, Delay, Jitter, ProjectIdentity, TaskStores};
-use tasks::{EditText, Retag, SetStatus, TaskAggregate, TaskCommand};
+use tasks::{EditText, Retag, SetStatus, TaskAggregate, TaskCommand, TaskRejection};
 
 use crate::request::given;
 use crate::rules::{judged, StoreRules};
@@ -192,7 +192,7 @@ where
         let (handled, verdict) = self
             .writes
             .runner
-            .shaped::<TaskAggregate, _, _, _, _>(store, &cover, &command_id, shape)
+            .shaped::<TaskAggregate, TaskRejection, _, _, _>(store, &cover, &command_id, shape)
             .await??;
         let warnings = verdict?;
         let handled = handled.expect("a retag judged sound is sent");

@@ -221,10 +221,10 @@ mod on_the_kernel {
                 page: Some(CommandPage {
                     body: Some(command_page::Body::Command(Command {
                         payload: Some(SchemaCommand::from(declare).to_any()),
+                        handling: None,
                     })),
                     ..CommandPage::default()
                 }),
-                handling: None,
             };
             let sampled = Sampled {
                 now: Timestamp {
@@ -246,11 +246,22 @@ mod on_the_kernel {
                     .books()
                     .iter()
                     .flat_map(|book| &book.pages)
-                    .map(|page| SchemaEvent::from_any(page.payload.as_ref().unwrap()).unwrap())
+                    .map(|page| {
+                        SchemaEvent::from_any(&match page.body.clone() {
+                            Some(angzarr_embedded::v1::event_page::Body::Event(event)) => event,
+                            other => panic!("not a domain event: {other:?}"),
+                        })
+                        .unwrap()
+                    })
                     .collect()),
                 Ok(Handled::Duplicate(..)) => panic!("a fresh command id"),
-                Ok(Handled::Parked(_)) => panic!("only a fact is parked, and this is a command"),
-                Err(Failure::Rejected(rejected)) => Err(rejected.code().to_string()),
+                Err(Failure::Rejected(rejected)) => Err(rejected
+                    .rejection::<angzarr_embedded::markup::TypedRefusal>()
+                    .and_then(|refusal| crate::schema::SchemaRejection::try_from(refusal).ok())
+                    .map_or_else(
+                        || rejected.code().to_string(),
+                        |rejection| rejection.code().to_string(),
+                    )),
                 Err(other) => panic!("not a rejection: {other:?}"),
             }
         }

@@ -371,7 +371,7 @@ async fn take<S: Store + Purge, C: Clock + CommandIds, D: Delay + Jitter + Send>
         (take.then(|| removal.clone()), ())
     };
     match runner
-        .shaped::<TaskAggregate, _, _, _, _>(store, &stream, &command_id, holds)
+        .shaped::<TaskAggregate, TaskRejection, _, _, _>(store, &stream, &command_id, holds)
         .await?
     {
         Ok((Some(_), ())) => purge(runner, store, &stream).await.map(Some),

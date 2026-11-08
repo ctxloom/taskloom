@@ -242,7 +242,14 @@ fn test_imported_events_carry_no_instant_and_are_recorded_at_the_records() {
         .expect("imported");
     let mut recorded = Vec::new();
     for page in &slice.pages {
-        let at = match TaskEvent::from_any(page.payload.as_ref().unwrap()).unwrap() {
+        let at = match TaskEvent::from_any({
+            let Some(angzarr_embedded::v1::event_page::Body::Event(e)) = &page.body else {
+                panic!("no event")
+            };
+            e
+        })
+        .unwrap()
+        {
             TaskEvent::TaskAdded(added) => added.at,
             TaskEvent::StatusChanged(changed) => changed.at,
             other => panic!("an add and status changes, not {other:?}"),

@@ -224,16 +224,21 @@ kernel's stale answer, and taskloom reads and shapes it again. Domain, projector
 angzarr-embedded's kernel over angzarr-ports' `MemoryStore`, as the binary
 runs over SQLite.
 
-## Co-developing angzarr-cli or tagma
+## Co-developing angzarr-build or tagma
 
-angzarr-embedded, angzarr-build (angzarr-cli's markup domain layer) and
-tagma are git dependencies pinned by full commit in Cargo.toml, so a fresh
-clone builds with no sibling checkouts. To change angzarr-cli or tagma and
-this workspace together, `cp .cargo/local-deps.toml .cargo/config.toml`: a
-gitignored `[patch]` onto the sibling checkouts (angzarr-cli at
-`../../angzarr/angzarr-cli/main`, tagma at `../../kvtag`). CI, a fresh
+angzarr-embedded, angzarr-build (the markup domain layer generator, with
+angzarr-codegen; github.com/angzarr-io/angzarr-build) and tagma are git
+dependencies pinned by full commit in Cargo.toml, so a fresh clone builds
+with no sibling checkouts. To change angzarr-build or tagma and this
+workspace together, `cp .cargo/local-deps.toml .cargo/config.toml`: a
+gitignored `[patch]` onto the sibling checkouts (angzarr-build at
+`../../angzarr/angzarr-build/main`, tagma at `../../kvtag`). CI, a fresh
 clone and the pre-commit gates never read it. Restore Cargo.lock before
 committing, and land the change by pushing the sibling and bumping its rev.
+
+The angzarr pins are one set: angzarr core 44143e6 (diagnostic, ports, yaml,
+presentation), angzarr-embedded e3e22db, angzarr-platform b25486d,
+angzarr-build ea9f15d. Moving one moves all; the lock holds one of each.
 
 ## Errors are localizable: a code, args, and an en-US message
 

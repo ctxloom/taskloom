@@ -1565,7 +1565,8 @@ const BEFORE_0005: &[u8] =
 /// listing of a project whose store an older build wrote migrates it,
 /// backed up beside it first, and lists its tasks.
 #[test]
-fn test_a_read_of_a_store_an_older_build_wrote_migrates_it_and_lists_its_tasks() {
+fn test_a_read_of_a_store_an_older_build_wrote_migrates_and_backs_it_up_and_refuses_its_old_events()
+{
     let env = Env::new("before-0005-harp");
     env.seed("replaced");
     let stores = env.stores();
@@ -1580,11 +1581,19 @@ fn test_a_read_of_a_store_an_older_build_wrote_migrates_it_and_lists_its_tasks()
     }
     disk::write(store, BEFORE_0005).unwrap();
 
-    let mut listed = texts(&env.list(), "text");
-    listed.sort();
+    // The angzarr wire the store's events were written in (an `EventPage`
+    // with `payload`) is not today's (`body`): the schema migrates and the
+    // store is backed up, and its events no longer decode. Reading them
+    // again is the store export's (a later change), never a silent
+    // rewrite.
+    let ran = env.run(&["tasks", "list", "--format", "json"]);
+    assert!(
+        !ran.ok,
+        "an event written before the wire change is refused"
+    );
     assert_eq!(
-        listed,
-        ["a task from before 0005", "another task from before 0005"]
+        one_document(&ran.stderr)["code"],
+        "angzarr-ports-store-unreadable"
     );
     let backups: Vec<PathBuf> = disk::read_dir(store.parent().unwrap())
         .unwrap()

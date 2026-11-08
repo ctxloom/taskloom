@@ -71,7 +71,8 @@ fn command_ids(service: &mut Fake, harp: &str) -> Vec<angzarr_embedded::v1::Uuid
         .pages
         .iter()
         .filter_map(|p| match p.meta.as_ref()?.causation.as_ref()? {
-            Causation::CommandId(id) => Some(id.clone()),
+            Causation::Command(cause) => cause.command_id.clone(),
+            Causation::Fact(_) => None,
         })
         .collect()
 }
@@ -755,9 +756,13 @@ fn add_unchecked(service: &mut Configured, tag: &str) {
         &tasks::TaskCommand::from(add),
     );
     let id = angzarr_embedded::v1::Uuid::from_bytes([7; 16]);
-    ready(runner.run::<tasks::TaskAggregate, _, _>(&service.stores.store, book, &id))
-        .unwrap()
-        .unwrap();
+    ready(runner.run::<tasks::TaskAggregate, tasks::TaskRejection, _>(
+        &service.stores.store,
+        book,
+        &id,
+    ))
+    .unwrap()
+    .unwrap();
 }
 
 #[test]
@@ -1855,10 +1860,10 @@ fn seeded_meanwhile(store: &angzarr_embedded::angzarr_ports::memory::MemoryStore
         page: Some(CommandPage {
             body: Some(command_page::Body::Command(Command {
                 payload: Some(tasks::schema::SchemaCommand::from(declare).to_any()),
+                handling: None,
             })),
             ..CommandPage::default()
         }),
-        handling: None,
     };
     let sampled = Sampled {
         now: ports::Timestamp {

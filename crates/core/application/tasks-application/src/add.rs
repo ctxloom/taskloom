@@ -272,7 +272,7 @@ where
         .into();
         let book = CommandBook::command_of(task_cover(&harp_id), &add);
         match runner
-            .run::<TaskAggregate, _, _>(store, book, &command_id)
+            .run::<TaskAggregate, TaskRejection, _>(store, book, &command_id)
             .await?
         {
             Ok(handled) => return task_after(store, runner.registry, &harp_id, &handled).await,

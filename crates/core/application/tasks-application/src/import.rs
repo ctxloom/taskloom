@@ -340,7 +340,7 @@ where
             };
             let book = CommandBook::command_of(cover, &command);
             match runner
-                .run::<TaskAggregate, _, _>(store, book, &command_id)
+                .run::<TaskAggregate, TaskRejection, _>(store, book, &command_id)
                 .await
                 .map_err(|e| Report::of(&AppError::from(e)))?
             {

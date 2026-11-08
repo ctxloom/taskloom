@@ -24,8 +24,9 @@
 //! kernel never runs (a purge at the head read) the use case retries
 //! itself, waiting as the kernel waits ([`Runner::again`]).
 //!
-//! **A refusal is typed.** The domain's own rejection comes back as its
-//! handler made it ([`Refusal`]), matched as a value, never by its code;
+//! **A refusal is typed.** A command refuses with a typed refusal message of
+//! its protos; the domain's own rejection is read back from its type
+//! ([`Rejection`]), matched as a value, never by its code or its status;
 //! what kept a command from being decided at all is [`Unrun`], for each
 //! context to report as its own error.
 //!
@@ -36,12 +37,13 @@
 //! shared half of a read, as [`Runner`] is of a write.
 
 use std::future::Future;
+use std::num::NonZeroU32;
 use std::pin::Pin;
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
-use angzarr_diagnostic::Report;
-use angzarr_embedded::markup::Rejection;
+use angzarr_diagnostic::{Diagnostic, Report};
+use angzarr_embedded::markup::TypedRefusal;
 use angzarr_embedded::v1::{CommandBook, Cover, Uuid};
 use angzarr_embedded::{
     DeadLetter, Domain, Failure, Handled, Kernel, OnRetryable, Payload, Recovery, Registry,
@@ -74,7 +76,10 @@ pub const KERNEL_RETRY: OnRetryable =
 pub const fn backoff(base: Duration, cap: Duration, attempts: u32) -> OnRetryable {
     OnRetryable {
         max_retries: attempts.saturating_sub(1),
-        max_race_runs: attempts,
+        max_race_runs: match NonZeroU32::new(attempts) {
+            Some(runs) => runs,
+            None => NonZeroU32::MIN,
+        },
         initial_backoff: base,
         multiplier: 2.0,
         max_backoff: cap,
@@ -133,6 +138,20 @@ impl<D: Delay + Jitter + Send> Wait for Ported<'_, D> {
     }
 }
 
+/// What a domain's typed refusals are read back as: the domain's own
+/// rejection, from the refusal's TYPE and by nothing else (never its
+/// business status, which is the protos' option and may be edited), a
+/// diagnostic whose code, args and English are what a person is told.
+pub trait Rejection:
+    for<'a> TryFrom<&'a TypedRefusal> + Diagnostic + Clone + Send + Sync + 'static
+{
+}
+
+impl<R> Rejection for R where
+    R: for<'a> TryFrom<&'a TypedRefusal> + Diagnostic + Clone + Send + Sync + 'static
+{
+}
+
 /// A domain's refusal of a command, as the use case reads it: its own
 /// rejection, typed, as its handler made it (`None` for one the router
 /// made on its behalf), and as reported.
@@ -177,8 +196,8 @@ impl<C: Clock, D: Delay + Jitter + Send> Runner<'_, C, D> {
         command_id: &Uuid,
     ) -> Result<Result<Handled, Refusal<R>>, Unrun>
     where
-        A: Domain<Rejection = Rejection<R>>,
-        R: Clone + Send + Sync + 'static,
+        A: Domain<Rejection = TypedRefusal>,
+        R: Rejection,
         S: Store,
     {
         let sampled = self.sampled(command_id);
@@ -207,8 +226,8 @@ impl<C: Clock, D: Delay + Jitter + Send> Runner<'_, C, D> {
         shape: impl FnMut(&A::State) -> (Option<P>, T),
     ) -> Result<Result<(Option<Handled>, T), Refusal<R>>, Unrun>
     where
-        A: Domain<Rejection = Rejection<R>>,
-        R: Clone + Send + Sync + 'static,
+        A: Domain<Rejection = TypedRefusal>,
+        R: Rejection,
         S: Store,
         P: Payload,
     {
@@ -266,19 +285,22 @@ impl<C: Clock, D: Delay + Jitter + Send> Runner<'_, C, D> {
     /// the domain's refusal; a retryable failure, which has had the
     /// kernel's retries, given up on at once ([`Unrun::GaveUp`]); any
     /// other failure, [`Unrun::Failed`].
-    fn settled<H, R: Clone + 'static>(
+    fn settled<H, R: Rejection>(
         &self,
         handled: Result<H, Failure<Rejected>>,
     ) -> Result<Result<H, Refusal<R>>, Unrun> {
         match handled {
             Ok(handled) => Ok(Ok(handled)),
-            Err(Failure::Rejected(rejected)) => Ok(Err(Refusal {
-                rejection: rejected
-                    .rejection::<Rejection<R>>()
-                    .and_then(Rejection::message)
-                    .cloned(),
-                report: rejected.report().clone(),
-            })),
+            Err(Failure::Rejected(rejected)) => {
+                let rejection = rejected
+                    .rejection::<TypedRefusal>()
+                    .and_then(|refusal| R::try_from(refusal).ok());
+                let report = match &rejection {
+                    Some(rejection) => Report::of(rejection),
+                    None => rejected.report().clone(),
+                };
+                Ok(Err(Refusal { rejection, report }))
+            }
             Err(failure) if failure.recovery() == Recovery::Retry => Err(Unrun::GaveUp {
                 attempts: attempts(&self.retry),
                 error: Report::of(&failure),

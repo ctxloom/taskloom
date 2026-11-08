@@ -20,7 +20,8 @@ use angzarr_embedded::v1::{CommandBook, Cover};
 use angzarr_embedded::{CommandBookExt, CoverExt, Handled, Kernel, Registry, Store};
 use ports::{Clock, CommandIds, Configuration, Delay, Jitter, ProjectIdentity, TaskStores};
 use tasks::schema::{
-    Declare, SchemaAggregate, SchemaCommand, SchemaState, SCHEMA_DOMAIN, SCHEMA_STREAM,
+    Declare, SchemaAggregate, SchemaCommand, SchemaRejection, SchemaState, SCHEMA_DOMAIN,
+    SCHEMA_STREAM,
 };
 
 use crate::rules::{Finding, StoreRules};
@@ -135,7 +136,12 @@ where
     };
     let command_id = runner.clock.command_id();
     let (handled, held) = runner
-        .shaped::<SchemaAggregate, _, _, _, _>(store, &schema_stream(), &command_id, unseeded)
+        .shaped::<SchemaAggregate, SchemaRejection, _, _, _>(
+            store,
+            &schema_stream(),
+            &command_id,
+            unseeded,
+        )
         .await??;
     match handled {
         Some(handled) => rules_after(store, runner.registry, &handled).await,
@@ -189,7 +195,7 @@ where
     let book = CommandBook::command_of(schema_stream(), &SchemaCommand::from(declare));
     let command_id = runner.clock.command_id();
     let handled = runner
-        .run::<SchemaAggregate, _, _>(store, book, &command_id)
+        .run::<SchemaAggregate, SchemaRejection, _>(store, book, &command_id)
         .await??;
     let after = rules_after(store, runner.registry, &handled).await?;
     Ok(Declared {

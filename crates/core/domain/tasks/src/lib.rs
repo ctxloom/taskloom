@@ -4,15 +4,18 @@
 //! and then purges its stream, which frees the harp.
 //!
 //! The domain types, their wire conversions, their `DomainMessage` impls
-//! and the [`TaskCommand`] and [`TaskEvent`] payloads are generated from
+//! and the [`TaskCommand`] and [`TaskEvent`] payloads (the generated
+//! `TaskStateCommand` and `TaskStateEvent`) are generated from
 //! `proto/ctxloom/tasks/v1/tasks.proto` (angzarr-build's markup layer);
 //! [`TaskState`] and the rules are this crate's, and [`TaskAggregate`] is
 //! the aggregate angzarr-embedded runs, on those payloads.
 
+#[allow(dead_code)]
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/ctxloom.tasks.v1.domain.rs"));
 }
 mod aggregate;
+mod refusal;
 mod rejection;
 pub mod schema;
 mod state;
@@ -22,8 +25,14 @@ use std::fmt;
 
 use angzarr_embedded::Timestamp;
 
+/// The task aggregate's commands, one variant per command type.
+pub type TaskCommand = TaskStateCommand;
+/// The task aggregate's events, one variant per event type.
+pub type TaskEvent = TaskStateEvent;
+
 pub use aggregate::TaskAggregate;
 pub use generated::*;
+pub use refusal::NotOurs;
 #[cfg(any(test, feature = "test-support"))]
 pub use rejection::diagnostic_samples;
 pub use rejection::{TaskRejection, EN_US};
@@ -232,7 +241,7 @@ fn added(add: &AddTask) -> Result<Added, TaskRejection> {
     };
     let deferred = status == statuses.defers;
     if trigger.is_some() && !deferred {
-        return Err(statuses.with_status(status));
+        return Err(statuses.trigger_with(status));
     }
     if deferred && trigger.is_none() {
         return Err(TaskRejection::TriggerRequired);
@@ -259,7 +268,7 @@ struct Statuses<'a> {
 
 impl Statuses<'_> {
     /// The refusal of a trigger given with `status`, which is not `defers`.
-    fn with_status(&self, status: String) -> TaskRejection {
+    fn trigger_with(&self, status: String) -> TaskRejection {
         TaskRejection::TriggerWithStatus {
             status,
             defers: self.defers.to_string(),
@@ -315,7 +324,7 @@ fn changed(set: &SetStatus) -> Result<Change<'_>, TaskRejection> {
     match (&status, &trigger) {
         (None, Trigger::Kept) => return Err(TaskRejection::StatusRequired),
         (Some(status), Trigger::Set(_)) if status != statuses.defers => {
-            return Err(statuses.with_status(status.clone()))
+            return Err(statuses.trigger_with(status.clone()))
         }
         (Some(status), Trigger::Cleared) if status == statuses.defers => {
             return Err(TaskRejection::TriggerRequired)

@@ -379,10 +379,10 @@ mod ticked {
             page: Some(CommandPage {
                 body: Some(command_page::Body::Command(Command {
                     payload: Some(command.to_any()),
+                    handling: None,
                 })),
                 ..CommandPage::default()
             }),
-            handling: None,
         };
         let registry = tasks_application::registry();
         let sampled = Sampled {
@@ -439,16 +439,19 @@ mod ticked {
                     };
                     let id = Uuid::from_bytes([*elsewhere as u8 + 1; 16]);
                     let page = EventPage {
-                        payload: Some(Any {
+                        body: Some(angzarr_embedded::v1::event_page::Body::Event(Any {
                             type_url: "/elsewhere.v1.Event".to_string(),
                             value: Vec::new(),
-                        }),
+                        })),
                         meta: Some(EventMeta {
-                            causation: Some(Causation::CommandId(id.clone())),
+                            causation: Some(Causation::Command(
+                                angzarr_embedded::v1::CommandCause {
+                                    command_id: Some(id.clone()),
+                                },
+                            )),
                             correlation_id: Some(id),
                             recorded_at: Some(Timestamp::default()),
                             rules_version: "v1".to_string(),
-                            ..EventMeta::default()
                         }),
                         sequence: *elsewhere,
                     };

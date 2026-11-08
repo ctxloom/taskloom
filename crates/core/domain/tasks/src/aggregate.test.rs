@@ -15,8 +15,8 @@
 use std::collections::BTreeMap;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
-use angzarr_embedded::angzarr_router::error::RouterReason;
-use angzarr_embedded::markup::{Context, Emit, Failed, PageContext};
+use angzarr_embedded::angzarr_proto::v1::AngzarrReason;
+use angzarr_embedded::markup::{Context, Emit, Failed, PageContext, TypedRefusal, Unrefusable};
 use angzarr_embedded::testing::{Harness, Ready, Samples};
 use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::{
@@ -37,6 +37,17 @@ const HARP: &str = "swift-amber";
 /// (decision 14.37: a key and a map, never English). Args by name, as the
 /// router carries them.
 type Said = (String, BTreeMap<String, String>);
+
+fn said_of(rejected: &Rejected) -> Said {
+    match rejected
+        .rejection::<TypedRefusal>()
+        .map(TaskRejection::try_from)
+    {
+        Some(Ok(rejection)) => said(&rejection),
+        // The runtime's own refusal, no typed one of the domain's.
+        _ => said(rejected),
+    }
+}
 
 fn said(diagnostic: &dyn Diagnostic) -> Said {
     let args = diagnostic
@@ -91,7 +102,11 @@ impl Task {
     fn run(&mut self, command: impl Into<TaskCommand>) -> Result<Vec<TaskEvent>, Said> {
         match self.harness.when(command).result() {
             Ok(events) => Ok(events),
-            Err(Failure::Rejected(rejected)) => Err(said(&rejected)),
+            Err(Failure::Rejected(rejected)) => Err(said_of(&rejected)),
+            // The router's refusal of a command not to this stream.
+            Err(Failure::Kernel(KernelError::Router(error))) if error.code == not_its_stream() => {
+                Err((error.code.to_string(), error.extras.into_iter().collect()))
+            }
             Err(other) => panic!("not a rejection: {other:?}"),
         }
     }
@@ -142,12 +157,20 @@ impl Task {
     }
 }
 
+/// The domain event `page` holds.
+fn event_of(page: &angzarr_embedded::v1::EventPage) -> Any {
+    match &page.body {
+        Some(angzarr_embedded::v1::event_page::Body::Event(event)) => event.clone(),
+        other => panic!("not a domain event: {other:?}"),
+    }
+}
+
 /// The task events `books` hold, in order.
 fn events(books: &[angzarr_embedded::v1::EventBook]) -> Vec<TaskEvent> {
     books
         .iter()
         .flat_map(|book| &book.pages)
-        .map(|page| TaskEvent::from_any(page.payload.as_ref().unwrap()).unwrap())
+        .map(|page| TaskEvent::from_any(&event_of(page)).unwrap())
         .collect()
 }
 
@@ -175,10 +198,10 @@ fn book(payload: Any) -> CommandBook {
         page: Some(CommandPage {
             body: Some(command_page::Body::Command(Command {
                 payload: Some(payload),
+                handling: None,
             })),
             ..CommandPage::default()
         }),
-        handling: None,
     }
 }
 
@@ -300,24 +323,31 @@ fn an_add_on_a_fresh_stream_records_task_added_at_the_sampled_instant() {
 // A stream with history holds a task (or held one): its harp id is taken.
 // Refused as a business "no", fatal (never retried, its sender's to
 // answer by minting another harp), keyed with its harp id and never
-// English; message-only, with no typed object; nothing recorded.
+// English; a typed refusal message; nothing recorded.
 #[test]
 fn an_add_on_a_stream_with_history_is_refused_task_exists() {
     let mut task = Task::added("First");
     let refusal = task.refusal(add("Second"));
     assert_eq!(
-        said(&refusal),
+        said_of(&refusal),
         said(&TaskRejection::TaskExists {
             harp_id: HARP.to_string()
         })
     );
-    assert_eq!(refusal.code(), code!("task-exists"));
     assert_eq!(
-        refusal.to_string(),
-        concat!(code!("task-exists"), " harp_id=swift-amber"),
-        "its key and args, never English"
+        refusal.code(),
+        AngzarrReason::CommandRefused.as_str_name(),
+        "on the wire a typed refusal; the domain's key is read from its type"
     );
-    assert_eq!(refusal.refusal_object(), None, "message-only");
+    assert_eq!(
+        refusal
+            .rejection::<TypedRefusal>()
+            .and_then(|typed| typed.object::<crate::TaskExists>()),
+        Some(crate::TaskExists {
+            harp_id: HARP.to_string()
+        }),
+        "the refusal is the typed message, with its harp id"
+    );
     assert_eq!(
         Failure::Rejected(refusal).recovery(),
         Recovery::Business,
@@ -332,8 +362,8 @@ fn an_add_on_a_stream_with_history_is_refused_task_exists() {
 fn a_deferral_without_a_trigger_is_refused() {
     let mut task = Task::added("Revisit");
     let refusal = task.refusal(status(DEFERRED, ""));
-    assert_eq!(said(&refusal), said(&TaskRejection::TriggerRequired));
-    assert_eq!(refusal.to_string(), code!("trigger-required"));
+    assert_eq!(said_of(&refusal), said(&TaskRejection::TriggerRequired));
+    assert_eq!(said_of(&refusal).0, code!("trigger-required"));
     assert_eq!(task.state().status, TO_DO, "not deferred");
 
     let refusal = Task::new().refusal(AddTask {
@@ -341,7 +371,7 @@ fn a_deferral_without_a_trigger_is_refused() {
         trigger: None,
         ..add("Revisit")
     });
-    assert_eq!(said(&refusal), said(&TaskRejection::TriggerRequired));
+    assert_eq!(said_of(&refusal), said(&TaskRejection::TriggerRequired));
 }
 
 // A trigger defers the task, so it cannot come with a status other than
@@ -355,7 +385,7 @@ fn a_trigger_on_a_non_deferred_status_is_refused() {
     });
     let mut task = Task::added("Revisit");
     let refusal = task.refusal(set(Some("In Progress"), Some("after v2")));
-    assert_eq!(said(&refusal), expected);
+    assert_eq!(said_of(&refusal), expected);
     assert_eq!(task.state().trigger, "", "no trigger taken");
 
     let refusal = Task::new().refusal(AddTask {
@@ -363,7 +393,7 @@ fn a_trigger_on_a_non_deferred_status_is_refused() {
         trigger: Some("after v2".to_string()),
         ..add("Revisit")
     });
-    assert_eq!(said(&refusal), expected);
+    assert_eq!(said_of(&refusal), expected);
 }
 
 #[test]
@@ -676,7 +706,7 @@ fn test_add_without_a_harp_id_is_refused() {
     });
     let book = CommandBook::command_of(Cover::natural(TASK_DOMAIN, " "), &blank);
     let refused = match task.try_run(book).map_err(|failure| *failure) {
-        Err(Failure::Rejected(rejected)) => said(&rejected),
+        Err(Failure::Rejected(rejected)) => said_of(&rejected),
         other => panic!("refused, not {}", other.is_ok()),
     };
     assert_eq!(Err(refused), self::refused(TaskRejection::HarpIdRequired));
@@ -920,7 +950,7 @@ fn test_a_removal_without_a_reason_is_undecodable_a_bug_not_a_refusal() {
     let Failure::Kernel(KernelError::Router(error)) = failure else {
         panic!("the router's: {failure:?}");
     };
-    assert_eq!(error.code, RouterReason::AnyDecodeFailed.as_str_name());
+    assert_eq!(error.code, AngzarrReason::AnyDecodeFailed.as_str_name());
     assert!(!task.state().removed);
 }
 
@@ -1378,7 +1408,7 @@ std::thread_local! {
 }
 
 /// Keep `probe`'s task as the decision left it.
-fn keep(probe: &Probe, _: &Context) -> Result<Option<TaskAdded>, Failed<TaskRejection>> {
+fn keep(probe: &Probe, _: &Context) -> Result<Option<TaskAdded>, Failed<Unrefusable>> {
     DECIDED.with(|decided| decided.borrow_mut().push(probe.task.state().clone()));
     Ok(None)
 }
@@ -1391,22 +1421,33 @@ fn fold(probe: &mut Probe, event: impl Into<TaskEvent>, page: &PageContext) {
 #[aggregate(domain = "tasks", command = TaskCommand, event = TaskEvent)]
 impl Probe {
     #[handles_cmd(AddTask, rooted_by = harp_id)]
-    fn add_task(&self, cmd: AddTask, ctx: &Context) -> Result<Emit<Self>, Failed<TaskRejection>> {
-        Ok(Emit::of(self.task.add_task(cmd, ctx)?).then(keep))
+    fn add_task(&self, cmd: AddTask, ctx: &Context) -> Result<Emit<Self>, Failed<Unrefusable>> {
+        Ok(Emit::of(
+            self.task
+                .add_task(cmd, ctx)
+                .unwrap_or_else(|_| panic!("the probe's commands are accepted")),
+        )
+        .then(keep))
     }
 
     #[handles_cmd(SetStatus)]
-    fn set_status(
-        &self,
-        cmd: SetStatus,
-        ctx: &Context,
-    ) -> Result<Emit<Self>, Failed<TaskRejection>> {
-        Ok(Emit::of(self.task.set_status(cmd, ctx)?).then(keep))
+    fn set_status(&self, cmd: SetStatus, ctx: &Context) -> Result<Emit<Self>, Failed<Unrefusable>> {
+        Ok(Emit::of(
+            self.task
+                .set_status(cmd, ctx)
+                .unwrap_or_else(|_| panic!("the probe's commands are accepted")),
+        )
+        .then(keep))
     }
 
     #[handles_cmd(EditText)]
-    fn edit_text(&self, cmd: EditText, ctx: &Context) -> Result<Emit<Self>, Failed<TaskRejection>> {
-        Ok(Emit::of(self.task.edit_text(cmd, ctx)?).then(keep))
+    fn edit_text(&self, cmd: EditText, ctx: &Context) -> Result<Emit<Self>, Failed<Unrefusable>> {
+        Ok(Emit::of(
+            self.task
+                .edit_text(cmd, ctx)
+                .unwrap_or_else(|_| panic!("the probe's commands are accepted")),
+        )
+        .then(keep))
     }
 
     #[applies(TaskAdded)]
@@ -1488,7 +1529,7 @@ fn new_events_carry_no_instant_and_are_folded_at_their_recorded_at() {
     );
     assert_eq!(replayed.created_at, recorded_at(&task, 0));
     for page in task.pages() {
-        match TaskEvent::from_any(page.payload.as_ref().unwrap()).unwrap() {
+        match TaskEvent::from_any(&event_of(&page)).unwrap() {
             TaskEvent::TaskAdded(added) => assert_eq!(added.at, None),
             TaskEvent::StatusChanged(changed) => assert_eq!(changed.at, None),
             other => panic!("an add and a status change, not {other:?}"),
@@ -1598,9 +1639,7 @@ fn new_status_changes_carry_no_deferred_since_and_derive_it_from_their_recorded_
         "kept while it stays out of Deferred"
     );
     for page in task.pages() {
-        if let TaskEvent::StatusChanged(changed) =
-            TaskEvent::from_any(page.payload.as_ref().unwrap()).unwrap()
-        {
+        if let TaskEvent::StatusChanged(changed) = TaskEvent::from_any(&event_of(&page)).unwrap() {
             assert_eq!(changed.deferred_since, None, "{changed:?} copies none");
         }
     }
@@ -1683,9 +1722,7 @@ fn new_adds_carry_no_deferred_since_and_derive_it_from_their_recorded_at() {
     assert_eq!(decided, replayed, "the task decided is the task replayed");
     assert_eq!(replayed.deferred_since, None, "never deferred");
     for page in deferred.pages().into_iter().chain(open.pages()) {
-        let TaskEvent::TaskAdded(added) =
-            TaskEvent::from_any(page.payload.as_ref().unwrap()).unwrap()
-        else {
+        let TaskEvent::TaskAdded(added) = TaskEvent::from_any(&event_of(&page)).unwrap() else {
             panic!("an add")
         };
         assert_eq!(added.deferred_since, None, "{added:?} copies none");
@@ -1780,7 +1817,7 @@ fn an_import_on_a_clock_pinned_at_the_records_instant_folds_at_it() {
         (at(1), at(5), at(9))
     );
     for page in task.pages() {
-        match TaskEvent::from_any(page.payload.as_ref().unwrap()).unwrap() {
+        match TaskEvent::from_any(&event_of(&page)).unwrap() {
             TaskEvent::TaskAdded(added) => assert_eq!(added.at, None),
             TaskEvent::StatusChanged(changed) => assert_eq!(changed.at, None),
             other => panic!("an add and status changes, not {other:?}"),
