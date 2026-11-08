@@ -1157,6 +1157,66 @@ fn test_an_older_generation_store_already_migrated_by_an_earlier_build_is_refuse
 }
 
 #[test]
+fn test_an_older_generation_page_still_in_the_log_is_found_and_refused() {
+    // A store this build made, held open by another connection that has
+    // committed an older generation's page (`payload`, field 3) to its
+    // log, not yet checkpointed into the file: the file alone holds no
+    // event, the log does, and the probe reads the log (it is not
+    // `immutable` where one holds commits).
+    use sqlx::{Connection, Executor};
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    block_on(async {
+        let project = project("jolly-mute-magma", path.clone());
+        home.stores().open(&project).await.map(drop).unwrap();
+        let mut conn =
+            sqlx::SqliteConnection::connect(&format!("sqlite://{}", home.real(&path).display()))
+                .await
+                .unwrap();
+        conn.execute("INSERT INTO events (domain, edition, root, sequence, page) VALUES ('tasks', '', x'01', 0, x'1a00')")
+            .await
+            .unwrap();
+        let log = path.with_file_name("state.db-wal");
+        assert!(
+            home.rooted.metadata(&log).unwrap().len > 0,
+            "the commit is in the log"
+        );
+        let refusal = home.stores().open_existing(&project).await.map(drop).err();
+        refused_as_older(refusal, &path);
+        conn.close().await.unwrap();
+    });
+}
+
+#[test]
+fn test_a_ledger_of_the_first_migration_alone_is_a_store_from_before_angzarr_embedded() {
+    // Whatever else the file holds: the judgement reads the ledger alone.
+    use sqlx::{Connection, Executor};
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    block_on(async {
+        let mut conn = sqlx::SqliteConnection::connect(&format!(
+            "sqlite://{}?mode=rwc",
+            home.real(&path).display()
+        ))
+        .await
+        .unwrap();
+        conn.execute("CREATE TABLE _sqlx_migrations (version BIGINT PRIMARY KEY); INSERT INTO _sqlx_migrations VALUES (1)")
+            .await
+            .unwrap();
+        conn.close().await.unwrap();
+        let refusal = home
+            .stores()
+            .open_existing(&project("jolly-mute-magma", path.clone()))
+            .await
+            .map(drop)
+            .err();
+        let refusal = refusal.expect("refused");
+        assert!(keyed(&refusal, PREDATES).is_some(), "{refusal}");
+    });
+}
+
+#[test]
 fn test_the_check_of_an_older_generation_store_refuses_it_and_writes_nothing() {
     let home = Home::new();
     let (path, _) = archive(&home, OLD_BEFORE_0005, &[]);

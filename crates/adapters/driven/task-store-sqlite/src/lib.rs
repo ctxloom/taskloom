@@ -306,28 +306,17 @@ async fn probe(real: &Path, immutable: bool) -> Option<Probed> {
         .connect()
         .await
         .ok()?;
-    // A table that is not there is nothing stored; a database that is not
-    // one fails here, and is the store's to refuse.
-    let tables: Vec<String> =
-        sqlx::query_scalar("SELECT name FROM sqlite_master WHERE type = 'table'")
-            .fetch_all(&mut conn)
-            .await
-            .ok()?;
-    let has = |name: &str| tables.iter().any(|t| t == name);
-    let versions = match has("_sqlx_migrations") {
-        true => sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
-            .fetch_all(&mut conn)
-            .await
-            .ok()?,
-        false => Vec::new(),
-    };
-    let page = match has("events") {
-        true => sqlx::query_scalar("SELECT page FROM events LIMIT 1")
-            .fetch_optional(&mut conn)
-            .await
-            .ok()?,
-        false => None,
-    };
+    // A table that is not there, or a file that is no database, answers
+    // nothing: it is the store's to refuse when it is opened.
+    let versions = sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
+        .fetch_all(&mut conn)
+        .await
+        .unwrap_or_default();
+    let page = sqlx::query_scalar("SELECT page FROM events LIMIT 1")
+        .fetch_optional(&mut conn)
+        .await
+        .ok()
+        .flatten();
     let _ = conn.close().await;
     Some(Probed { versions, page })
 }
