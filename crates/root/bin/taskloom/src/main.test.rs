@@ -1641,6 +1641,9 @@ mod schema;
 #[path = "prune.test.rs"]
 mod prune;
 
+#[path = "refusals.test.rs"]
+mod refusals;
+
 #[path = "snapshot.test.rs"]
 mod snapshot;
 
