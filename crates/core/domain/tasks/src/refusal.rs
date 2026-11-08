@@ -11,8 +11,6 @@
 //! under is its message's `(refusal_status)` option, read here from the
 //! generated constant, and never decides what a person is told.
 
-use std::fmt;
-
 use angzarr_embedded::markup::TypedRefusal;
 
 use crate::schema::SchemaRejection;
@@ -44,17 +42,10 @@ macro_rules! refuse {
 
 pub(crate) use refuse;
 
-/// A typed refusal that is none of this domain's.
+/// A typed refusal that is none of this domain's (no message of the person
+/// reaches: the caller reports the refusal as the runtime made it).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct NotOurs;
-
-impl fmt::Display for NotOurs {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("not a refusal of the tasks domain")
-    }
-}
-
-impl std::error::Error for NotOurs {}
 
 /// The rejection a task command's typed refusal is, by its type.
 impl TryFrom<&TypedRefusal> for TaskRejection {
