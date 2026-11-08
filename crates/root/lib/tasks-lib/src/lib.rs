@@ -69,6 +69,12 @@ pub type Plans = PlanService<FsPlanFiles, ProjectTasks<Tasks>, HarpNames, Tasklo
 /// mints nothing: no names) and the SQLite store's integrity check.
 pub type Projects = project_application::Projects<ProjectRegistry<()>, SqliteStores>;
 
+/// The app's encoded `FileDescriptorSet`s, the tasks' protos' with every
+/// file it imports (plans are files: no proto of theirs is stored): what
+/// `manage store export` and `manage store fold-digest` expand the stored
+/// payloads and states through (store-export-import.plan.md, D3 (a)).
+pub const DESCRIPTOR_SETS: &[&[u8]] = &[tasks_proto::FILE_DESCRIPTOR_SET];
+
 /// The en-US catalog of every diagnostic the wiring can raise (its own,
 /// the spec's for the framework's reason keys, which angzarr-embedded
 /// codes its spec conditions under (decision 14.60),
@@ -87,6 +93,7 @@ pub fn catalog(
         angzarr_embedded::EN_US,
         angzarr_embedded::angzarr_ports::EN_US,
         angzarr_embedded::angzarr_store_sqlite::EN_US,
+        angzarr_store_transfer::EN_US,
         angzarr_yaml::EN_US,
     ];
     sources.extend(tasks_application::CATALOGS);

@@ -47,6 +47,13 @@
 //!   to open (SQLite's `errno`, and its own text as `ext_err_txt`). A
 //!   failure to run the check is the store's error, a third party's text
 //!   as `ext_err_txt` there too. No database is no damage.
+//! - [`StoreExport`] writes a database whole as angzarr-store-transfer's
+//!   JSONL (store-export-import.plan.md). A store the opens refuse (an
+//!   older generation's, one from before angzarr-embedded) is refused the
+//!   same way; then its ledger is read without opening it and refused
+//!   unless it is exactly the build's migration set, so nothing is
+//!   migrated or backed up; then opened read-only.
+//!   Nothing is written to its output unless every row passes.
 //! - Errors are angzarr-ports' [`StoreError`]; this crate's own refusals
 //!   travel in it as a cause, its code and args.
 
@@ -59,9 +66,12 @@ use angzarr_diagnostic::Report;
 use angzarr_embedded::angzarr_store_sqlite::{Integrity, SqlError, SqliteStore};
 use angzarr_ports::angzarr_proto::v1::EventPage;
 use angzarr_ports::{StoreError, Watch};
+use angzarr_store_transfer::{check_ledger, descriptor_pool};
 use file_system::Fs;
 use os::Mode;
-use ports::{Checked, HeldToken, Project, StoreCheck, TaskStores, WatchedStores};
+use ports::{
+    Checked, Exported, HeldToken, Project, StoreCheck, StoreExport, TaskStores, WatchedStores,
+};
 use prost::Message;
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{ConnectOptions, Connection};
@@ -207,6 +217,92 @@ impl StoreCheck for SqliteStores {
                 .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
         })
     }
+}
+
+impl StoreExport for SqliteStores {
+    /// The database at `store`, its ledger judged first without opening
+    /// it, then opened read-only and exported whole. Synchronous, on a
+    /// runtime of its own on a thread of its own, as the check is.
+    fn export(
+        &mut self,
+        logical: &Path,
+        descriptors: &[&[u8]],
+        out: &mut dyn std::io::Write,
+    ) -> Result<Option<Exported>, Report> {
+        let fs = &*self.fs;
+        let store = &real(fs, logical).map_err(|e| ported(&e.cause()))?;
+        // Written on the export's own thread into memory (the caller's
+        // writer need not be `Send`), then handed over whole.
+        let mut file = Vec::new();
+        let exported = std::thread::scope(|scope| {
+            let exporting = scope.spawn(|| {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_time()
+                    .build()
+                    .map_err(|e| {
+                        ported(
+                            &StoreOpenError::NoRuntime {
+                                detail: e.to_string(),
+                            }
+                            .cause(),
+                        )
+                    })?;
+                runtime.block_on(async {
+                    // An older generation's store is an archive (its ledger
+                    // is no mark of it), and one from before
+                    // angzarr-embedded has a ledger of its own: judged
+                    // before the ledger, and before any open.
+                    refuse_if_unusable(fs, store, logical)
+                        .await
+                        .map_err(|e| ported(&e.cause()))?;
+                    export(store, descriptors, &mut file).await
+                })
+            });
+            exporting
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+        })?;
+        out.write_all(&file)
+            .and_then(|()| out.flush())
+            .map_err(|e| {
+                ported(
+                    &StoreOpenError::NoOutput {
+                        detail: e.to_string(),
+                    }
+                    .cause(),
+                )
+            })?;
+        Ok(exported)
+    }
+}
+
+/// The database at `path` exported to `out`; none if there is none. Its
+/// ledger is read first, without opening it ([`SqliteStore::ledger_at`]),
+/// and must be exactly the build's set ([`check_ledger`]), so the open
+/// that follows migrates nothing.
+async fn export(
+    path: &Path,
+    descriptors: &[&[u8]],
+    out: &mut Vec<u8>,
+) -> Result<Option<Exported>, Report> {
+    let Some(ledger) = SqliteStore::ledger_at(path).await.map_err(|e| report(&e))? else {
+        return Ok(None);
+    };
+    check_ledger(&SqliteStore::build_migrations(), &ledger).map_err(|e| Report::of(&e))?;
+    let pool = descriptor_pool(descriptors).map_err(|e| Report::of(&e))?;
+    let Some(store) = SqliteStore::open_existing(path)
+        .await
+        .map_err(|e| report(&e))?
+    else {
+        return Ok(None);
+    };
+    let end = angzarr_store_transfer::export(&store, &pool, out)
+        .await
+        .map_err(|e| Report::of(&e))?;
+    Ok(Some(Exported {
+        records: end.records.0,
+        streams: end.streams.len() as u64,
+    }))
 }
 
 /// The database at `path`, checked read-only; absent if there is none. A

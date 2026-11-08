@@ -228,6 +228,28 @@ store or its directory changed. The message says how to archive it: move
 the next command creates a fresh store. `manage doctor`'s check refuses it
 the same way. The one SQL this crate runs is that read; it writes none.
 
+`taskloom manage store export` writes a project's database whole to stdout
+as angzarr-store-transfer's JSONL (every row in proto3's JSON mapping, the
+tasks' payloads expanded through `tasks_lib::DESCRIPTOR_SETS`), for carrying
+it to a build of another proto generation; its closing note is on stderr
+(`exported N records over M streams`) and it takes no `--format`.
+`manage store fold-digest` writes one JSONL line per stream (the task
+streams, then the schema stream, in the store's order: cover, head and, for
+a domain that takes a snapshot, state) as angzarr-embedded's
+`Kernel::fold_digest` folds it; two builds' digests of one store's crossing
+must be the same bytes. Plans are files, so they have no stream and no line.
+The export is `store-cli` over `project-application`'s `Projects::export`
+and the `StoreExport` port, which task-store-sqlite implements: core's
+`Export` port is the store's own (every row, as a list), and `StoreExport`
+is the path-level command around it (the refusals of every open, then the
+ledger, then the read-only open), so the two are not duplicates. Before it
+opens anything the export refuses what every open refuses (an older
+generation's store, one from before angzarr-embedded), and then a ledger
+that is not exactly this build's migration set
+(`angzarr-store-transfer-ledger-not-the-builds`); it migrates, backs up and
+writes nothing. Run it on a copy (`VACUUM INTO`): a store with outbox
+entries still to deliver is refused.
+
 There is no unit of work: each handling step is one atomic write. The
 kernel owns retries (angzarr's owner ruling, 2026-10-31): a command that
 loses the race at its write is re-run on the new head, and a store that
@@ -257,8 +279,9 @@ clone and the pre-commit gates never read it. Restore Cargo.lock before
 committing, and land the change by pushing the sibling and bumping its rev.
 
 The angzarr pins are one set: angzarr core 44143e6 (diagnostic, ports, yaml,
-presentation), angzarr-embedded e3e22db, angzarr-platform b25486d,
-angzarr-build ea9f15d. Moving one moves all; the lock holds one of each.
+presentation, and store-transfer), angzarr-embedded e3e22db,
+angzarr-platform b25486d, angzarr-build ea9f15d. Moving one moves all; the
+lock holds one of each.
 
 ## Errors are localizable: a code, args, and an en-US message
 

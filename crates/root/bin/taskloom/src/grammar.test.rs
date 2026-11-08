@@ -238,6 +238,11 @@ const RULED_COMMANDS: &[&[&str]] = &[
     &["manage", "doctor", "repoint"],
     &["manage", "doctor", "orphans"],
     &["manage", "project", "show"],
+    // Not ruled by the owner: where the merged old line's `store` group
+    // went (its flat `store` was no longer a top-level group); see the
+    // merge report. A ruling replaces this line.
+    &["manage", "store", "export"],
+    &["manage", "store", "fold-digest"],
     &["manage", "version"],
 ];
 
@@ -263,7 +268,7 @@ fn test_each_group_has_exactly_its_ruled_verbs() {
     assert_eq!(children(&["tasks", "tag"]), set(&["add", "remove"]));
     assert_eq!(
         children(&["manage"]),
-        set(&["hook", "schema", "migrate", "doctor", "project", "version"])
+        set(&["hook", "schema", "migrate", "doctor", "project", "store", "version"])
     );
     assert_eq!(
         children(&["manage", "schema"]),
@@ -280,6 +285,10 @@ fn test_each_group_has_exactly_its_ruled_verbs() {
     assert_eq!(
         children(&["manage", "doctor"]),
         set(&["heal", "repoint", "orphans"])
+    );
+    assert_eq!(
+        children(&["manage", "store"]),
+        set(&["export", "fold-digest"])
     );
 }
 
@@ -414,6 +423,7 @@ bare_groups! {
     test_bare_manage_hook_prints_help: ["manage", "hook"];
     test_bare_manage_doctor_prints_help_and_does_not_heal: ["manage", "doctor"];
     test_bare_manage_migrate_prints_help_and_does_not_migrate: ["manage", "migrate"];
+    test_bare_manage_store_prints_help_and_does_not_export: ["manage", "store"];
 }
 
 #[test]

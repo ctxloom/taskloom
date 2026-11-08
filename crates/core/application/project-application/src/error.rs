@@ -17,6 +17,10 @@ pub enum ProjectError {
     InUse { id: String, path: String },
     /// A removal named a database something still points at, or none.
     NotOrphan { id: String },
+    /// An export with no project here to export.
+    NoProject,
+    /// An export of a project that has no database.
+    NoDatabase { id: String },
 }
 
 impl fmt::Display for ProjectError {
@@ -32,15 +36,18 @@ impl Diagnostic for ProjectError {
             ProjectError::UnknownProject { .. } => code!("unknown-project"),
             ProjectError::InUse { .. } => code!("in-use"),
             ProjectError::NotOrphan { .. } => code!("not-orphan"),
+            ProjectError::NoProject => code!("no-project"),
+            ProjectError::NoDatabase { .. } => code!("no-database"),
         }
     }
 
     fn args(&self) -> Vec<(&str, Arg)> {
         match self {
             ProjectError::Port(cause) => cause.args(),
-            ProjectError::UnknownProject { id } | ProjectError::NotOrphan { id } => {
-                vec![("id", id.as_str().into())]
-            }
+            ProjectError::UnknownProject { id }
+            | ProjectError::NotOrphan { id }
+            | ProjectError::NoDatabase { id } => vec![("id", id.as_str().into())],
+            ProjectError::NoProject => Vec::new(),
             ProjectError::InUse { id, path } => {
                 vec![("id", id.as_str().into()), ("path", path.as_str().into())]
             }
@@ -68,6 +75,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             path: "/work/old".to_string(),
         }),
         Box::new(ProjectError::NotOrphan {
+            id: "jolly-mute-magma".to_string(),
+        }),
+        Box::new(ProjectError::NoProject),
+        Box::new(ProjectError::NoDatabase {
             id: "jolly-mute-magma".to_string(),
         }),
     ]

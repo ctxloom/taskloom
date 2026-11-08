@@ -64,6 +64,12 @@ angzarr-yaml = { git = "https://github.com/angzarr-io/angzarr", rev = "44143e65f
 # `test-support` feature renders a diagnostic's English from catalogs
 # (`english_for!`), for the tests that hold it to an expected text.
 angzarr-presentation = { git = "https://github.com/angzarr-io/angzarr", rev = "44143e65f0c61fa7720b0ca5a3fe25eaf4f7eb9d" }
+# angzarr-store-transfer, a store carried across a proto generation
+# (store-export-import.plan.md): every row of a store written as JSONL in
+# proto3's JSON mapping, its payloads expanded through the app's
+# descriptors, and the re-fold digest's lines; `taskloom manage store
+# export` and `fold-digest` write them. At the core rev of the crates above.
+angzarr-store-transfer = { git = "https://github.com/angzarr-io/angzarr", rev = "44143e65f0c61fa7720b0ca5a3fe25eaf4f7eb9d" }
 # The platform crates, moved from this repository into angzarr-platform
 # (decision 36): `os` (everything that differs between operating systems),
 # `file-system` (the seam all file I/O goes through) and `file-lock`
@@ -94,6 +100,7 @@ tasks-presentation = { path = "crates/adapters/driving/tasks-presentation" }
 tasks-watch = { path = "crates/adapters/driving/tasks-watch" }
 project-cli = { path = "crates/adapters/driving/project-cli" }
 plans-cli = { path = "crates/adapters/driving/plans-cli" }
+store-cli = { path = "crates/adapters/driving/store-cli" }
 
 # tagma: the tag grammar and query engine (tagma-core), with the SemVer
 # 2.0.0 comparator a `type=semver` target orders by (`tagma_core::semver`),

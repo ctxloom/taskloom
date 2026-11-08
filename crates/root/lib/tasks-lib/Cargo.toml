@@ -12,6 +12,8 @@ angzarr-diagnostic.workspace = true
 # Their catalogs, in the wiring's (`catalog`).
 angzarr-embedded = { workspace = true, features = ["sqlite"] }
 angzarr-yaml.workspace = true
+# The store export's catalog (`catalog`).
+angzarr-store-transfer.workspace = true
 file-lock.workspace = true
 file-system.workspace = true
 harp-names.workspace = true
@@ -19,6 +21,8 @@ jsonl-task-log.workspace = true
 os.workspace = true
 plan-files.workspace = true
 plans-application.workspace = true
+# The app's descriptor sets (`DESCRIPTOR_SETS`).
+tasks-proto.workspace = true
 angzarr-presentation.workspace = true
 project-application.workspace = true
 project-registry.workspace = true

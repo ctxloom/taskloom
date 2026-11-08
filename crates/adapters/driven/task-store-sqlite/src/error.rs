@@ -26,6 +26,8 @@ pub enum StoreOpenError {
     /// up by this build. `archive` is where to move it, and the pre-port
     /// build reads it.
     OlderGeneration { path: String, archive: String },
+    /// A store's export could not be written to its output.
+    NoOutput { detail: String },
 }
 
 /// Its key, then each arg as ` name=value`, a value quoted where it would
@@ -46,6 +48,7 @@ impl StoreOpenError {
             StoreOpenError::NoRuntime { .. } => code!("no-runtime"),
             StoreOpenError::PredatesEmbedded { .. } => code!("predates-embedded"),
             StoreOpenError::OlderGeneration { .. } => code!("older-generation"),
+            StoreOpenError::NoOutput { .. } => code!("no-output"),
         }
     }
 
@@ -57,7 +60,9 @@ impl StoreOpenError {
                 ("path", path.as_str().into()),
                 ("ext_err_txt", detail.as_str().into()),
             ],
-            StoreOpenError::NoRuntime { detail } => vec![("ext_err_txt", detail.as_str().into())],
+            StoreOpenError::NoRuntime { detail } | StoreOpenError::NoOutput { detail } => {
+                vec![("ext_err_txt", detail.as_str().into())]
+            }
             StoreOpenError::PredatesEmbedded { path, backup } => vec![
                 ("path", path.as_str().into()),
                 ("backup", backup.as_str().into()),
@@ -125,6 +130,9 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(StoreOpenError::OlderGeneration {
             path: format!("{}/state.db", path()),
             archive: format!("{}/state.db.archive-<date>", path()),
+        }),
+        Box::new(StoreOpenError::NoOutput {
+            detail: "broken pipe".to_string(),
         }),
     ]
 }

@@ -503,6 +503,7 @@ fn wired_samples() -> Vec<Box<dyn Diagnostic>> {
         file_system::diagnostic_samples(),
         plans_application::diagnostic_samples(),
         plan_files::diagnostic_samples(),
+        angzarr_store_transfer::diagnostic_samples(),
     ]
     .into_iter()
     .flatten()
@@ -759,4 +760,28 @@ fn tag_rules() -> String {
         findings: String::new(),
     };
     refused.code().to_string()
+}
+
+// `store export` and `fold-digest` expand what the stores keep by name
+// (store-export-import.plan.md, D3 (a)): the app's descriptor sets, with
+// angzarr's, name every payload and state a store holds, and join one
+// pool.
+#[test]
+fn test_the_descriptor_sets_name_every_type_the_stores_keep() {
+    let pool = angzarr_store_transfer::descriptor_pool(crate::DESCRIPTOR_SETS)
+        .expect("the sets join one pool");
+    for name in [
+        "ctxloom.tasks.v1.TaskAdded",
+        "ctxloom.tasks.v1.StatusChanged",
+        "ctxloom.tasks.v1.TextEdited",
+        "ctxloom.tasks.v1.Retagged",
+        "ctxloom.tasks.v1.TaskRemoved",
+        "ctxloom.tasks.v1.SchemaRetagged",
+        "ctxloom.tasks.v1.TaskState",
+        "ctxloom.tasks.v1.SchemaState",
+        "tagma.v1.Tag",
+        "io.angzarr.v1.EventPage",
+    ] {
+        assert!(pool.get_message_by_name(name).is_some(), "{name}");
+    }
 }

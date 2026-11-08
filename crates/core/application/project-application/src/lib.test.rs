@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use angzarr_diagnostic::Report;
 
 use super::{
-    Change, Checked, IdSource, Plan, Problem, ProjectAdmin, ProjectError, Projects, Registered,
-    StoreCheck, Survey,
+    Change, Checked, Exported, IdSource, Plan, Problem, ProjectAdmin, ProjectError, Projects,
+    Registered, StoreCheck, StoreExport, Survey,
 };
 
 /// A survey answered, and every apply recorded.
@@ -660,4 +660,110 @@ fn test_heal_leaves_a_tree_already_sharing_its_id_alone() {
     );
     assert_eq!(shown.shared_with, [s("/clone/")]);
     assert_eq!(projects(survey).heal(true).unwrap(), Plan::default());
+}
+
+// ---------------------------------------------------------------- export
+
+/// An export answered, and every one asked for recorded: the database,
+/// and how many descriptor sets came with it.
+struct FakeExport {
+    answer: Result<Option<Exported>, Report>,
+    asked: Vec<(PathBuf, usize)>,
+}
+
+impl StoreExport for FakeExport {
+    fn export(
+        &mut self,
+        store: &Path,
+        descriptors: &[&[u8]],
+        out: &mut dyn std::io::Write,
+    ) -> Result<Option<Exported>, Report> {
+        self.asked.push((store.to_path_buf(), descriptors.len()));
+        if matches!(self.answer, Ok(Some(_))) {
+            out.write_all(b"{}\n").unwrap();
+        }
+        self.answer.clone()
+    }
+}
+
+/// The use cases over `survey`, an export answering `answer`.
+fn exporting(
+    survey: Survey,
+    answer: Result<Option<Exported>, Report>,
+) -> Projects<Fake, FakeExport> {
+    Projects::new(
+        Fake {
+            survey,
+            surveyed: Vec::new(),
+            applied: Vec::new(),
+            refuse: None,
+        },
+        FakeExport {
+            answer,
+            asked: Vec::new(),
+        },
+    )
+}
+
+const WRITTEN: Exported = Exported {
+    records: 3,
+    streams: 1,
+};
+
+#[test]
+fn test_export_writes_the_resolved_projects_database_through_the_port() {
+    let mut projects = exporting(marked("jolly-mute-magma"), Ok(Some(WRITTEN)));
+    let mut out = Vec::new();
+    let sets: [&[u8]; 2] = [b"a", b"b"];
+    assert_eq!(
+        projects.export(Some("jolly-mute-magma"), &sets, &mut out),
+        Ok(WRITTEN)
+    );
+    assert_eq!(out, b"{}\n", "the port's lines, to the caller's out");
+    assert_eq!(
+        projects.admin.surveyed,
+        [Some("jolly-mute-magma".to_string())],
+        "the pinned project resolved"
+    );
+    assert_eq!(
+        projects.checks.asked,
+        [(
+            survey().projects.join("jolly-mute-magma").join("state.db"),
+            2
+        )],
+        "its database, with the descriptors given"
+    );
+}
+
+#[test]
+fn test_export_with_no_project_here_is_refused_and_asks_nothing() {
+    let mut projects = exporting(survey(), Ok(Some(WRITTEN)));
+    let mut out = Vec::new();
+    assert_eq!(
+        projects.export(None, &[], &mut out),
+        Err(ProjectError::NoProject)
+    );
+    assert!(projects.checks.asked.is_empty());
+    assert!(out.is_empty());
+}
+
+#[test]
+fn test_export_of_a_project_with_no_database_is_refused_naming_it() {
+    let mut projects = exporting(marked("jolly-mute-magma"), Ok(None));
+    assert_eq!(
+        projects.export(None, &[], &mut Vec::new()),
+        Err(ProjectError::NoDatabase {
+            id: "jolly-mute-magma".to_string()
+        })
+    );
+}
+
+#[test]
+fn test_export_that_the_port_refuses_is_the_ports_diagnostic() {
+    let refusal = Report::new("a-store-ledger-not-the-builds").arg("applied", "1");
+    let mut projects = exporting(marked("jolly-mute-magma"), Err(refusal.clone()));
+    assert_eq!(
+        projects.export(None, &[], &mut Vec::new()),
+        Err(ProjectError::Port(refusal))
+    );
 }

@@ -167,6 +167,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "angzarr-store-transfer"
+version = "0.1.0"
+source = "git+https://github.com/angzarr-io/angzarr?rev=44143e65f0c61fa7720b0ca5a3fe25eaf4f7eb9d#44143e65f0c61fa7720b0ca5a3fe25eaf4f7eb9d"
+dependencies = [
+ "angzarr-diagnostic",
+ "angzarr-ports",
+ "prost",
+ "prost-reflect",
+ "prost-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "angzarr-yaml"
 version = "0.1.0"
 source = "git+https://github.com/angzarr-io/angzarr?rev=44143e65f0c61fa7720b0ca5a3fe25eaf4f7eb9d#44143e65f0c61fa7720b0ca5a3fe25eaf4f7eb9d"
@@ -1309,6 +1323,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
+name = "ordered-float"
+version = "2.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68f19d67e5a2795c94e73e0bb1cc1a7edeb2e28efd39e2e1c9b7a40c1108b11c"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "os"
 version = "0.1.0"
 source = "git+https://github.com/angzarr-io/angzarr-platform?rev=b25486d4d169c00876998cb3fdfd2825dd9589a2#b25486d4d169c00876998cb3fdfd2825dd9589a2"
@@ -1662,8 +1685,11 @@ version = "0.16.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "01b80ea363c31af2de2b92e3c07ed1156628f7838c4afb4df75ee78a37fedbd1"
 dependencies = [
+ "base64",
  "prost",
  "prost-types",
+ "serde",
+ "serde-value",
 ]
 
 [[package]]
@@ -1940,6 +1966,16 @@ checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
  "serde_derive",
+]
+
+[[package]]
+name = "serde-value"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
+dependencies = [
+ "ordered-float",
+ "serde",
 ]
 
 [[package]]
@@ -2305,6 +2341,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "store-cli"
+version = "0.1.0"
+dependencies = [
+ "angzarr-diagnostic",
+ "angzarr-presentation",
+ "angzarr-store-transfer",
+ "clap",
+ "fluent-syntax",
+ "project-application",
+ "prost",
+ "prost-types",
+ "serde_json",
+ "tasks-application",
+ "tokio",
+]
+
+[[package]]
 name = "stringprep"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2428,13 +2481,16 @@ dependencies = [
  "angzarr-diagnostic",
  "angzarr-embedded",
  "angzarr-ports",
+ "angzarr-store-transfer",
  "file-system",
  "fluent-syntax",
  "os",
  "ports",
  "prost",
  "prost-types",
+ "serde_json",
  "sqlx",
+ "tasks-proto",
  "tokio",
 ]
 
@@ -2446,6 +2502,7 @@ dependencies = [
  "angzarr-embedded",
  "angzarr-ports",
  "angzarr-presentation",
+ "angzarr-store-transfer",
  "clap",
  "file-lock",
  "file-system",
@@ -2463,6 +2520,7 @@ dependencies = [
  "project-registry",
  "serde",
  "serde_json",
+ "store-cli",
  "system",
  "tag-rules",
  "tagma-core",
@@ -2551,6 +2609,7 @@ dependencies = [
  "angzarr-embedded",
  "angzarr-ports",
  "angzarr-presentation",
+ "angzarr-store-transfer",
  "angzarr-yaml",
  "file-lock",
  "file-system",
@@ -2568,6 +2627,7 @@ dependencies = [
  "task-store-sqlite",
  "tasks-application",
  "tasks-config",
+ "tasks-proto",
  "tokio",
 ]
 

@@ -8,7 +8,9 @@
 //! schema and `tasks watch`; the importer, the only reader of the JSONL task
 //! logs, for `manage migrate tasks`; the plans use cases, over plan files,
 //! for `plans` and the `manage hook stamp-plan` hook; and the project use
-//! cases for `manage project` and `manage doctor`. `tasks watch` streams
+//! cases for `manage project` and `manage doctor`; and, for `manage store`,
+//! the project use cases' export and the tasks' digest, with the app's
+//! descriptor sets. `tasks watch` streams
 //! the project's changes, and `plans watch` the plan files', until SIGINT
 //! or SIGTERM (on Windows Ctrl-C, Ctrl-Break, or the console's close,
 //! logoff or shutdown; never at a closed stdin). It holds no logic of its
@@ -29,6 +31,7 @@ fn catalog() -> Result<angzarr_presentation::Catalog, angzarr_presentation::Cata
         project_cli::EN_US,
         tasks_watch::EN_US,
         plans_cli::EN_US,
+        store_cli::EN_US,
     ])
 }
 
@@ -94,6 +97,9 @@ enum Manage {
     /// Which project this directory is
     #[command(subcommand)]
     Project(project_cli::ProjectCommand),
+    /// Carry the project's database across a proto generation
+    #[command(subcommand)]
+    Store(store_cli::Command),
     /// Print the taskloom version
     #[command(after_help = "Examples:\n  taskloom manage version")]
     Version,
@@ -132,6 +138,7 @@ enum Mounted {
     StampPlan,
     Plans(plans_cli::Command),
     Project(project_cli::Command),
+    Store(store_cli::Command),
 }
 
 impl From<Command> for Routed {
@@ -163,6 +170,7 @@ impl From<Command> for Routed {
             Command::Manage(Manage::Project(project)) => {
                 Routed::Mounted(Mounted::Project(project_cli::Command::Project(project)))
             }
+            Command::Manage(Manage::Store(store)) => Routed::Mounted(Mounted::Store(store)),
         }
     }
 }
@@ -222,6 +230,37 @@ fn watch<W: tasks_application::WatchService>(
         .await
     });
     ExitCode::from(code)
+}
+
+/// `taskloom manage store`: the project's database written whole as JSONL,
+/// and its streams' digest (store-export-import.plan.md), over the project
+/// use cases and the tasks' digest, the app's descriptor sets given.
+fn store_group(
+    runtime: &tokio::runtime::Runtime,
+    taskloom: &Taskloom,
+    command: store_cli::Command,
+    project: Option<String>,
+    catalog: &angzarr_presentation::Catalog,
+) -> ExitCode {
+    let mut projects = taskloom.projects();
+    let mut tasks = taskloom.tasks();
+    let settings = store_cli::Settings {
+        project: project.as_deref(),
+        descriptors: tasks_lib::DESCRIPTOR_SETS,
+        prog: tasks_cli::PROG,
+    };
+    let use_cases = store_cli::UseCases {
+        projects: &mut projects,
+        tasks: &mut tasks,
+    };
+    ExitCode::from(runtime.block_on(store_cli::run(
+        command,
+        &settings,
+        catalog,
+        use_cases,
+        &mut io::stdout().lock(),
+        &mut io::stderr().lock(),
+    )))
 }
 
 /// The project commands, over the project registry and the SQLite store's
@@ -438,6 +477,7 @@ fn mounted(
             };
             project_group(taskloom, group, &settings, catalog)
         }
+        Mounted::Store(command) => store_group(runtime, taskloom, command, project, catalog),
         Mounted::Plans(group) => {
             plan_group(runtime, taskloom, group, project, &plan_settings(), catalog)
         }

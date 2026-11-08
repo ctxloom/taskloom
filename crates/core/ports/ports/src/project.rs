@@ -1,7 +1,9 @@
 //! What a directory's project identity rests on, and the changes that
 //! repair or rebind it, and whether a project's database is sound: the
-//! ports behind the `project` commands.
+//! ports behind the `project` commands. And a project's database written
+//! out whole, behind `store export`.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use angzarr_diagnostic::Report;
@@ -144,6 +146,36 @@ pub trait StoreCheck {
     /// is waited on. A failure to run the check is the error, never
     /// damage.
     fn check(&mut self, store: &Path) -> Result<Checked, Report>;
+}
+
+/// What an export of a project's database wrote: how many records lie
+/// between its header and its end, and over how many streams.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Exported {
+    pub records: u64,
+    pub streams: u64,
+}
+
+/// A project's database written out whole, as angzarr-store-transfer's
+/// JSONL (every row it keeps, in proto3's JSON mapping), to be carried to
+/// a build of another proto generation (store-export-import.plan.md), and
+/// never changed.
+///
+/// Synchronous, and it blocks on the database, as [`StoreCheck`] does.
+pub trait StoreExport {
+    /// The database at `store` written to `out`, its business payloads
+    /// expanded through `descriptors` (encoded `FileDescriptorSet`s: the
+    /// app's own; angzarr's are always taken). Its ledger is judged before
+    /// it is opened: one that is not this build's migration set, older or
+    /// newer, is refused, and nothing is migrated, created or written.
+    /// Nothing reaches `out` unless every row passes. `None`: no database
+    /// is there, and nothing is written.
+    fn export(
+        &mut self,
+        store: &Path,
+        descriptors: &[&[u8]],
+        out: &mut dyn Write,
+    ) -> Result<Option<Exported>, Report>;
 }
 
 #[cfg(test)]
