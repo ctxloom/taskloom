@@ -74,37 +74,20 @@ fn test_the_catalog_says_a_store_predates_angzarr_embedded_with_its_path_and_bac
 
 #[test]
 fn test_the_catalog_says_an_older_generation_store_is_an_archive_and_how_to_archive_it() {
-    use fluent_syntax::ast::{Entry, Expression, InlineExpression, PatternElement};
-
-    let resource = fluent_syntax::parser::parse(crate::EN_US.1).expect("the catalog parses");
-    let used = |id: &str| -> Vec<String> {
-        let message = resource
-            .body
-            .iter()
-            .find_map(|e| match e {
-                Entry::Message(m) if m.id.name == id => Some(m),
-                _ => None,
-            })
-            .unwrap_or_else(|| panic!("a message {id}"));
-        let mut used: Vec<String> = message
-            .value
-            .iter()
-            .flat_map(|p| &p.elements)
-            .filter_map(|el| match el {
-                PatternElement::Placeable {
-                    expression: Expression::Inline(InlineExpression::VariableReference { id }),
-                } => Some(id.name.to_string()),
-                _ => None,
-            })
-            .collect();
-        used.sort_unstable();
-        used
-    };
-    assert_eq!(used(code!("older-generation")), ["path"]);
-    assert_eq!(
-        used(concat!(code!("older-generation"), "-fix")),
-        ["archive", "path"]
-    );
+    let message = crate::EN_US
+        .1
+        .lines()
+        .find_map(|l| l.strip_prefix(concat!(code!("older-generation"), " = ")))
+        .expect("a message for the key");
+    for said in [
+        "{ $path }",
+        "{ $archive }",
+        "state.db-wal",
+        "state.db-shm",
+        "pre-port",
+    ] {
+        assert!(message.contains(said), "{said}: {message}");
+    }
 }
 
 #[test]

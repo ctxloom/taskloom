@@ -2432,7 +2432,9 @@ dependencies = [
  "fluent-syntax",
  "os",
  "ports",
+ "prost",
  "prost-types",
+ "sqlx",
  "tokio",
 ]
 

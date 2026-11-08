@@ -13,6 +13,9 @@ angzarr-diagnostic.workspace = true
 # (its `sqlite` feature), at the rev the kernel is built with.
 angzarr-embedded = { workspace = true, features = ["sqlite"] }
 angzarr-ports.workspace = true
+# Decodes the first event page: the generation probe.
+prost.workspace = true
+sqlx.workspace = true
 file-system.workspace = true
 os.workspace = true
 ports.workspace = true

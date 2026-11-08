@@ -121,6 +121,11 @@ serde_json = "1"
 sha2 = "0.10"
 time = { version = "0.3", features = ["formatting", "parsing"] }
 tokio = { version = "1", features = ["rt", "time"] }
+# The one read of a store file before it is opened (task-store-sqlite's
+# generation probe): the ledger and the first event page, on a connection
+# that changes nothing. The same sqlx angzarr-store-sqlite links (0.8, the
+# sqlite driver on tokio), so the lock holds one.
+sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio"] }
 # Priority's formula evaluator: expr-lang's Rust port, so the formulas Go's
 # expr-lang evaluates mean the same here. Pinned exactly, at 2.1.0
 # (2026-08-21). No default features: the formulas are arithmetic, and the

@@ -208,6 +208,26 @@ the store up beside itself through its `Backup`
 (`state.db.pre-<applied level>-<UTC time>`); one newer than the build, or
 one a migration failed or changed in, is refused untouched.
 
+A store an older generation of the build wrote is an archive (the owner's
+ruling): its event pages are of an angzarr wire this build does not decode
+(`EventPage.payload`, now `body`), so it is read only by the build that
+wrote it, and this build never writes to a store it cannot read. Before any
+open (so before a migration, a backup, or a `-wal`/`-shm` made beside it),
+task-store-sqlite reads the file once on an `immutable` read-only
+connection (SQLite makes no sidecar and takes no lock where no log holds
+commits; the ledger is no mark, the migrations being the same for both
+generations) and tries to decode its first event page as this build's
+`EventPage`: every older page fails, since `payload` was a length-delimited
+field 3 and `sequence` is a varint there now. Such a store is refused with
+`task-store-sqlite-older-generation` (args `path`, `archive`), carried as
+the cause of the envelope's `angzarr-ports-store-unavailable`, exit 1 like
+every store the build cannot use, with not one byte, entry or mtime of the
+store or its directory changed. The message says how to archive it: move
+`state.db` (and `state.db-wal`, `state.db-shm`) aside, e.g. to
+`state.db.archive-<date>`, and read it with the pre-port taskloom binary;
+the next command creates a fresh store. `manage doctor`'s check refuses it
+the same way. The one SQL this crate runs is that read; it writes none.
+
 There is no unit of work: each handling step is one atomic write. The
 kernel owns retries (angzarr's owner ruling, 2026-10-31): a command that
 loses the race at its write is re-run on the new head, and a store that

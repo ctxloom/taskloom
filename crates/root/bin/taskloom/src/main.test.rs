@@ -1628,11 +1628,19 @@ fn test_a_store_an_older_generation_wrote_is_refused_by_every_command_and_left_u
             assert_eq!(ran.code, 1, "{args:?}: {}", ran.stderr);
             assert_eq!(ran.stdout, "", "{args:?}: an error leaves stdout empty");
             let envelope = one_document(&ran.stderr);
+            // As any store the build cannot use: the store is unavailable,
+            // and the cause is the crate's own refusal, with its args.
             assert_eq!(
-                envelope["code"], "task-store-sqlite-older-generation",
+                envelope["code"], "angzarr-ports-store-unavailable",
                 "{args:?}: {envelope}"
             );
-            assert_eq!(envelope["args"]["path"], store.display().to_string());
+            let cause = &envelope["args"]["cause"];
+            assert_eq!(cause["code"], "task-store-sqlite-older-generation");
+            assert_eq!(cause["args"]["path"], store.display().to_string());
+            assert_eq!(
+                cause["args"]["archive"],
+                format!("{}.archive-<date>", store.display())
+            );
             let message = envelope["message"].as_str().unwrap();
             assert!(
                 message.contains(&store.display().to_string())

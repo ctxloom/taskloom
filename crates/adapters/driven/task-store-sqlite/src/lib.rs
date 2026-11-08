@@ -21,6 +21,12 @@
 //!   (`angzarr-ports-store-newer-than-build`, `-migration-failed`,
 //!   `-migration-changed`). ctxloom writes no SQL, and takes no backup of
 //!   its own.
+//! - A store an older generation wrote (its event pages in an angzarr wire
+//!   this build does not decode) is an archive: both opens and the check
+//!   refuse it, keyed [`StoreOpenError::OlderGeneration`] with its `path` and
+//!   the `archive` name to move it to, before anything is opened, so
+//!   nothing is migrated, backed up or made beside it, and the file and its
+//!   directory are left byte for byte as they were.
 //! - A store written before angzarr-embedded (annals-store-sql's, its
 //!   ledger only its first migration) is refused by both, keyed
 //!   [`StoreOpenError::PredatesEmbedded`] with its `path` and the
@@ -51,10 +57,14 @@ use std::sync::Arc;
 
 use angzarr_diagnostic::Report;
 use angzarr_embedded::angzarr_store_sqlite::{Integrity, SqlError, SqliteStore};
+use angzarr_ports::angzarr_proto::v1::EventPage;
 use angzarr_ports::{StoreError, Watch};
 use file_system::Fs;
 use os::Mode;
 use ports::{Checked, HeldToken, Project, StoreCheck, TaskStores, WatchedStores};
+use prost::Message;
+use sqlx::sqlite::SqliteConnectOptions;
+use sqlx::{ConnectOptions, Connection};
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
@@ -108,7 +118,9 @@ impl SqliteStores {
             return Ok(Some(self.held.insert(held)));
         }
         let real = real(&*self.fs, path).map_err(unavailable)?;
-        refuse_if_annals(&real, path).await?;
+        refuse_if_unusable(&*self.fs, &real, path)
+            .await
+            .map_err(unavailable)?;
         Ok(SqliteStore::open_existing(&real)
             .await?
             .map(|store| self.hold(path, false, store)))
@@ -128,7 +140,9 @@ impl TaskStores for SqliteStores {
         }
         create_parent(&*self.fs, path).map_err(unavailable)?;
         let real = real(&*self.fs, path).map_err(unavailable)?;
-        refuse_if_annals(&real, path).await?;
+        refuse_if_unusable(&*self.fs, &real, path)
+            .await
+            .map_err(unavailable)?;
         let store = SqliteStore::open(&real).await?;
         Ok(&self.hold(path, true, store).store)
     }
@@ -163,8 +177,9 @@ impl StoreCheck for SqliteStores {
     /// The database at `store`, opened afresh and read-only, checked whole.
     /// Synchronous, as the project commands are, on a runtime of its own
     /// on a thread of its own, since its caller may be on one already.
-    fn check(&mut self, store: &Path) -> Result<Checked, Report> {
-        let store = &real(&*self.fs, store).map_err(|e| ported(&e.cause()))?;
+    fn check(&mut self, logical: &Path) -> Result<Checked, Report> {
+        let fs = &*self.fs;
+        let store = &real(fs, logical).map_err(|e| ported(&e.cause()))?;
         std::thread::scope(|scope| {
             let checking = scope.spawn(|| {
                 let runtime = tokio::runtime::Builder::new_current_thread()
@@ -178,7 +193,14 @@ impl StoreCheck for SqliteStores {
                             .cause(),
                         )
                     })?;
-                runtime.block_on(check(store)).map_err(|e| report(&e))
+                runtime.block_on(async {
+                    // An older generation's store is an archive: no open of
+                    // it, however read-only, is made.
+                    refuse_if_unusable(fs, store, logical)
+                        .await
+                        .map_err(|e| ported(&e.cause()))?;
+                    check(store).await.map_err(|e| report(&e))
+                })
             });
             checking
                 .join()
@@ -212,22 +234,102 @@ async fn check(path: &Path) -> Result<Checked, StoreError> {
     })
 }
 
-/// The store at `real` (`path` as the caller names it), refused if it is
-/// annals-store-sql's, a store from before angzarr-embedded (ruling D2),
-/// naming its backup: its ledger, read without opening it, holds only the
-/// first migration, which annals-store-sql's first is blob-identical to.
-async fn refuse_if_annals(real: &Path, path: &Path) -> Result<(), StoreError> {
-    let ledger = SqliteStore::ledger_at(real).await?;
-    let annals = ledger.is_some_and(|ledger| ledger.iter().map(|r| r.version).eq([1]));
-    if !annals {
+/// The store at `real` (`path` as the caller names it), judged before any
+/// open, which would migrate it, back it up or make files beside it, and
+/// refused, untouched, if this build cannot use it:
+///
+/// - annals-store-sql's, a store from before angzarr-embedded (ruling D2),
+///   naming its backup: its ledger holds only the first migration, which
+///   annals-store-sql's first is blob-identical to;
+/// - one an older generation wrote: its first event page does not decode
+///   as this build's `EventPage` ([`StoreOpenError::OlderGeneration`]).
+///   The migrations are the same for both generations, so the ledger is no
+///   mark of it; the page is: `payload` was field 3 (length-delimited),
+///   which is `sequence` (a varint) now, so every page the older wire wrote
+///   fails to decode, and this build's own never do.
+///
+/// The store is read once, on a connection that changes nothing, without
+/// the library's open: `immutable`, so SQLite makes no `-wal` or `-shm`
+/// beside a store in WAL mode and takes no lock, while no log holds
+/// anything (a store closed cleanly has none). Where a log holds
+/// commits, it is read as SQLite reads it (the files exist, so none is
+/// made). What cannot be read at all (no database, damage) is the
+/// store's own to refuse when it is opened.
+async fn refuse_if_unusable(fs: &dyn Fs, real: &Path, path: &Path) -> Result<(), StoreOpenError> {
+    if !fs.exists(path).unwrap_or(true) {
         return Ok(());
     }
-    let mut backup = path.as_os_str().to_owned();
-    backup.push(".pre-embedded");
-    Err(unavailable(StoreOpenError::PredatesEmbedded {
-        path: path.display().to_string(),
-        backup: PathBuf::from(backup).display().to_string(),
-    }))
+    let logged = fs
+        .metadata(&sibling(path, "-wal"))
+        .is_ok_and(|log| log.len > 0);
+    let Some(Probed { versions, page }) = probe(real, !logged).await else {
+        return Ok(());
+    };
+    if versions == [1] {
+        return Err(StoreOpenError::PredatesEmbedded {
+            path: path.display().to_string(),
+            backup: sibling(path, ".pre-embedded").display().to_string(),
+        });
+    }
+    if page.is_some_and(|bytes| EventPage::decode(bytes.as_slice()).is_err()) {
+        return Err(StoreOpenError::OlderGeneration {
+            path: path.display().to_string(),
+            archive: sibling(path, ".archive-<date>").display().to_string(),
+        });
+    }
+    Ok(())
+}
+
+/// `path` with `suffix` appended to its file name.
+fn sibling(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
+/// What the store file holds that the judgement reads.
+struct Probed {
+    /// The ledger's versions, in order (none if it has no ledger).
+    versions: Vec<i64>,
+    /// The first event page's bytes; none if no event is stored.
+    page: Option<Vec<u8>>,
+}
+
+/// The ledger and an event page of the database at `real`, read-only; with
+/// `immutable` it is read as the file stands, touching nothing beside it.
+/// `None` if it cannot be opened or read at all.
+async fn probe(real: &Path, immutable: bool) -> Option<Probed> {
+    let mut conn = SqliteConnectOptions::new()
+        .filename(real)
+        .read_only(true)
+        .immutable(immutable)
+        .connect()
+        .await
+        .ok()?;
+    // A table that is not there is nothing stored; a database that is not
+    // one fails here, and is the store's to refuse.
+    let tables: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM sqlite_master WHERE type = 'table'")
+            .fetch_all(&mut conn)
+            .await
+            .ok()?;
+    let has = |name: &str| tables.iter().any(|t| t == name);
+    let versions = match has("_sqlx_migrations") {
+        true => sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(&mut conn)
+            .await
+            .ok()?,
+        false => Vec::new(),
+    };
+    let page = match has("events") {
+        true => sqlx::query_scalar("SELECT page FROM events LIMIT 1")
+            .fetch_optional(&mut conn)
+            .await
+            .ok()?,
+        false => None,
+    };
+    let _ = conn.close().await;
+    Some(Probed { versions, page })
 }
 
 /// `error` as angzarr-embedded's diagnostics report it: its code, and its

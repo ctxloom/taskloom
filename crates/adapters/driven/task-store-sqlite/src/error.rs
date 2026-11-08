@@ -20,6 +20,12 @@ pub enum StoreOpenError {
     /// (the owner's ruling D2), but moved aside to `backup` and started
     /// afresh.
     PredatesEmbedded { path: String, backup: String },
+    /// The store at `path` was written by an older build, in an angzarr
+    /// wire this build does not decode (an event page's `payload`, now
+    /// `body`): it is an archive, never opened to write, migrated or backed
+    /// up by this build. `archive` is where to move it, and the pre-port
+    /// build reads it.
+    OlderGeneration { path: String, archive: String },
 }
 
 /// Its key, then each arg as ` name=value`, a value quoted where it would
@@ -39,6 +45,7 @@ impl StoreOpenError {
             StoreOpenError::Unplaced { .. } => code!("unplaced"),
             StoreOpenError::NoRuntime { .. } => code!("no-runtime"),
             StoreOpenError::PredatesEmbedded { .. } => code!("predates-embedded"),
+            StoreOpenError::OlderGeneration { .. } => code!("older-generation"),
         }
     }
 
@@ -54,6 +61,10 @@ impl StoreOpenError {
             StoreOpenError::PredatesEmbedded { path, backup } => vec![
                 ("path", path.as_str().into()),
                 ("backup", backup.as_str().into()),
+            ],
+            StoreOpenError::OlderGeneration { path, archive } => vec![
+                ("path", path.as_str().into()),
+                ("archive", archive.as_str().into()),
             ],
         }
     }
@@ -110,6 +121,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(StoreOpenError::PredatesEmbedded {
             path: format!("{}/state.db", path()),
             backup: format!("{}/state.db.pre-embedded", path()),
+        }),
+        Box::new(StoreOpenError::OlderGeneration {
+            path: format!("{}/state.db", path()),
+            archive: format!("{}/state.db.archive-<date>", path()),
         }),
     ]
 }
