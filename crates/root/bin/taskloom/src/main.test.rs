@@ -1557,17 +1557,19 @@ fn test_in_json_each_project_command_writes_one_document_and_errors_an_envelope(
 }
 
 /// A store as the e996ea4 build wrote one, migration 0005 pending (see
-/// task-store-sqlite's tests): two tasks.
-const BEFORE_0005: &[u8] =
+/// task-store-sqlite's tests): two tasks, in the angzarr wire before the
+/// event page's `payload` became `body`. This build does not read it.
+const OLD_GENERATION: &[u8] =
     include_bytes!("../../../../adapters/driven/task-store-sqlite/testdata/before-0005.db");
 
-/// The owner ruled 2026-10-31: both read and write migrate on startup. A
-/// listing of a project whose store an older build wrote migrates it,
-/// backed up beside it first, and lists its tasks.
-#[test]
-fn test_a_read_of_a_store_an_older_build_wrote_migrates_and_backs_it_up_and_refuses_its_old_events()
-{
-    let env = Env::new("before-0005-harp");
+/// The same store with its event pages in the wire this build reads:
+/// migration 0005 pending, two tasks.
+const THIS_GENERATION_BEFORE_0005: &[u8] =
+    include_bytes!("../../../../adapters/driven/task-store-sqlite/testdata/current-before-0005.db");
+
+/// A project whose store file holds `bytes`, nothing beside it: the project
+/// is minted by a seeding `add`, then its store replaced.
+fn project_with_store(env: &Env, bytes: &[u8]) -> PathBuf {
     env.seed("replaced");
     let stores = env.stores();
     let [store] = stores.as_slice() else {
@@ -1579,22 +1581,99 @@ fn test_a_read_of_a_store_an_older_build_wrote_migrates_and_backs_it_up_and_refu
             disk::remove_file(&sibling).unwrap();
         }
     }
-    disk::write(store, BEFORE_0005).unwrap();
+    disk::write(store, bytes).unwrap();
+    store.clone()
+}
 
-    // The angzarr wire the store's events were written in (an `EventPage`
-    // with `payload`) is not today's (`body`): the schema migrates and the
-    // store is backed up, and its events no longer decode. Reading them
-    // again is the store export's (a later change), never a silent
-    // rewrite.
-    let ran = env.run(&["tasks", "list", "--format", "json"]);
-    assert!(
-        !ran.ok,
-        "an event written before the wire change is refused"
-    );
-    assert_eq!(
-        one_document(&ran.stderr)["code"],
-        "angzarr-ports-store-unreadable"
-    );
+/// What the directory at `dir` holds: each entry's name, bytes and
+/// modification time.
+fn tree(dir: &Path) -> Vec<(std::ffi::OsString, Vec<u8>, std::time::SystemTime)> {
+    disk::read_dir(dir)
+        .unwrap()
+        .into_iter()
+        .map(|path| {
+            let modified = os().metadata(&path).unwrap().modified;
+            (
+                path.file_name().unwrap().to_owned(),
+                disk::read(&path).unwrap(),
+                modified,
+            )
+        })
+        .collect()
+}
+
+/// The owner ruled: a store an older build wrote stays a read-only archive,
+/// read by the build that wrote it; this build starts new stores. Every
+/// command that opens the store refuses it, exit 1 as a store that cannot
+/// be used is, before anything is written: not migrated, not backed up, no
+/// file made beside it, not one byte or mtime changed.
+#[test]
+fn test_a_store_an_older_generation_wrote_is_refused_by_every_command_and_left_untouched() {
+    for beside in [&[][..], &["state.db-wal", "state.db-shm"][..]] {
+        let env = Env::new("old-generation-harp");
+        let store = project_with_store(&env, OLD_GENERATION);
+        for name in beside {
+            disk::write(store.with_file_name(name), b"").unwrap();
+        }
+        let dir = store.parent().unwrap();
+        let before = tree(dir);
+        for args in [
+            &["tasks", "list", "--format", "json"][..],
+            &["tasks", "add", "one more", "--format", "json"],
+            &["tasks", "show", "no-such-harp", "--format", "json"],
+            &["manage", "schema", "show", "--format", "json"],
+        ] {
+            let ran = env.run(args);
+            assert!(!ran.ok, "{args:?} refused");
+            assert_eq!(ran.code, 1, "{args:?}: {}", ran.stderr);
+            assert_eq!(ran.stdout, "", "{args:?}: an error leaves stdout empty");
+            let envelope = one_document(&ran.stderr);
+            assert_eq!(
+                envelope["code"], "task-store-sqlite-older-generation",
+                "{args:?}: {envelope}"
+            );
+            assert_eq!(envelope["args"]["path"], store.display().to_string());
+            let message = envelope["message"].as_str().unwrap();
+            assert!(
+                message.contains(&store.display().to_string())
+                    && message.contains("state.db-wal")
+                    && message.contains("state.db.archive-<date>")
+                    && message.contains("pre-port"),
+                "the message says how to archive it: {message}"
+            );
+            assert_eq!(tree(dir), before, "{args:?}: untouched, not even an mtime");
+        }
+        let created: Vec<_> = tree(dir)
+            .into_iter()
+            .map(|(name, ..)| name.to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("state.db.pre-"))
+            .collect();
+        assert_eq!(created, Vec::<String>::new(), "no backup");
+    }
+}
+
+/// Archived by hand as the message says, the project starts a store of its
+/// own.
+#[test]
+fn test_with_the_old_store_moved_aside_the_project_starts_a_new_one() {
+    let env = Env::new("archived-harp");
+    let store = project_with_store(&env, OLD_GENERATION);
+    disk::rename(&store, store.with_file_name("state.db.archive-2026-11-07")).unwrap();
+    let added = env.run(&["tasks", "add", "afresh", "--format", "json"]);
+    assert!(added.ok, "{}", added.stderr);
+    assert_eq!(env.list().len(), 1, "only the new store's task");
+}
+
+/// The owner ruled 2026-10-31: both read and write migrate on startup. A
+/// listing of a project whose store an older build of this generation wrote
+/// migrates it, backed up beside it first, and lists its tasks.
+#[test]
+fn test_a_read_of_a_store_this_generation_wrote_migrates_and_backs_it_up_and_lists_its_tasks() {
+    let env = Env::new("before-0005-harp");
+    let store = project_with_store(&env, THIS_GENERATION_BEFORE_0005);
+    let listed = env.run(&["tasks", "list", "--format", "json"]);
+    assert!(listed.ok, "{}", listed.stderr);
+    assert_eq!(listed.json().as_array().unwrap().len(), 2, "both tasks");
     let backups: Vec<PathBuf> = disk::read_dir(store.parent().unwrap())
         .unwrap()
         .into_iter()
@@ -1618,6 +1697,23 @@ fn test_a_read_of_a_store_an_older_build_wrote_migrates_and_backs_it_up_and_refu
         [1, 2, 3, 4],
         "the store as it was before migrating"
     );
+}
+
+/// A store this build made opens as it always did: no backup, no archive
+/// refusal.
+#[test]
+fn test_a_store_this_build_made_opens_as_before() {
+    let env = Env::new("current-harp");
+    env.seed("kept");
+    let listed = env.list();
+    assert_eq!(listed.len(), 1);
+    let stores = env.stores();
+    let names: Vec<String> = tree(stores[0].parent().unwrap())
+        .into_iter()
+        .map(|(name, ..)| name.to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("state.db.pre-"))
+        .collect();
+    assert_eq!(names, Vec::<String>::new(), "nothing to back up");
 }
 
 #[path = "codes.test.rs"]

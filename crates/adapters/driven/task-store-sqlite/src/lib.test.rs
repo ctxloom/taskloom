@@ -878,17 +878,26 @@ fn test_reading_another_project_does_not_serve_the_held_one() {
 // store newer than the build, and one from before angzarr-embedded, are
 // refused and left as they were.
 
-/// A store as the e996ea4 build of taskloom wrote one, on
-/// angzarr-store-sqlite 07154a2 (migrations 0001 to 0004, so 0005 is
-/// pending here): `taskloom tasks add` twice in a project of its own, its two
-/// tasks on two `tasks` streams beside its schema stream, closed so the
-/// file holds everything (its log empty).
-const BEFORE_0005: &[u8] = include_bytes!("../testdata/before-0005.db");
+/// A store as this build's generation writes one, with migrations 0001 to
+/// 0004 applied, so 0005 is pending here: [`OLD_BEFORE_0005`] with each
+/// event page re-encoded in the wire this build reads (`payload` 3, `meta`
+/// 8 and `sequence` 9 as `event` 1, `meta` 2 and `sequence` 3), with
+/// Python's sqlite3, closed (its log checkpointed and removed). Two tasks
+/// beside the schema stream.
+const BEFORE_0005: &[u8] = include_bytes!("../testdata/current-before-0005.db");
+
+/// A store of an older generation of the wire: what the e996ea4 build of
+/// taskloom wrote, on angzarr-store-sqlite 07154a2 (migrations 0001 to
+/// 0004), `taskloom tasks add` twice in a project of its own, closed so the
+/// file holds everything (its log empty). Its event pages are `EventPage`s
+/// of the `payload` layout, which this build does not decode: it is an
+/// archive, read by the build that wrote it.
+const OLD_BEFORE_0005: &[u8] = include_bytes!("../testdata/before-0005.db");
 
 /// A store newer than this build: [`BEFORE_0005`] with a migration this
 /// build does not have (version 99) recorded as applied, added with
 /// Python's sqlite3 and closed (its log checkpointed and removed).
-const NEWER: &[u8] = include_bytes!("../testdata/newer.db");
+const NEWER: &[u8] = include_bytes!("../testdata/current-newer.db");
 
 /// The backups beside the store at `path`, by name.
 fn backups(home: &Home, path: &Path) -> Vec<PathBuf> {
@@ -1046,6 +1055,134 @@ fn test_a_store_newer_than_the_build_is_refused_and_left_as_it_was() {
     assert!(stores.held.is_none());
     assert_eq!(home.read(&path), NEWER, "the file as it was");
     assert_eq!(backups(&home, &path), Vec::<PathBuf>::new(), "no backup");
+}
+
+// ------------------------------------- a store of an older generation
+//
+// The owner ruled: a store an older build wrote, whose event pages are of
+// a wire this build does not decode, stays a read-only archive, read by the
+// build that wrote it; this build starts new stores. So it is never written
+// to: judged before any open, which would migrate it, back it up or make
+// the files beside it, and refused leaving not one byte, entry or mtime
+// changed.
+
+/// The key an older generation's store is refused with.
+const OLDER_GENERATION: &str = code!("older-generation");
+
+/// What a directory holds: each entry's name, bytes and modification time.
+fn tree(home: &Home, dir: &Path) -> Vec<(std::ffi::OsString, Vec<u8>, std::time::SystemTime)> {
+    home.rooted
+        .read_dir(dir)
+        .unwrap()
+        .into_iter()
+        .map(|e| {
+            let path = dir.join(&e.name);
+            let modified = home.rooted.metadata(&path).unwrap().modified;
+            (e.name, home.read(&path), modified)
+        })
+        .collect()
+}
+
+/// The store `bytes` at a project's path, with `beside` (a file name and
+/// its bytes) beside it.
+fn archive(home: &Home, bytes: &[u8], beside: &[(&str, &[u8])]) -> (PathBuf, Project) {
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    home.write(&path, bytes);
+    for (name, bytes) in beside {
+        home.write(&path.with_file_name(name), bytes);
+    }
+    let project = project("jolly-mute-magma", path.clone());
+    (path, project)
+}
+
+fn refused_as_older(refusal: Option<StoreError>, path: &Path) {
+    let refusal = refusal.expect("refused, never opened");
+    let mut args = keyed(&refusal, OLDER_GENERATION)
+        .unwrap_or_else(|| panic!("keyed {OLDER_GENERATION}: {refusal}"));
+    args.sort();
+    let archive = format!("{}.archive-<date>", path.display());
+    assert_eq!(
+        args,
+        [("archive", archive), ("path", path.display().to_string())]
+    );
+}
+
+#[test]
+fn test_a_store_an_older_generation_wrote_is_refused_by_every_open_and_left_exactly_as_it_was() {
+    for beside in [
+        &[][..],
+        // A log and index of nothing: the store was closed, so they are empty.
+        &[("state.db-wal", &b""[..]), ("state.db-shm", &b""[..])][..],
+    ] {
+        let home = Home::new();
+        let (path, project) = archive(&home, OLD_BEFORE_0005, beside);
+        let dir = path.parent().unwrap();
+        let before = tree(&home, dir);
+        let mut stores = home.stores();
+
+        refused_as_older(block_on(stores.open(&project)).map(drop).err(), &path);
+        refused_as_older(
+            block_on(stores.open_existing(&project)).map(drop).err(),
+            &path,
+        );
+        refused_as_older(
+            block_on(stores.change_token(&project)).map(drop).err(),
+            &path,
+        );
+        assert!(stores.held.is_none(), "nothing held");
+        assert_eq!(tree(&home, dir), before, "not a byte, entry or mtime");
+        assert_eq!(backups(&home, &path), Vec::<PathBuf>::new(), "no backup");
+    }
+}
+
+#[test]
+fn test_an_older_generation_store_already_migrated_by_an_earlier_build_is_refused_too() {
+    // The ledger is no mark of the generation: the migrations are the same
+    // for both. Migrated in the test's setup (angzarr-store-sqlite's own
+    // open), the pages are still the old ones.
+    let home = Home::new();
+    let (path, project) = archive(&home, OLD_BEFORE_0005, &[]);
+    block_on(async { SqliteStore::open(&home.real(&path)).await.map(drop) }).unwrap();
+    assert_eq!(ledger(&home, &path), [1, 2, 3, 4, 5, 6]);
+    let dir = path.parent().unwrap();
+    let before = tree(&home, dir);
+    let mut stores = home.stores();
+    refused_as_older(block_on(stores.open(&project)).map(drop).err(), &path);
+    refused_as_older(
+        block_on(stores.open_existing(&project)).map(drop).err(),
+        &path,
+    );
+    assert_eq!(tree(&home, dir), before, "not a byte, entry or mtime");
+}
+
+#[test]
+fn test_the_check_of_an_older_generation_store_refuses_it_and_writes_nothing() {
+    let home = Home::new();
+    let (path, _) = archive(&home, OLD_BEFORE_0005, &[]);
+    let dir = path.parent().unwrap();
+    let before = tree(&home, dir);
+    let checked = home.stores().check(&path);
+    let Err(report) = checked else {
+        panic!("refused: {checked:?}");
+    };
+    assert_eq!(report.code(), "task-store-sqlite-older-generation");
+    assert_eq!(tree(&home, dir), before, "not a byte, entry or mtime");
+}
+
+#[test]
+fn test_a_store_that_is_new_is_created_and_one_of_this_generation_opens() {
+    let home = Home::new();
+    let path = store_in(home.path(), "brand-new");
+    let mut stores = home.stores();
+    block_on(stores.open(&project("brand-new", path.clone()))).expect("created");
+    assert!(home.exists(&path));
+    // Written by this build, closed, and opened again: not an archive.
+    let mut again = home.stores();
+    let found = block_on(again.open(&project("brand-new", path)))
+        .map(drop)
+        .map_err(|e| e.to_string());
+    assert_eq!(found, Ok(()));
 }
 
 #[test]

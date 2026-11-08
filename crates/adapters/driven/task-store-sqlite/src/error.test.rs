@@ -35,6 +35,11 @@ fn test_each_error_displays_its_code_and_args_never_english() {
                 " path=/home/u/.ctxloom/projects/jolly-mute-magma/state.db \
              backup=/home/u/.ctxloom/projects/jolly-mute-magma/state.db.pre-embedded"
             ),
+            concat!(
+                code!("older-generation"),
+                " path=/home/u/.ctxloom/projects/jolly-mute-magma/state.db \
+             archive=/home/u/.ctxloom/projects/jolly-mute-magma/state.db.archive-<date>"
+            ),
         ]
     );
 }
@@ -65,6 +70,41 @@ fn test_the_catalog_says_a_store_predates_angzarr_embedded_with_its_path_and_bac
         .collect();
     used.sort_unstable();
     assert_eq!(used, ["backup", "path"]);
+}
+
+#[test]
+fn test_the_catalog_says_an_older_generation_store_is_an_archive_and_how_to_archive_it() {
+    use fluent_syntax::ast::{Entry, Expression, InlineExpression, PatternElement};
+
+    let resource = fluent_syntax::parser::parse(crate::EN_US.1).expect("the catalog parses");
+    let used = |id: &str| -> Vec<String> {
+        let message = resource
+            .body
+            .iter()
+            .find_map(|e| match e {
+                Entry::Message(m) if m.id.name == id => Some(m),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("a message {id}"));
+        let mut used: Vec<String> = message
+            .value
+            .iter()
+            .flat_map(|p| &p.elements)
+            .filter_map(|el| match el {
+                PatternElement::Placeable {
+                    expression: Expression::Inline(InlineExpression::VariableReference { id }),
+                } => Some(id.name.to_string()),
+                _ => None,
+            })
+            .collect();
+        used.sort_unstable();
+        used
+    };
+    assert_eq!(used(code!("older-generation")), ["path"]);
+    assert_eq!(
+        used(concat!(code!("older-generation"), "-fix")),
+        ["archive", "path"]
+    );
 }
 
 #[test]
