@@ -392,6 +392,71 @@ fn test_projects_shows_the_project_an_add_minted() {
     assert_eq!(shown.store, Some(written.project.store));
 }
 
+// The marker's place is the builder's setting: a write puts the project's
+// id there (and not at the default place), and a read follows it.
+#[test]
+fn test_the_marker_set_is_where_the_project_id_is_written_and_read() {
+    let dirs = Dirs::new();
+    let taskloom = dirs
+        .builder_in(PROJECT)
+        .marker(".myapp/project-id")
+        .build()
+        .unwrap();
+    let written = block_on(taskloom.tasks().add(new_task("Ship it"))).unwrap();
+    let marker = os::fixture(PROJECT).join(".myapp").join("project-id");
+    assert_eq!(
+        dirs.owner.read_to_string(&marker).unwrap().trim(),
+        written.project.id
+    );
+    assert!(!dirs
+        .owner
+        .exists(&os::fixture(PROJECT).join(".project-id"))
+        .unwrap());
+
+    let again = block_on(taskloom.tasks().add(new_task("And again"))).unwrap();
+    assert_eq!(
+        again.project.id, written.project.id,
+        "the marker is read back"
+    );
+    assert_eq!(
+        taskloom.projects().show(None).unwrap().store,
+        Some(written.project.store)
+    );
+}
+
+// With no marker set, the marker is where it has always been.
+#[test]
+fn test_without_a_marker_set_the_default_place_is_used() {
+    let dirs = Dirs::new();
+    let written = block_on(dirs.taskloom().tasks().add(new_task("Ship it"))).unwrap();
+    let marker = os::fixture(PROJECT).join(".project-id");
+    assert_eq!(
+        dirs.owner.read_to_string(&marker).unwrap().trim(),
+        written.project.id
+    );
+}
+
+// A place that is not under the root is refused when the wiring is built,
+// with the registry's own refusal.
+#[test]
+fn test_a_marker_outside_the_root_is_refused_at_build() {
+    let dirs = Dirs::new();
+    for bad in ["", "/abs/project-id", "../project-id"] {
+        let refused = dirs.builder_in(PROJECT).marker(bad).build().unwrap_err();
+        assert_eq!(
+            refused.code(),
+            "project-registry-invalid-marker-path",
+            "{bad}"
+        );
+        assert!(
+            matches!(refused, BuildError::InvalidMarker(_)),
+            "{refused:?}"
+        );
+        let rendered = catalog(&[]).unwrap().render(&refused).unwrap();
+        assert!(rendered.contains(bad), "{rendered}");
+    }
+}
+
 // The filesystem given is the one the wiring holds.
 #[test]
 fn test_the_filesystem_given_is_the_one_the_wiring_holds() {

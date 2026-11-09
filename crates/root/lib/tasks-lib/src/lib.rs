@@ -128,6 +128,9 @@ pub struct Taskloom {
     vars: Vec<(OsString, OsString)>,
     /// The `--config-set` overrides, applied last.
     config_set: Vec<String>,
+    /// Where the project marker is under a root, when not the registry's
+    /// default; checked by [`Builder::build`].
+    marker: Option<PathBuf>,
 }
 
 impl Taskloom {
@@ -218,7 +221,15 @@ impl Taskloom {
     /// The project registry over the wiring's filesystem and environment,
     /// minting ids from `names`.
     fn registry<N>(&self, names: N) -> ProjectRegistry<N> {
-        ProjectRegistry::new(Arc::clone(&self.fs), self.env.clone(), names)
+        let registry = ProjectRegistry::new(Arc::clone(&self.fs), self.env.clone(), names);
+        match &self.marker {
+            None => registry,
+            // Checked when the wiring was built, and a wiring is never
+            // made without that.
+            Some(marker) => registry
+                .with_marker(marker)
+                .expect("the marker was checked at build"),
+        }
     }
 }
 
@@ -238,6 +249,7 @@ pub struct Builder {
     project_id: Option<String>,
     vars: Vec<(OsString, OsString)>,
     config_set: Vec<String>,
+    marker: Option<PathBuf>,
 }
 
 /// Where a [`Builder`]'s filesystem comes from.
@@ -273,6 +285,7 @@ impl Builder {
             project_id: None,
             vars: Vec::new(),
             config_set: Vec::new(),
+            marker: None,
         }
     }
 
@@ -349,6 +362,18 @@ impl Builder {
         }
     }
 
+    /// Where the project marker is, relative to the work root, rather than
+    /// the registry's default (`.project-id`): a relative path of plain
+    /// names. The marker is written there, and read from there first (the
+    /// default place is still read when it is absent). Any other path is
+    /// refused at [`Builder::build`] ([`BuildError::InvalidMarker`]).
+    pub fn marker(self, marker: impl Into<PathBuf>) -> Builder {
+        Builder {
+            marker: Some(marker.into()),
+            ..self
+        }
+    }
+
     /// The wiring. On the real filesystem ([`Builder::new`]), refused
     /// ([`BuildError::RelativeCwd`]) unless the working directory given is
     /// absolute. A filesystem with no working directory is not refused:
@@ -365,15 +390,22 @@ impl Builder {
             }
             Ground::Fs(fs) => fs,
         };
+        let env = Environment {
+            home: self.home,
+            root: self.root,
+            project_id: self.project_id,
+        };
+        if let Some(marker) = &self.marker {
+            ProjectRegistry::new(Arc::clone(&fs), env.clone(), ())
+                .with_marker(marker)
+                .map_err(BuildError::InvalidMarker)?;
+        }
         Ok(Taskloom {
             fs,
-            env: Environment {
-                home: self.home,
-                root: self.root,
-                project_id: self.project_id,
-            },
+            env,
             vars: self.vars,
             config_set: self.config_set,
+            marker: self.marker,
         })
     }
 }
