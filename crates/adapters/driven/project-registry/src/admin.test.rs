@@ -315,3 +315,52 @@ fn test_a_change_is_made_under_the_registry_lock() {
     registry.apply(&seen, &change).unwrap();
     assert_eq!(world.index().projects.len(), 1);
 }
+
+#[test]
+fn test_a_survey_and_a_marker_change_use_the_configured_location() {
+    let world = World::new();
+    let tree = text(&world.tree());
+    world.write(&world.tree().join(".project-id"), "legacy-id\n");
+    world.write(&world.tree().join(".myapp/project-id"), "app-id\n");
+    let mut registry = world.registry_at(&[], ".myapp/project-id");
+    let survey = registry
+        .survey(None)
+        .expect("a conflict is surveyed, not refused");
+    assert_eq!(survey.marker.as_deref(), Some("app-id"));
+    assert_eq!(
+        survey.legacy_marker.as_deref(),
+        Some("legacy-id"),
+        "the conflicting older marker is reported beside the marker"
+    );
+    assert_eq!(survey.resolved, Some((s("app-id"), IdSource::Marker)));
+    registry
+        .apply(
+            &survey,
+            &[Change::WriteMarker {
+                root: tree,
+                id: s("fixed-id"),
+            }],
+        )
+        .unwrap();
+    assert_eq!(
+        world.file(".myapp/project-id").as_deref(),
+        Some("fixed-id\n")
+    );
+    assert_eq!(world.marker().as_deref(), Some("legacy-id\n"));
+}
+
+#[test]
+fn test_a_survey_with_a_configured_marker_absent_reports_the_default_one_as_legacy() {
+    let world = World::new();
+    world.write(&world.tree().join(".project-id"), "legacy-id\n");
+    let survey = world
+        .registry_at(&[], ".myapp/project-id")
+        .survey(None)
+        .unwrap();
+    assert_eq!(survey.marker, None);
+    assert_eq!(survey.legacy_marker.as_deref(), Some("legacy-id"));
+    assert_eq!(
+        survey.resolved,
+        Some((s("legacy-id"), IdSource::LegacyMarker))
+    );
+}

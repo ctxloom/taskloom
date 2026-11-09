@@ -29,6 +29,8 @@ fn test_each_error_renders_its_english_fallback() {
             "/home/u/.ctxloom/projects/jolly-mute-magma is not a project's database directory: not removed",
             "/work/linked is a linked worktree whose git directory /work/main/.git/worktrees/linked is gone: run `git worktree repair` from its primary checkout, or remove the worktree",
             "the project registry's lock cannot be taken: the lock /h/.ctxloom/projects/index.yaml.lock is not a regular file, so it cannot be locked",
+            "the marker location ../id is not usable: it climbs out of the root",
+            "/work/tree/.myapp/project-id names the project one-id but /work/tree/.project-id names other-id: remove the one that is wrong, and nothing is chosen between them",
         ]
     );
 }

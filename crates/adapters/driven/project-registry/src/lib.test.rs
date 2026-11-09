@@ -142,6 +142,16 @@ impl World {
         ProjectRegistry::new(self.fs(), self.env(), names(ids))
     }
 
+    /// A registry whose marker is at `marker`, under the work root.
+    pub(crate) fn registry_at(&self, ids: &[&str], marker: &str) -> ProjectRegistry<Scripted> {
+        self.registry(ids).with_marker(marker).unwrap()
+    }
+
+    /// The text at `rel` under the work tree, if any.
+    pub(crate) fn file(&self, rel: &str) -> Option<String> {
+        self.fs.read_to_string(&self.tree().join(rel)).ok()
+    }
+
     pub(crate) fn index(&self) -> index::Index {
         index::load(&*self.fs, &index::path(&self.home())).unwrap()
     }
@@ -469,6 +479,209 @@ fn test_gos_older_marker_is_read_and_adopted_only_by_a_write() {
     assert!(
         world.index().projects.is_empty(),
         "adopting registers nothing yet"
+    );
+}
+
+// ------------------------------------------------------------ marker location
+
+const APP: &str = ".myapp/project-id";
+
+#[test]
+fn test_a_write_marks_the_configured_location_and_not_the_default() {
+    let world = World::new();
+    let project = world
+        .registry_at(&["fresh-new-id"], APP)
+        .for_write(None)
+        .unwrap();
+    assert_eq!(project.id, "fresh-new-id");
+    assert_eq!(world.file(APP).as_deref(), Some("fresh-new-id\n"));
+    assert_eq!(world.marker(), None, "nothing at the default location");
+}
+
+#[test]
+fn test_the_configured_marker_names_the_project() {
+    let world = World::new();
+    world.write(&world.tree().join(APP), " app-id \n");
+    let project = world.registry_at(&[], APP).for_read(None).unwrap().unwrap();
+    assert_eq!(project.id, "app-id");
+}
+
+#[test]
+fn test_the_default_location_is_the_default_marker_and_naming_it_changes_nothing() {
+    let world = World::new();
+    let mut registry = world.registry_at(&["fresh-new-id"], ".project-id");
+    registry.for_write(None).unwrap();
+    assert_eq!(world.marker().as_deref(), Some("fresh-new-id\n"));
+    assert_eq!(world.file(APP), None);
+}
+
+#[test]
+fn test_the_default_marker_beats_the_older_one_unchecked_as_before() {
+    // The default location never refused two disagreeing markers; it still
+    // does not.
+    let world = World::new();
+    world.write(&world.tree().join(".project-id"), "new-id\n");
+    world.write(&world.tree().join(".ctxloom/project-id"), "old-id\n");
+    let project = world.registry(&[]).for_write(None).unwrap();
+    assert_eq!(project.id, "new-id");
+}
+
+#[test]
+fn test_a_configured_marker_absent_reads_the_default_one_and_only_a_write_adopts_it() {
+    let world = World::new();
+    world.write(&world.tree().join(".project-id"), "legacy-id\n");
+    let mut registry = world.registry_at(&[], APP);
+    assert_eq!(registry.for_read(None).unwrap().unwrap().id, "legacy-id");
+    assert_eq!(world.file(APP), None, "a read writes nothing");
+    assert_eq!(registry.for_write(None).unwrap().id, "legacy-id");
+    assert_eq!(world.file(APP).as_deref(), Some("legacy-id\n"), "adopted");
+    assert_eq!(
+        world.marker().as_deref(),
+        Some("legacy-id\n"),
+        "the default marker is left where it was"
+    );
+}
+
+#[test]
+fn test_a_configured_marker_absent_reads_the_older_private_one_too() {
+    let world = World::new();
+    world.write(&world.tree().join(".ctxloom/project-id"), "older-id\n");
+    let mut registry = world.registry_at(&[], APP);
+    assert_eq!(registry.for_write(None).unwrap().id, "older-id");
+    assert_eq!(world.file(APP).as_deref(), Some("older-id\n"));
+}
+
+#[test]
+fn test_the_older_private_location_can_itself_be_the_configured_one() {
+    let world = World::new();
+    world.write(&world.tree().join(".project-id"), "legacy-id\n");
+    let mut registry = world.registry_at(&[], ".ctxloom/project-id");
+    assert_eq!(registry.for_write(None).unwrap().id, "legacy-id");
+    assert_eq!(
+        world.file(".ctxloom/project-id").as_deref(),
+        Some("legacy-id\n")
+    );
+    let fresh = World::new();
+    fresh
+        .registry_at(&["fresh-new-id"], ".ctxloom/project-id")
+        .for_write(None)
+        .unwrap();
+    assert_eq!(
+        fresh.file(".ctxloom/project-id").as_deref(),
+        Some("fresh-new-id\n")
+    );
+    assert_eq!(fresh.marker(), None);
+}
+
+#[test]
+fn test_markers_that_agree_are_no_conflict() {
+    let world = World::new();
+    world.write(&world.tree().join(APP), "same-id\n");
+    world.write(&world.tree().join(".project-id"), "same-id\n");
+    let project = world.registry_at(&[], APP).for_read(None).unwrap().unwrap();
+    assert_eq!(project.id, "same-id");
+}
+
+#[test]
+fn test_a_configured_marker_and_the_default_one_that_disagree_are_refused() {
+    let world = World::new();
+    world.write(&world.tree().join(APP), "app-id\n");
+    world.write(&world.tree().join(".project-id"), "legacy-id\n");
+    for write in [false, true] {
+        let mut registry = world.registry_at(&[], APP);
+        let error = if write {
+            registry.for_write(None).unwrap_err()
+        } else {
+            registry.for_read(None).unwrap_err()
+        };
+        assert_eq!(error.code(), code!("marker-conflict"));
+    }
+    assert_eq!(world.file(APP).as_deref(), Some("app-id\n"), "none picked");
+    assert_eq!(world.marker().as_deref(), Some("legacy-id\n"));
+}
+
+#[test]
+fn test_two_older_markers_that_disagree_are_refused_when_the_configured_one_is_absent() {
+    let world = World::new();
+    world.write(&world.tree().join(".project-id"), "one-id\n");
+    world.write(&world.tree().join(".ctxloom/project-id"), "other-id\n");
+    let error = world.registry_at(&[], APP).for_write(None).unwrap_err();
+    assert_eq!(error.code(), code!("marker-conflict"));
+    assert_eq!(world.file(APP), None, "nothing adopted");
+}
+
+#[test]
+fn test_a_conflict_names_both_markers_and_both_ids() {
+    let world = World::new();
+    world.write(&world.tree().join(APP), "app-id\n");
+    world.write(&world.tree().join(".project-id"), "legacy-id\n");
+    let error = world.registry_at(&[], APP).for_read(None).unwrap_err();
+    let args: Vec<String> = error
+        .args()
+        .iter()
+        .map(|(k, v)| format!("{k}={v:?}"))
+        .collect();
+    let all = args.join(" ");
+    for part in ["app-id", "legacy-id", APP, ".project-id"] {
+        assert!(all.contains(part), "{part} in {all}");
+    }
+}
+
+#[test]
+fn test_a_pinned_id_is_not_checked_against_markers() {
+    let world = World::new();
+    world.write(&world.tree().join(APP), "app-id\n");
+    world.write(&world.tree().join(".project-id"), "legacy-id\n");
+    let project = world
+        .registry_at(&[], APP)
+        .for_read(Some("pinned-id"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(project.id, "pinned-id");
+}
+
+#[test]
+fn test_a_marker_location_must_stay_under_the_root() {
+    let world = World::new();
+    for bad in ["", ".", "/abs/id", "../id", "a/../../id", "a/./b/.."] {
+        let error = world.registry(&[]).with_marker(bad).err().unwrap();
+        assert_eq!(error.code(), code!("invalid-marker-path"), "{bad:?}");
+    }
+    assert!(world.registry(&[]).with_marker("a/./b").is_ok());
+}
+
+#[test]
+fn test_a_linked_worktree_with_a_configured_marker_of_its_own_keeps_its_own_project() {
+    let world = World::real();
+    let repo = git::Repo::new();
+    let linked = repo.worktree("linked");
+    world.write(&repo.root().join(APP), "primary-id\n");
+    world.write(&linked.join(APP), "its-own-id\n");
+    let project = ProjectRegistry::new(world.fs_in(&linked), world.env(), names(&[]))
+        .with_marker(APP)
+        .unwrap()
+        .for_read(None)
+        .unwrap()
+        .unwrap();
+    assert_eq!(project.id, "its-own-id");
+}
+
+#[test]
+fn test_a_linked_worktree_with_no_configured_marker_is_its_primary_checkouts_project() {
+    let world = World::real();
+    let repo = git::Repo::new();
+    let linked = repo.worktree("linked");
+    world.write(&repo.root().join(APP), "primary-id\n");
+    let project = ProjectRegistry::new(world.fs_in(&linked), world.env(), names(&[]))
+        .with_marker(APP)
+        .unwrap()
+        .for_write(None)
+        .unwrap();
+    assert_eq!(project.id, "primary-id");
+    assert_eq!(world.read(&repo.root().join(APP)), "primary-id\n");
+    assert!(
+        !world.exists(&linked.join(APP)),
+        "no marker in the worktree"
     );
 }
 

@@ -10,9 +10,7 @@ use file_system::{Fs, Kind};
 use ports::{Change, Project, ProjectAdmin, Registered, Survey};
 
 use crate::worktree::is;
-use crate::{
-    id, index, legacy_marker, marker, read_marker, write_marker, ProjectRegistry, RegistryError,
-};
+use crate::{id, index, read_marker, write_marker, ProjectRegistry, RegistryError};
 
 impl<N> ProjectRegistry<N> {
     /// The directory projects' databases are kept in.
@@ -26,7 +24,7 @@ impl<N> ProjectRegistry<N> {
         let root = self.identity_root()?;
         let resolved = match self.pinned(pinned)? {
             Some(pin) => Some(pin),
-            None => self.bound(&root, false)?,
+            None => self.bound_checked(&root, false, false)?,
         };
         let projects = self.projects_dir()?;
         let registry = index::load(&*self.fs, &projects.join("index.yaml"))?
@@ -43,12 +41,22 @@ impl<N> ProjectRegistry<N> {
             work_root: work_root.display().to_string(),
             root: root.display().to_string(),
             resolved,
-            marker: read_marker(&*self.fs, &marker(&root))?,
-            legacy_marker: read_marker(&*self.fs, &legacy_marker(&root))?,
+            marker: read_marker(&*self.fs, &self.marker(&root))?,
+            legacy_marker: self.first_older_marker(&root)?,
             registry,
             databases: databases(&*self.fs, &projects)?,
             projects,
         })
+    }
+
+    /// The id of the first older marker of `root` that names one.
+    fn first_older_marker(&self, root: &Path) -> Result<Option<String>, RegistryError> {
+        for older in self.older_markers(root) {
+            if let Some(id) = read_marker(&*self.fs, &older)? {
+                return Ok(Some(id));
+            }
+        }
+        Ok(None)
     }
 
     /// Every project with a database directory, by id, each rooted where
@@ -101,7 +109,11 @@ impl<N> ProjectRegistry<N> {
         for change in changes {
             match change {
                 Change::WriteMarker { root, id } => {
-                    write_marker(&*self.fs, Path::new(root), &id::valid(id, "a change")?)?;
+                    write_marker(
+                        &*self.fs,
+                        &self.marker(Path::new(root)),
+                        &id::valid(id, "a change")?,
+                    )?;
                 }
                 Change::RemoveDatabase { id } => {
                     remove_database(&*self.fs, &projects, &id::valid(id, "a change")?)?;

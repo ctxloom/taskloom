@@ -50,6 +50,17 @@ pub enum RegistryError {
     /// The registry's lock could not be taken: the lock's own failure, its
     /// key and args.
     LockFailed { cause: Report },
+    /// The configured marker location is not a path under the project's
+    /// root (empty, absolute, or climbing out with `..`).
+    InvalidMarkerPath { path: String, reason: String },
+    /// Two markers of one root name different projects: which to trust is
+    /// not for the registry to pick. Both are left as they are.
+    MarkerConflict {
+        path: String,
+        id: String,
+        other_path: String,
+        other_id: String,
+    },
 }
 
 impl RegistryError {
@@ -83,6 +94,8 @@ impl Diagnostic for RegistryError {
             RegistryError::NotADatabase { .. } => code!("not-a-database"),
             RegistryError::StaleWorktree { .. } => code!("stale-worktree"),
             RegistryError::LockFailed { .. } => code!("lock-failed"),
+            RegistryError::InvalidMarkerPath { .. } => code!("invalid-marker-path"),
+            RegistryError::MarkerConflict { .. } => code!("marker-conflict"),
         }
     }
 
@@ -122,6 +135,21 @@ impl Diagnostic for RegistryError {
                 ("attempts", (*attempts).into()),
             ],
             RegistryError::LockFailed { cause } => vec![("cause", Arg::nested(cause))],
+            RegistryError::InvalidMarkerPath { path, reason } => vec![
+                ("path", path.as_str().into()),
+                ("reason", reason.as_str().into()),
+            ],
+            RegistryError::MarkerConflict {
+                path,
+                id,
+                other_path,
+                other_id,
+            } => vec![
+                ("path", path.as_str().into()),
+                ("id", id.as_str().into()),
+                ("other_path", other_path.as_str().into()),
+                ("other_id", other_id.as_str().into()),
+            ],
         }
     }
 }
@@ -182,6 +210,16 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             cause: Report::of(&file_lock::LockError::NotRegular {
                 path: "/h/.ctxloom/projects/index.yaml.lock".to_string(),
             }),
+        }),
+        Box::new(RegistryError::InvalidMarkerPath {
+            path: "../id".to_string(),
+            reason: "it climbs out of the root".to_string(),
+        }),
+        Box::new(RegistryError::MarkerConflict {
+            path: "/work/tree/.myapp/project-id".to_string(),
+            id: "one-id".to_string(),
+            other_path: "/work/tree/.project-id".to_string(),
+            other_id: "other-id".to_string(),
         }),
     ]
 }

@@ -7,7 +7,15 @@
 //! one pinned (`--project`), `CTXLOOM_PROJECT_ID`, the marker
 //! `<root>/.project-id`, the older marker `<root>/.ctxloom/project-id`
 //! (adopted into `.project-id` on a write), and the registry entry for the
-//! root's path. A linked worktree with no marker of its own (neither) is
+//! root's path.
+//!
+//! The marker's place is a setting ([`ProjectRegistry::with_marker`], a
+//! path under the root; default `.project-id`). With another place set,
+//! that is the marker, and the other two places are the older markers:
+//! read when it is absent, adopted into it on a write (and left where they
+//! are), and a marker of any of them naming another project than the
+//! marker is refused (`marker-conflict`), none preferred. With the default
+//! place the two are read as above, in that order, unchecked. A linked worktree with no marker of its own (neither) is
 //! its primary checkout's project, found through git's common directory:
 //! resolved, bound and marked there, so no marker is written in the
 //! worktree to be committed and merged back over the primary's. A write with none of these mints an id, under the
@@ -30,7 +38,7 @@ mod index;
 mod path;
 mod worktree;
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -67,7 +75,15 @@ pub struct ProjectRegistry<N> {
     names: N,
     /// How long a change waits for the registry's lock.
     lock_wait: Duration,
+    /// The marker's path under a root.
+    marker: PathBuf,
 }
+
+/// Where the marker is unless the registry is told otherwise.
+pub const DEFAULT_MARKER: &str = ".project-id";
+
+/// The older, private marker's path under a root.
+const OLDER_MARKER: &str = ".ctxloom/project-id";
 
 impl<N> ProjectRegistry<N> {
     pub fn new(fs: Arc<dyn Fs>, env: Environment, names: N) -> Self {
@@ -76,7 +92,54 @@ impl<N> ProjectRegistry<N> {
             env,
             names,
             lock_wait: index::LOCK_WAIT,
+            marker: PathBuf::from(DEFAULT_MARKER),
         }
+    }
+
+    /// The same, with the marker at `marker` under each root rather than at
+    /// [`DEFAULT_MARKER`]: a relative path of plain names, none empty, `.`
+    /// or `..`.
+    pub fn with_marker(self, marker: impl Into<PathBuf>) -> Result<Self, RegistryError> {
+        let marker = marker.into();
+        let bad = |reason: &str| RegistryError::InvalidMarkerPath {
+            path: marker.display().to_string(),
+            reason: reason.to_string(),
+        };
+        if marker.as_os_str().is_empty() {
+            return Err(bad("it is empty"));
+        }
+        for part in marker.components() {
+            match part {
+                Component::Normal(_) => {}
+                Component::CurDir => {}
+                Component::ParentDir => return Err(bad("it climbs out of the root")),
+                _ => return Err(bad("it is not relative to the root")),
+            }
+        }
+        if marker.components().all(|c| c == Component::CurDir) {
+            return Err(bad("it names no file"));
+        }
+        Ok(ProjectRegistry { marker, ..self })
+    }
+
+    /// The marker of `root`.
+    pub(crate) fn marker(&self, root: &Path) -> PathBuf {
+        root.join(&self.marker)
+    }
+
+    /// Whether the marker's place is not the default.
+    fn relocated(&self) -> bool {
+        self.marker != Path::new(DEFAULT_MARKER)
+    }
+
+    /// The older markers of `root`, in the order they are read: the places
+    /// a marker has been kept, but the one now in use.
+    pub(crate) fn older_markers(&self, root: &Path) -> Vec<PathBuf> {
+        [DEFAULT_MARKER, OLDER_MARKER]
+            .into_iter()
+            .filter(|p| Path::new(p) != self.marker)
+            .map(|p| root.join(p))
+            .collect()
     }
 
     /// The same, waiting up to `wait` for the registry's lock rather than
@@ -159,7 +222,9 @@ impl<N> ProjectRegistry<N> {
     /// checkout's project and writes no marker of its own.
     pub fn identity_root(&self) -> Result<PathBuf, RegistryError> {
         let root = self.work_root()?;
-        if self.exists(&marker(&root)) || self.exists(&legacy_marker(&root)) {
+        if self.exists(&self.marker(&root))
+            || self.older_markers(&root).iter().any(|m| self.exists(m))
+        {
             return Ok(root);
         }
         Ok(worktree::primary_checkout(&*self.fs, &root)?.unwrap_or(root))
@@ -197,18 +262,57 @@ impl<N> ProjectRegistry<N> {
     }
 
     /// The id the work root is already bound to, and what binds it,
-    /// adopting the older marker into `.project-id` when `adopt`.
+    /// adopting an older marker into the marker when `adopt`. Markers
+    /// that disagree are refused when the marker's place is not the
+    /// default.
     pub(crate) fn bound(
         &self,
         root: &Path,
         adopt: bool,
     ) -> Result<Option<(String, IdSource)>, RegistryError> {
-        if let Some(id) = read_marker(&*self.fs, &marker(root))? {
-            return Ok(Some((id, IdSource::Marker)));
+        self.bound_checked(root, adopt, true)
+    }
+
+    /// [`Self::bound`], refusing markers that disagree only when `check`:
+    /// a survey, which reports them, does not.
+    pub(crate) fn bound_checked(
+        &self,
+        root: &Path,
+        adopt: bool,
+        check: bool,
+    ) -> Result<Option<(String, IdSource)>, RegistryError> {
+        let own = self.marker(root);
+        let check = check && self.relocated();
+        let mut found = Vec::new();
+        if let Some(id) = read_marker(&*self.fs, &own)? {
+            found.push((own.clone(), id));
         }
-        if let Some(id) = read_marker(&*self.fs, &legacy_marker(root))? {
+        if found.is_empty() || check {
+            for older in self.older_markers(root) {
+                if let Some(id) = read_marker(&*self.fs, &older)? {
+                    found.push((older, id));
+                }
+                if !check && !found.is_empty() {
+                    break;
+                }
+            }
+        }
+        if check {
+            if let Some((other_path, other_id)) = found.iter().find(|f| f.1 != found[0].1) {
+                return Err(RegistryError::MarkerConflict {
+                    path: found[0].0.display().to_string(),
+                    id: found[0].1.clone(),
+                    other_path: other_path.display().to_string(),
+                    other_id: other_id.clone(),
+                });
+            }
+        }
+        if let Some((path, id)) = found.into_iter().next() {
+            if path == own {
+                return Ok(Some((id, IdSource::Marker)));
+            }
             if adopt {
-                write_marker(&*self.fs, root, &id)?;
+                write_marker(&*self.fs, &own, &id)?;
             }
             return Ok(Some((id, IdSource::LegacyMarker)));
         }
@@ -234,7 +338,7 @@ impl<N: Names> ProjectRegistry<N> {
         let id = self.mint(&index)?;
         index.register(&id, &root.display().to_string());
         index::save(&*self.fs, &path, &index)?;
-        write_marker(&*self.fs, root, &id)?;
+        write_marker(&*self.fs, &self.marker(root), &id)?;
         Ok(id)
     }
 
@@ -302,16 +406,6 @@ impl<N: Names> ProjectIdentity for ProjectRegistry<N> {
     }
 }
 
-/// The marker naming `root`'s project.
-pub(crate) fn marker(root: &Path) -> PathBuf {
-    root.join(".project-id")
-}
-
-/// The older, private marker.
-pub(crate) fn legacy_marker(root: &Path) -> PathBuf {
-    root.join(".ctxloom").join("project-id")
-}
-
 /// The id a marker at `path` holds; none if it is absent or blank.
 pub(crate) fn read_marker(fs: &dyn Fs, path: &Path) -> Result<Option<String>, RegistryError> {
     let text = match fs.read_to_string(path) {
@@ -325,8 +419,9 @@ pub(crate) fn read_marker(fs: &dyn Fs, path: &Path) -> Result<Option<String>, Re
     }
 }
 
-pub(crate) fn write_marker(fs: &dyn Fs, root: &Path, id: &str) -> Result<(), RegistryError> {
-    index::write_atomically(fs, &marker(root), format!("{id}\n").as_bytes())
+/// Write `id` to the marker at `path`.
+pub(crate) fn write_marker(fs: &dyn Fs, path: &Path, id: &str) -> Result<(), RegistryError> {
+    index::write_atomically(fs, path, format!("{id}\n").as_bytes())
 }
 
 #[cfg(test)]

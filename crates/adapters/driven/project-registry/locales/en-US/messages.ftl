@@ -14,3 +14,5 @@ changed = the project registry or a marker changed while the change was planned:
 not-a-database = { $path } is not a project's database directory: not removed
 stale-worktree = { $root } is a linked worktree whose git directory { $git_dir } is gone: run `git worktree repair` from its primary checkout, or remove the worktree
 lock-failed = the project registry's lock cannot be taken: { $cause }
+invalid-marker-path = the marker location { $path } is not usable: { $reason }
+marker-conflict = { $path } names the project { $id } but { $other_path } names { $other_id }: remove the one that is wrong, and nothing is chosen between them
