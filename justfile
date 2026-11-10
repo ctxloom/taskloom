@@ -119,6 +119,12 @@ install:
 hooks-install:
     lefthook install
 
+# The gates' own self-tests: the mutation verdict (`_mutants-verdict`) over
+# fixture cargo-mutants outputs, and the refusal of a feature rule.
+[no-exit-message]
+selftest:
+    @{{TOP}}/scripts/mutants-verdict.selftest.sh
+
 # The tests of the named crates only, by cargo-nextest (the gates' `_tests`):
 # the quick loop on one crate. `just test` runs every crate's.
 [no-exit-message]
