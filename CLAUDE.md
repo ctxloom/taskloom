@@ -414,9 +414,11 @@ weaken a gate to get through.
    in the gate's log; the verdict does not change. The last run's mutants.out (each
    mutant's log, outcomes.json) is kept in target/logs/mutants-push/. Red
    tests fail it on every branch (no mutant can be judged against failing
-   tests), as does a run that found mutants and tested fewer, and a tier
-   that found mutants and judged none (every one unviable): a mutation
-   run that judged nothing has shown nothing. The verdict is
+   tests), as does a run that found mutants and tested fewer, and a run
+   that found mutants and judged none of them at all (every one unviable):
+   a mutation run that judged nothing has shown nothing. A tier all
+   unviable beside one that judged passes, its row saying "none judged"
+   (ctxloom rulings 120, 124: the whole run's rule). The verdict is
    `_mutants-verdict` in `gates/gates.just`, inline jq over cargo-mutants'
    `outcomes.json` (`outcomes[]`, `total_mutants`) and its exit code, no
    log read; its self-test is `scripts/mutants-verdict.selftest.sh` (`just
