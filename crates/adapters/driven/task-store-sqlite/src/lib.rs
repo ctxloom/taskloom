@@ -124,8 +124,11 @@ impl SqliteStores {
     /// none.
     async fn hold_existing(&mut self, project: &Project) -> Result<Option<&mut Held>, StoreError> {
         let path = &project.store;
-        if let Some(held) = self.held.take().filter(|h| &h.path == path) {
-            return Ok(Some(self.held.insert(held)));
+        if let Some(held) = self.held.take() {
+            if &held.path == path {
+                return Ok(Some(self.held.insert(held)));
+            }
+            release(held).await?;
         }
         let real = real(&*self.fs, path).map_err(unavailable)?;
         refuse_if_unusable(&*self.fs, &real, path)
@@ -135,6 +138,25 @@ impl SqliteStores {
             .await?
             .map(|store| self.hold(path, false, store)))
     }
+
+    /// Close the store held, if any, and wait for it to close
+    /// ([`SqliteStore::close`]): once this returns, its file holds every
+    /// commit and no log is left beside it (unless another connection still
+    /// holds the file). Dropping the stores instead leaves that close to the
+    /// driver's thread, which a process that exits first never lets run.
+    pub async fn close(self) -> Result<(), StoreError> {
+        match self.held {
+            Some(held) => release(held).await,
+            None => Ok(()),
+        }
+    }
+}
+
+/// `held`, closed and waited for: a store given up (for another, or by
+/// [`SqliteStores::close`]) is done with its file before anything else is.
+async fn release(held: Held) -> Result<(), StoreError> {
+    let _ = held;
+    todo!("ruling 131: close the store given up and wait")
 }
 
 impl TaskStores for SqliteStores {
@@ -144,9 +166,11 @@ impl TaskStores for SqliteStores {
     /// file created and migrated if need be. Held after.
     async fn open(&mut self, project: &Project) -> Result<&SqliteStore, StoreError> {
         let path = &project.store;
-        let held = self.held.take().filter(|h| &h.path == path && h.writable);
-        if let Some(held) = held {
-            return Ok(&self.held.insert(held).store);
+        if let Some(held) = self.held.take() {
+            if &held.path == path && held.writable {
+                return Ok(&self.held.insert(held).store);
+            }
+            release(held).await?;
         }
         create_parent(&*self.fs, path).map_err(unavailable)?;
         let real = real(&*self.fs, path).map_err(unavailable)?;

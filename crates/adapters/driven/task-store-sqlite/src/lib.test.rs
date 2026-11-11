@@ -371,6 +371,109 @@ fn test_another_project_opens_its_own_store() {
     assert!(home.exists(&second.store));
 }
 
+/// The log and the index beside the database at `path` (`-wal`, `-shm`)
+/// that are there: none once the store's last connection has closed.
+fn beside(home: &Home, path: &Path) -> Vec<&'static str> {
+    ["-wal", "-shm"]
+        .into_iter()
+        .filter(|suffix| home.exists(&super::sibling(path, suffix)))
+        .collect()
+}
+
+#[test]
+fn test_closed_stores_leave_the_file_whole_when_the_close_returns() {
+    // Ruling 131. Dropped, the held store's connection would close on the
+    // driver's thread whenever it ran (in the binary, after the process had
+    // exited: never). Closed, its checkpoint and the log's removal are over
+    // when the close returns: looked at at once, with no wait, the file is
+    // whole on its own and reopens holding what was written.
+    let home = Home::new();
+    let project = project(
+        "jolly-mute-magma",
+        store_in(home.path(), "jolly-mute-magma"),
+    );
+    let mut stores = home.stores();
+    block_on(async {
+        let store = stores.open(&project).await.unwrap();
+        append(store, stream(1), 0, &[event(0, 1), event(1, 2)]).await;
+        assert_eq!(beside(&home, &project.store), ["-wal", "-shm"], "open");
+        stores.close().await.unwrap();
+    });
+    assert_eq!(
+        beside(&home, &project.store),
+        Vec::<&str>::new(),
+        "no log or index left the moment the close returns"
+    );
+    let reopened = block_on(SqliteStore::open_existing(&home.real(&project.store)))
+        .unwrap()
+        .expect("the file");
+    assert_eq!(
+        block_on(pages(&reopened, stream(1))),
+        [event(0, 1), event(1, 2)]
+    );
+    block_on(reopened.close()).unwrap();
+}
+
+#[test]
+fn test_stores_holding_nothing_close_doing_nothing() {
+    let home = Home::new();
+    block_on(home.stores().close()).unwrap();
+    assert!(!home.exists(&home.path().join(".ctxloom")), "nothing made");
+}
+
+#[test]
+fn test_a_store_given_up_for_another_projects_is_closed_before_the_next_is_opened() {
+    // Ruling 131: the first project's store is given up when the second's
+    // is asked for, and closed then, not dropped, so its file is whole the
+    // moment the second is open.
+    let home = Home::new();
+    let first = project(
+        "jolly-mute-magma",
+        store_in(home.path(), "jolly-mute-magma"),
+    );
+    let second = project("high-tight-gulf", store_in(home.path(), "high-tight-gulf"));
+    let mut stores = home.stores();
+    block_on(async {
+        let store = stores.open(&first).await.unwrap();
+        append(store, stream(1), 0, &[event(0, 1)]).await;
+        assert_eq!(beside(&home, &first.store), ["-wal", "-shm"], "open");
+        stores.open(&second).await.unwrap();
+        assert_eq!(
+            beside(&home, &first.store),
+            Vec::<&str>::new(),
+            "the first closed"
+        );
+        stores.close().await.unwrap();
+    });
+}
+
+#[test]
+fn test_a_store_held_to_read_is_closed_before_it_is_opened_to_write() {
+    // The write's open judges the file first (its log's length, and the
+    // read it makes on it): the read's store is closed before then.
+    let home = Home::new();
+    let project = project(
+        "jolly-mute-magma",
+        store_in(home.path(), "jolly-mute-magma"),
+    );
+    block_on(async {
+        let mut writer = home.stores();
+        let store = writer.open(&project).await.unwrap();
+        append(store, stream(1), 0, &[event(0, 1)]).await;
+        writer.close().await.unwrap();
+        let mut stores = home.stores();
+        stores
+            .open_existing(&project)
+            .await
+            .unwrap()
+            .expect("found");
+        let store = stores.open(&project).await.unwrap();
+        assert_eq!(pages(store, stream(1)).await, [event(0, 1)]);
+        stores.close().await.unwrap();
+        assert_eq!(beside(&home, &project.store), Vec::<&str>::new());
+    });
+}
+
 #[test]
 fn test_the_openers_futures_are_send_so_a_server_can_spawn_them() {
     fn is_send<T: Send>(_: &T) {}
