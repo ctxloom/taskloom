@@ -208,6 +208,18 @@ the store up beside itself through its `Backup`
 (`state.db.pre-<applied level>-<UTC time>`); one newer than the build, or
 one a migration failed or changed in, is refused untouched.
 
+A store is closed, never dropped, wherever its file matters after (ruling
+131): angzarr-store-sqlite's `SqliteStore::close` waits for the
+connection's close, so the last close's WAL checkpoint and the log's
+removal are over when it returns (a drop leaves them to sqlx's thread,
+which an exiting process may never let run, leaving the log holding the
+command's commits). `SqliteStores` closes a store it gives up for another
+and, through tasks-lib's `Close` (Tasks, Import, Plans), the one it holds
+when the binary's command is done; the check and the export close their
+own. A read's connection is read-only, and SQLite leaves an empty log and
+index beside the file after it. A test looks at the files the moment the
+close returns, never polling for the log's removal.
+
 A store an older generation of the build wrote is an archive (the owner's
 ruling): its event pages are of an angzarr wire this build does not decode
 (`EventPage.payload`, now `body`), so it is read only by the build that
