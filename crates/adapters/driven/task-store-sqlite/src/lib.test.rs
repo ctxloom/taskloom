@@ -477,10 +477,18 @@ fn written_tasks(home: &Home, path: &Path) {
 /// from beside the file, so the file holds everything and no later
 /// checkpoint changes it.
 fn closed(home: &Home, path: &Path) {
+    closed_looking(home, path, &mut || ());
+}
+
+/// [`closed`], calling `look` before each look for the log.
+fn closed_looking(home: &Home, path: &Path, look: &mut dyn FnMut()) {
     let mut wal = path.as_os_str().to_owned();
     wal.push("-wal");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while home.exists(Path::new(&wal)) {
+    while {
+        look();
+        home.exists(Path::new(&wal))
+    } {
         assert!(
             std::time::Instant::now() < deadline,
             "the log is still beside the file"
@@ -1390,15 +1398,17 @@ enum Setup {
     /// thread of its own, whenever that thread runs.
     Dropped,
     /// The setup looks for that close to be over.
-    #[allow(dead_code)] // not yet: the setup does not look
     Looking,
 }
 
 /// The archive at `path` migrated by an earlier build: angzarr-store-sqlite's
-/// own open, its store dropped. `at` is told where the setup has got to.
+/// own open, its store dropped, and its close waited for ([`closed`]), so
+/// the earlier build is done with the files before the archive is looked
+/// at. `at` is told where the setup has got to.
 fn migrated_by_an_earlier_build(home: &Home, path: &Path, at: &mut dyn FnMut(Setup)) {
     block_on(async { SqliteStore::open(&home.real(path)).await.map(drop) }).unwrap();
     at(Setup::Dropped);
+    closed_looking(home, path, &mut || at(Setup::Looking));
 }
 
 #[test]
