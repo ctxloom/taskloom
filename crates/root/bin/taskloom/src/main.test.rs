@@ -1710,6 +1710,55 @@ fn test_a_read_of_a_store_this_generation_wrote_migrates_and_backs_it_up_and_lis
     );
 }
 
+/// Ruling 131: every command closes its store before the process exits, so
+/// the moment it has exited, with no wait, the store is whole on its own:
+/// its log holds nothing. A write's close is the last read-write one, which
+/// checkpoints the log and removes it and its index; a read's connection is
+/// read-only, which SQLite never lets remove them, so an empty log may stay.
+/// Dropped, the store's close was left to the driver's thread, which the
+/// exit did not always let run: the log stayed beside the file, holding the
+/// command's commits.
+#[test]
+fn test_every_command_closes_its_store_before_it_exits() {
+    let env = Env::new("closed-harp");
+    let harp = env.seed("closed")["harp_id"].as_str().unwrap().to_string();
+    let stores = env.stores();
+    let [store] = stores.as_slice() else {
+        panic!("one store: {stores:?}");
+    };
+    let beside = || {
+        ["state.db-wal", "state.db-shm"]
+            .into_iter()
+            .filter(|name| disk::exists(store.with_file_name(name)))
+            .collect::<Vec<_>>()
+    };
+    let logged = || {
+        disk::exists(store.with_file_name("state.db-wal"))
+            && !disk::read(store.with_file_name("state.db-wal"))
+                .unwrap()
+                .is_empty()
+    };
+    assert_eq!(beside(), Vec::<&str>::new(), "tasks add: nothing beside it");
+    for (args, writes) in [
+        (&["tasks", "list", "--format", "json"][..], false),
+        (
+            &[
+                "tasks", "set", &harp, "--status", "Done", "--format", "json",
+            ],
+            true,
+        ),
+        (&["manage", "schema", "show", "--format", "json"], false),
+        (&["plans", "list", "--format", "json"], false),
+    ] {
+        let ran = env.run(args);
+        assert!(ran.ok, "{args:?}: {}", ran.stderr);
+        assert!(!logged(), "{args:?}: the log holds nothing");
+        if writes {
+            assert_eq!(beside(), Vec::<&str>::new(), "{args:?}: nothing beside it");
+        }
+    }
+}
+
 /// A store this build made opens as it always did: no backup, no archive
 /// refusal.
 #[test]

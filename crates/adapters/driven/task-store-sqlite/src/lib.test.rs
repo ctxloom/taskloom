@@ -151,28 +151,18 @@ async fn pages(store: &SqliteStore, stream: StreamRef<'_>) -> Vec<EventPage> {
 
 /// A database on angzarr-embedded's schema at `path`, written by
 /// `SqliteStore` itself (not the opener under test): one stream of two
-/// events, closed, so the file holds everything. The store's connection
-/// closes on its own thread after the store is dropped, and the last
-/// connection's close checkpoints the log into the file and removes it:
-/// that removal is waited for, up to a deadline, as the sign the file is
-/// whole.
+/// events, closed, so the file holds everything. The close is waited for
+/// (ruling 131): the last connection's close checkpoints the log into the
+/// file and removes it before it returns, so no wait for the log's removal
+/// is needed (as there was while the store was dropped).
 fn written(home: &Home, path: &Path) {
     home.mkdir(path.parent().unwrap());
     let real = home.real(path);
     block_on(async {
         let store = SqliteStore::open(&real).await.unwrap();
         append(&store, stream(1), 0, &[event(0, 1), event(1, 2)]).await;
+        store.close().await.unwrap();
     });
-    let mut wal = path.as_os_str().to_owned();
-    wal.push("-wal");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while home.exists(Path::new(&wal)) {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "the store's connection never closed: its log is still beside the file"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
 }
 
 /// An arg's value as text, a nested cause as its code.
@@ -562,8 +552,7 @@ fn task_added(harp: &str) -> Any {
 }
 
 /// A database at `path` written by `SqliteStore` itself: one stream of
-/// one `TaskAdded`, closed, so the file holds everything ([`written`]'s
-/// wait for the log's removal).
+/// one `TaskAdded`, closed, so the file holds everything (as [`written`]'s).
 fn written_tasks(home: &Home, path: &Path) {
     home.mkdir(path.parent().unwrap());
     let real = home.real(path);
@@ -572,32 +561,8 @@ fn written_tasks(home: &Home, path: &Path) {
         let mut page = event(0, 1);
         page.body = Some(event_page::Body::Event(task_added("dire-shore")));
         append(&store, stream(1), 0, &[page]).await;
+        store.close().await.unwrap();
     });
-    closed(home, path);
-}
-
-/// Wait for the store a test opened and dropped to close: its log removed
-/// from beside the file, so the file holds everything and no later
-/// checkpoint changes it.
-fn closed(home: &Home, path: &Path) {
-    closed_looking(home, path, &mut || ());
-}
-
-/// [`closed`], calling `look` before each look for the log.
-fn closed_looking(home: &Home, path: &Path, look: &mut dyn FnMut()) {
-    let mut wal = path.as_os_str().to_owned();
-    wal.push("-wal");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while {
-        look();
-        home.exists(Path::new(&wal))
-    } {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "the log is still beside the file"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
 }
 
 /// `taskloom store export`'s store side: the header naming this build's
@@ -699,8 +664,7 @@ fn test_an_export_refuses_a_store_an_older_generation_wrote_and_leaves_it_exactl
         let home = Home::new();
         let (path, _) = archive(&home, OLD_BEFORE_0005, &[]);
         if migrated {
-            block_on(async { SqliteStore::open(&home.real(&path)).await.map(drop) }).unwrap();
-            closed(&home, &path);
+            migrated_by_an_earlier_build(&home, &path);
         }
         let dir = path.parent().unwrap();
         let before = tree(&home, dir);
@@ -1493,67 +1457,31 @@ fn test_a_store_an_older_generation_wrote_is_refused_by_every_open_and_left_exac
     }
 }
 
-/// Where the setup of an archive an earlier build migrated has got to, for
-/// a test that forces what happens there.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Setup {
-    /// The earlier build's store is dropped; its connection closes on a
-    /// thread of its own, whenever that thread runs.
-    Dropped,
-    /// The setup looks for that close to be over.
-    Looking,
-}
-
 /// The archive at `path` migrated by an earlier build: angzarr-store-sqlite's
-/// own open, its store dropped, and its close waited for ([`closed`]), so
-/// the earlier build is done with the files before the archive is looked
-/// at. `at` is told where the setup has got to.
-fn migrated_by_an_earlier_build(home: &Home, path: &Path, at: &mut dyn FnMut(Setup)) {
-    block_on(async { SqliteStore::open(&home.real(path)).await.map(drop) }).unwrap();
-    at(Setup::Dropped);
-    closed_looking(home, path, &mut || at(Setup::Looking));
+/// own open, its store closed (ruling 131), so the earlier build is done
+/// with the files when this returns.
+fn migrated_by_an_earlier_build(home: &Home, path: &Path) {
+    block_on(async { SqliteStore::open(&home.real(path)).await?.close().await }).unwrap();
 }
 
 #[test]
 fn test_an_earlier_builds_migration_is_over_before_its_archive_is_looked_at() {
-    // A dropped store's connection closes on a thread of its own, and the
-    // last connection's close checkpoints the log into the file and
-    // removes the log and its index from beside it: a change that lands
-    // whenever that thread runs, so a snapshot taken before it lands sees
-    // a tree the close then changes. Forced to land as late as it can: a
-    // connection of the earlier build's, open once its store is dropped,
-    // closes when the setup first looks for the close, or else only after
-    // the archive's snapshot is taken.
-    use sqlx::{Connection, Executor};
+    // The earlier build's open put the archive in WAL mode, and the last
+    // connection's close checkpoints the log into the file and removes the
+    // log and its index from beside it. Dropped, that close landed whenever
+    // the driver's thread ran, so a snapshot taken first saw a tree the
+    // close then changed (0a949ec waited for it). Closed (ruling 131), it is
+    // over when the setup returns: looked at at once, with no wait, nothing
+    // is left beside the file for a late close to checkpoint or remove.
     let home = Home::new();
     let (path, _) = archive(&home, OLD_BEFORE_0005, &[]);
-    let url = format!("sqlite://{}", home.real(&path).display());
-    let late = std::cell::RefCell::new(None::<sqlx::SqliteConnection>);
-    let land = || {
-        if let Some(conn) = late.borrow_mut().take() {
-            block_on(conn.close()).unwrap();
-        }
-    };
-    migrated_by_an_earlier_build(&home, &path, &mut |at| match at {
-        Setup::Dropped => {
-            let conn = block_on(async {
-                let mut conn = sqlx::SqliteConnection::connect(&url).await.unwrap();
-                conn.execute("SELECT count(*) FROM events").await.unwrap();
-                conn
-            });
-            *late.borrow_mut() = Some(conn);
-        }
-        Setup::Looking => land(),
-    });
-    let dir = path.parent().unwrap();
-    let before = tree(&home, dir);
-    land();
-    closed(&home, &path);
+    migrated_by_an_earlier_build(&home, &path);
     assert_eq!(
-        tree(&home, dir),
-        before,
-        "the earlier build's close landed after the setup returned"
+        beside(&home, &path),
+        Vec::<&str>::new(),
+        "the earlier build's close is over when the setup returns"
     );
+    assert_eq!(ledger(&home, &path), [1, 2, 3, 4, 5, 6], "migrated");
 }
 
 #[test]
@@ -1563,7 +1491,7 @@ fn test_an_older_generation_store_already_migrated_by_an_earlier_build_is_refuse
     // open), the pages are still the old ones.
     let home = Home::new();
     let (path, project) = archive(&home, OLD_BEFORE_0005, &[]);
-    migrated_by_an_earlier_build(&home, &path, &mut |_| ());
+    migrated_by_an_earlier_build(&home, &path);
     assert_eq!(ledger(&home, &path), [1, 2, 3, 4, 5, 6]);
     let dir = path.parent().unwrap();
     let before = tree(&home, dir);

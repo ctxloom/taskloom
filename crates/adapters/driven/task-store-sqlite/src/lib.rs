@@ -11,7 +11,12 @@
 //!   ([`SqliteStore::open_existing`]) and never creates it, finding no
 //!   store where there is no file. Each holds the store it opened, for its
 //!   project, until another is asked for; a store held to write serves a
-//!   read.
+//!   read. A store given up for another is closed first, and
+//!   [`SqliteStores::close`] closes the one held, each waited for
+//!   ([`SqliteStore::close`], ruling 131): when it returns its file holds
+//!   every commit, with no log beside it. A store dropped instead is closed
+//!   on the driver's thread whenever that runs, which a process that exits
+//!   first never lets it do.
 //! - Both migrate a store older than the build: angzarr-store-sqlite's
 //!   every open does (the owner's ruling, 2026-10-31: both read and write
 //!   migrate on startup), through angzarr-ports' `Migrations`, backing the
@@ -155,8 +160,7 @@ impl SqliteStores {
 /// `held`, closed and waited for: a store given up (for another, or by
 /// [`SqliteStores::close`]) is done with its file before anything else is.
 async fn release(held: Held) -> Result<(), StoreError> {
-    let _ = held;
-    todo!("ruling 131: close the store given up and wait")
+    held.store.close().await
 }
 
 impl TaskStores for SqliteStores {
@@ -300,7 +304,8 @@ impl StoreExport for SqliteStores {
     }
 }
 
-/// The database at `path` exported to `out`; none if there is none. Its
+/// The database at `path` exported to `out`, and closed; none if there is
+/// none. Its
 /// ledger is read first, without opening it ([`SqliteStore::ledger_at`]),
 /// and must be exactly the build's set ([`check_ledger`]), so the open
 /// that follows migrates nothing.
@@ -323,14 +328,15 @@ async fn export(
     let end = angzarr_store_transfer::export(&store, &pool, out)
         .await
         .map_err(|e| Report::of(&e))?;
+    store.close().await.map_err(|e| report(&e))?;
     Ok(Some(Exported {
         records: end.records.0,
         streams: end.streams.len() as u64,
     }))
 }
 
-/// The database at `path`, checked read-only; absent if there is none. A
-/// file too damaged to open is damage, not a failure to check.
+/// The database at `path`, checked read-only, and closed; absent if there
+/// is none. A file too damaged to open is damage, not a failure to check.
 async fn check(path: &Path) -> Result<Checked, StoreError> {
     let damaged_file = SqlError::DamagedFile {
         errno: 0,
@@ -345,7 +351,9 @@ async fn check(path: &Path) -> Result<Checked, StoreError> {
         }
         Err(error) => return Err(error),
     };
-    Ok(match store.integrity_check().await? {
+    let integrity = store.integrity_check().await?;
+    store.close().await?;
+    Ok(match integrity {
         Integrity::Intact => Checked::Intact,
         Integrity::Damaged(damage) => Checked::Damaged(ported(&angzarr_ports::Cause::new(
             damage.code(),

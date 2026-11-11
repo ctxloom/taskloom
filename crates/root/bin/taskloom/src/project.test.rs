@@ -5,9 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use ports::TaskStores;
 use serde_json::Value;
-use task_store_sqlite::SqliteStores;
 
 use super::{binary, disk, Isolated, Ran, Temp};
 
@@ -343,33 +341,20 @@ fn test_every_project_command_answers_as_text_too() {
     );
 }
 
-/// Open the database at `path` in this process and close it, waiting for
-/// the close: the last connection's close checkpoints the write-ahead log
-/// a process left behind into the file and removes it, so the file is
-/// whole. Its removal is the sign, waited for up to a deadline.
+/// The database at `path` as the binary left it: whole on its own, no log
+/// or index beside it, looked at the moment the command exited. Each
+/// command closes its store before it exits (ruling 131), so nothing is
+/// opened or waited for here (as it was while the binary dropped it, and
+/// left its log behind).
 fn settled(path: &Path) {
-    let project = ports::Project {
-        id: "settling".to_string(),
-        root: Some("/".to_string()),
-        store: path.to_path_buf(),
-    };
-    let mut stores = SqliteStores::new(super::os());
-    tokio::runtime::Builder::new_current_thread()
-        .enable_time()
-        .build()
-        .unwrap()
-        .block_on(async { stores.open(&project).await.map(drop) })
-        .expect("the database opens to write");
-    drop(stores);
-    let mut wal = path.as_os_str().to_owned();
-    wal.push("-wal");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while disk::exists(Path::new(&wal)) {
+    for suffix in ["-wal", "-shm"] {
+        let mut beside = path.as_os_str().to_owned();
+        beside.push(suffix);
         assert!(
-            std::time::Instant::now() < deadline,
-            "the database's log is still beside it"
+            !disk::exists(Path::new(&beside)),
+            "the command left {} beside the database",
+            Path::new(&beside).display()
         );
-        std::thread::sleep(std::time::Duration::from_millis(1));
     }
 }
 

@@ -11,7 +11,8 @@
 //! It builds each use case only when asked, and building one does no I/O:
 //! [`Taskloom::tasks`] for a command, [`Taskloom::importer`] for `import`
 //! alone (no other use case can reach the JSONL task logs),
-//! [`Taskloom::plans`] and [`Taskloom::projects`].
+//! [`Taskloom::plans`] and [`Taskloom::projects`]. A use case that holds a
+//! store is closed when the frontend is done with it ([`Close`]).
 //!
 //! What a frontend reads back is the application's own typed values (a
 //! listing's reach, hidden counts and priority notes, a write's project,
@@ -28,6 +29,7 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use angzarr_embedded::angzarr_ports::StoreError;
 use file_system::{Fs, Os};
 use harp_names::HarpNames;
 use jsonl_task_log::JsonlTaskLogDir;
@@ -68,6 +70,35 @@ pub type Plans = PlanService<FsPlanFiles, ProjectTasks<Tasks>, HarpNames, Tasklo
 /// The project use cases over the registry (surveying and changing it
 /// mints nothing: no names) and the SQLite store's integrity check.
 pub type Projects = project_application::Projects<ProjectRegistry<()>, SqliteStores>;
+
+/// Use cases that hold a project's store, closed once a command is done
+/// with them (ruling 131): the store held is closed and waited for, so
+/// when this returns its file holds every commit, with no log beside it.
+/// Dropped instead, the store's close is left to the driver's thread,
+/// which a process that exits first never lets run. [`Projects`] holds
+/// none: its check and export close the stores they open.
+pub trait Close {
+    /// Close the store held, if any, and wait for it.
+    fn close(self) -> impl std::future::Future<Output = Result<(), StoreError>>;
+}
+
+impl Close for Tasks {
+    async fn close(self) -> Result<(), StoreError> {
+        self.stores.close().await
+    }
+}
+
+impl Close for Import {
+    async fn close(self) -> Result<(), StoreError> {
+        self.stores.close().await
+    }
+}
+
+impl Close for Plans {
+    async fn close(self) -> Result<(), StoreError> {
+        self.tasks.service.stores.close().await
+    }
+}
 
 /// The app's encoded `FileDescriptorSet`s, the tasks' protos' with every
 /// file it imports (plans are files: no proto of theirs is stored): what

@@ -252,6 +252,71 @@ fn test_a_task_added_by_one_service_is_listed_by_the_next() {
     assert_eq!(listing.reach, Reach::Project(written.project));
 }
 
+/// The log and the index beside the store at `store` (`-wal`, `-shm`) that
+/// are there: none once its last connection has closed.
+fn beside(dirs: &Dirs, store: &Path) -> Vec<&'static str> {
+    ["-wal", "-shm"]
+        .into_iter()
+        .filter(|suffix| {
+            let mut name = store.as_os_str().to_owned();
+            name.push(suffix);
+            dirs.owner.exists(Path::new(&name)).unwrap()
+        })
+        .collect()
+}
+
+// Ruling 131: a use case holding a store is closed when the frontend is
+// done with it, and the file is whole the moment the close returns, looked
+// at with no wait (dropped, the close would be the driver thread's, which
+// an exiting process never lets run).
+#[test]
+fn test_the_tasks_use_cases_close_their_store_leaving_the_file_whole() {
+    let dirs = Dirs::new();
+    let mut tasks = dirs.taskloom().tasks();
+    let store = block_on(tasks.add(new_task("Ship it")))
+        .unwrap()
+        .project
+        .store;
+    assert_eq!(beside(&dirs, &store), ["-wal", "-shm"], "held open");
+    block_on(tasks.close()).unwrap();
+    assert_eq!(beside(&dirs, &store), Vec::<&str>::new());
+}
+
+#[test]
+fn test_the_plans_use_cases_close_the_store_their_tasks_hold() {
+    let dirs = Dirs::new();
+    let mut plans = dirs.taskloom().plans(None);
+    let store = block_on(plans.tasks.service.add(new_task("Plan it")))
+        .unwrap()
+        .project
+        .store;
+    assert_eq!(beside(&dirs, &store), ["-wal", "-shm"], "held open");
+    block_on(plans.close()).unwrap();
+    assert_eq!(beside(&dirs, &store), Vec::<&str>::new());
+}
+
+#[test]
+fn test_the_importer_closes_the_store_it_imported_into() {
+    let dirs = Dirs::new();
+    dirs.write(
+        "/home/u/.ctxloom/tasks/jolly-mute-magma.jsonl",
+        concat!(
+            r#"{"op":"add","task":"brisk-heron","text":"Write the tour","status":"To Do","#,
+            r#""session":"calm-otter","ts":"2026-03-01T10:00:00.123456789Z"}"#,
+            "\n"
+        )
+        .as_bytes(),
+        Mode::FILE,
+    );
+    let mut importer = dirs.taskloom().importer();
+    let report = block_on(importer.import(ImportRequest::default())).unwrap();
+    assert!(report.complete(), "{report:?}");
+    let store = os::fixture("/home/u/.ctxloom/projects/jolly-mute-magma/state.db");
+    assert_eq!(beside(&dirs, &store), ["-wal", "-shm"], "held open");
+    block_on(importer.close()).unwrap();
+    assert_eq!(beside(&dirs, &store), Vec::<&str>::new());
+}
+
 // A watch on one service sees what another service wrote.
 #[test]
 fn test_a_watch_sees_what_another_service_writes() {

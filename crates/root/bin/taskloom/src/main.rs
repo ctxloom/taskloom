@@ -13,15 +13,17 @@
 //! descriptor sets. `tasks watch` streams
 //! the project's changes, and `plans watch` the plan files', until SIGINT
 //! or SIGTERM (on Windows Ctrl-C, Ctrl-Break, or the console's close,
-//! logoff or shutdown; never at a closed stdin). It holds no logic of its
-//! own, and wires no adapter.
+//! logoff or shutdown; never at a closed stdin). Each use case that holds a
+//! store is closed before the process exits (tasks-lib's `Close`, ruling
+//! 131), so the store's file holds every commit with no log left beside it.
+//! It holds no logic of its own, and wires no adapter.
 
 use std::io::{self, IsTerminal, Read};
 use std::process::ExitCode;
 use std::time::Duration;
 
 use tasks_cli::Context;
-use tasks_lib::Taskloom;
+use tasks_lib::{Close, Taskloom};
 
 /// The binary's en-US catalog: every diagnostic the wiring can raise
 /// (tasks-lib's), then each frontend's own.
@@ -175,6 +177,26 @@ impl From<Command> for Routed {
     }
 }
 
+/// `code`, the command's, once `held`'s store is closed and waited for
+/// (ruling 131), before the process exits: dropped, its close would be left
+/// to the driver's thread, which the exit never lets run, and the store's
+/// log would stay beside it. A close that fails is said, and fails a
+/// command that had not.
+fn closing(
+    runtime: &tokio::runtime::Runtime,
+    held: impl Close,
+    code: u8,
+    catalog: &angzarr_presentation::Catalog,
+) -> ExitCode {
+    match runtime.block_on(held.close()) {
+        Ok(()) => ExitCode::from(code),
+        Err(e) => {
+            eprintln!("{}: {}", tasks_cli::PROG, catalog.message(&e));
+            ExitCode::from(code.max(1))
+        }
+    }
+}
+
 /// `taskloom manage migrate tasks`: the JSONL task logs under the home imported into
 /// each project's store, by an importer built for this command alone.
 fn import(
@@ -185,14 +207,15 @@ fn import(
     catalog: &angzarr_presentation::Catalog,
 ) -> ExitCode {
     let mut importer = taskloom.importer();
-    ExitCode::from(runtime.block_on(tasks_cli::run_import(
+    let code = runtime.block_on(tasks_cli::run_import(
         project,
         format,
         catalog,
         &mut importer,
         &mut io::stdout().lock(),
         &mut io::stderr().lock(),
-    )))
+    ));
+    closing(runtime, importer, code, catalog)
 }
 
 /// `taskloom tasks watch`: the project's task events on stdout, polled every
@@ -203,8 +226,8 @@ fn watch<W: tasks_application::WatchService>(
     service: &mut W,
     settings: &tasks_watch::Settings,
     catalog: &angzarr_presentation::Catalog,
-) -> ExitCode {
-    let code = runtime.block_on(async {
+) -> u8 {
+    runtime.block_on(async {
         // SIGINT or SIGTERM (on Windows Ctrl-C, Ctrl-Break, or the
         // console's close, logoff or shutdown), listened for from here,
         // made on the runtime.
@@ -228,8 +251,7 @@ fn watch<W: tasks_application::WatchService>(
             &mut io::stderr().lock(),
         )
         .await
-    });
-    ExitCode::from(code)
+    })
 }
 
 /// `taskloom manage store`: the project's database written whole as JSONL,
@@ -253,14 +275,16 @@ fn store_group(
         projects: &mut projects,
         tasks: &mut tasks,
     };
-    ExitCode::from(runtime.block_on(store_cli::run(
+    let code = runtime.block_on(store_cli::run(
         command,
         &settings,
         catalog,
         use_cases,
         &mut io::stdout().lock(),
         &mut io::stderr().lock(),
-    )))
+    ));
+    // The projects' check and export close the stores they open.
+    closing(runtime, tasks, code, catalog)
 }
 
 /// The project commands, over the project registry and the SQLite store's
@@ -303,8 +327,8 @@ fn plans_watch<P: plans_cli::Plans>(
     plans: &mut P,
     settings: &plans_cli::Settings,
     catalog: &angzarr_presentation::Catalog,
-) -> ExitCode {
-    let code = runtime.block_on(async {
+) -> u8 {
+    runtime.block_on(async {
         let stop = match os.stop_signal() {
             Ok(stop) => stop,
             Err(e) => {
@@ -323,13 +347,13 @@ fn plans_watch<P: plans_cli::Plans>(
             &mut io::stderr().lock(),
         )
         .await
-    });
-    ExitCode::from(code)
+    })
 }
 
 /// `taskloom manage hook stamp-plan`: the session recorded in the plan
 /// file the hook payload on stdin names.
 fn stamp_plan(
+    runtime: &tokio::runtime::Runtime,
     taskloom: &Taskloom,
     project: Option<String>,
     settings: &plans_cli::Settings,
@@ -339,13 +363,14 @@ fn stamp_plan(
     // A payload that cannot be read is the hook's to say, as an empty one.
     let _ = io::stdin().lock().read_to_string(&mut payload);
     let mut plans = taskloom.plans(project);
-    ExitCode::from(plans_cli::stamp(
+    let code = plans_cli::stamp(
         &payload,
         settings,
         catalog,
         &mut plans,
         &mut io::stderr().lock(),
-    ))
+    );
+    closing(runtime, plans, code, catalog)
 }
 
 /// The `plans` group, over the plans use cases: the plan files wherever
@@ -359,14 +384,15 @@ fn plan_group(
     catalog: &angzarr_presentation::Catalog,
 ) -> ExitCode {
     let mut plans = taskloom.plans(project);
-    ExitCode::from(runtime.block_on(plans_cli::run(
+    let code = runtime.block_on(plans_cli::run(
         group,
         settings,
         catalog,
         &mut plans,
         &mut io::stdout().lock(),
         &mut io::stderr().lock(),
-    )))
+    ));
+    closing(runtime, plans, code, catalog)
 }
 
 /// What the command line reads from the process besides its arguments.
@@ -436,7 +462,7 @@ fn main() -> ExitCode {
         }
     };
     let mut service = taskloom.tasks();
-    ExitCode::from(runtime.block_on(tasks_cli::run(
+    let code = runtime.block_on(tasks_cli::run(
         command,
         globals,
         &context,
@@ -444,7 +470,8 @@ fn main() -> ExitCode {
         &mut service,
         &mut stdout.lock(),
         &mut stderr.lock(),
-    )))
+    ));
+    closing(&runtime, service, code, &catalog)
 }
 
 /// The commands that are no task use case's: `manage migrate tasks`, `tasks
@@ -481,14 +508,18 @@ fn mounted(
         Mounted::Plans(group) => {
             plan_group(runtime, taskloom, group, project, &plan_settings(), catalog)
         }
-        Mounted::PlansWatch => plans_watch(
-            runtime,
-            taskloom.fs().os(),
-            &mut taskloom.plans(project),
-            &plan_settings(),
-            catalog,
-        ),
-        Mounted::StampPlan => stamp_plan(taskloom, project, &plan_settings(), catalog),
+        Mounted::PlansWatch => {
+            let mut plans = taskloom.plans(project);
+            let code = plans_watch(
+                runtime,
+                taskloom.fs().os(),
+                &mut plans,
+                &plan_settings(),
+                catalog,
+            );
+            closing(runtime, plans, code, catalog)
+        }
+        Mounted::StampPlan => stamp_plan(runtime, taskloom, project, &plan_settings(), catalog),
         Mounted::Watch(args) => {
             let settings = tasks_watch::Settings {
                 format,
@@ -497,13 +528,15 @@ fn mounted(
                 heartbeat: tasks_watch::heartbeat_ticks(args.heartbeat),
                 prog: tasks_cli::PROG,
             };
-            watch(
+            let mut service = taskloom.tasks();
+            let code = watch(
                 runtime,
                 taskloom.fs().os(),
-                &mut taskloom.tasks(),
+                &mut service,
                 &settings,
                 catalog,
-            )
+            );
+            closing(runtime, service, code, catalog)
         }
     }
 }
