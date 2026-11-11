@@ -290,9 +290,9 @@ gitignored `[patch]` onto the sibling checkouts (angzarr-build at
 clone and the pre-commit gates never read it. Restore Cargo.lock before
 committing, and land the change by pushing the sibling and bumping its rev.
 
-The angzarr pins are one set: angzarr core 6c3175b (diagnostic, ports, yaml,
-presentation, and store-transfer), angzarr-embedded 4626752,
-angzarr-platform f2ece88, angzarr-build 11d249c. Moving one moves all; the
+The angzarr pins are one set: angzarr core 415b29e (diagnostic, ports, yaml,
+presentation, and store-transfer), angzarr-embedded 640d2d0,
+angzarr-platform da6a3ee, angzarr-build 558cde5. Moving one moves all; the
 lock holds one of each.
 
 ## Errors are localizable: a code, args, and an en-US message
