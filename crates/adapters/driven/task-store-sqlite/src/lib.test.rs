@@ -1382,6 +1382,67 @@ fn test_a_store_an_older_generation_wrote_is_refused_by_every_open_and_left_exac
     }
 }
 
+/// Where the setup of an archive an earlier build migrated has got to, for
+/// a test that forces what happens there.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Setup {
+    /// The earlier build's store is dropped; its connection closes on a
+    /// thread of its own, whenever that thread runs.
+    Dropped,
+    /// The setup looks for that close to be over.
+    #[allow(dead_code)] // not yet: the setup does not look
+    Looking,
+}
+
+/// The archive at `path` migrated by an earlier build: angzarr-store-sqlite's
+/// own open, its store dropped. `at` is told where the setup has got to.
+fn migrated_by_an_earlier_build(home: &Home, path: &Path, at: &mut dyn FnMut(Setup)) {
+    block_on(async { SqliteStore::open(&home.real(path)).await.map(drop) }).unwrap();
+    at(Setup::Dropped);
+}
+
+#[test]
+fn test_an_earlier_builds_migration_is_over_before_its_archive_is_looked_at() {
+    // A dropped store's connection closes on a thread of its own, and the
+    // last connection's close checkpoints the log into the file and
+    // removes the log and its index from beside it: a change that lands
+    // whenever that thread runs, so a snapshot taken before it lands sees
+    // a tree the close then changes. Forced to land as late as it can: a
+    // connection of the earlier build's, open once its store is dropped,
+    // closes when the setup first looks for the close, or else only after
+    // the archive's snapshot is taken.
+    use sqlx::{Connection, Executor};
+    let home = Home::new();
+    let (path, _) = archive(&home, OLD_BEFORE_0005, &[]);
+    let url = format!("sqlite://{}", home.real(&path).display());
+    let late = std::cell::RefCell::new(None::<sqlx::SqliteConnection>);
+    let land = || {
+        if let Some(conn) = late.borrow_mut().take() {
+            block_on(conn.close()).unwrap();
+        }
+    };
+    migrated_by_an_earlier_build(&home, &path, &mut |at| match at {
+        Setup::Dropped => {
+            let conn = block_on(async {
+                let mut conn = sqlx::SqliteConnection::connect(&url).await.unwrap();
+                conn.execute("SELECT count(*) FROM events").await.unwrap();
+                conn
+            });
+            *late.borrow_mut() = Some(conn);
+        }
+        Setup::Looking => land(),
+    });
+    let dir = path.parent().unwrap();
+    let before = tree(&home, dir);
+    land();
+    closed(&home, &path);
+    assert_eq!(
+        tree(&home, dir),
+        before,
+        "the earlier build's close landed after the setup returned"
+    );
+}
+
 #[test]
 fn test_an_older_generation_store_already_migrated_by_an_earlier_build_is_refused_too() {
     // The ledger is no mark of the generation: the migrations are the same
@@ -1389,7 +1450,7 @@ fn test_an_older_generation_store_already_migrated_by_an_earlier_build_is_refuse
     // open), the pages are still the old ones.
     let home = Home::new();
     let (path, project) = archive(&home, OLD_BEFORE_0005, &[]);
-    block_on(async { SqliteStore::open(&home.real(&path)).await.map(drop) }).unwrap();
+    migrated_by_an_earlier_build(&home, &path, &mut |_| ());
     assert_eq!(ledger(&home, &path), [1, 2, 3, 4, 5, 6]);
     let dir = path.parent().unwrap();
     let before = tree(&home, dir);
