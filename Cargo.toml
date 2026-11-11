@@ -73,10 +73,10 @@ angzarr-store-transfer = { git = "https://github.com/angzarr-io/angzarr", rev = 
 # The platform crates, moved from this repository into angzarr-platform
 # (decision 36): `os` (everything that differs between operating systems),
 # `file-system` (the seam all file I/O goes through) and `file-lock`
-# (advisory locks over both). On angzarr core 35b29de (angzarr-platform dfae672), as the crates above.
-os = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "d543f5ed230955ba9a9ad04d90a62d2be7b1f23c" }
-file-system = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "d543f5ed230955ba9a9ad04d90a62d2be7b1f23c" }
-file-lock = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "d543f5ed230955ba9a9ad04d90a62d2be7b1f23c" }
+# (advisory locks over both). On angzarr core acacb16 (angzarr-platform 1e83ece), as the crates above.
+os = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "1e83ecedfbafeaa2dcffea0bfc35414dea6def27" }
+file-system = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "1e83ecedfbafeaa2dcffea0bfc35414dea6def27" }
+file-lock = { git = "https://github.com/angzarr-io/angzarr-platform", rev = "1e83ecedfbafeaa2dcffea0bfc35414dea6def27" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
 tasks = { path = "crates/core/domain/tasks" }
 task-lists = { path = "crates/core/read-model/task-lists" }
