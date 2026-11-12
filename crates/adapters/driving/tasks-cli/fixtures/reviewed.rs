@@ -17,12 +17,15 @@ pub fn loadout() -> String {
     applied(
         &applied(
             &applied(
-                &applied(include_str!("go/loadout.yaml"), LOADOUT),
-                CONSOLIDATION,
+                &applied(
+                    &applied(include_str!("go/loadout.yaml"), LOADOUT),
+                    CONSOLIDATION,
+                ),
+                PLANS_AS_FILES,
             ),
-            PLANS_AS_FILES,
+            PARKING_FLAGS,
         ),
-        PARKING_FLAGS,
+        REVIEW_TAG,
     )
 }
 
@@ -56,6 +59,35 @@ pub const PARKING_FLAGS: &[(&str, &str)] = &[(
         "          (Prior art: GTD's Someday/Maybe list.) Both flags are seeded in\n",
         "          every new store; a store made before them admits them once a\n",
         "          person runs `taskloom manage schema permits add`.\n",
+    ),
+)];
+
+/// The illuminated review's tag (the owner's request, 2026-11-12, "we'll
+/// want to add a tag to the default schema for the illuminated code
+/// review, probably by datetime"), applied after the changes above:
+/// `review:illuminated=<YYYYMMDDHHMM>` is said beside the parking flags,
+/// with its value's form, that one review's findings share it, and the
+/// range enforced. Each `old` is the text above's result.
+pub const REVIEW_TAG: &[(&str, &str)] = &[(
+    concat!(
+        "          every new store; a store made before them admits them once a\n",
+        "          person runs `taskloom manage schema permits add`.\n",
+    ),
+    concat!(
+        "          every new store; a store made before them admits them once a\n",
+        "          person runs `taskloom manage schema permits add`.\n",
+        "        - `review:illuminated=<YYYYMMDDHHMM>` \u{2014} a finding the illuminated code\n",
+        "          review filed: its value is the review's START, in UTC, as twelve\n",
+        "          digits (`review:illuminated=202611121530` is 15:30 UTC on\n",
+        "          2026-11-12). Every finding of one review carries the SAME value, so\n",
+        "          `taskloom tasks list --tag-query 'review:illuminated=<v>'` lists that\n",
+        "          review's findings. One per task; the range 202501010000 to\n",
+        "          209912312359 is enforced, so a date alone or a hyphenated one is\n",
+        "          refused (a month or minute out of the calendar inside the range is\n",
+        "          not). The `review:` namespace is open for later kinds of review.\n",
+        "          Seeded in every new store; a store made before it admits it once a\n",
+        "          person declares its three rules with `taskloom manage schema\n",
+        "          declare`.\n",
     ),
 )];
 

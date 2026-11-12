@@ -315,6 +315,18 @@ run:
           (Prior art: GTD's Someday/Maybe list.) Both flags are seeded in
           every new store; a store made before them admits them once a
           person runs `taskloom manage schema permits add`.
+        - `review:illuminated=<YYYYMMDDHHMM>` — a finding the illuminated code
+          review filed: its value is the review's START, in UTC, as twelve
+          digits (`review:illuminated=202611121530` is 15:30 UTC on
+          2026-11-12). Every finding of one review carries the SAME value, so
+          `taskloom tasks list --tag-query 'review:illuminated=<v>'` lists that
+          review's findings. One per task; the range 202501010000 to
+          209912312359 is enforced, so a date alone or a hyphenated one is
+          refused (a month or minute out of the calendar inside the range is
+          not). The `review:` namespace is open for later kinds of review.
+          Seeded in every new store; a store made before it admits it once a
+          person declares its three rules with `taskloom manage schema
+          declare`.
         - `touches:` — a repo-relative FILE path this task will EDIT.
           Repeatable. This is what says whether two tasks can run at once: two
           agents editing one file collide whatever symbols each touched.

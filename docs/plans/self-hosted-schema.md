@@ -38,7 +38,10 @@ every store is an allowlist from when it is made (the owner's ruling F6,
 vocabulary every project copies (the factual flags, `human:`'s keys,
 `relates:`, `touches:`, `sig:`, `queue:`, `landed:`, `platform:`'s keys,
 and the parking flags `icebox` and `someday-maybe`, flat tags, the owner's
-request of 2026-11-12; the loadout's tag axes say what each means).
+request of 2026-11-12; the loadout's tag axes say what each means; and
+`review:` open, its `review:illuminated` a scalar `YYYYMMDDHHMM` in UTC
+held to 202501010000..209912312359, the illuminated code review's start,
+the owner's request of the same day).
 A project's own `area:` and `repo:` keys it permits itself. A seed grown
 later reaches no store already declared: such a store is read as it holds
 its rules, so a person adds a new default with `manage schema permits add`. The seed is
