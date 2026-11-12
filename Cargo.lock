@@ -587,7 +587,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 [[package]]
 name = "file-lock"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-platform?rev=f9f1c7cbe06cd70c173ed24d4074588ce29c98a9#f9f1c7cbe06cd70c173ed24d4074588ce29c98a9"
+source = "git+https://github.com/angzarr-io/angzarr-platform?rev=a35789efcc041bf6e697cae4a8971381e891aca3#a35789efcc041bf6e697cae4a8971381e891aca3"
 dependencies = [
  "angzarr-diagnostic",
  "file-system",
@@ -597,7 +597,7 @@ dependencies = [
 [[package]]
 name = "file-system"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-platform?rev=f9f1c7cbe06cd70c173ed24d4074588ce29c98a9#f9f1c7cbe06cd70c173ed24d4074588ce29c98a9"
+source = "git+https://github.com/angzarr-io/angzarr-platform?rev=a35789efcc041bf6e697cae4a8971381e891aca3#a35789efcc041bf6e697cae4a8971381e891aca3"
 dependencies = [
  "angzarr-diagnostic",
  "os",
@@ -1334,10 +1334,11 @@ dependencies = [
 [[package]]
 name = "os"
 version = "0.1.0"
-source = "git+https://github.com/angzarr-io/angzarr-platform?rev=f9f1c7cbe06cd70c173ed24d4074588ce29c98a9#f9f1c7cbe06cd70c173ed24d4074588ce29c98a9"
+source = "git+https://github.com/angzarr-io/angzarr-platform?rev=a35789efcc041bf6e697cae4a8971381e891aca3#a35789efcc041bf6e697cae4a8971381e891aca3"
 dependencies = [
  "fs4",
  "junction",
+ "libc",
  "process-wrap",
  "same-file",
  "tokio",
