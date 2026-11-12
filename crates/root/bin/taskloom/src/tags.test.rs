@@ -92,6 +92,50 @@ fn test_a_new_store_admits_icebox_and_someday_maybe_on_a_deferred_task() {
     }
 }
 
+// The owner's request of 2026-11-12: a new store admits the illuminated
+// review's tag with no `permits add`, every finding of one review sharing
+// its start, so a tag query on that value lists that review's findings.
+#[test]
+fn test_a_new_store_admits_the_illuminated_review_tag_and_lists_one_review() {
+    let env = Env::new("calm-otter-fox");
+    let add =
+        |text: &str, tag: &str| env.run(&["tasks", "add", text, "--format", "json", "--tag", tag]);
+    for (text, tag) in [
+        ("First finding", "review:illuminated=202611121530"),
+        ("Second finding", "review:illuminated=202611121530"),
+        ("Another review's", "review:illuminated=202611131000"),
+    ] {
+        let ran = add(text, tag);
+        assert!(ran.ok, "{tag}: {}", ran.stderr);
+    }
+    let ran = add("Too late", "review:illuminated=210001010000");
+    assert!(!ran.ok);
+    assert_eq!(code(&ran.stderr), super::codes::tag_rules());
+    assert!(ran.stderr.contains("out-of-range"), "{}", ran.stderr);
+    let ran = add("Malformed", "review:illuminated=2026-11-12");
+    assert!(!ran.ok);
+    assert!(ran.stderr.contains("not-comparable"), "{}", ran.stderr);
+
+    let listed = env.run(&[
+        "tasks",
+        "list",
+        "--format",
+        "json",
+        "--tag-query",
+        "review:illuminated=202611121530",
+    ]);
+    assert!(listed.ok, "{}", listed.stderr);
+    let mut texts: Vec<String> = listed
+        .json()
+        .as_array()
+        .unwrap_or_else(|| panic!("a list: {}", listed.stdout))
+        .iter()
+        .map(|task| task["text"].as_str().unwrap().to_string())
+        .collect();
+    texts.sort();
+    assert_eq!(texts, ["First finding", "Second finding"]);
+}
+
 // A malformed config file still refuses the command, naming the file; a
 // malformed rule is the store's, recorded and reported by `schema check`.
 #[test]

@@ -239,14 +239,32 @@ fn test_a_store_made_before_the_schema_stream_is_seeded_on_first_open() {
 
 // F6: every store is an allowlist from when it is made, so the seed
 // permits every target it constrains (or a seeded rule could never be
-// met).
+// met): by the target's own pattern, or by its namespace's when the seed
+// opens that namespace whole (`review:*`, for `review:illuminated`, the
+// owner's request of 2026-11-12), and tagma's check agrees (the one-key
+// limits on `area` and `repo` are on targets a project permits itself).
 #[test]
 fn test_every_target_the_seed_constrains_is_permitted_by_it() {
     let seed = crate::rules::StoreRules::default();
     let permits = seed.permits();
-    for target in seed.targets() {
-        assert!(permits.contains(&target), "{target} in {permits:?}");
+    let targets = seed.targets();
+    for target in &targets {
+        let namespace = target
+            .split_once(':')
+            .map(|(namespace, _)| format!("{namespace}:*"));
+        assert!(
+            permits.contains(target) || namespace.is_some_and(|open| permits.contains(&open)),
+            "{target} in {permits:?}"
+        );
     }
+    let unpermitted: Vec<String> = seed
+        .check()
+        .into_iter()
+        .filter(|finding| finding.code == tagma_core::Code::RuleOnUnpermitted)
+        .filter(|finding| targets.contains(&finding.tag.key))
+        .map(|finding| finding.tag.to_string())
+        .collect();
+    assert!(unpermitted.is_empty(), "{unpermitted:?}");
 }
 
 // A store closed before permits were presences (F6): its `=true` permits

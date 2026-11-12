@@ -91,7 +91,8 @@ const FLAGS: [&str; 7] = [
 
 /// The exact targets the seeded schema constrains, sorted: the seed
 /// permits each.
-const SEEDED_TARGETS: [&str; 8] = [
+const SEEDED_TARGETS: [&str; 9] = [
+    "review:illuminated",
     "triage:audited",
     "triage:blind-gate",
     "triage:blocks-release",
@@ -433,6 +434,63 @@ fn test_a_new_store_admits_the_icebox_and_someday_maybe_flags() {
         let error = add(&mut service, &[tag]).unwrap_err();
         assert!(not_permitted(&error, tag), "{tag}: {error}");
     }
+}
+
+// The owner's request of 2026-11-12: a finding the illuminated code review
+// files is tagged with the review it came from, `review:illuminated=` its
+// start as `YYYYMMDDHHMM` in UTC, so one review's findings share a value.
+// The `review:` namespace is permitted whole, so a later review kind fits;
+// the key is a scalar (a second value displaces the first) held to
+// 202501010000..209912312359, so an out-of-range, a malformed or a
+// valueless one is refused.
+#[test]
+fn test_a_new_store_admits_a_review_tag_held_to_its_timestamp_range() {
+    let mut service = under(&[]);
+    for tag in [
+        "review:illuminated=202611121530",
+        "review:illuminated=202501010000",
+        "review:illuminated=209912312359",
+    ] {
+        let written = add(&mut service, &[tag]).unwrap();
+        assert_eq!(spelled(&written), [tag]);
+    }
+    assert!(
+        add(&mut service, &["review:security"]).is_ok(),
+        "the review: namespace is permitted whole"
+    );
+    // `2026-11-12T15:30` is not a tag at all (`:` in a bare value), so the
+    // grammar refuses it before the rules see it.
+    let error = add(&mut service, &["review:illuminated=2026-11-12T15:30"]).unwrap_err();
+    assert_eq!(
+        error.code(),
+        crate::fakes::tag_code("tag-unparseable"),
+        "{error}"
+    );
+    for (tag, code) in [
+        ("review:illuminated=202412312359", "out-of-range"),
+        ("review:illuminated=210001010000", "out-of-range"),
+        ("review:illuminated=20261112", "out-of-range"),
+        ("review:illuminated=2026-11-12", "not-comparable"),
+        ("review:illuminated=soon", "not-comparable"),
+        ("review:illuminated", "not-comparable"),
+    ] {
+        let error = add(&mut service, &[tag]).unwrap_err();
+        assert_eq!(error.code(), crate::fakes::tag_code("tag-rules"), "{tag}");
+        assert!(error.to_string().contains(code), "{tag}: {error}");
+    }
+    let written = add(
+        &mut service,
+        &[
+            "review:illuminated=202611121530",
+            "review:illuminated=202611121545",
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        spelled(&written),
+        ["review:illuminated=202611121545"],
+        "a scalar: one review a finding"
+    );
 }
 
 // ------------------------------------------------------------ the list

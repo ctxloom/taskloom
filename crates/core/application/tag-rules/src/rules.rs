@@ -54,15 +54,21 @@ pub const PERMIT: &str = "tagma.permit";
 /// `relates:`, `touches:`, `sig:`, `queue:` and `landed:` open,
 /// `platform:`'s keys (not `ctxloom:plan`, which plans retired), and the
 /// two parking flags, `icebox` and `someday-maybe` (the owner's request,
-/// 2026-11-12: flat tags, each beside a Deferred status and its trigger).
-/// A project's own (its `area:` and `repo:` keys) it permits itself.
-pub const SEEDED_SCHEMA: [&str; 64] = [
+/// 2026-11-12: flat tags, each beside a Deferred status and its trigger),
+/// and `review:` open, its `review:illuminated` a scalar held to
+/// `YYYYMMDDHHMM` in UTC (the owner's request, 2026-11-12: a finding the
+/// illuminated code review files, tagged with the review's start). tagma
+/// has no date type, so the stamp is a numeral held to its range, as
+/// `triage:audited`'s date is: a calendar-invalid one (month 13) inside the
+/// range is not refused. A project's own (its `area:` and `repo:` keys) it permits itself.
+pub const SEEDED_SCHEMA: [&str; 67] = [
     r#"tagma.arity:"triage:level"=scalar"#,
     r#"tagma.arity:"triage:verdict"=scalar"#,
     r#"tagma.arity:"triage:audited"=scalar"#,
     r#"tagma.arity:"triage:kind"=scalar"#,
     r#"tagma.arity:"triage:effort"=scalar"#,
     r#"tagma.arity:"triage:blocks-release"=scalar"#,
+    r#"tagma.arity:"review:illuminated"=scalar"#,
     r#"tagma.type:"triage:blocks-release"=semver"#,
     r#"tagma.enum:"triage:kind"=defect"#,
     r#"tagma.enum:"triage:kind"=capability"#,
@@ -86,6 +92,7 @@ pub const SEEDED_SCHEMA: [&str; 64] = [
     r#"tagma.range:"triage:level"=1..5"#,
     r#"tagma.range:"triage:audited"=20250101..20991231"#,
     r#"tagma.range:"triage:effort"=0..5"#,
+    r#"tagma.range:"review:illuminated"=202501010000..209912312359"#,
     r#"tagma.keys-per-item:area=1"#,
     r#"tagma.keys-per-item:repo=1"#,
     r#"taskloom.decay_fn:"triage:kind"="{{triage:exposed=*}} > 0 ? 1 + {{age_days}}/({{age_days}}+90) : {{triage:blind-gate=*}} > 0 ? 1 + {{age_days}}/({{age_days}}+30) : {{triage:kind=capability}} > 0 ? 0.4 + 0.6 * 0.5 ** ({{age_days}}/120) : {{triage:kind=chore}} > 0 ? 0.5 + 0.5 * 0.5 ** ({{age_days}}/180) : 1""#,
@@ -118,6 +125,7 @@ pub const SEEDED_SCHEMA: [&str; 64] = [
     r#"tagma.permit:"sig:*""#,
     r#"tagma.permit:"queue:*""#,
     r#"tagma.permit:"landed:*""#,
+    r#"tagma.permit:"review:*""#,
     r#"tagma.permit:"platform:linux""#,
     r#"tagma.permit:"platform:macos""#,
     r#"tagma.permit:"platform:windows""#,
