@@ -51,10 +51,12 @@ pub const PERMIT: &str = "tagma.permit";
 /// ruling F6, 2026-11-02): each target the seed constrains, and the core
 /// vocabulary copied into every project (tag-vocabulary.proposal.md
 /// section 2; rulings 13 and 14): the factual flags, `human:`'s keys,
-/// `relates:`, `touches:`, `sig:`, `queue:` and `landed:` open, and
-/// `platform:`'s keys (not `ctxloom:plan`, which plans retired). A
-/// project's own (its `area:` and `repo:` keys) it permits itself.
-pub const SEEDED_SCHEMA: [&str; 62] = [
+/// `relates:`, `touches:`, `sig:`, `queue:` and `landed:` open,
+/// `platform:`'s keys (not `ctxloom:plan`, which plans retired), and the
+/// two parking flags, `icebox` and `someday-maybe` (the owner's request,
+/// 2026-11-12: flat tags, each beside a Deferred status and its trigger).
+/// A project's own (its `area:` and `repo:` keys) it permits itself.
+pub const SEEDED_SCHEMA: [&str; 64] = [
     r#"tagma.arity:"triage:level"=scalar"#,
     r#"tagma.arity:"triage:verdict"=scalar"#,
     r#"tagma.arity:"triage:audited"=scalar"#,
@@ -109,6 +111,8 @@ pub const SEEDED_SCHEMA: [&str; 62] = [
     r#"tagma.permit:"human:verify""#,
     r#"tagma.permit:"human:prerequisite""#,
     r#"tagma.permit:"human:action""#,
+    r#"tagma.permit:icebox"#,
+    r#"tagma.permit:someday-maybe"#,
     r#"tagma.permit:"relates:*""#,
     r#"tagma.permit:"touches:*""#,
     r#"tagma.permit:"sig:*""#,

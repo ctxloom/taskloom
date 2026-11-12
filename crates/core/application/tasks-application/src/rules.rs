@@ -80,10 +80,16 @@ impl StoreRulesExt for StoreRules {
     }
 
     fn permits(&self) -> Vec<String> {
-        self.facet(PERMIT)
+        // The rules are sorted by their canonical spelling, which quotes a
+        // pattern holding a `:` and not a flat one, so the patterns are
+        // sorted again as patterns.
+        let mut patterns: Vec<String> = self
+            .facet(PERMIT)
             .filter(|tag| tag.value.is_none())
             .map(|tag| tag.key.clone())
-            .collect()
+            .collect();
+        patterns.sort();
+        patterns
     }
 
     fn summary(&self) -> SchemaSummary {

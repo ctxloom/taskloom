@@ -62,6 +62,36 @@ fn test_the_rules_are_the_stores_seeded_until_declared_otherwise() {
     assert!(add("area:x=b").ok);
 }
 
+// The owner's request of 2026-11-12: a new store admits the parking flags
+// with no `permits add`, each beside a Deferred status and its trigger, the
+// way a parked row is written.
+#[test]
+fn test_a_new_store_admits_icebox_and_someday_maybe_on_a_deferred_task() {
+    let env = Env::new("calm-otter-fox");
+    for (flag, trigger) in [
+        ("icebox", "someone requests it"),
+        ("someday-maybe", "someone decides it is wanted"),
+    ] {
+        let ran = env.run(&[
+            "tasks",
+            "add",
+            "Parked",
+            "--format",
+            "json",
+            "--tag",
+            flag,
+            "--status",
+            "Deferred",
+            "--trigger",
+            trigger,
+        ]);
+        assert!(ran.ok, "{flag}: {}", ran.stderr);
+        assert_eq!(ran.json()["tags"], serde_json::json!([flag]));
+        assert_eq!(ran.json()["status"], "Deferred");
+        assert_eq!(ran.json()["trigger"], trigger);
+    }
+}
+
 // A malformed config file still refuses the command, naming the file; a
 // malformed rule is the store's, recorded and reported by `schema check`.
 #[test]

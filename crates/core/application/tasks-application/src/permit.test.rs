@@ -407,6 +407,34 @@ fn test_the_core_vocabulary_is_seeded_and_a_projects_own_is_not() {
     }
 }
 
+// The owner's request of 2026-11-12: the two parking flags are core
+// vocabulary, so a new store admits them without a `permits add`. Each is
+// a flat tag: `icebox` (deliberately unscheduled, built when someone asks)
+// and `someday-maybe` (not known to be wanted at all). They are flags, not
+// keys of a namespace, and no near-twin is admitted with them.
+#[test]
+fn test_a_new_store_admits_the_icebox_and_someday_maybe_flags() {
+    let mut service = under(&[]);
+    for flag in ["icebox", "someday-maybe"] {
+        assert!(
+            !permit(&mut service, flag).unwrap().changed,
+            "{flag} seeded"
+        );
+        let written = add(&mut service, &[flag]).unwrap();
+        assert_eq!(spelled(&written), [flag]);
+    }
+    for tag in [
+        "ice-box",
+        "someday",
+        "maybe",
+        "icebox:later",
+        "someday:maybe",
+    ] {
+        let error = add(&mut service, &[tag]).unwrap_err();
+        assert!(not_permitted(&error, tag), "{tag}: {error}");
+    }
+}
+
 // ------------------------------------------------------------ the list
 
 // Ruling 9: what is permitted is readable, by a person and an agent alike
