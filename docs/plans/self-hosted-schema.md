@@ -36,8 +36,12 @@ naming tagma's code). `Existing` findings come back as
 every store is an allowlist from when it is made (the owner's ruling F6,
 2026-11-02): one for each target the seed constrains, and the core
 vocabulary every project copies (the factual flags, `human:`'s keys,
-`relates:`, `touches:`, `sig:`, `queue:`, `landed:`, `platform:`'s keys).
-A project's own `area:` and `repo:` keys it permits itself. The seed is
+`relates:`, `touches:`, `sig:`, `queue:`, `landed:`, `platform:`'s keys,
+and the parking flags `icebox` and `someday-maybe`, flat tags, the owner's
+request of 2026-11-12; the loadout's tag axes say what each means).
+A project's own `area:` and `repo:` keys it permits itself. A seed grown
+later reaches no store already declared: such a store is read as it holds
+its rules, so a person adds a new default with `manage schema permits add`. The seed is
 written when a store is made, and on first open of a store with no schema
 stream; a store holding no permit as a presence (one from before F6, open
 or closed by `"*:*"=false`) has the seed's permits written on its first

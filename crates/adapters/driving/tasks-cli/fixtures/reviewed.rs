@@ -16,12 +16,44 @@
 pub fn loadout() -> String {
     applied(
         &applied(
-            &applied(include_str!("go/loadout.yaml"), LOADOUT),
-            CONSOLIDATION,
+            &applied(
+                &applied(include_str!("go/loadout.yaml"), LOADOUT),
+                CONSOLIDATION,
+            ),
+            PLANS_AS_FILES,
         ),
-        PLANS_AS_FILES,
+        PARKING_FLAGS,
     )
 }
+
+/// The parking flags (the owner's request, 2026-11-12, "add icebox,
+/// someday-maybe to the vocabulary, default schema, and document in
+/// taskloom"), applied after the changes above: `icebox` and
+/// `someday-maybe` are seeded flat tags, each said beside the tag axes
+/// with its meaning, its pairing with Deferred and a trigger, and its prior
+/// art. Each `old` is the text above's result.
+pub const PARKING_FLAGS: &[(&str, &str)] = &[(
+    concat!(
+        "        - `triage:blocks-release=<semver>` \u{2014} the one way to say a release\n",
+        "          waits on this. No `release`, version or milestone tags.\n",
+    ),
+    concat!(
+        "        - `triage:blocks-release=<semver>` \u{2014} the one way to say a release\n",
+        "          waits on this. No `release`, version or milestone tags.\n",
+        "        - `icebox` \u{2014} a known possibility, deliberately unscheduled: what is\n",
+        "          built is good enough as it is, and this is built only when someone\n",
+        "          REQUESTS it. A flat tag. Pair it with status `Deferred` and a\n",
+        "          `--trigger` naming who or what would request it. (Prior art:\n",
+        "          Pivotal Tracker's Icebox; Linear's Icebox status in Backlog.)\n",
+        "        - `someday-maybe` \u{2014} not committed: it is uncertain whether it is\n",
+        "          wanted at all. Weaker than `icebox`, which says \"we would do it if\n",
+        "          asked\"; this says \"we might not want it\". A flat tag; also\n",
+        "          `Deferred`, its `--trigger` the decision or evidence that would show\n",
+        "          it is wanted. (Prior art: GTD's Someday/Maybe list.) Both flags are\n",
+        "          seeded in every new store; a store made before them admits them\n",
+        "          once a person runs `taskloom manage schema permits add`.\n",
+    ),
+)];
 
 /// Plans become files (slice C, owner-ruled 2026-11-03), applied after the
 /// changes above: the post-file-edit hook is `taskloom manage hook
