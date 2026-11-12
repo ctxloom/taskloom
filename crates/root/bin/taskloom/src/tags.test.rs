@@ -69,7 +69,7 @@ fn test_the_rules_are_the_stores_seeded_until_declared_otherwise() {
 fn test_a_new_store_admits_icebox_and_someday_maybe_on_a_deferred_task() {
     let env = Env::new("calm-otter-fox");
     for (flag, trigger) in [
-        ("icebox", "someone requests it"),
+        ("icebox", "the prerequisite lands"),
         ("someday-maybe", "someone decides it is wanted"),
     ] {
         let ran = env.run(&[

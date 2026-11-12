@@ -302,18 +302,19 @@ run:
           `human`: it said where a row went, never why.
         - `triage:blocks-release=<semver>` — the one way to say a release
           waits on this. No `release`, version or milestone tags.
-        - `icebox` — a known possibility, deliberately unscheduled: what is
-          built is good enough as it is, and this is built only when someone
-          REQUESTS it. A flat tag. Pair it with status `Deferred` and a
-          `--trigger` naming who or what would request it. (Prior art:
-          Pivotal Tracker's Icebox; Linear's Icebox status in Backlog.)
-        - `someday-maybe` — not committed: it is uncertain whether it is
-          wanted at all. Weaker than `icebox`, which says "we would do it if
-          asked"; this says "we might not want it". A flat tag; also
-          `Deferred`, its `--trigger` the decision or evidence that would show
-          it is wanted. (Prior art: GTD's Someday/Maybe list.) Both flags are
-          seeded in every new store; a store made before them admits them
-          once a person runs `taskloom manage schema permits add`.
+        - `icebox` — acknowledged as something we WANT to do, but frozen:
+          its complexity is such that it is parked, not dropped. A flat tag.
+          Pair it with status `Deferred` and a `--trigger` naming what would
+          thaw it (a prerequisite landed, the capacity found). (Prior art:
+          Pivotal Tracker's Icebox.)
+        - `someday-maybe` — a MAYBE: it is uncertain whether it is wanted at
+          all, including what would be built only if someone asked. Weaker
+          than `icebox`, which says "we want it, but it is hard"; this says
+          "we might not want it". A flat tag; it too can be `Deferred`, its
+          `--trigger` the request or evidence that would show it is wanted.
+          (Prior art: GTD's Someday/Maybe list.) Both flags are seeded in
+          every new store; a store made before them admits them once a
+          person runs `taskloom manage schema permits add`.
         - `touches:` — a repo-relative FILE path this task will EDIT.
           Repeatable. This is what says whether two tasks can run at once: two
           agents editing one file collide whatever symbols each touched.

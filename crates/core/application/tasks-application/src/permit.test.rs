@@ -409,8 +409,8 @@ fn test_the_core_vocabulary_is_seeded_and_a_projects_own_is_not() {
 
 // The owner's request of 2026-11-12: the two parking flags are core
 // vocabulary, so a new store admits them without a `permits add`. Each is
-// a flat tag: `icebox` (deliberately unscheduled, built when someone asks)
-// and `someday-maybe` (not known to be wanted at all). They are flags, not
+// a flat tag: `icebox` (wanted, but frozen for its complexity) and
+// `someday-maybe` (a maybe: not known to be wanted at all). They are flags, not
 // keys of a namespace, and no near-twin is admitted with them.
 #[test]
 fn test_a_new_store_admits_the_icebox_and_someday_maybe_flags() {
