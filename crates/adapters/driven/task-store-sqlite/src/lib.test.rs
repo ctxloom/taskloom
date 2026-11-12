@@ -996,6 +996,8 @@ enum Fault {
     /// It cannot say where anything is on disk, as a real path a Windows
     /// prefix leaves relative cannot be.
     Unplaceable,
+    /// It cannot set this path's mode (the caller's).
+    NoMode(PathBuf),
 }
 
 impl Fs for Faulty {
@@ -1030,7 +1032,13 @@ impl Fs for Faulty {
         self.0.rename(from, to)
     }
     fn set_permissions(&self, path: &Path, mode: Mode) -> std::io::Result<()> {
-        self.0.set_permissions(path, mode)
+        match &self.1 {
+            Fault::NoMode(refused) if refused == path => Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "no mode set",
+            )),
+            _ => self.0.set_permissions(path, mode),
+        }
     }
     fn read_dir(&self, path: &Path) -> std::io::Result<Vec<file_system::Entry>> {
         self.0.read_dir(path)
@@ -1669,4 +1677,224 @@ fn sqlite_unavailable() -> &'static str {
         detail: String::new(),
     }
     .code()
+}
+
+// ------------------------------------------------------------ private to its owner
+//
+// A store is its owner's alone (owner ruling, 2026-11-12): its directory
+// 0700, the file and the `-wal` and `-shm` SQLite keeps beside it 0600,
+// whatever the umask; an existing store open to others is made so on its
+// next open, to write or to read. On Windows no mode is set: the profile's
+// ACL holds the store, so those assertions are a named SKIP.
+
+/// Whether this host keeps mode bits; says the named SKIP when it does not.
+fn modes_kept(test: &str) -> bool {
+    if os::host().flavor() == os::Flavor::Windows {
+        println!("SKIP {test}: Windows keeps no mode bits; the profile's ACL holds the store");
+        return false;
+    }
+    true
+}
+
+impl Home {
+    /// `path`'s permission bits.
+    fn mode(&self, path: &Path) -> u32 {
+        self.rooted
+            .metadata(path)
+            .unwrap()
+            .mode
+            .expect("a mode on unix")
+            .bits()
+    }
+
+    fn chmod(&self, path: &Path, mode: Mode) {
+        self.rooted.set_permissions(path, mode).unwrap();
+    }
+
+    /// The stores on this home's filesystem, which cannot set `refused`'s
+    /// mode.
+    fn refusing_mode(&self, refused: &Path) -> SqliteStores {
+        let fs = Faulty(
+            Rooted::new(self.rooted.root(), self.path()).unwrap(),
+            Fault::NoMode(refused.to_path_buf()),
+        );
+        SqliteStores::new(Arc::new(fs))
+    }
+}
+
+/// `path` with `suffix` after its file name: the `-wal` and `-shm` beside a
+/// store.
+fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
+/// The store's file, log and shared memory are 0600, the log and shared
+/// memory there (held open).
+fn private_files(home: &Home, path: &Path) {
+    assert_eq!(home.mode(path), 0o600, "the store");
+    for suffix in ["-wal", "-shm"] {
+        let companion = with_suffix(path, suffix);
+        assert!(home.exists(&companion), "{} beside it", companion.display());
+        assert_eq!(home.mode(&companion), 0o600, "{}", companion.display());
+    }
+}
+
+#[test]
+fn test_a_new_store_and_every_directory_its_open_makes_are_its_owners_alone() {
+    let name = "test_a_new_store_and_every_directory_its_open_makes_are_its_owners_alone";
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    let mut stores = home.stores();
+    // Held open: a write's log and shared memory are beside it.
+    block_on(stores.open(&project("jolly-mute-magma", path.clone()))).expect("opens");
+    if !modes_kept(name) {
+        return;
+    }
+    let dir = path.parent().unwrap();
+    for made in [dir, dir.parent().unwrap(), &home.path().join(".ctxloom")] {
+        assert_eq!(home.mode(made), 0o700, "{}", made.display());
+    }
+    private_files(&home, &path);
+    block_on(stores.close()).unwrap();
+}
+
+#[test]
+fn test_an_existing_store_open_to_others_is_made_its_owners_on_a_write_open() {
+    let name = "test_an_existing_store_open_to_others_is_made_its_owners_on_a_write_open";
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    written(&home, &path);
+    let dir = path.parent().unwrap();
+    home.chmod(dir, Mode::DIR);
+    home.chmod(&path, Mode::FILE);
+    let mut stores = home.stores();
+    block_on(stores.open(&project("jolly-mute-magma", path.clone()))).expect("opens");
+    if !modes_kept(name) {
+        return;
+    }
+    assert_eq!(home.mode(dir), 0o700, "its directory");
+    private_files(&home, &path);
+    block_on(stores.close()).unwrap();
+}
+
+#[test]
+fn test_an_existing_store_open_to_others_is_made_its_owners_on_a_read_open() {
+    let name = "test_an_existing_store_open_to_others_is_made_its_owners_on_a_read_open";
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    written(&home, &path);
+    let dir = path.parent().unwrap();
+    home.chmod(dir, Mode::DIR);
+    home.chmod(&path, Mode::FILE);
+    let mut stores = home.stores();
+    let found = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
+        .expect("opens")
+        .is_some();
+    assert!(found, "found");
+    if !modes_kept(name) {
+        return;
+    }
+    assert_eq!(home.mode(dir), 0o700, "its directory");
+    private_files(&home, &path);
+    block_on(stores.close()).unwrap();
+}
+
+#[test]
+fn test_a_log_and_shared_memory_open_to_others_are_made_the_owners_on_the_next_open() {
+    let name = "test_a_log_and_shared_memory_open_to_others_are_made_the_owners_on_the_next_open";
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    let project = project("jolly-mute-magma", path.clone());
+    // Held open, so its log and shared memory stay, as an earlier build
+    // left them: open to others.
+    let mut held = home.stores();
+    block_on(held.open(&project)).expect("opens");
+    if !modes_kept(name) {
+        return;
+    }
+    let (wal, shm) = (with_suffix(&path, "-wal"), with_suffix(&path, "-shm"));
+    home.chmod(&wal, Mode::FILE);
+    home.chmod(&shm, Mode::FILE);
+    let mut written = home.stores();
+    block_on(written.open(&project)).expect("opens to write");
+    assert_eq!(
+        (home.mode(&wal), home.mode(&shm)),
+        (0o600, 0o600),
+        "to write"
+    );
+    home.chmod(&wal, Mode::FILE);
+    home.chmod(&shm, Mode::FILE);
+    let mut read = home.stores();
+    let found = block_on(read.open_existing(&project))
+        .expect("opens to read")
+        .is_some();
+    assert!(found, "found");
+    assert_eq!(
+        (home.mode(&wal), home.mode(&shm)),
+        (0o600, 0o600),
+        "to read"
+    );
+    for stores in [read, written, held] {
+        block_on(stores.close()).unwrap();
+    }
+}
+
+/// What a store at `path` is made its owner's through: its directory, the
+/// file, its log and its shared memory.
+fn made_private(path: &Path) -> [PathBuf; 4] {
+    [
+        path.parent().unwrap().to_path_buf(),
+        path.to_path_buf(),
+        with_suffix(path, "-wal"),
+        with_suffix(path, "-shm"),
+    ]
+}
+
+/// `error` is the refusal to open what could not be made private,
+/// `refused`, with the filesystem's text.
+fn refused_private(error: &StoreError, refused: &Path) {
+    let args = keyed(error, code!("restrict"))
+        .unwrap_or_else(|| panic!("{refused:?}: keyed restrict: {error}"));
+    assert_eq!(
+        args,
+        [
+            ("path", refused.display().to_string()),
+            ("ext_err_txt", "no mode set".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn test_a_write_open_of_a_store_that_cannot_be_made_its_owners_fails_naming_what() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    let project = project("jolly-mute-magma", path.clone());
+    for refused in made_private(&path) {
+        let mut stores = home.refusing_mode(&refused);
+        let error = block_on(stores.open(&project)).map(drop).unwrap_err();
+        refused_private(&error, &refused);
+        assert!(stores.held.is_none(), "{refused:?}: nothing held");
+    }
+}
+
+#[test]
+fn test_a_read_open_of_a_store_that_cannot_be_made_its_owners_fails_naming_what() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    written(&home, &path);
+    let project = project("jolly-mute-magma", path.clone());
+    for refused in made_private(&path) {
+        let mut stores = home.refusing_mode(&refused);
+        let error = block_on(stores.open_existing(&project))
+            .map(drop)
+            .unwrap_err();
+        refused_private(&error, &refused);
+        let error = block_on(stores.change_token(&project))
+            .map(drop)
+            .unwrap_err();
+        refused_private(&error, &refused);
+        assert!(stores.held.is_none(), "{refused:?}: nothing held");
+    }
 }

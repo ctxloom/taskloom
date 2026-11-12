@@ -432,6 +432,29 @@ fn test_an_invalid_pinned_id_is_refused_naming_where_it_came_from() {
     assert!(error.to_string().contains("CTXLOOM_PROJECT_ID"), "{error}");
 }
 
+#[test]
+fn test_binding_a_project_makes_the_homes_store_directories_its_owners_alone() {
+    let world = World::new();
+    world
+        .registry(&["jolly-mute-magma"])
+        .for_write(None)
+        .unwrap();
+    if !index::tests::modes_kept(
+        "test_binding_a_project_makes_the_homes_store_directories_its_owners_alone",
+    ) {
+        return;
+    }
+    let app = world.home().join(".ctxloom");
+    for made in [app.clone(), app.join("projects")] {
+        assert_eq!(
+            index::tests::mode(&*world.fs, &made),
+            0o700,
+            "{}",
+            made.display()
+        );
+    }
+}
+
 // ------------------------------------------------------------ markers
 
 #[test]

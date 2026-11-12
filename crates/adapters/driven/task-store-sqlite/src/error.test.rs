@@ -41,6 +41,10 @@ fn test_each_error_displays_its_code_and_args_never_english() {
              archive=/home/u/.ctxloom/projects/jolly-mute-magma/state.db.archive-<date>"
             ),
             concat!(code!("no-output"), r#" ext_err_txt="broken pipe""#),
+            concat!(
+                code!("restrict"),
+                r#" path=/home/u/.ctxloom/projects/jolly-mute-magma/state.db-wal ext_err_txt="operation not permitted""#
+            ),
         ]
     );
 }
@@ -120,6 +124,28 @@ fn test_each_error_gives_its_args_values() {
         matches!(error, StoreOpenError::NoRuntime { .. }),
         "{error:?}"
     );
+    let error = StoreOpenError::Restrict {
+        path: "p".to_string(),
+        detail: "d".to_string(),
+    };
+    assert!(
+        matches!(&error.args()[..], [("path", Arg::Str(p)), ("ext_err_txt", Arg::Str(d))] if p == "p" && d == "d"),
+        "{error:?}"
+    );
+    let cause = error.cause();
+    assert_eq!(cause.code, code!("restrict"));
+    assert_eq!(
+        cause.args,
+        [
+            ("path", angzarr_ports::Arg::Str("p".to_string())),
+            ("ext_err_txt", angzarr_ports::Arg::Str("d".to_string())),
+        ]
+    );
+}
+
+#[test]
+fn test_the_restrict_code_is_stable() {
+    assert_eq!(code!("restrict"), "task-store-sqlite-restrict");
 }
 
 #[test]

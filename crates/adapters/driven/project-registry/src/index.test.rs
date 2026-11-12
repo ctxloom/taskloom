@@ -304,6 +304,72 @@ fn test_nothing_is_written_or_locked_at_a_relative_path() {
     assert!(!fs.exists(Path::new("relative-registry-dir")).unwrap());
 }
 
+// ------------------------------------------------------------ private to its owner
+//
+// The registry lives beside the project stores (`~/.ctxloom/projects`), so
+// the directories it makes are its owner's alone, 0700, whatever the umask
+// (owner ruling, 2026-11-12). On Windows no mode is set: the profile's ACL
+// holds them, so those assertions are a named SKIP.
+
+/// Whether this host keeps mode bits; says the named SKIP when it does not.
+pub(crate) fn modes_kept(test: &str) -> bool {
+    if os::host().flavor() == os::Flavor::Windows {
+        println!("SKIP {test}: Windows keeps no mode bits; the profile's ACL holds the registry");
+        return false;
+    }
+    true
+}
+
+/// `path`'s permission bits on `fs`.
+pub(crate) fn mode(fs: &dyn Fs, path: &Path) -> u32 {
+    fs.metadata(path)
+        .unwrap()
+        .mode
+        .expect("a mode on unix")
+        .bits()
+}
+
+#[test]
+fn test_the_directories_a_save_makes_are_its_owners_alone() {
+    let (fs, dir) = at();
+    let file = dir.join("ctxloom").join("projects").join("index.yaml");
+    save(&fs, &file, &Index::default()).unwrap();
+    if !modes_kept("test_the_directories_a_save_makes_are_its_owners_alone") {
+        return;
+    }
+    for made in [dir.join("ctxloom"), dir.join("ctxloom").join("projects")] {
+        assert_eq!(mode(&fs, &made), 0o700, "{}", made.display());
+    }
+    assert_eq!(mode(&fs, &file), 0o600, "the registry");
+}
+
+#[test]
+fn test_the_directories_the_lock_makes_are_its_owners_alone() {
+    let (fs, dir) = at();
+    let file = dir.join("ctxloom").join("projects").join("index.yaml");
+    let held = lock(&fs, &file).unwrap();
+    if !modes_kept("test_the_directories_the_lock_makes_are_its_owners_alone") {
+        return;
+    }
+    for made in [dir.join("ctxloom"), dir.join("ctxloom").join("projects")] {
+        assert_eq!(mode(&fs, &made), 0o700, "{}", made.display());
+    }
+    drop(held);
+}
+
+#[test]
+fn test_a_lock_whose_directory_cannot_be_made_fails_naming_it() {
+    let (fs, dir) = at();
+    let blocker = dir.join("ctxloom");
+    put(&fs, &blocker, "a file where the directory goes");
+    let file = blocker.join("projects").join("index.yaml");
+    let error = lock(&fs, &file).map(drop).unwrap_err();
+    assert!(
+        matches!(&error, RegistryError::Io { path, .. } if *path == blocker.join("projects").display().to_string()),
+        "{error:?}"
+    );
+}
+
 // ------------------------------------------------------------ the lock
 
 #[test]

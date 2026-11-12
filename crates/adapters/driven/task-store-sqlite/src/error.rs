@@ -28,6 +28,9 @@ pub enum StoreOpenError {
     OlderGeneration { path: String, archive: String },
     /// A store's export could not be written to its output.
     NoOutput { detail: String },
+    /// The store's directory, file, log or shared memory at `path` could not
+    /// be made its owner's alone (0700, 0600), so it is not opened.
+    Restrict { path: String, detail: String },
 }
 
 /// Its key, then each arg as ` name=value`, a value quoted where it would
@@ -49,6 +52,7 @@ impl StoreOpenError {
             StoreOpenError::PredatesEmbedded { .. } => code!("predates-embedded"),
             StoreOpenError::OlderGeneration { .. } => code!("older-generation"),
             StoreOpenError::NoOutput { .. } => code!("no-output"),
+            StoreOpenError::Restrict { .. } => code!("restrict"),
         }
     }
 
@@ -56,7 +60,8 @@ impl StoreOpenError {
     fn named(&self) -> Vec<(&'static str, Arg)> {
         match self {
             StoreOpenError::CreateDir { path, detail }
-            | StoreOpenError::Unplaced { path, detail } => vec![
+            | StoreOpenError::Unplaced { path, detail }
+            | StoreOpenError::Restrict { path, detail } => vec![
                 ("path", path.as_str().into()),
                 ("ext_err_txt", detail.as_str().into()),
             ],
@@ -133,6 +138,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         }),
         Box::new(StoreOpenError::NoOutput {
             detail: "broken pipe".to_string(),
+        }),
+        Box::new(StoreOpenError::Restrict {
+            path: format!("{}/state.db-wal", path()),
+            detail: "operation not permitted".to_string(),
         }),
     ]
 }

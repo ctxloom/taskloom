@@ -239,4 +239,4 @@ fn from_lock(error: file_lock::LockError) -> RegistryError {
 
 #[cfg(test)]
 #[path = "index.test.rs"]
-mod tests;
+pub(crate) mod tests;
