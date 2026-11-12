@@ -29,6 +29,12 @@ use time::OffsetDateTime;
 use crate::path::{canonical, same};
 use crate::RegistryError;
 
+/// A directory only its owner may enter: the registry's, beside the
+/// project stores, and each one above it that a save or the lock makes (the
+/// owner's ruling, 2026-11-12). The seam sets no mode on Windows, where the
+/// profile's ACL holds them.
+const PRIVATE_DIR: Mode = Mode::from_bits(0o700);
+
 /// The schema version this registry reads and writes, and the only one:
 /// there is no older version to migrate.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -136,14 +142,24 @@ fn loader() -> Loader {
         .expect("a kind with no steps is a whole chain")
 }
 
-/// Write `index` to `path` on `fs`, whole, by rename.
+/// Write `index` to `path` on `fs`, whole, by rename, its directory (and
+/// each one above it that is missing) made its owner's alone.
 pub fn save(fs: &dyn Fs, path: &Path, index: &Index) -> Result<(), RegistryError> {
     let mut index = index.clone();
     if index.schema_version == 0 {
         index.schema_version = SCHEMA_VERSION;
     }
     let text = angzarr_yaml::write(&value(&index), usize::MAX);
+    private_dir(fs, path)?;
     write_atomically(fs, path, text.as_bytes())
+}
+
+/// The directory of `path`, an absolute path, and each one above it that
+/// is missing, made its owner's alone ([`PRIVATE_DIR`]).
+fn private_dir(fs: &dyn Fs, path: &Path) -> Result<(), RegistryError> {
+    let dir = absolute(path)?.parent().unwrap_or(Path::new("/"));
+    fs.create_dir_all(dir, PRIVATE_DIR)
+        .map_err(|e| RegistryError::io(dir, e))
 }
 
 /// `index` as the document written: every field in block style, an entry's
@@ -194,7 +210,9 @@ fn absolute(path: &Path) -> Result<&Path, RegistryError> {
 }
 
 /// Write `bytes` to `path`, an absolute path, whole and private, by the
-/// seam's atomic write, creating the directory if need be.
+/// seam's atomic write, creating the directory if need be. A directory
+/// made here is the work tree's (a marker's), made as std makes them;
+/// the registry's own is made private first ([`save`]).
 pub fn write_atomically(fs: &dyn Fs, path: &Path, bytes: &[u8]) -> Result<(), RegistryError> {
     let dir = absolute(path)?.parent().unwrap_or(Path::new("/"));
     // As std's create_dir_all makes them: 0777 before the umask.
@@ -214,8 +232,10 @@ pub use file_lock::Locked;
 /// Take the lock of the registry at `path`, an absolute path, waiting up
 /// to `wait` (in use, [`LOCK_WAIT`]) for whoever holds it: `index.yaml.lock`
 /// beside it, taken as every ctxloom lock is (file-lock's re-check and
-/// bounded wait).
+/// bounded wait). Its directory, the registry's, is made its owner's alone
+/// first, so the lock never makes it open to others.
 pub fn lock_within(fs: &dyn Fs, path: &Path, wait: Duration) -> Result<Locked, RegistryError> {
+    private_dir(fs, path)?;
     let lock_path = absolute(path)?.with_file_name("index.yaml.lock");
     file_lock::lock_within(fs, &lock_path, wait).map_err(from_lock)
 }

@@ -208,6 +208,15 @@ the store up beside itself through its `Backup`
 (`state.db.pre-<applied level>-<UTC time>`); one newer than the build, or
 one a migration failed or changed in, is refused untouched.
 
+A store is its owner's alone (the owner's ruling, 2026-11-12): every open
+of it, to write or to read, sets its directory 0700 and the file, its
+`-wal` and its `-shm` 0600 through the seam, whatever the umask, so an
+existing store open to others is tightened on its next open; the
+directories an open makes, and those project-registry's save and lock make
+under `~/.ctxloom`, are made 0700. A mode that cannot be set fails the open
+(`task-store-sqlite-restrict`, naming the path), the store closed. On
+Windows the seam sets no mode: the profile's ACL holds the store.
+
 A store is closed, never dropped, wherever its file matters after (ruling
 131): angzarr-store-sqlite's `SqliteStore::close` waits for the
 connection's close, so the last close's WAL checkpoint and the log's
