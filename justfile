@@ -119,10 +119,13 @@ install:
 hooks-install:
     lefthook install
 
-# The gates' own self-tests: the mutation verdict (`_mutants-verdict`) over
-# fixture cargo-mutants outputs, and the refusal of a feature rule.
+# The gates' own self-tests: a throwaway worktree let go alone
+# (gates/drop-worktree.sh, never a repository-wide prune), and the mutation
+# verdict (`_mutants-verdict`) over fixture cargo-mutants outputs, and the
+# refusal of a feature rule.
 [no-exit-message]
 selftest:
+    @{{TOP}}/scripts/drop-worktree.selftest.sh
     @{{TOP}}/scripts/mutants-verdict.selftest.sh
 
 # The tests of the named crates only, by cargo-nextest (the gates' `_tests`):
