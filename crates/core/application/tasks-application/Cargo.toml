@@ -1,0 +1,48 @@
+[package]
+name = "tasks-application"
+version = "0.1.0"
+description = "The tasks use cases: add, tag and list, over the ports and angzarr-embedded's kernel"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-embedded.workspace = true
+angzarr-diagnostic.workspace = true
+# Each command run through the kernel, as every context runs one.
+kernel-runner.workspace = true
+ports.workspace = true
+sha2.workspace = true
+tagma-core.workspace = true
+tag-rules.workspace = true
+task-lists.workspace = true
+task-priority.workspace = true
+tasks.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+# The test support the fakes share: the kernel's (`angzarr_embedded::testing`:
+# block_on_ready, angzarr-ports' FaultyStore) and the ports' (`ports::testing`:
+# the clock and the delay).
+angzarr-embedded = { workspace = true, features = ["test-support"] }
+ports = { workspace = true, features = ["test-support"] }
+tag-rules = { workspace = true, features = ["test-support"] }
+# Rendering catalogs' English (`english_for!`), for the tests that hold it
+# to Go's.
+angzarr-presentation = { workspace = true, features = ["test-support"] }
+fluent-syntax.workspace = true
+mutants.workspace = true
+
+[build-dependencies]
+# The build writes the catalog's source under the crate's name
+# (angzarr_diagnostic::build): no catalog spells its crate's name.
+angzarr-diagnostic = { workspace = true, features = ["build"] }
+
+[features]
+# `diagnostic_samples` and `dead_letter_sample`, for other crates' tests:
+# their dev-dependency turns it on, and no build of a binary does.
+test-support = []
+
+[lints]
+workspace = true

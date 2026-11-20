@@ -1,0 +1,619 @@
+//! The reads: which projects a read reaches, every live task in them, and
+//! the listing taken from those tasks.
+//!
+//! A read is about the project the work root resolves to (or the one
+//! pinned; the CLI has no flag that reads every project). A read that
+//! finds no project falls back to every project when the working
+//! directory lies in no work root of its own (no CTXLOOM_ROOT, no git
+//! repository); inside a work root it reads nothing.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use angzarr_diagnostic::Report;
+use ports::{Clock, Configuration, ProjectIdentity, TaskStores};
+
+use crate::lint::{self, LintReport};
+use crate::lists::Lists;
+use crate::priority::{self, PriorityNote};
+use crate::project::Projects;
+use crate::request::given;
+use crate::rules::{StoreRules, StoreRulesExt};
+use crate::view::{
+    is_active, is_terminal, Row, StatusInfo, Task, DEFAULT_STATUSES, IN_PROGRESS, OPEN,
+    STATUS_CLASSES, TERMINAL,
+};
+use crate::{failed, query, AppError, Project, Shown, Tag};
+
+/// The tasks to show, by id, every one of which must be found: in the
+/// work root's project (or the one pinned).
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct ShowQuery {
+    pub project: Option<String>,
+    pub harp_ids: Vec<String>,
+}
+
+/// Where a read that takes no filter reads: the work root's project (or
+/// the one pinned).
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct Scope {
+    pub project: Option<String>,
+}
+
+/// Which tasks to list. By default the active ones: neither terminal nor
+/// Deferred. `all` lists every task; naming statuses (or the classes
+/// `@open` and `@terminal`) lists exactly the tasks in them. A term keeps
+/// those whose text mentions it, case-insensitively, and a tag query those
+/// it selects. A term, tag query, sort or
+/// limit given blank (a limit of 0) is refused ([`AppError::Blank`]),
+/// never read as none.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct ListQuery {
+    pub project: Option<String>,
+    pub statuses: Vec<String>,
+    pub all: bool,
+    /// A postfix tag query (see [`crate::query::QUERY_GRAMMAR`]).
+    pub tag_query: Option<String>,
+    /// A substring of the text, any case.
+    pub term: Option<String>,
+    /// At most this many tasks, the rest counted as omitted; `None` for
+    /// no limit. A limit of 0 is given blank, and refused.
+    pub limit: Option<usize>,
+    /// The order: `None` for the listing's own, or [`PRIORITY`], the one
+    /// sort.
+    pub sort: Option<String>,
+}
+
+/// The sort by derived priority, `--sort priority`.
+pub(crate) const PRIORITY: &str = "priority";
+
+/// The reads over the ports they need: the way to their projects
+/// ([`Projects`]), the clock a priority is ranked at, and the task lists
+/// kept caught up across the service's reads. Borrowed from the service
+/// for one call.
+pub(crate) struct Reading<'s, I, S, G, C> {
+    pub projects: Projects<'s, I, S, G>,
+    pub clock: &'s mut C,
+    pub lists: &'s mut Lists,
+}
+
+/// What a read reached.
+#[derive(Clone, PartialEq, Debug)]
+pub enum Reach {
+    /// The project the work root resolves to, or the one pinned.
+    Project(Project),
+    /// No project, in a work root of its own: nothing was read.
+    NoProject,
+    /// Every project with a store: `projects` of them. `fallback` is the
+    /// working directory, which no project led to.
+    Every {
+        projects: usize,
+        fallback: Option<String>,
+    },
+}
+
+impl Reach {
+    /// The one project read, if one was.
+    pub fn project(&self) -> Option<&Project> {
+        match self {
+            Reach::Project(project) => Some(project),
+            Reach::NoProject | Reach::Every { .. } => None,
+        }
+    }
+
+    /// Whether it reached every project.
+    pub fn is_every(&self) -> bool {
+        matches!(self, Reach::Every { .. })
+    }
+}
+
+/// Every live task a read reached: one project's in the order they were
+/// added, or every project's by project id and then harp id; and each
+/// project's store's rules, by project id.
+pub(crate) struct Scan {
+    pub reach: Reach,
+    pub rows: Vec<Row>,
+    pub rules: BTreeMap<String, StoreRules>,
+}
+
+impl Scan {
+    /// The rules a read across what it reached is held to: the one
+    /// project's store's; reaching none or every project, the seeded ones,
+    /// since no one store's rules speak for the others'.
+    pub fn rules(&self) -> StoreRules {
+        self.reach
+            .project()
+            .and_then(|project| self.rules.get(&project.id))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// The rules of the store `project` was read from.
+    pub fn rules_of(&self, project: &str) -> StoreRules {
+        self.rules.get(project).cloned().unwrap_or_default()
+    }
+}
+
+/// The tasks a default listing hides among those its filters matched.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Hidden {
+    /// Terminal: Done or Archived.
+    pub completed: usize,
+    pub deferred: usize,
+}
+
+impl Hidden {
+    pub fn total(&self) -> usize {
+        self.completed + self.deferred
+    }
+}
+
+/// A listing: the tasks a query selected, where it read them, and what it
+/// left out.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Listing {
+    pub reach: Reach,
+    pub rows: Vec<Row>,
+    /// Which of their tags a person is shown.
+    pub shown: Shown,
+    /// What the default view hid of what the filters matched.
+    pub hidden: Hidden,
+    /// Whether a term or a tag query searched, so that what the default
+    /// view hid is worth saying.
+    pub searched: bool,
+    /// How many tasks `limit` cut off the end.
+    pub omitted: usize,
+    /// Each row's derived priority, in the rows' order, when the listing
+    /// is sorted by it.
+    pub priorities: Option<Vec<f64>>,
+    /// Why the ranking means little, when sorted by priority.
+    pub priority_notes: Vec<PriorityNote>,
+}
+
+impl Listing {
+    /// The one project read, if one was.
+    pub fn project(&self) -> Option<&Project> {
+        self.reach.project()
+    }
+
+    /// The tasks, in order.
+    pub fn tasks(&self) -> impl Iterator<Item = &Task> {
+        self.rows.iter().map(|row| &row.task)
+    }
+
+    /// The rows, in order, each with its derived priority when the listing
+    /// is sorted by it.
+    pub fn ranked(&self) -> impl Iterator<Item = (&Row, Option<f64>)> {
+        let priorities = self.priorities.iter().flatten().copied().map(Some);
+        self.rows
+            .iter()
+            .zip(priorities.chain(std::iter::repeat(None)))
+    }
+}
+
+/// The tasks `show` was asked for, in the order asked, and where it read
+/// them.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Details {
+    pub reach: Reach,
+    pub rows: Vec<Row>,
+    /// Which of their tags a person is shown.
+    pub shown: Shown,
+}
+
+/// How many tasks hold each status, over every task the read reached
+/// whatever a listing would filter or hide, and the tasks In Progress.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Summary {
+    pub reach: Reach,
+    /// By status, sorted.
+    pub counts: BTreeMap<String, usize>,
+    pub in_progress: Vec<Row>,
+}
+
+/// The statuses: the default ones in their order, then any other a task
+/// the read reached holds, by name.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Statuses {
+    pub reach: Reach,
+    pub statuses: Vec<StatusInfo>,
+}
+
+/// One tag in use: how many tasks hold it in all, and how many of those
+/// are active (neither terminal nor Deferred).
+#[derive(Clone, PartialEq, Debug)]
+pub struct TagCount {
+    pub tag: Tag,
+    pub active: usize,
+    pub total: usize,
+}
+
+/// The tags in use among the tasks a read selected, by their canonical
+/// spelling, those the tag schema hides left out.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Vocabulary {
+    pub reach: Reach,
+    pub tags: Vec<TagCount>,
+}
+
+/// A status filter: statuses by name, and the classes `@open` (every
+/// status not terminal, whatever its name) and `@terminal`.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub(crate) struct StatusFilter {
+    names: Vec<String>,
+    open: bool,
+    terminal: bool,
+}
+
+impl StatusFilter {
+    /// The filter `statuses` name, trimmed; a blank one is refused
+    /// ([`AppError::Blank`]), never read as none, as is a value starting
+    /// with `@` that names no class.
+    pub fn parse(statuses: &[String]) -> Result<StatusFilter, AppError> {
+        let mut filter = StatusFilter::default();
+        for status in statuses.iter().map(|s| s.trim()) {
+            if status.is_empty() {
+                return Err(AppError::Blank { field: "status" });
+            }
+            match status {
+                OPEN => filter.open = true,
+                TERMINAL => filter.terminal = true,
+                class if class.starts_with(tasks::STATUS_CLASS_SIGIL) => {
+                    return Err(AppError::UnknownStatusClass {
+                        status: class.to_string(),
+                    })
+                }
+                name => filter.names.push(name.to_string()),
+            }
+        }
+        Ok(filter)
+    }
+
+    /// Whether it names anything: a filter naming nothing holds every
+    /// status.
+    pub fn is_explicit(&self) -> bool {
+        self.open || self.terminal || !self.names.is_empty()
+    }
+
+    pub fn holds(&self, status: &str) -> bool {
+        if !self.is_explicit() {
+            return true;
+        }
+        let terminal = is_terminal(status);
+        (self.open && !terminal)
+            || (self.terminal && terminal)
+            || self.names.iter().any(|n| n == status)
+    }
+}
+
+/// Whether `text` holds `term`, trimmed, case-insensitively; no term is
+/// held by every text.
+pub(crate) fn mentions(text: &str, term: Option<&str>) -> bool {
+    term.is_none_or(|term| text.to_lowercase().contains(&term.trim().to_lowercase()))
+}
+
+/// The rows of `rows` whose status `filter` holds, whose text mentions
+/// `term`, and which `tag_query` selects.
+pub(crate) fn matching(
+    rows: Vec<Row>,
+    filter: &StatusFilter,
+    term: Option<&str>,
+    tag_query: Option<&str>,
+    rules: &StoreRules,
+) -> Result<Vec<Row>, AppError> {
+    let candidates: Vec<Row> = rows
+        .into_iter()
+        .filter(|row| filter.holds(&row.task.status) && mentions(&row.task.text, term))
+        .collect();
+    // Indexed by position: harp ids repeat across projects.
+    let ids: Vec<String> = (0..candidates.len()).map(|i| i.to_string()).collect();
+    let selected = query::select(
+        tag_query,
+        candidates
+            .iter()
+            .zip(&ids)
+            .map(|(row, id)| (id.as_str(), row.task.tags.as_slice())),
+        rules,
+    )
+    .map_err(|e| AppError::TagQuery(Report::of(&e)))?;
+    Ok(candidates
+        .into_iter()
+        .zip(ids)
+        .filter(|(_, id)| selected.contains(id))
+        .map(|(row, _)| row)
+        .collect())
+}
+
+/// The status classes, as an error lists them.
+pub(crate) fn classes() -> String {
+    STATUS_CLASSES.join(", ")
+}
+
+impl<I, S, G, C> Reading<'_, I, S, G, C>
+where
+    I: ProjectIdentity,
+    S: TaskStores,
+    G: Configuration,
+    C: Clock,
+{
+    /// The rows of `project`'s store and its rules, into `rows` and
+    /// `rules`, read from the one opening: whether it has a store.
+    async fn gather(
+        &mut self,
+        project: &Project,
+        rows: &mut Vec<Row>,
+        rules: &mut BTreeMap<String, StoreRules>,
+    ) -> Result<bool, AppError> {
+        let opened = self.projects.stores.open_existing(project).await;
+        let Some(store) = opened.map_err(failed)? else {
+            return Ok(false);
+        };
+        let registry = self.projects.registry;
+        rows.extend(self.lists.rows(project, store, registry).await?);
+        let held = crate::schema::rules_in(store, registry).await?;
+        rules.insert(project.id.clone(), held);
+        Ok(true)
+    }
+
+    /// Every live task the read reaches: `pinned`'s project, the work
+    /// root's, or (no project, outside a work root) every project's.
+    pub(crate) async fn scan(&mut self, pinned: Option<&str>) -> Result<Scan, AppError> {
+        self.projects.refuse_moved()?;
+        let fallback = {
+            let found = self
+                .projects
+                .identity
+                .for_read(pinned)
+                .map_err(AppError::Identity)?;
+            match found {
+                Some(project) => {
+                    let (mut rows, mut rules) = (Vec::new(), BTreeMap::new());
+                    self.gather(&project, &mut rows, &mut rules).await?;
+                    return Ok(Scan {
+                        reach: Reach::Project(project),
+                        rows,
+                        rules,
+                    });
+                }
+                None => match self
+                    .projects
+                    .identity
+                    .rootless_directory()
+                    .map_err(AppError::Identity)?
+                {
+                    Some(directory) => Some(directory),
+                    None => {
+                        return Ok(Scan {
+                            reach: Reach::NoProject,
+                            rows: Vec::new(),
+                            rules: BTreeMap::new(),
+                        })
+                    }
+                },
+            }
+        };
+        let every = self
+            .projects
+            .identity
+            .every_project()
+            .map_err(AppError::Identity)?;
+        let (mut rows, mut rules, mut projects) = (Vec::new(), BTreeMap::new(), 0);
+        for project in every {
+            if self.gather(&project, &mut rows, &mut rules).await? {
+                projects += 1;
+            }
+        }
+        rows.sort_by(|a, b| {
+            (a.project.id.as_str(), a.task.harp_id.as_str())
+                .cmp(&(b.project.id.as_str(), b.task.harp_id.as_str()))
+        });
+        Ok(Scan {
+            reach: Reach::Every { projects, fallback },
+            rows,
+            rules,
+        })
+    }
+
+    /// The counts by status of every task `scope` reaches.
+    pub(crate) async fn summary(&mut self, scope: Scope) -> Result<Summary, AppError> {
+        let scan = self.scan(scope.project.as_deref()).await?;
+        let mut counts = BTreeMap::new();
+        for row in &scan.rows {
+            *counts.entry(row.task.status.clone()).or_insert(0) += 1;
+        }
+        let in_progress = scan
+            .rows
+            .into_iter()
+            .filter(|row| row.task.status == IN_PROGRESS)
+            .collect();
+        Ok(Summary {
+            reach: scan.reach,
+            counts,
+            in_progress,
+        })
+    }
+
+    /// The default statuses, and those in use where `scope` reaches.
+    pub(crate) async fn statuses(&mut self, scope: Scope) -> Result<Statuses, AppError> {
+        let scan = self.scan(scope.project.as_deref()).await?;
+        let others: BTreeSet<&str> = scan
+            .rows
+            .iter()
+            .map(|row| row.task.status.as_str())
+            .filter(|status| !DEFAULT_STATUSES.contains(status))
+            .collect();
+        let statuses = DEFAULT_STATUSES
+            .into_iter()
+            .chain(others)
+            .enumerate()
+            .map(|(order, name)| StatusInfo::of(name, order))
+            .collect();
+        Ok(Statuses {
+            reach: scan.reach,
+            statuses,
+        })
+    }
+
+    /// The tags of the tasks `query` selects, every status included (its
+    /// `all`, `limit` and `sort` mean nothing here), counted.
+    pub(crate) async fn tags(&mut self, query: ListQuery) -> Result<Vocabulary, AppError> {
+        let term = given(query.term.as_deref(), "term")?;
+        let tag_query = given(query.tag_query.as_deref(), "tag_query")?;
+        query::check(tag_query).map_err(|e| AppError::TagQuery(Report::of(&e)))?;
+        let filter = StatusFilter::parse(&query.statuses)?;
+        let scan = self.scan(query.project.as_deref()).await?;
+        let rules = scan.rules();
+        let rows = matching(scan.rows, &filter, term, tag_query, &rules)?;
+        let shown = rules.shown();
+        let mut counts: BTreeMap<String, TagCount> = BTreeMap::new();
+        for row in &rows {
+            let active = is_active(&row.task.status);
+            for tag in row.task.tags.iter().filter(|t| shown.shows(t)) {
+                let count = counts.entry(tag.to_string()).or_insert_with(|| TagCount {
+                    tag: tag.clone(),
+                    active: 0,
+                    total: 0,
+                });
+                count.total += 1;
+                count.active += usize::from(active);
+            }
+        }
+        Ok(Vocabulary {
+            reach: scan.reach,
+            tags: counts.into_values().collect(),
+        })
+    }
+
+    /// Every task `scope` reaches, and the schema, linted.
+    pub(crate) async fn lint(&mut self, scope: Scope) -> Result<LintReport, AppError> {
+        let scan = self.scan(scope.project.as_deref()).await?;
+        let (violations, checked_targets) = lint::lint(&scan);
+        Ok(LintReport {
+            reach: scan.reach,
+            violations,
+            checked_targets,
+        })
+    }
+
+    /// The tasks `query` names, every one of them found once.
+    pub(crate) async fn show(&mut self, query: ShowQuery) -> Result<Details, AppError> {
+        let scan = self.scan(query.project.as_deref()).await?;
+        let (mut rows, mut missing, mut held) = (Vec::new(), Vec::new(), Vec::new());
+        for id in &query.harp_ids {
+            let found: Vec<&Row> = scan.rows.iter().filter(|r| r.task.harp_id == *id).collect();
+            match found.as_slice() {
+                [] => missing.push(id.clone()),
+                [row] => rows.push((*row).clone()),
+                twice => held.push((
+                    id.clone(),
+                    twice.iter().map(|r| r.project.id.clone()).collect(),
+                )),
+            }
+        }
+        if !missing.is_empty() {
+            return Err(AppError::NotFound { harp_ids: missing });
+        }
+        if !held.is_empty() {
+            return Err(AppError::Ambiguous { held });
+        }
+        Ok(Details {
+            shown: scan.rules().shown(),
+            reach: scan.reach,
+            rows,
+        })
+    }
+
+    /// The listing `query` asks for.
+    pub(crate) async fn list(&mut self, query: ListQuery) -> Result<Listing, AppError> {
+        let term = given(query.term.as_deref(), "term")?;
+        let tag_query = given(query.tag_query.as_deref(), "tag_query")?;
+        // A malformed query is refused whatever there is to run it over.
+        query::check(tag_query).map_err(|e| AppError::TagQuery(Report::of(&e)))?;
+        let by_priority = match given(query.sort.as_deref(), "sort")?.map(str::trim) {
+            None => false,
+            Some(PRIORITY) => true,
+            Some(sort) => {
+                return Err(AppError::UnknownSort {
+                    sort: sort.to_string(),
+                })
+            }
+        };
+        if query.limit == Some(0) {
+            return Err(AppError::Blank { field: "limit" });
+        }
+        let filter = StatusFilter::parse(&query.statuses)?;
+        let scan = self.scan(query.project.as_deref()).await?;
+        let rules = scan.rules();
+        // Each project's whole population is ranked, not the page the
+        // filters leave, by its own store's formulas.
+        let ranked = match by_priority {
+            true => {
+                let now = self.clock.now();
+                Some(priority::rank_rows(
+                    &scan.rows,
+                    |project| priority::formulas(&scan.rules_of(project)),
+                    now,
+                    scan.reach.is_every(),
+                )?)
+            }
+            false => None,
+        };
+        let matched = matching(scan.rows, &filter, term, tag_query, &rules)?;
+        let mut hidden = Hidden::default();
+        let mut rows: Vec<Row> = if query.all || filter.is_explicit() {
+            matched
+        } else {
+            matched
+                .into_iter()
+                .filter(|row| {
+                    let status = &row.task.status;
+                    if is_active(status) {
+                        return true;
+                    }
+                    if is_terminal(status) {
+                        hidden.completed += 1;
+                    } else {
+                        hidden.deferred += 1;
+                    }
+                    false
+                })
+                .collect()
+        };
+        if let Some(ranked) = &ranked {
+            // Stable: ties keep the listing's order. The limit is applied
+            // after, so it keeps the highest priorities.
+            rows.sort_by(|a, b| {
+                a.project
+                    .id
+                    .cmp(&b.project.id)
+                    .then_with(|| ranked.priority(b).total_cmp(&ranked.priority(a)))
+            });
+        }
+        let omitted = match query.limit {
+            None => 0,
+            Some(limit) => {
+                let omitted = rows.len().saturating_sub(limit);
+                rows.truncate(limit);
+                omitted
+            }
+        };
+        Ok(Listing {
+            reach: scan.reach,
+            shown: rules.shown(),
+            hidden,
+            searched: term.is_some() || tag_query.is_some(),
+            omitted,
+            priorities: ranked.as_ref().map(|ranked| rows_priorities(&rows, ranked)),
+            priority_notes: ranked.map(|ranked| ranked.notes).unwrap_or_default(),
+            rows,
+        })
+    }
+}
+
+/// Each of `rows`' priority in `ranked`, in order.
+fn rows_priorities(rows: &[Row], ranked: &priority::Ranked) -> Vec<f64> {
+    rows.iter().map(|row| ranked.priority(row)).collect()
+}
+
+#[cfg(test)]
+#[path = "read.test.rs"]
+mod tests;

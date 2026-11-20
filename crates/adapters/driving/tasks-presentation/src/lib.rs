@@ -1,0 +1,410 @@
+//! The tasks domain's shapes on the driving edge: what a task looks like
+//! to a program, the same whichever adapter answers (the command line
+//! now, a server later), so one jq filter works on each.
+//! presentation itself stays domain-free; this is the tasks domain's.
+
+use std::collections::BTreeMap;
+
+use serde::Serialize;
+use tasks_application::{
+    Origin, PermitList, Project, RuleFinding, SchemaSummary, Summary, Tag, TagCount, Task,
+    Timestamp,
+};
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
+
+/// A task as JSON: its fields in this order, each tag in its canonical
+/// spelling. Every tag, hidden ones too: hiding is for what a person
+/// reads, and a program reads this. `derived_priority` is null but in a
+/// listing sorted by priority.
+#[derive(Serialize)]
+pub struct TaskJson<'a> {
+    harp_id: &'a str,
+    text: &'a str,
+    status: &'a str,
+    checked: bool,
+    text_hash: &'a str,
+    trigger: &'a str,
+    origin_session: &'a str,
+    tags: Vec<String>,
+    created_at: String,
+    #[serde(serialize_with = "go_number")]
+    derived_priority: Option<f64>,
+}
+
+impl<'a> TaskJson<'a> {
+    pub fn of(task: &'a Task) -> TaskJson<'a> {
+        TaskJson {
+            harp_id: &task.harp_id,
+            text: &task.text,
+            status: &task.status,
+            checked: task.checked,
+            text_hash: &task.text_hash,
+            trigger: &task.trigger,
+            origin_session: &task.origin_session,
+            tags: spelled(&task.tags),
+            created_at: rfc3339(task.created_at),
+            derived_priority: None,
+        }
+    }
+
+    /// The task with its derived priority.
+    pub fn with_priority(self, derived_priority: Option<f64>) -> TaskJson<'a> {
+        TaskJson {
+            derived_priority,
+            ..self
+        }
+    }
+}
+
+/// A derived priority, in `[0, 5]`, written in a float64's shortest form:
+/// a whole number without a fraction (`5`, where serde_json writes
+/// `5.0`).
+fn go_number<S: serde::Serializer>(value: &Option<f64>, serializer: S) -> Result<S::Ok, S::Error> {
+    match *value {
+        Some(n) if n.fract() == 0.0 => serializer.serialize_i64(n as i64),
+        Some(n) => serializer.serialize_f64(n),
+        None => serializer.serialize_none(),
+    }
+}
+
+/// How many characters of a task's first line a listing shows.
+pub const HEADLINE_WIDTH: usize = 80;
+
+/// The first line of `text` as a listing shows it: [`HEADLINE_WIDTH`]
+/// characters at most.
+pub fn headline(text: &str) -> String {
+    angzarr_presentation::text::headline(text, HEADLINE_WIDTH)
+}
+
+/// `dir (id)`: the project a command ran in; its id alone where its
+/// directory is not known.
+pub fn project_label(project: &Project) -> String {
+    match &project.root {
+        Some(root) => format!("{root} ({})", project.id),
+        None => project.id.clone(),
+    }
+}
+
+/// The directory a project's JSON names: its root, or `""` where it has
+/// none, as the JSON has always written it.
+pub fn project_dir(project: &Project) -> &str {
+    project.root.as_deref().unwrap_or_default()
+}
+
+/// A task as one row of a compact listing: its fields in this order, the
+/// text cut to its headline.
+#[derive(Serialize)]
+pub struct CompactJson<'a> {
+    harp_id: &'a str,
+    status: &'a str,
+    checked: bool,
+    tags: Vec<String>,
+    headline: String,
+}
+
+impl<'a> CompactJson<'a> {
+    pub fn of(task: &'a Task) -> CompactJson<'a> {
+        CompactJson {
+            harp_id: &task.harp_id,
+            status: &task.status,
+            checked: task.checked,
+            tags: spelled(&task.tags),
+            headline: headline(&task.text),
+        }
+    }
+}
+
+/// A task with the project it is in: the task, then the project.
+#[derive(Serialize)]
+pub struct RowJson<'a, T: Serialize> {
+    #[serde(flatten)]
+    task: T,
+    project_id: &'a str,
+    project_dir: &'a str,
+}
+
+impl<'a, T: Serialize> RowJson<'a, T> {
+    pub fn of(task: T, project: &'a Project) -> RowJson<'a, T> {
+        RowJson {
+            task,
+            project_id: &project.id,
+            project_dir: project_dir(project),
+        }
+    }
+}
+
+/// A summary: the counts by status and each task In Progress by id, with
+/// its project's label.
+#[derive(Serialize)]
+pub struct SummaryJson<'a> {
+    counts: &'a BTreeMap<String, usize>,
+    in_progress: Vec<InProgressJson<'a>>,
+}
+
+/// A task In Progress.
+#[derive(Serialize)]
+struct InProgressJson<'a> {
+    harp_id: &'a str,
+    project: String,
+}
+
+impl<'a> SummaryJson<'a> {
+    pub fn of(summary: &'a Summary) -> SummaryJson<'a> {
+        SummaryJson {
+            counts: &summary.counts,
+            in_progress: summary
+                .in_progress
+                .iter()
+                .map(|row| InProgressJson {
+                    harp_id: &row.task.harp_id,
+                    project: project_label(&row.project),
+                })
+                .collect(),
+        }
+    }
+}
+
+/// A tag in use, in its canonical spelling.
+#[derive(Serialize)]
+pub struct TagCountJson {
+    tag: String,
+    active: usize,
+    total: usize,
+}
+
+impl TagCountJson {
+    pub fn of(count: &TagCount) -> TagCountJson {
+        TagCountJson {
+            tag: count.tag.to_string(),
+            active: count.active,
+            total: count.total,
+        }
+    }
+}
+
+/// What a project permits, as JSON (`taskloom manage schema permits list --format json`):
+///
+/// ```json
+/// {"namespaces": [{"namespace": "area", "open": false, "keys": ["cli", "mcp"]},
+///                 {"namespace": "relates", "open": true, "keys": []}],
+///  "tags": ["urgent"],
+///  "schema_targets": ["triage:audited", "triage:blind-gate", "..."]}
+/// ```
+///
+/// Every store is an allowlist (F6): a tag no namespace or tag here admits
+/// is refused, so both empty is a project permitting nothing.
+/// Namespaces and keys are sorted; `schema_targets` are the targets the
+/// store's rules constrain, permitted as any other tag is.
+#[derive(Serialize, Default)]
+pub struct PermitsJson {
+    pub namespaces: Vec<NamespaceJson>,
+    pub tags: Vec<String>,
+    pub schema_targets: Vec<String>,
+}
+
+/// One permitted namespace: open (any key; `keys` empty) or closed to its
+/// `keys`.
+#[derive(Serialize)]
+pub struct NamespaceJson {
+    pub namespace: String,
+    pub open: bool,
+    pub keys: Vec<String>,
+}
+
+impl PermitsJson {
+    /// The store's permits in the shape `tag_permits` had: a pattern
+    /// `ns:*` an open namespace, `ns:key` a key of a closed one, a bare
+    /// key a flat tag; any other pattern (`*:secret`, declared by hand)
+    /// among the flat tags, spelled as declared.
+    pub fn of(list: &PermitList) -> PermitsJson {
+        let schema_targets = list.schema_targets.clone();
+        let mut namespaces: BTreeMap<String, NamespaceJson> = BTreeMap::new();
+        let mut tags = Vec::new();
+        for pattern in &list.patterns {
+            let Some((namespace, key)) = pattern
+                .split_once(':')
+                .filter(|(namespace, _)| *namespace != "*")
+            else {
+                tags.push(pattern.clone());
+                continue;
+            };
+            let entry = namespaces
+                .entry(namespace.to_string())
+                .or_insert_with(|| NamespaceJson {
+                    namespace: namespace.to_string(),
+                    open: false,
+                    keys: Vec::new(),
+                });
+            match key {
+                "*" => entry.open = true,
+                key => entry.keys.push(key.to_string()),
+            }
+        }
+        for namespace in namespaces.values_mut().filter(|n| n.open) {
+            namespace.keys.clear();
+        }
+        PermitsJson {
+            namespaces: namespaces.into_values().collect(),
+            tags,
+            schema_targets,
+        }
+    }
+}
+
+/// The tag schema a write is held to, as JSON (`taskloom schema
+/// --format json`): one entry a target, by target, carrying every facet
+/// declared for it but `hide`, which is about what a listing shows, not
+/// what a write admits. An arity declared other than scalar is no
+/// `scalar`.
+///
+/// ```json
+/// {"targets": [{"target": "triage:kind", "scalar": true,
+///               "enum": ["defect", "capability", "chore"],
+///               "priority_fn": "...", "decay_fn": "..."},
+///              {"target": "triage:level", "scalar": true,
+///               "range": {"min": 1, "max": 5}}]}
+/// ```
+#[derive(Serialize)]
+pub struct SchemaJson {
+    pub targets: Vec<TargetJson>,
+}
+
+/// One declared target and its facets; an undeclared facet is left out.
+#[derive(Serialize, Default, PartialEq, Debug)]
+pub struct TargetJson {
+    pub target: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub scalar: bool,
+    #[serde(rename = "enum", skip_serializing_if = "Vec::is_empty")]
+    pub members: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub range: Option<RangeJson>,
+    #[serde(rename = "type", skip_serializing_if = "String::is_empty")]
+    pub kind: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub priority_fn: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub decay_fn: String,
+}
+
+/// A target's inclusive numeric bounds, each in a float64's shortest
+/// form (`5`, not `5.0`), as the tag-schema resource wrote them; an
+/// open side left out.
+#[derive(Serialize, Clone, Copy, PartialEq, Debug)]
+pub struct RangeJson {
+    #[serde(
+        serialize_with = "whole_or_float",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub min: Option<f64>,
+    #[serde(
+        serialize_with = "whole_or_float",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max: Option<f64>,
+}
+
+fn whole_or_float<S: serde::Serializer>(
+    value: &Option<f64>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    go_number(value, serializer)
+}
+
+impl RangeJson {
+    /// The numeric bounds every one of `ranges` (`lo..hi`, tagma's
+    /// spelling) leaves, as tagma intersects them: `None` when one is not
+    /// numbers, or there is none. Display only: tagma judges a value.
+    fn of(ranges: &[String]) -> Option<RangeJson> {
+        let bound = |b: &str| match b {
+            "" => Some(None),
+            b => b.parse::<f64>().ok().filter(|f| f.is_finite()).map(Some),
+        };
+        let mut joint = RangeJson {
+            min: None,
+            max: None,
+        };
+        for range in ranges {
+            let (lo, hi) = range.split_once("..")?;
+            let (lo, hi) = (bound(lo)?, bound(hi)?);
+            joint.min = match (joint.min, lo) {
+                (Some(a), Some(b)) => Some(a.max(b)),
+                (a, b) => a.or(b),
+            };
+            joint.max = match (joint.max, hi) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
+        }
+        (!ranges.is_empty()).then_some(joint)
+    }
+}
+
+impl SchemaJson {
+    pub fn of(schema: &SchemaSummary) -> SchemaJson {
+        SchemaJson {
+            targets: schema
+                .targets
+                .iter()
+                .map(|target| TargetJson {
+                    target: target.target.clone(),
+                    scalar: target.scalar,
+                    members: target.members.clone(),
+                    range: RangeJson::of(&target.ranges),
+                    kind: target.kind.clone(),
+                    priority_fn: target.priority_fn.clone(),
+                    decay_fn: target.decay_fn.clone(),
+                })
+                .collect(),
+        }
+    }
+}
+
+/// One of tagma's findings (`taskloom manage schema check`, a write's
+/// `warnings`), as tagma's SPEC §13 shapes it: its code, its tag in its
+/// canonical spelling, its args as `[name, value]` pairs, and its origin.
+#[derive(Serialize, PartialEq, Debug)]
+pub struct FindingJson {
+    pub code: &'static str,
+    pub tag: String,
+    pub args: Vec<(String, String)>,
+    pub origin: &'static str,
+}
+
+impl FindingJson {
+    pub fn of(finding: &RuleFinding) -> FindingJson {
+        FindingJson {
+            code: finding.code.as_str(),
+            tag: finding.tag.to_string(),
+            args: finding.args.clone(),
+            origin: match finding.origin {
+                Origin::Introduced => "introduced",
+                Origin::Existing => "existing",
+            },
+        }
+    }
+
+    /// Each of `findings`.
+    pub fn all(findings: &[RuleFinding]) -> Vec<FindingJson> {
+        findings.iter().map(FindingJson::of).collect()
+    }
+}
+
+/// Each tag in its canonical spelling (tagma's `Display`).
+pub fn spelled(tags: &[Tag]) -> Vec<String> {
+    tags.iter().map(ToString::to_string).collect()
+}
+
+/// `at` in RFC 3339, UTC, with as many fractional digits as it needs.
+pub fn rfc3339(at: Timestamp) -> String {
+    let nanos = i128::from(at.seconds) * 1_000_000_000 + i128::from(at.nanos);
+    OffsetDateTime::from_unix_timestamp_nanos(nanos)
+        .ok()
+        .and_then(|t| t.format(&Rfc3339).ok())
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+#[path = "lib.test.rs"]
+mod tests;

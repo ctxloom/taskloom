@@ -1,0 +1,1900 @@
+//! Opening a project's store on a filesystem of the test's own
+//! (`Rooted::temp`, which SQLite reaches through the seam's real path), on
+//! a tokio runtime as the binary runs it, and checking a database for
+//! damage. Fixtures are written with `SqliteStore` itself, never through
+//! the opener under test.
+
+use std::future::Future;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use angzarr_diagnostic::{code, Arg, Diagnostic};
+use angzarr_embedded::angzarr_store_sqlite::{SqlError, SqliteStore};
+use angzarr_ports::angzarr_proto::v1::event_meta::Causation;
+use angzarr_ports::angzarr_proto::v1::{event_page, CommandCause, EventMeta, EventPage, Uuid};
+use angzarr_ports::{
+    Cause, EventStore, PositionKey, PositionStore, Purge, StoreError, StreamRef, Watch, Write,
+};
+use file_system::{Fs, Os, Perms, Rooted};
+use os::Mode;
+use ports::{Checked, Project, StoreCheck, TaskStores, WatchedStores};
+use prost_types::{Any, Timestamp};
+
+use super::SqliteStores;
+
+#[path = "damage.test.rs"]
+pub(crate) mod damage;
+
+fn block_on<F: Future>(future: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("a runtime")
+        .block_on(future)
+}
+
+fn project(id: &str, store: PathBuf) -> Project {
+    Project {
+        id: id.to_string(),
+        root: Some("/work/tree".to_string()),
+        store,
+    }
+}
+
+/// A project's store as the path policy places it:
+/// `<home>/.ctxloom/projects/<id>/state.db`.
+fn store_in(home: &Path, id: &str) -> PathBuf {
+    home.join(".ctxloom/projects").join(id).join("state.db")
+}
+
+/// A home, `/home/u`, on a filesystem of its own.
+struct Home {
+    rooted: Arc<Rooted>,
+    path: PathBuf,
+}
+
+impl Home {
+    fn new() -> Home {
+        let home = Home {
+            rooted: Arc::new(Rooted::temp().unwrap()),
+            path: os::fixture("/home/u"),
+        };
+        home.mkdir(&home.path);
+        home
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// The stores on the home's filesystem.
+    fn stores(&self) -> SqliteStores {
+        SqliteStores::new(Arc::clone(&self.rooted) as Arc<dyn Fs>)
+    }
+
+    fn exists(&self, path: &Path) -> bool {
+        self.rooted.exists(path).unwrap()
+    }
+
+    fn mkdir(&self, path: &Path) {
+        self.rooted.create_dir_all(path, Mode::DIR).unwrap();
+    }
+
+    fn write(&self, path: &Path, bytes: &[u8]) {
+        self.rooted
+            .write_atomic(path, bytes, Perms::Exact(Mode::FILE))
+            .unwrap();
+    }
+
+    fn read(&self, path: &Path) -> Vec<u8> {
+        self.rooted.read(path).unwrap()
+    }
+
+    /// Remove the database at `path` from under whatever holds it open,
+    /// where the host allows it: unix does; Windows refuses to remove a
+    /// file SQLite holds open (it shares no delete access), so there it is
+    /// left, and `false` says so.
+    fn remove_held(&self, path: &Path) -> bool {
+        if os::host().flavor() != os::Flavor::Unix {
+            return false;
+        }
+        self.rooted.remove_file(path).unwrap();
+        true
+    }
+
+    /// Where SQLite finds `path`.
+    fn real(&self, path: &Path) -> PathBuf {
+        self.rooted.real_path(path).unwrap()
+    }
+}
+
+/// The task stream rooted at `[n; 16]`.
+fn stream(n: u8) -> StreamRef<'static> {
+    StreamRef::main("tasks", angzarr_ports::Uuid::from_bytes([n; 16]))
+}
+
+/// The event at `sequence` of a stream, produced by command `command`.
+fn event(sequence: u64, command: u8) -> EventPage {
+    let id = Uuid::from_bytes([command; 16]);
+    EventPage {
+        body: Some(event_page::Body::Event(Any {
+            type_url: "/test.v1.Event".to_string(),
+            value: sequence.to_be_bytes().to_vec(),
+        })),
+        meta: Some(EventMeta {
+            causation: Some(Causation::Command(CommandCause {
+                command_id: Some(id.clone()),
+            })),
+            correlation_id: Some(id),
+            recorded_at: Some(Timestamp {
+                seconds: 100 + sequence as i64,
+                nanos: 0,
+            }),
+            rules_version: "markup-1".to_string(),
+        }),
+        sequence,
+    }
+}
+
+/// `pages` appended to `stream` at `expected`, through `store`.
+async fn append(store: &SqliteStore, stream: StreamRef<'_>, expected: u64, pages: &[EventPage]) {
+    store
+        .write(Write::append(stream, expected, pages))
+        .await
+        .unwrap();
+}
+
+/// What `store` holds of `stream`, from its start.
+async fn pages(store: &SqliteStore, stream: StreamRef<'_>) -> Vec<EventPage> {
+    store.read(stream, 0, None).await.unwrap().pages
+}
+
+/// A database on angzarr-embedded's schema at `path`, written by
+/// `SqliteStore` itself (not the opener under test): one stream of two
+/// events, closed, so the file holds everything. The close is waited for
+/// (ruling 131): the last connection's close checkpoints the log into the
+/// file and removes it before it returns, so no wait for the log's removal
+/// is needed (as there was while the store was dropped).
+fn written(home: &Home, path: &Path) {
+    home.mkdir(path.parent().unwrap());
+    let real = home.real(path);
+    block_on(async {
+        let store = SqliteStore::open(&real).await.unwrap();
+        append(&store, stream(1), 0, &[event(0, 1), event(1, 2)]).await;
+        store.close().await.unwrap();
+    });
+}
+
+/// An arg's value as text, a nested cause as its code.
+fn text(arg: &Arg) -> String {
+    match arg {
+        Arg::Int(n) => n.to_string(),
+        Arg::Uint(n) => n.to_string(),
+        Arg::Str(s) => s.clone(),
+        Arg::Nested(cause) => cause.code().to_string(),
+    }
+}
+
+/// A diagnostic's args, each as text, by name, in its order.
+fn args(diagnostic: &dyn Diagnostic) -> Vec<(&str, String)> {
+    diagnostic
+        .args()
+        .iter()
+        .map(|(name, arg)| (*name, text(arg)))
+        .collect()
+}
+
+/// The cause keyed `code` in `error`, or nested in one of its causes: its
+/// args, each as text, by name; `None` if none is keyed `code`.
+fn keyed(error: &StoreError, code: &str) -> Option<Vec<(&'static str, String)>> {
+    fn within(
+        args: &[(&'static str, angzarr_ports::Arg)],
+        code: &str,
+    ) -> Option<Vec<(&'static str, String)>> {
+        args.iter().find_map(|(_, arg)| match arg {
+            angzarr_ports::Arg::Cause(cause) if cause.code == code => Some(
+                cause
+                    .args
+                    .iter()
+                    .map(|(name, arg)| {
+                        let value = match arg {
+                            angzarr_ports::Arg::Uint(n) => n.to_string(),
+                            angzarr_ports::Arg::Str(s) => s.clone(),
+                            angzarr_ports::Arg::Cause(c) => c.code.to_string(),
+                        };
+                        (*name, value)
+                    })
+                    .collect(),
+            ),
+            angzarr_ports::Arg::Cause(cause) => within(&cause.args, code),
+            _ => None,
+        })
+    }
+    within(&error.args(), code)
+}
+
+// ------------------------------------------------------------ opening
+
+#[test]
+fn test_a_fresh_store_is_created_where_the_path_policy_puts_it_and_migrated() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    let project = project("jolly-mute-magma", path.clone());
+    let mut stores = home.stores();
+    block_on(async {
+        let store = stores.open(&project).await.expect("opens");
+        append(store, stream(1), 0, &[event(0, 1)]).await;
+        assert_eq!(pages(store, stream(1)).await, [event(0, 1)]);
+    });
+    // The caller's top under the root: the root itself on unix, its `C`
+    // directory on Windows (`C:\` re-rooted).
+    let top = match os::host().flavor() {
+        os::Flavor::Unix => home.rooted.root().to_path_buf(),
+        os::Flavor::Windows => home.rooted.root().join("C"),
+    };
+    let real = [
+        "home",
+        "u",
+        ".ctxloom",
+        "projects",
+        "jolly-mute-magma",
+        "state.db",
+    ]
+    .iter()
+    .fold(top, |path, part| path.join(part));
+    assert_eq!(home.real(&path), real);
+    let os = Os::new(os::host(), Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+    assert!(os.exists(&real).unwrap(), "under the filesystem's root");
+    // Migrated: a read-only open refuses a store with a migration pending.
+    let read = block_on(SqliteStore::open_existing(&real)).unwrap();
+    assert!(read.is_some(), "every migration applied");
+}
+
+#[test]
+fn test_a_store_on_angzarr_embeddeds_schema_reopens_holding_what_was_written() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    written(&home, &path);
+    let project = project("jolly-mute-magma", path);
+    block_on(async {
+        let mut stores = home.stores();
+        let store = stores.open(&project).await.expect("reopens to write");
+        assert_eq!(pages(store, stream(1)).await, [event(0, 1), event(1, 2)]);
+        append(store, stream(1), 2, &[event(2, 3)]).await;
+    });
+    block_on(async {
+        let mut stores = home.stores();
+        let store = stores
+            .open_existing(&project)
+            .await
+            .expect("reopens to read")
+            .expect("found");
+        assert_eq!(
+            pages(store, stream(1)).await,
+            [event(0, 1), event(1, 2), event(2, 3)]
+        );
+    });
+}
+
+#[test]
+fn test_reading_a_project_with_no_database_finds_none_and_creates_nothing() {
+    let home = Home::new();
+    let path = store_in(home.path(), "tpyo");
+    let mut stores = home.stores();
+    let found = block_on(async {
+        stores
+            .open_existing(&project("tpyo", path))
+            .await
+            .map(|s| s.is_some())
+    });
+    assert_eq!(found, Ok(false));
+    assert!(
+        !home.exists(&home.path().join(".ctxloom")),
+        "no directory, no file"
+    );
+}
+
+/// The handle of the store `stores` holds for `project`, by its token.
+async fn handle(stores: &mut SqliteStores, project: &Project) -> u64 {
+    stores
+        .change_token(project)
+        .await
+        .unwrap()
+        .expect("a store")
+        .handle
+}
+
+#[test]
+fn test_the_store_is_opened_once_and_held_for_its_project() {
+    let home = Home::new();
+    let project = project(
+        "jolly-mute-magma",
+        store_in(home.path(), "jolly-mute-magma"),
+    );
+    let mut stores = home.stores();
+    block_on(async {
+        stores.open(&project).await.unwrap();
+        stores.open(&project).await.unwrap();
+        assert_eq!(handle(&mut stores, &project).await, 1, "the held store");
+    });
+}
+
+#[test]
+fn test_a_store_held_to_read_is_opened_again_to_write_under_a_new_handle() {
+    let home = Home::new();
+    let project = project(
+        "jolly-mute-magma",
+        store_in(home.path(), "jolly-mute-magma"),
+    );
+    let mut stores = home.stores();
+    block_on(async {
+        home.stores().open(&project).await.unwrap();
+        stores
+            .open_existing(&project)
+            .await
+            .unwrap()
+            .expect("found");
+        let read = stores.change_token(&project).await.unwrap().unwrap();
+        let store = stores.open(&project).await.unwrap();
+        append(store, stream(1), 0, &[event(0, 1)]).await;
+        let written = stores.change_token(&project).await.unwrap().unwrap();
+        assert_eq!((read.handle, written.handle), (1, 2));
+        assert_ne!(read, written);
+    });
+}
+
+#[test]
+fn test_another_project_opens_its_own_store() {
+    let home = Home::new();
+    let first = project(
+        "jolly-mute-magma",
+        store_in(home.path(), "jolly-mute-magma"),
+    );
+    let second = project("high-tight-gulf", store_in(home.path(), "high-tight-gulf"));
+    let mut stores = home.stores();
+    block_on(async {
+        let store = stores.open(&first).await.unwrap();
+        append(store, stream(1), 0, &[event(0, 1)]).await;
+        let other = stores.open(&second).await.unwrap();
+        assert_eq!(pages(other, stream(1)).await, [], "not the first's");
+    });
+    assert!(home.exists(&second.store));
+}
+
+/// The log and the index beside the database at `path` (`-wal`, `-shm`)
+/// that are there: none once the store's last connection has closed.
+fn beside(home: &Home, path: &Path) -> Vec<&'static str> {
+    ["-wal", "-shm"]
+        .into_iter()
+        .filter(|suffix| home.exists(&super::sibling(path, suffix)))
+        .collect()
+}
+
+#[test]
+fn test_closed_stores_leave_the_file_whole_when_the_close_returns() {
+    // Ruling 131. Dropped, the held store's connection would close on the
+    // driver's thread whenever it ran (in the binary, after the process had
+    // exited: never). Closed, its checkpoint and the log's removal are over
+    // when the close returns: looked at at once, with no wait, the file is
+    // whole on its own and reopens holding what was written.
+    let home = Home::new();
+    let project = project(
+        "jolly-mute-magma",
+        store_in(home.path(), "jolly-mute-magma"),
+    );
+    let mut stores = home.stores();
+    block_on(async {
+        let store = stores.open(&project).await.unwrap();
+        append(store, stream(1), 0, &[event(0, 1), event(1, 2)]).await;
+        assert_eq!(beside(&home, &project.store), ["-wal", "-shm"], "open");
+        stores.close().await.unwrap();
+    });
+    assert_eq!(
+        beside(&home, &project.store),
+        Vec::<&str>::new(),
+        "no log or index left the moment the close returns"
+    );
+    let reopened = block_on(SqliteStore::open_existing(&home.real(&project.store)))
+        .unwrap()
+        .expect("the file");
+    assert_eq!(
+        block_on(pages(&reopened, stream(1))),
+        [event(0, 1), event(1, 2)]
+    );
+    block_on(reopened.close()).unwrap();
+}
+
+#[test]
+fn test_stores_holding_nothing_close_doing_nothing() {
+    let home = Home::new();
+    block_on(home.stores().close()).unwrap();
+    assert!(!home.exists(&home.path().join(".ctxloom")), "nothing made");
+}
+
+#[test]
+fn test_a_store_given_up_for_another_projects_is_closed_before_the_next_is_opened() {
+    // Ruling 131: the first project's store is given up when the second's
+    // is asked for, and closed then, not dropped, so its file is whole the
+    // moment the second is open.
+    let home = Home::new();
+    let first = project(
+        "jolly-mute-magma",
+        store_in(home.path(), "jolly-mute-magma"),
+    );
+    let second = project("high-tight-gulf", store_in(home.path(), "high-tight-gulf"));
+    let mut stores = home.stores();
+    block_on(async {
+        let store = stores.open(&first).await.unwrap();
+        append(store, stream(1), 0, &[event(0, 1)]).await;
+        assert_eq!(beside(&home, &first.store), ["-wal", "-shm"], "open");
+        stores.open(&second).await.unwrap();
+        assert_eq!(
+            beside(&home, &first.store),
+            Vec::<&str>::new(),
+            "the first closed"
+        );
+        stores.close().await.unwrap();
+    });
+}
+
+#[test]
+fn test_a_store_held_to_read_is_closed_before_it_is_opened_to_write() {
+    // The write's open judges the file first (its log's length, and the
+    // read it makes on it): the read's store is closed before then.
+    let home = Home::new();
+    let project = project(
+        "jolly-mute-magma",
+        store_in(home.path(), "jolly-mute-magma"),
+    );
+    block_on(async {
+        let mut writer = home.stores();
+        let store = writer.open(&project).await.unwrap();
+        append(store, stream(1), 0, &[event(0, 1)]).await;
+        writer.close().await.unwrap();
+        let mut stores = home.stores();
+        stores
+            .open_existing(&project)
+            .await
+            .unwrap()
+            .expect("found");
+        let store = stores.open(&project).await.unwrap();
+        assert_eq!(pages(store, stream(1)).await, [event(0, 1)]);
+        stores.close().await.unwrap();
+        assert_eq!(beside(&home, &project.store), Vec::<&str>::new());
+    });
+}
+
+#[test]
+fn test_the_openers_futures_are_send_so_a_server_can_spawn_them() {
+    fn is_send<T: Send>(_: &T) {}
+    let home = Home::new();
+    let project = project("jolly-mute-magma", PathBuf::from("/nowhere/state.db"));
+    let mut stores = home.stores();
+    is_send(&stores.open(&project));
+    is_send(&stores.open_existing(&project));
+    is_send(&stores.change_token(&project));
+}
+
+// ------------------------------------- a store from before angzarr-embedded
+//
+// The owner's ruling D2 (taskloom-on-angzarr-embedded.plan.md): a store
+// written before taskloom moved onto angzarr-embedded (annals-store-sql's,
+// its events under annals' rules) is not migrated. Opened, it is refused,
+// keyed `StoreOpenError::PredatesEmbedded` with its path and the path
+// to back it up to (`state.db.pre-embedded`), so the user moves it aside
+// and starts afresh; and it is left exactly as it was, never migrated in
+// place (angzarr-store-sqlite's open would migrate it, one way). Its
+// fixture is annals-store-sql's file, frozen in testdata.
+
+/// The key a store from before angzarr-embedded is refused with.
+const PREDATES: &str = code!("predates-embedded");
+
+/// A store as taskloom wrote one before angzarr-embedded: annals-store-
+/// sql's (rev ed00923), holding one task stream of two events under
+/// annals' rules (`v1`), its only migration annals' first. Frozen from what
+/// annals-store-sql wrote (`SqliteStore::open`, then an append of
+/// `lib.test.rs`'s `event(0, 1)` and `event(1, 2)` to a `tasks` stream
+/// rooted at `[1; 16]`, closed so the file holds everything), so the test
+/// needs no annals once the store leaves it.
+const PRE_EMBEDDED: &[u8] = include_bytes!("../testdata/pre-embedded.db");
+
+#[test]
+fn test_a_store_that_predates_angzarr_embedded_is_refused_naming_its_backup() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    home.write(&path, PRE_EMBEDDED);
+    let before = home.read(&path);
+    let project = project("jolly-mute-magma", path.clone());
+    let mut backup = path.as_os_str().to_owned();
+    backup.push(".pre-embedded");
+    let expected = vec![
+        ("backup", PathBuf::from(backup).display().to_string()),
+        ("path", path.display().to_string()),
+    ];
+    let args = |refusal: Option<StoreError>| {
+        let refusal = refusal.expect("refused, never opened");
+        let mut args =
+            keyed(&refusal, PREDATES).unwrap_or_else(|| panic!("keyed {PREDATES}: {refusal}"));
+        args.sort();
+        args
+    };
+
+    let mut stores = home.stores();
+    let written = block_on(stores.open(&project)).map(drop).err();
+    assert_eq!(args(written), expected, "to write");
+    let read = block_on(stores.open_existing(&project)).map(drop).err();
+    assert_eq!(args(read), expected, "to read");
+    let token = block_on(stores.change_token(&project)).map(drop).err();
+    assert_eq!(args(token), expected, "to watch");
+    assert_eq!(home.read(&path), before, "the file as it was: not migrated");
+}
+
+// ------------------------------------------------------------ exporting
+//
+// `store export` (store-export-import.plan.md, D1 (a): this build exports
+// its own shape): the database written whole as angzarr-store-transfer's
+// JSONL, its payloads expanded through the tasks protos' descriptors, and
+// the database never changed, its ledger judged before any open.
+
+/// A `TaskAdded` payload, which the tasks protos' descriptors name.
+fn task_added(harp: &str) -> Any {
+    use prost::Name;
+    Any {
+        type_url: tasks_proto::v1::TaskAdded::type_url(),
+        value: prost::Message::encode_to_vec(&tasks_proto::v1::TaskAdded {
+            harp_id: harp.to_string(),
+            text: "a task".to_string(),
+            status: "Pending".to_string(),
+            ..Default::default()
+        }),
+    }
+}
+
+/// A database at `path` written by `SqliteStore` itself: one stream of
+/// one `TaskAdded`, closed, so the file holds everything (as [`written`]'s).
+fn written_tasks(home: &Home, path: &Path) {
+    home.mkdir(path.parent().unwrap());
+    let real = home.real(path);
+    block_on(async {
+        let store = SqliteStore::open(&real).await.unwrap();
+        let mut page = event(0, 1);
+        page.body = Some(event_page::Body::Event(task_added("dire-shore")));
+        append(&store, stream(1), 0, &[page]).await;
+        store.close().await.unwrap();
+    });
+}
+
+/// `taskloom store export`'s store side: the header naming this build's
+/// generation, the store and its ledger, each row, the end; the file and
+/// its directory as they were.
+#[test]
+fn test_an_export_writes_the_database_whole_and_leaves_it_as_it_was() {
+    use ports::StoreExport;
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    written_tasks(&home, &path);
+    let before = home.read(&path);
+    let listed = |home: &Home| {
+        let mut names: Vec<String> = home
+            .rooted
+            .read_dir(path.parent().unwrap())
+            .unwrap()
+            .into_iter()
+            .map(|e| e.name.to_string_lossy().into_owned())
+            .filter(|n| !n.ends_with("-wal") && !n.ends_with("-shm"))
+            .collect();
+        names.sort();
+        names
+    };
+    let files = listed(&home);
+    let mut out = Vec::new();
+    let exported = home
+        .stores()
+        .export(&path, &[tasks_proto::FILE_DESCRIPTOR_SET], &mut out)
+        .expect("it exports");
+    assert_eq!(
+        exported,
+        Some(ports::Exported {
+            records: 1,
+            streams: 1
+        })
+    );
+    let lines: Vec<serde_json::Value> = std::str::from_utf8(&out)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 3, "header, the page, end");
+    let header = &lines[0]["header"];
+    assert_eq!(header["generation"], angzarr_store_transfer::GENERATION);
+    assert_eq!(header["store"], "angzarr-store-sqlite");
+    assert_eq!(header["ledger"], serde_json::json!([1, 2, 3, 4, 5, 6, 7]));
+    let payload = &lines[1]["page"]["page"]["event"];
+    assert_eq!(payload["@type"], "/ctxloom.tasks.v1.TaskAdded");
+    assert_eq!(payload["harpId"], "dire-shore", "expanded by name");
+    assert!(lines[2].get("end").is_some());
+    assert_eq!(home.read(&path), before, "the file's bytes as they were");
+    assert_eq!(listed(&home), files, "no file made beside it: no backup");
+}
+
+/// A database whose ledger is not this build's set (a file with no ledger
+/// at all: older) is refused before it is opened, so
+/// nothing migrates it, nothing backs it up, and nothing is written.
+#[test]
+fn test_an_export_refuses_a_ledger_not_the_builds_and_leaves_the_file_untouched() {
+    use ports::StoreExport;
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    home.write(&path, OLDER);
+    let before = home.read(&path);
+    let mut out = Vec::new();
+    let refused = home
+        .stores()
+        .export(&path, &[], &mut out)
+        .expect_err("an older ledger is refused");
+    assert_eq!(
+        refused.code(),
+        angzarr_store_transfer::ExportError::LedgerNotTheBuilds {
+            applied: String::new(),
+            build: String::new(),
+        }
+        .code()
+    );
+    assert!(out.is_empty(), "nothing written");
+    assert_eq!(home.read(&path), before, "the file as it was: not migrated");
+    let backups = home
+        .rooted
+        .read_dir(path.parent().unwrap())
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.name.to_string_lossy().contains(".pre-"))
+        .count();
+    assert_eq!(backups, 0, "no backup taken");
+}
+
+/// A store an older generation wrote is an archive: its export is refused,
+/// keyed as every open of it is, before anything is opened, and not one
+/// byte, entry or mtime of it changes (its ledger is no mark of it).
+#[test]
+fn test_an_export_refuses_a_store_an_older_generation_wrote_and_leaves_it_exactly_as_it_was() {
+    use ports::StoreExport;
+    for migrated in [false, true] {
+        let home = Home::new();
+        let (path, _) = archive(&home, OLD_BEFORE_0005, &[]);
+        if migrated {
+            migrated_by_an_earlier_build(&home, &path);
+        }
+        let dir = path.parent().unwrap();
+        let before = tree(&home, dir);
+        let mut out = Vec::new();
+        let refused = home
+            .stores()
+            .export(&path, &[tasks_proto::FILE_DESCRIPTOR_SET], &mut out)
+            .expect_err("an older generation's store is refused");
+        assert_eq!(refused.code(), OLDER_GENERATION, "migrated: {migrated}");
+        assert!(out.is_empty(), "nothing written");
+        assert_eq!(
+            tree(&home, dir),
+            before,
+            "not a byte, entry or mtime (migrated: {migrated})"
+        );
+    }
+}
+
+/// A store from before angzarr-embedded is refused by the export as by
+/// every open, naming its backup, and left as it was.
+#[test]
+fn test_an_export_refuses_a_store_that_predates_angzarr_embedded_naming_its_backup() {
+    use ports::StoreExport;
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    home.write(&path, PRE_EMBEDDED);
+    let before = home.read(&path);
+    let mut out = Vec::new();
+    let refused = home
+        .stores()
+        .export(&path, &[], &mut out)
+        .expect_err("refused");
+    assert_eq!(refused.code(), PREDATES);
+    assert!(out.is_empty());
+    assert_eq!(home.read(&path), before);
+}
+
+/// No database is no export: nothing written, and nothing made.
+#[test]
+fn test_an_export_of_no_database_writes_nothing_and_makes_nothing() {
+    use ports::StoreExport;
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    let mut out = Vec::new();
+    assert_eq!(home.stores().export(&path, &[], &mut out), Ok(None));
+    assert!(out.is_empty());
+    assert!(!home.exists(&path), "no database made");
+    assert!(!home.exists(path.parent().unwrap()), "nor its directory");
+}
+
+/// Every page of real stores re-encodes to its bytes and expands (the
+/// plan's E4 on the copies): run by hand, with TASKLOOM_STORE_COPIES naming
+/// a directory of `<id>/state.db` copies (never the live stores). Each is
+/// copied again into the test's own directory first, and only counts are
+/// printed: the copies hold the owner's task text.
+#[test]
+#[ignore = "reads copies of real stores, named by TASKLOOM_STORE_COPIES"]
+fn test_every_store_copy_exports_every_page() {
+    use ports::StoreExport;
+    let Some(copies) = std::env::var_os("TASKLOOM_STORE_COPIES") else {
+        panic!("set TASKLOOM_STORE_COPIES to a directory of <id>/state.db copies");
+    };
+    let copies = PathBuf::from(copies);
+    let host = Os::new(os::host(), &copies).unwrap();
+    let mut ids: Vec<PathBuf> = host
+        .read_dir(&copies)
+        .unwrap()
+        .into_iter()
+        .map(|e| copies.join(e.name))
+        .filter(|p| host.exists(&p.join("state.db")).unwrap())
+        .collect();
+    ids.sort();
+    assert!(!ids.is_empty(), "no copies found");
+    let (mut stores, mut records) = (0u64, 0u64);
+    for dir in ids {
+        let home = Home::new();
+        let id = dir.file_name().unwrap().to_string_lossy().into_owned();
+        let path = store_in(home.path(), &id);
+        home.mkdir(path.parent().unwrap());
+        home.write(&path, &host.read(&dir.join("state.db")).unwrap());
+        let mut out = Vec::new();
+        let exported = home
+            .stores()
+            .export(&path, &[tasks_proto::FILE_DESCRIPTOR_SET], &mut out)
+            .unwrap_or_else(|e| panic!("store {id}: {e}"))
+            .expect("a database");
+        stores += 1;
+        records += exported.records;
+    }
+    println!("{stores} stores, {records} records exported");
+}
+
+// ------------------------------------------------------------ purging
+
+/// A purge never touches a position on the stream (angzarr decision 14.68):
+/// the positions are a driver's record of what its handler processed, which
+/// finds the stream gone by its listing and forgets it itself.
+#[test]
+fn test_purge_removes_a_stream_but_no_position_on_it_and_it_starts_again_at_0() {
+    let home = Home::new();
+    let project = project("p", store_in(home.path(), "p"));
+    let mut stores = home.stores();
+    block_on(async {
+        let store = stores.open(&project).await.unwrap();
+        append(store, stream(1), 0, &[event(0, 1), event(1, 2)]).await;
+        append(store, stream(2), 0, &[event(0, 3)]).await;
+        let list = PositionKey {
+            handler: "list",
+            stream: stream(1),
+        };
+        store.write(Write::positions(&[(list, 2)])).await.unwrap();
+
+        let stale = store.purge(stream(1), 1).await.unwrap_err();
+        assert!(
+            matches!(stale, StoreError::Conflict { actual: 2, .. }),
+            "a head that moved since it was read is a conflict: {stale}"
+        );
+        assert_eq!(
+            store.purge(stream(1), 2).await.unwrap(),
+            2,
+            "events deleted"
+        );
+        let slice = store.read(stream(1), 0, None).await.unwrap();
+        assert_eq!((slice.next_sequence, slice.pages), (0, Vec::new()));
+        assert_eq!(store.position(list).await.unwrap(), 2, "its positions kept");
+        assert_eq!(pages(store, stream(2)).await, [event(0, 3)], "only it");
+        let again = store
+            .write(Write::append(stream(1), 0, &[event(0, 4)]))
+            .await
+            .unwrap();
+        assert_eq!(again.next_sequence, Some(1), "from expected 0");
+        assert_eq!(
+            store.covers("tasks").await.unwrap().len(),
+            2,
+            "listed again"
+        );
+    });
+}
+
+// ------------------------------------------------------------ watching
+
+#[test]
+fn test_a_token_where_there_is_no_database_is_none_and_creates_nothing() {
+    let home = Home::new();
+    let mut stores = home.stores();
+    let project = project("tpyo", store_in(home.path(), "tpyo"));
+    assert_eq!(block_on(stores.change_token(&project)), Ok(None));
+    assert!(!home.exists(&home.path().join(".ctxloom")), "nothing made");
+}
+
+#[test]
+fn test_a_token_holds_until_another_handle_commits_and_then_holds_again() {
+    let home = Home::new();
+    let project = project(
+        "jolly-mute-magma",
+        store_in(home.path(), "jolly-mute-magma"),
+    );
+    let mut writer = home.stores();
+    let mut watcher = home.stores();
+    block_on(async {
+        writer.open(&project).await.unwrap();
+        let first = watcher
+            .change_token(&project)
+            .await
+            .unwrap()
+            .expect("a store");
+        assert_eq!(watcher.change_token(&project).await, Ok(Some(first)));
+
+        let store = writer.open(&project).await.unwrap();
+        append(store, stream(1), 0, &[event(0, 1)]).await;
+        let moved = watcher.change_token(&project).await.unwrap().unwrap();
+        assert_ne!(moved, first, "another handle's commit moves it");
+        assert_eq!(moved.handle, first.handle, "through the one handle");
+        assert_eq!(watcher.change_token(&project).await, Ok(Some(moved)));
+        let held = watcher
+            .open_existing(&project)
+            .await
+            .unwrap()
+            .expect("held");
+        assert_eq!(
+            held.change_token().await.unwrap(),
+            moved.change,
+            "the held store's own token"
+        );
+    });
+}
+
+// ------------------------------------------------------------ the check
+
+/// A copy of the database at `path`, at `copy`, its command index's root
+/// page changed by `tamper`.
+fn damaged_copy(home: &Home, path: &Path, copy: &Path, tamper: impl FnOnce(&mut [u8])) {
+    let file = damage::damaged(&home.read(path), "events_by_command", tamper);
+    home.mkdir(copy.parent().unwrap());
+    home.write(copy, &file);
+}
+
+#[test]
+fn test_a_sound_database_checks_intact() {
+    let home = Home::new();
+    let path = store_in(home.path(), "p");
+    written(&home, &path);
+    assert_eq!(home.stores().check(&path), Ok(Checked::Intact));
+}
+
+#[test]
+fn test_the_check_runs_from_inside_a_runtime_as_the_binary_calls_it() {
+    let home = Home::new();
+    let path = store_in(home.path(), "p");
+    written(&home, &path);
+    let checked = block_on(async { home.stores().check(&path) });
+    assert_eq!(checked, Ok(Checked::Intact));
+}
+
+#[test]
+fn test_damage_is_reported_as_the_stores_key_and_args_and_left_as_it_was() {
+    let home = Home::new();
+    let (path, copy) = (store_in(home.path(), "p"), store_in(home.path(), "copy"));
+    written(&home, &path);
+    // The page's last byte is the last entry's last key byte: the page
+    // still reads, and the entry no longer matches its row.
+    damaged_copy(&home, &path, &copy, |page| *page.last_mut().unwrap() ^= 1);
+    let before = home.read(&copy);
+    let Ok(Checked::Damaged(damage)) = home.stores().check(&copy) else {
+        panic!("the damage went unseen");
+    };
+    assert_eq!(damage.code(), damaged());
+    let said = args(&damage);
+    assert_eq!(
+        said.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+        ["first", "more"],
+        "a key and its args: {damage}"
+    );
+    assert!(
+        said[0].1.contains("events_by_command"),
+        "SQLite's own: {said:?}"
+    );
+    assert!(
+        damage
+            .to_string()
+            .starts_with(&format!("{} first=\"", damaged())),
+        "its Display is its key and args, the problem quoted, never English: {damage}"
+    );
+    assert_eq!(home.read(&copy), before, "never repaired");
+    assert_eq!(
+        home.stores().check(&path),
+        Ok(Checked::Intact),
+        "the original is sound"
+    );
+}
+
+#[test]
+fn test_a_file_too_damaged_to_open_is_damage_with_sqlites_text_as_ext_err_txt() {
+    let home = Home::new();
+    let path = home.path().join("state.db");
+    home.write(&path, b"not a database at all, as SQLite reads a file");
+    let Ok(Checked::Damaged(damage)) = home.stores().check(&path) else {
+        panic!("damage, not a failure to check");
+    };
+    assert_eq!(
+        damage.code(),
+        SqlError::DamagedFile {
+            errno: 0,
+            detail: String::new()
+        }
+        .code()
+    );
+    assert_eq!(
+        args(&damage),
+        [
+            ("errno", "26".to_string()),
+            ("ext_err_txt", "file is not a database".to_string())
+        ],
+        "SQLITE_NOTADB, and SQLite's text verbatim: {damage}"
+    );
+}
+
+#[test]
+fn test_a_check_that_cannot_run_fails_with_the_stores_error_the_drivers_text_as_ext_err_txt() {
+    let home = Home::new();
+    // A directory where the database file goes.
+    let path = home.path().join("state.db");
+    home.mkdir(&path);
+    let failed = home.stores().check(&path).unwrap_err();
+    assert_eq!(
+        failed.code(),
+        StoreError::Unavailable(Cause::new("", [])).code()
+    );
+    let cause = failed.args().into_iter().find_map(|(name, arg)| match arg {
+        Arg::Nested(cause) if name == "cause" => Some(cause),
+        _ => None,
+    });
+    let cause = cause.unwrap_or_else(|| panic!("the store's cause: {failed}"));
+    // As SQLite's read-only open fails it, here and now.
+    let direct = block_on(SqliteStore::open_existing(&home.real(&path)))
+        .map(|found| found.is_some())
+        .unwrap_err();
+    let direct = keyed(&direct, cause.code()).expect("the same cause");
+    assert_eq!(cause.code(), sqlite_unavailable());
+    assert_eq!(args(cause.as_ref()), direct);
+    assert!(
+        args(cause.as_ref())
+            .iter()
+            .any(|(name, text)| *name == "ext_err_txt" && !text.is_empty()),
+        "the driver's text, verbatim: {cause}"
+    );
+}
+
+#[test]
+fn test_no_database_is_absent_not_damage_and_creates_nothing() {
+    let home = Home::new();
+    let path = store_in(home.path(), "p");
+    assert_eq!(home.stores().check(&path), Ok(Checked::Absent));
+    assert!(
+        !home.exists(&home.path().join(".ctxloom")),
+        "nothing created"
+    );
+}
+
+// ------------------------------------------------------------ opening, failing
+
+/// A `Rooted` filesystem with one fault.
+#[derive(Debug)]
+struct Faulty(Rooted, Fault);
+
+#[derive(Debug, PartialEq)]
+enum Fault {
+    /// It cannot say where anything is on disk, as a real path a Windows
+    /// prefix leaves relative cannot be.
+    Unplaceable,
+    /// It cannot set this path's mode (the caller's).
+    NoMode(PathBuf),
+}
+
+impl Fs for Faulty {
+    fn cwd(&self) -> Result<&Path, file_system::CwdError> {
+        self.0.cwd()
+    }
+    fn os(&self) -> &dyn os::Os {
+        self.0.os()
+    }
+    fn read(&self, path: &Path) -> std::io::Result<Vec<u8>> {
+        self.0.read(path)
+    }
+    fn read_to_string(&self, path: &Path) -> std::io::Result<String> {
+        self.0.read_to_string(path)
+    }
+    fn write_atomic(&self, path: &Path, bytes: &[u8], perms: Perms) -> std::io::Result<()> {
+        self.0.write_atomic(path, bytes, perms)
+    }
+    fn open(&self, path: &Path, how: file_system::Open) -> std::io::Result<std::fs::File> {
+        self.0.open(path, how)
+    }
+    fn create_dir_all(&self, path: &Path, mode: Mode) -> std::io::Result<()> {
+        self.0.create_dir_all(path, mode)
+    }
+    fn remove_file(&self, path: &Path) -> std::io::Result<()> {
+        self.0.remove_file(path)
+    }
+    fn remove_dir_all(&self, path: &Path) -> std::io::Result<()> {
+        self.0.remove_dir_all(path)
+    }
+    fn rename(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+        self.0.rename(from, to)
+    }
+    fn set_permissions(&self, path: &Path, mode: Mode) -> std::io::Result<()> {
+        match &self.1 {
+            Fault::NoMode(refused) if refused == path => Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "no mode set",
+            )),
+            _ => self.0.set_permissions(path, mode),
+        }
+    }
+    fn read_dir(&self, path: &Path) -> std::io::Result<Vec<file_system::Entry>> {
+        self.0.read_dir(path)
+    }
+    fn metadata(&self, path: &Path) -> std::io::Result<file_system::Meta> {
+        self.0.metadata(path)
+    }
+    fn symlink_metadata(&self, path: &Path) -> std::io::Result<file_system::Meta> {
+        self.0.symlink_metadata(path)
+    }
+    fn exists(&self, path: &Path) -> std::io::Result<bool> {
+        self.0.exists(path)
+    }
+    fn canonicalize(&self, path: &Path) -> std::io::Result<PathBuf> {
+        self.0.canonicalize(path)
+    }
+    fn symlink_dir(&self, target: &Path, link: &Path) -> std::io::Result<()> {
+        self.0.symlink_dir(target, link)
+    }
+    fn read_link(&self, link: &Path) -> std::io::Result<PathBuf> {
+        self.0.read_link(link)
+    }
+    fn make_temp_dir(&self, parent: &Path, prefix: &str) -> std::io::Result<PathBuf> {
+        self.0.make_temp_dir(parent, prefix)
+    }
+    fn real_path(&self, path: &Path) -> std::io::Result<PathBuf> {
+        if self.1 == Fault::Unplaceable {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "no place on disk",
+            ));
+        }
+        self.0.real_path(path)
+    }
+    fn same_file(&self, file: &std::fs::File, path: &Path) -> std::io::Result<bool> {
+        self.0.same_file(file, path)
+    }
+}
+
+/// A database older than this build: one table (`older`) committed, and
+/// none of angzarr-store-sqlite's migrations applied. Made with Python's
+/// sqlite3: `PRAGMA page_size=512; CREATE TABLE older (x)`.
+const OLDER: &[u8] = include_bytes!("../testdata/older.db");
+
+#[test]
+fn test_a_directory_that_cannot_be_made_fails_naming_it() {
+    let home = Home::new();
+    let blocker = home.path().join("projects");
+    home.write(&blocker, b"a file where the directory goes");
+    let path = blocker.join("jolly-mute-magma").join("state.db");
+    let mut stores = home.stores();
+    let error = block_on(stores.open(&project("jolly-mute-magma", path)))
+        .map(drop)
+        .unwrap_err();
+    let args = keyed(&error, code!("create-dir")).expect("refused naming it");
+    assert_eq!(args[0].0, "path");
+    assert!(
+        args[0].1.contains(&blocker.display().to_string()),
+        "{error}"
+    );
+}
+
+#[test]
+fn test_a_database_that_does_not_open_fails_with_the_stores_error() {
+    let home = Home::new();
+    // A directory where the database file goes.
+    let path = home.path().join("state.db");
+    home.mkdir(&path);
+    let mut stores = home.stores();
+    let error = block_on(stores.open(&project("jolly-mute-magma", path)))
+        .map(drop)
+        .unwrap_err();
+    assert!(
+        matches!(&error, StoreError::Unavailable(cause) if cause.code == sqlite_unavailable()),
+        "the store's: {error}"
+    );
+}
+
+#[test]
+fn test_a_store_the_filesystem_cannot_place_is_refused_naming_it() {
+    let mut stores = SqliteStores::new(Arc::new(Faulty(
+        Rooted::temp().unwrap(),
+        Fault::Unplaceable,
+    )));
+    let path = PathBuf::from("/home/u/state.db");
+    let project = project("jolly-mute-magma", path.clone());
+    let unplaced = |error: StoreError| {
+        let args = keyed(&error, code!("unplaced")).expect("refused naming it");
+        assert_eq!(
+            args,
+            [
+                ("path", "/home/u/state.db".to_string()),
+                ("ext_err_txt", "no place on disk".to_string())
+            ]
+        );
+    };
+    unplaced(block_on(stores.open(&project)).map(drop).unwrap_err());
+    unplaced(
+        block_on(stores.open_existing(&project))
+            .map(drop)
+            .unwrap_err(),
+    );
+    unplaced(
+        block_on(stores.change_token(&project))
+            .map(drop)
+            .unwrap_err(),
+    );
+    let checked = stores.check(&path).unwrap_err();
+    assert_eq!(checked.code(), code!("unplaced"));
+}
+
+#[test]
+fn test_reading_an_existing_database_opens_it_read_only() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    let project = project("jolly-mute-magma", path);
+    block_on(async {
+        home.stores().open(&project).await.unwrap();
+        let mut stores = home.stores();
+        let store = stores
+            .open_existing(&project)
+            .await
+            .unwrap()
+            .expect("found");
+        assert!(store.read(stream(1), 0, None).await.is_ok());
+        assert!(!stores.held.as_ref().unwrap().writable);
+    });
+}
+
+#[test]
+fn test_a_store_held_to_write_serves_a_read() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    let project = project("jolly-mute-magma", path.clone());
+    let mut stores = home.stores();
+    block_on(async {
+        stores.open(&project).await.unwrap();
+        home.remove_held(&path);
+        let found = stores.open_existing(&project).await.unwrap();
+        assert!(found.is_some(), "the held store, though the file is gone");
+    });
+    assert_eq!(stores.opened, 1, "the held store, not opened again to read");
+    assert!(stores.held.as_ref().unwrap().writable);
+}
+
+#[test]
+fn test_reading_another_project_does_not_serve_the_held_one() {
+    let home = Home::new();
+    let mut stores = home.stores();
+    block_on(async {
+        let first = project(
+            "jolly-mute-magma",
+            store_in(home.path(), "jolly-mute-magma"),
+        );
+        stores.open(&first).await.unwrap();
+        let other = project("tpyo", store_in(home.path(), "tpyo"));
+        assert!(stores.open_existing(&other).await.unwrap().is_none());
+    });
+}
+
+// ------------------------------------------ a store older than the build
+//
+// The owner ruled (2026-10-31) that both a read and a write migrate a store
+// on opening it: angzarr-store-sqlite's every open does, backing the store
+// up beside itself first (`state.db.pre-<applied level>-<UTC time>`); a
+// store newer than the build, and one from before angzarr-embedded, are
+// refused and left as they were.
+
+/// A store as this build's generation writes one, with migrations 0001 to
+/// 0004 applied, so 0005 is pending here: [`OLD_BEFORE_0005`] with each
+/// event page re-encoded in the wire this build reads (`payload` 3, `meta`
+/// 8 and `sequence` 9 as `event` 1, `meta` 2 and `sequence` 3), with
+/// Python's sqlite3, closed (its log checkpointed and removed). Two tasks
+/// beside the schema stream.
+const BEFORE_0005: &[u8] = include_bytes!("../testdata/current-before-0005.db");
+
+/// A store of an older generation of the wire: what the e996ea4 build of
+/// taskloom wrote, on angzarr-store-sqlite 07154a2 (migrations 0001 to
+/// 0004), `taskloom tasks add` twice in a project of its own, closed so the
+/// file holds everything (its log empty). Its event pages are `EventPage`s
+/// of the `payload` layout, which this build does not decode: it is an
+/// archive, read by the build that wrote it.
+const OLD_BEFORE_0005: &[u8] = include_bytes!("../testdata/before-0005.db");
+
+/// A store newer than this build: [`BEFORE_0005`] with a migration this
+/// build does not have (version 99) recorded as applied, added with
+/// Python's sqlite3 and closed (its log checkpointed and removed).
+const NEWER: &[u8] = include_bytes!("../testdata/current-newer.db");
+
+/// The backups beside the store at `path`, by name.
+fn backups(home: &Home, path: &Path) -> Vec<PathBuf> {
+    let dir = path.parent().unwrap();
+    home.rooted
+        .read_dir(dir)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.name.to_string_lossy().starts_with("state.db.pre-"))
+        .map(|e| dir.join(e.name))
+        .collect()
+}
+
+/// How many task streams `store` holds.
+async fn tasks(store: &SqliteStore) -> usize {
+    use angzarr_ports::ListStreams;
+    let covers = store.list_streams().await.unwrap();
+    covers.iter().filter(|c| c.domain == "tasks").count()
+}
+
+/// The versions of the ledger of the store at `path` on disk, read
+/// without opening it.
+fn ledger(home: &Home, path: &Path) -> Vec<u64> {
+    block_on(SqliteStore::ledger_at(&home.real(path)))
+        .unwrap()
+        .expect("a store there")
+        .iter()
+        .map(|r| r.version)
+        .collect()
+}
+
+/// The one backup beside the store at `path`, named for `level`.
+fn the_backup(home: &Home, path: &Path, level: u64) -> PathBuf {
+    let backups = backups(home, path);
+    let [backup] = backups.as_slice() else {
+        panic!("one backup beside the store: {backups:?}");
+    };
+    let name = backup.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(
+        name.starts_with(&format!("state.db.pre-{level}-")),
+        "named for its level: {name}"
+    );
+    backup.clone()
+}
+
+#[test]
+fn test_reading_a_store_with_a_migration_pending_migrates_it_and_reads_its_tasks() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    home.write(&path, BEFORE_0005);
+    let project = project("jolly-mute-magma", path.clone());
+    let mut stores = home.stores();
+    block_on(async {
+        let store = stores
+            .open_existing(&project)
+            .await
+            .expect("migrated, not refused")
+            .expect("found");
+        assert_eq!(tasks(store).await, 2, "both tasks read back");
+    });
+    assert!(!stores.held.as_ref().unwrap().writable, "held read-only");
+    assert_eq!(
+        ledger(&home, &path),
+        [1, 2, 3, 4, 5, 6, 7],
+        "every migration applied"
+    );
+}
+
+#[test]
+fn test_a_read_backs_a_pending_store_up_as_it_was_before_migrating_it() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    home.write(&path, BEFORE_0005);
+    let mut stores = home.stores();
+    block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
+        .expect("migrated")
+        .expect("found");
+    let backup = the_backup(&home, &path, 4);
+    assert_eq!(
+        ledger(&home, &backup),
+        [1, 2, 3, 4],
+        "the store before migrating"
+    );
+}
+
+#[test]
+fn test_a_write_backs_a_pending_store_up_before_migrating_it() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    home.write(&path, BEFORE_0005);
+    let mut stores = home.stores();
+    block_on(async {
+        let store = stores
+            .open(&project("jolly-mute-magma", path.clone()))
+            .await
+            .expect("migrated");
+        assert_eq!(tasks(store).await, 2);
+    });
+    let backup = the_backup(&home, &path, 4);
+    assert_eq!(ledger(&home, &backup), [1, 2, 3, 4]);
+}
+
+#[test]
+fn test_a_current_store_is_neither_backed_up_nor_migrated() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    written(&home, &path);
+    let project = project("jolly-mute-magma", path.clone());
+    let mut stores = home.stores();
+    block_on(stores.open_existing(&project))
+        .unwrap()
+        .expect("found");
+    assert!(!stores.held.as_ref().unwrap().writable, "opened read-only");
+    block_on(home.stores().open(&project)).unwrap();
+    assert_eq!(backups(&home, &path), Vec::<PathBuf>::new());
+}
+
+#[test]
+fn test_reading_a_database_older_than_every_migration_backs_it_up_and_migrates_it() {
+    // A file holding something committed but none of the migrations.
+    let home = Home::new();
+    let path = home.path().join("state.db");
+    home.write(&path, OLDER);
+    let mut stores = home.stores();
+    let found = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
+        .map(|found| found.is_some());
+    assert_eq!(found, Ok(true));
+    let backup = the_backup(&home, &path, 0);
+    assert_eq!(
+        ledger(&home, &backup),
+        Vec::<u64>::new(),
+        "as it was: no ledger"
+    );
+}
+
+#[test]
+fn test_a_store_newer_than_the_build_is_refused_and_left_as_it_was() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    home.write(&path, NEWER);
+    let mut stores = home.stores();
+    let refusal = StoreError::NewerThanBuild {
+        applied: 99,
+        build: 7,
+    };
+    let read = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
+        .map(|found| found.is_some());
+    assert_eq!(read, Err(refusal.clone()), "to read");
+    let written = block_on(stores.open(&project("jolly-mute-magma", path.clone()))).map(drop);
+    assert_eq!(written, Err(refusal), "to write");
+    assert!(stores.held.is_none());
+    assert_eq!(home.read(&path), NEWER, "the file as it was");
+    assert_eq!(backups(&home, &path), Vec::<PathBuf>::new(), "no backup");
+}
+
+// ------------------------------------- a store of an older generation
+//
+// The owner ruled: a store an older build wrote, whose event pages are of
+// a wire this build does not decode, stays a read-only archive, read by the
+// build that wrote it; this build starts new stores. So it is never written
+// to: judged before any open, which would migrate it, back it up or make
+// the files beside it, and refused leaving not one byte, entry or mtime
+// changed.
+
+/// The key an older generation's store is refused with.
+const OLDER_GENERATION: &str = code!("older-generation");
+
+/// What a directory holds: each entry's name, bytes and modification time.
+fn tree(home: &Home, dir: &Path) -> Vec<(std::ffi::OsString, Vec<u8>, std::time::SystemTime)> {
+    home.rooted
+        .read_dir(dir)
+        .unwrap()
+        .into_iter()
+        .map(|e| {
+            let path = dir.join(&e.name);
+            let modified = home.rooted.metadata(&path).unwrap().modified;
+            (e.name, home.read(&path), modified)
+        })
+        .collect()
+}
+
+/// The store `bytes` at a project's path, with `beside` (a file name and
+/// its bytes) beside it.
+fn archive(home: &Home, bytes: &[u8], beside: &[(&str, &[u8])]) -> (PathBuf, Project) {
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    home.write(&path, bytes);
+    for (name, bytes) in beside {
+        home.write(&path.with_file_name(name), bytes);
+    }
+    let project = project("jolly-mute-magma", path.clone());
+    (path, project)
+}
+
+fn refused_as_older(refusal: Option<StoreError>, path: &Path) {
+    let refusal = refusal.expect("refused, never opened");
+    let mut args = keyed(&refusal, OLDER_GENERATION)
+        .unwrap_or_else(|| panic!("keyed {OLDER_GENERATION}: {refusal}"));
+    args.sort();
+    let archive = format!("{}.archive-<date>", path.display());
+    assert_eq!(
+        args,
+        [("archive", archive), ("path", path.display().to_string())]
+    );
+}
+
+#[test]
+fn test_a_store_an_older_generation_wrote_is_refused_by_every_open_and_left_exactly_as_it_was() {
+    for beside in [
+        &[][..],
+        // A log and index of nothing: the store was closed, so they are empty.
+        &[("state.db-wal", &b""[..]), ("state.db-shm", &b""[..])][..],
+    ] {
+        let home = Home::new();
+        let (path, project) = archive(&home, OLD_BEFORE_0005, beside);
+        let dir = path.parent().unwrap();
+        let before = tree(&home, dir);
+        let mut stores = home.stores();
+
+        refused_as_older(block_on(stores.open(&project)).map(drop).err(), &path);
+        refused_as_older(
+            block_on(stores.open_existing(&project)).map(drop).err(),
+            &path,
+        );
+        refused_as_older(
+            block_on(stores.change_token(&project)).map(drop).err(),
+            &path,
+        );
+        assert!(stores.held.is_none(), "nothing held");
+        assert_eq!(tree(&home, dir), before, "not a byte, entry or mtime");
+        assert_eq!(backups(&home, &path), Vec::<PathBuf>::new(), "no backup");
+    }
+}
+
+/// The archive at `path` migrated by an earlier build: angzarr-store-sqlite's
+/// own open, its store closed (ruling 131), so the earlier build is done
+/// with the files when this returns.
+fn migrated_by_an_earlier_build(home: &Home, path: &Path) {
+    block_on(async { SqliteStore::open(&home.real(path)).await?.close().await }).unwrap();
+}
+
+#[test]
+fn test_an_earlier_builds_migration_is_over_before_its_archive_is_looked_at() {
+    // The earlier build's open put the archive in WAL mode, and the last
+    // connection's close checkpoints the log into the file and removes the
+    // log and its index from beside it. Dropped, that close landed whenever
+    // the driver's thread ran, so a snapshot taken first saw a tree the
+    // close then changed (0a949ec waited for it). Closed (ruling 131), it is
+    // over when the setup returns: looked at at once, with no wait, nothing
+    // is left beside the file for a late close to checkpoint or remove.
+    let home = Home::new();
+    let (path, _) = archive(&home, OLD_BEFORE_0005, &[]);
+    migrated_by_an_earlier_build(&home, &path);
+    assert_eq!(
+        beside(&home, &path),
+        Vec::<&str>::new(),
+        "the earlier build's close is over when the setup returns"
+    );
+    assert_eq!(ledger(&home, &path), [1, 2, 3, 4, 5, 6, 7], "migrated");
+}
+
+#[test]
+fn test_an_older_generation_store_already_migrated_by_an_earlier_build_is_refused_too() {
+    // The ledger is no mark of the generation: the migrations are the same
+    // for both. Migrated in the test's setup (angzarr-store-sqlite's own
+    // open), the pages are still the old ones.
+    let home = Home::new();
+    let (path, project) = archive(&home, OLD_BEFORE_0005, &[]);
+    migrated_by_an_earlier_build(&home, &path);
+    assert_eq!(ledger(&home, &path), [1, 2, 3, 4, 5, 6, 7]);
+    let dir = path.parent().unwrap();
+    let before = tree(&home, dir);
+    let mut stores = home.stores();
+    refused_as_older(block_on(stores.open(&project)).map(drop).err(), &path);
+    refused_as_older(
+        block_on(stores.open_existing(&project)).map(drop).err(),
+        &path,
+    );
+    assert_eq!(tree(&home, dir), before, "not a byte, entry or mtime");
+}
+
+#[test]
+fn test_an_older_generation_page_still_in_the_log_is_found_and_refused() {
+    // A store this build made, held open by another connection that has
+    // committed an older generation's page (`payload`, field 3) to its
+    // log, not yet checkpointed into the file: the file alone holds no
+    // event, the log does, and the probe reads the log (it is not
+    // `immutable` where one holds commits).
+    use sqlx::{Connection, Executor};
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    block_on(async {
+        let project = project("jolly-mute-magma", path.clone());
+        home.stores().open(&project).await.map(drop).unwrap();
+        let mut conn =
+            sqlx::SqliteConnection::connect(&format!("sqlite://{}", home.real(&path).display()))
+                .await
+                .unwrap();
+        conn.execute("INSERT INTO events (domain, edition, root, sequence, page) VALUES ('tasks', '', x'01', 0, x'1a00')")
+            .await
+            .unwrap();
+        let log = path.with_file_name("state.db-wal");
+        assert!(
+            home.rooted.metadata(&log).unwrap().len > 0,
+            "the commit is in the log"
+        );
+        let refusal = home.stores().open_existing(&project).await.map(drop).err();
+        refused_as_older(refusal, &path);
+        conn.close().await.unwrap();
+    });
+}
+
+#[test]
+fn test_a_ledger_of_the_first_migration_alone_is_a_store_from_before_angzarr_embedded() {
+    // Whatever else the file holds: the judgement reads the ledger alone.
+    use sqlx::{Connection, Executor};
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    block_on(async {
+        let mut conn = sqlx::SqliteConnection::connect(&format!(
+            "sqlite://{}?mode=rwc",
+            home.real(&path).display()
+        ))
+        .await
+        .unwrap();
+        conn.execute("CREATE TABLE _sqlx_migrations (version BIGINT PRIMARY KEY); INSERT INTO _sqlx_migrations VALUES (1)")
+            .await
+            .unwrap();
+        conn.close().await.unwrap();
+        let refusal = home
+            .stores()
+            .open_existing(&project("jolly-mute-magma", path.clone()))
+            .await
+            .map(drop)
+            .err();
+        let refusal = refusal.expect("refused");
+        assert!(keyed(&refusal, PREDATES).is_some(), "{refusal}");
+    });
+}
+
+#[test]
+fn test_the_check_of_an_older_generation_store_refuses_it_and_writes_nothing() {
+    let home = Home::new();
+    let (path, _) = archive(&home, OLD_BEFORE_0005, &[]);
+    let dir = path.parent().unwrap();
+    let before = tree(&home, dir);
+    let checked = home.stores().check(&path);
+    let Err(report) = checked else {
+        panic!("refused: {checked:?}");
+    };
+    assert_eq!(report.code(), "task-store-sqlite-older-generation");
+    assert_eq!(tree(&home, dir), before, "not a byte, entry or mtime");
+}
+
+#[test]
+fn test_a_store_that_is_new_is_created_and_one_of_this_generation_opens() {
+    let home = Home::new();
+    let path = store_in(home.path(), "brand-new");
+    let mut stores = home.stores();
+    block_on(stores.open(&project("brand-new", path.clone()))).expect("created");
+    assert!(home.exists(&path));
+    // Written by this build, closed, and opened again: not an archive.
+    let mut again = home.stores();
+    let found = block_on(again.open(&project("brand-new", path)))
+        .map(drop)
+        .map_err(|e| e.to_string());
+    assert_eq!(found, Ok(()));
+}
+
+#[test]
+fn test_a_database_that_cannot_be_read_fails_a_read() {
+    let home = Home::new();
+    let path = home.path().join("state.db");
+    home.write(&path, b"not a database");
+    let mut stores = home.stores();
+    let error = block_on(stores.open_existing(&project("jolly-mute-magma", path)))
+        .map(|found| found.is_some())
+        .unwrap_err();
+    assert!(matches!(error, StoreError::Unavailable(_)), "{error:?}");
+}
+
+#[test]
+fn test_a_read_that_fails_fails_with_the_read_only_opens_error() {
+    // A directory where the database goes: the read-only open fails, and
+    // its error is passed through as it is.
+    let home = Home::new();
+    let path = home.path().join("state.db");
+    home.mkdir(&path);
+    let mut stores = home.stores();
+    let error = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
+        .map(|found| found.is_some())
+        .unwrap_err();
+    let read_only = block_on(SqliteStore::open_existing(&home.real(&path)))
+        .map(|found| found.is_some())
+        .unwrap_err();
+    assert_eq!(error.to_string(), read_only.to_string());
+}
+
+#[test]
+fn test_a_token_is_read_through_the_store_the_next_read_is_through() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    let project = project("jolly-mute-magma", path.clone());
+    let mut stores = home.stores();
+    block_on(async {
+        home.stores().open(&project).await.unwrap();
+        stores
+            .change_token(&project)
+            .await
+            .unwrap()
+            .expect("a store");
+        home.remove_held(&path);
+        let held = stores.open_existing(&project).await.unwrap();
+        assert!(
+            held.is_some(),
+            "the handle that answered, though the file is gone"
+        );
+    });
+    assert_eq!(stores.opened, 1, "the handle that answered, not another");
+}
+
+#[test]
+fn test_a_page_beyond_reading_is_damage_not_a_failure_to_check() {
+    let home = Home::new();
+    let (path, copy) = (store_in(home.path(), "p"), store_in(home.path(), "copy"));
+    written(&home, &path);
+    damaged_copy(&home, &path, &copy, |page| page.fill(0xff));
+    let Ok(Checked::Damaged(damage)) = home.stores().check(&copy) else {
+        panic!("the damage went unseen");
+    };
+    assert_eq!(damage.code(), damaged());
+}
+
+/// angzarr-store-sqlite's code for a damaged database.
+fn damaged() -> &'static str {
+    angzarr_embedded::angzarr_store_sqlite::damage_sample().code()
+}
+
+/// angzarr-store-sqlite's code for SQLite's own failure, its errno given.
+fn sqlite_unavailable() -> &'static str {
+    SqlError::Unavailable {
+        errno: Some(0),
+        detail: String::new(),
+    }
+    .code()
+}
+
+// ------------------------------------------------------------ private to its owner
+//
+// A store is its owner's alone (owner ruling, 2026-11-12): its directory
+// 0700, the file and the `-wal` and `-shm` SQLite keeps beside it 0600,
+// whatever the umask; an existing store open to others is made so on its
+// next open, to write or to read. On Windows no mode is set: the profile's
+// ACL holds the store, so those assertions are a named SKIP.
+
+/// Whether this host keeps mode bits; says the named SKIP when it does not.
+fn modes_kept(test: &str) -> bool {
+    if os::host().flavor() == os::Flavor::Windows {
+        println!("SKIP {test}: Windows keeps no mode bits; the profile's ACL holds the store");
+        return false;
+    }
+    true
+}
+
+impl Home {
+    /// `path`'s permission bits.
+    fn mode(&self, path: &Path) -> u32 {
+        self.rooted
+            .metadata(path)
+            .unwrap()
+            .mode
+            .expect("a mode on unix")
+            .bits()
+    }
+
+    fn chmod(&self, path: &Path, mode: Mode) {
+        self.rooted.set_permissions(path, mode).unwrap();
+    }
+
+    /// The stores on this home's filesystem, which cannot set `refused`'s
+    /// mode.
+    fn refusing_mode(&self, refused: &Path) -> SqliteStores {
+        let fs = Faulty(
+            Rooted::new(self.rooted.root(), self.path()).unwrap(),
+            Fault::NoMode(refused.to_path_buf()),
+        );
+        SqliteStores::new(Arc::new(fs))
+    }
+}
+
+/// `path` with `suffix` after its file name: the `-wal` and `-shm` beside a
+/// store.
+fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
+/// The store's file, log and shared memory are 0600, the log and shared
+/// memory there (held open).
+fn private_files(home: &Home, path: &Path) {
+    assert_eq!(home.mode(path), 0o600, "the store");
+    for suffix in ["-wal", "-shm"] {
+        let companion = with_suffix(path, suffix);
+        assert!(home.exists(&companion), "{} beside it", companion.display());
+        assert_eq!(home.mode(&companion), 0o600, "{}", companion.display());
+    }
+}
+
+#[test]
+fn test_a_new_store_and_every_directory_its_open_makes_are_its_owners_alone() {
+    let name = "test_a_new_store_and_every_directory_its_open_makes_are_its_owners_alone";
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    let mut stores = home.stores();
+    // Held open: a write's log and shared memory are beside it.
+    block_on(stores.open(&project("jolly-mute-magma", path.clone()))).expect("opens");
+    if !modes_kept(name) {
+        return;
+    }
+    let dir = path.parent().unwrap();
+    for made in [dir, dir.parent().unwrap(), &home.path().join(".ctxloom")] {
+        assert_eq!(home.mode(made), 0o700, "{}", made.display());
+    }
+    private_files(&home, &path);
+    block_on(stores.close()).unwrap();
+}
+
+#[test]
+fn test_an_existing_store_open_to_others_is_made_its_owners_on_a_write_open() {
+    let name = "test_an_existing_store_open_to_others_is_made_its_owners_on_a_write_open";
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    written(&home, &path);
+    let dir = path.parent().unwrap();
+    home.chmod(dir, Mode::DIR);
+    home.chmod(&path, Mode::FILE);
+    let mut stores = home.stores();
+    block_on(stores.open(&project("jolly-mute-magma", path.clone()))).expect("opens");
+    if !modes_kept(name) {
+        return;
+    }
+    assert_eq!(home.mode(dir), 0o700, "its directory");
+    private_files(&home, &path);
+    block_on(stores.close()).unwrap();
+}
+
+#[test]
+fn test_an_existing_store_open_to_others_is_made_its_owners_on_a_read_open() {
+    let name = "test_an_existing_store_open_to_others_is_made_its_owners_on_a_read_open";
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    written(&home, &path);
+    let dir = path.parent().unwrap();
+    home.chmod(dir, Mode::DIR);
+    home.chmod(&path, Mode::FILE);
+    let mut stores = home.stores();
+    let found = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
+        .expect("opens")
+        .is_some();
+    assert!(found, "found");
+    if !modes_kept(name) {
+        return;
+    }
+    assert_eq!(home.mode(dir), 0o700, "its directory");
+    private_files(&home, &path);
+    block_on(stores.close()).unwrap();
+}
+
+#[test]
+fn test_a_log_and_shared_memory_open_to_others_are_made_the_owners_on_the_next_open() {
+    let name = "test_a_log_and_shared_memory_open_to_others_are_made_the_owners_on_the_next_open";
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    let project = project("jolly-mute-magma", path.clone());
+    // Held open, so its log and shared memory stay, as an earlier build
+    // left them: open to others.
+    let mut held = home.stores();
+    block_on(held.open(&project)).expect("opens");
+    if !modes_kept(name) {
+        return;
+    }
+    let (wal, shm) = (with_suffix(&path, "-wal"), with_suffix(&path, "-shm"));
+    home.chmod(&wal, Mode::FILE);
+    home.chmod(&shm, Mode::FILE);
+    let mut written = home.stores();
+    block_on(written.open(&project)).expect("opens to write");
+    assert_eq!(
+        (home.mode(&wal), home.mode(&shm)),
+        (0o600, 0o600),
+        "to write"
+    );
+    home.chmod(&wal, Mode::FILE);
+    home.chmod(&shm, Mode::FILE);
+    let mut read = home.stores();
+    let found = block_on(read.open_existing(&project))
+        .expect("opens to read")
+        .is_some();
+    assert!(found, "found");
+    assert_eq!(
+        (home.mode(&wal), home.mode(&shm)),
+        (0o600, 0o600),
+        "to read"
+    );
+    for stores in [read, written, held] {
+        block_on(stores.close()).unwrap();
+    }
+}
+
+/// What a store at `path` is made its owner's through: its directory, the
+/// file, its log and its shared memory.
+fn made_private(path: &Path) -> [PathBuf; 4] {
+    [
+        path.parent().unwrap().to_path_buf(),
+        path.to_path_buf(),
+        with_suffix(path, "-wal"),
+        with_suffix(path, "-shm"),
+    ]
+}
+
+/// `error` is the refusal to open what could not be made private,
+/// `refused`, with the filesystem's text.
+fn refused_private(error: &StoreError, refused: &Path) {
+    let args = keyed(error, code!("restrict"))
+        .unwrap_or_else(|| panic!("{refused:?}: keyed restrict: {error}"));
+    assert_eq!(
+        args,
+        [
+            ("path", refused.display().to_string()),
+            ("ext_err_txt", "no mode set".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn test_a_write_open_of_a_store_that_cannot_be_made_its_owners_fails_naming_what() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    let project = project("jolly-mute-magma", path.clone());
+    for refused in made_private(&path) {
+        let mut stores = home.refusing_mode(&refused);
+        let error = block_on(stores.open(&project)).map(drop).unwrap_err();
+        refused_private(&error, &refused);
+        assert!(stores.held.is_none(), "{refused:?}: nothing held");
+    }
+}
+
+#[test]
+fn test_a_read_open_of_a_store_that_cannot_be_made_its_owners_fails_naming_what() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    written(&home, &path);
+    let project = project("jolly-mute-magma", path.clone());
+    for refused in made_private(&path) {
+        let mut stores = home.refusing_mode(&refused);
+        let error = block_on(stores.open_existing(&project))
+            .map(drop)
+            .unwrap_err();
+        refused_private(&error, &refused);
+        let error = block_on(stores.change_token(&project))
+            .map(drop)
+            .unwrap_err();
+        refused_private(&error, &refused);
+        assert!(stores.held.is_none(), "{refused:?}: nothing held");
+    }
+}

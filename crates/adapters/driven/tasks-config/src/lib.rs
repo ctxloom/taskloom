@@ -1,0 +1,463 @@
+//! Taskloom's configuration: its files, the environment and the
+//! `--config-set` overrides, as far as the use cases ask of them. Each
+//! layer is read:
+//!
+//! 1. `~/.taskloom/config.yaml`;
+//! 2. `<root>/.taskloom/config.yaml`, the work root's;
+//! 3. `TASKLOOM_CONFIG_<KEY>` environment variables, an empty one unset;
+//! 4. `--config-set <path>=<value>` overrides.
+//!
+//! The tag rules moved into the project's store (its schema stream,
+//! docs/plans/self-hosted-schema.md): a layer still setting `tag_schema` or
+//! `tag_permits` is refused ([`ConfigError::KeyMoved`], naming `taskloom
+//! schema import-config`), whatever it sets them to, and nothing reads
+//! them for a rule. The import alone reads the work root's file's
+//! ([`Configuration::tag_schema`], [`Configuration::tag_permits`]) and
+//! then takes them out of it ([`ConfigurationWriter::retire_moved`]), by
+//! the fewest edits, every other key and comment kept (the `edit` module).
+//!
+//! A config file is read through angzarr-yaml, the one reader of every
+//! Rust config (the owner's ruling, 2026-10-31): its versioned loader, the
+//! kind `taskloom-config` stamped `schema_version` at [`SCHEMA_VERSION`]
+//! with no older version, as Go's taskloom versions it, and its strict
+//! decode. A missing file is no layer. A file with no stamp, an empty or
+//! comment-only one too, is current: the config-versioning rule reads a
+//! kind with no older version so (Go's taskloom refuses it). A file that
+//! cannot be read, is not the YAML the reader reads, is stamped older or
+//! newer, or names a key taskloom does not know, is refused, with the
+//! reader's diagnostic and the key path where the decode failed
+//! ([`ConfigError::Load`]), a newer file as taskloom's own
+//! [`ConfigError::Newer`]; so is an environment variable or override
+//! naming no key. Files are read through the [`Fs`] it is given.
+//! `homing` (repo homing is dropped) and `schema_version` are known and
+//! ignored.
+//!
+//! `plan_roots` is where plan files are searched for ([`PLAN_ROOTS`]): a
+//! YAML list in a config file, comma-separated in `TASKLOOM_CONFIG_PLAN_ROOTS`
+//! and `--config-set plan_roots=a,b`. The last layer setting it wins and
+//! replaces the defaults whole (the work tree and `.taskloom/plans`, which
+//! the plans use cases know); a blank item is refused, in a file, a
+//! variable or an override alike ([`ConfigError::BlankItem`]).
+
+mod edit;
+mod error;
+mod permits;
+
+use std::ffi::OsString;
+use std::fmt;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use angzarr_diagnostic::Report;
+use angzarr_yaml::versioned::{LoadProblem, Loader, Migrations};
+use file_system::{Fs, Perms};
+use os::Mode;
+use ports::{Configuration, ConfigurationWriter, TagPermits};
+use serde::Deserialize;
+
+#[cfg(any(test, feature = "test-support"))]
+pub use error::diagnostic_samples;
+pub use error::{ConfigError, EN_US};
+
+/// The directory a config file is in, at the home and the work root.
+pub const DIR: &str = ".taskloom";
+/// The config file's name.
+pub const FILE: &str = "config.yaml";
+/// What an environment variable's name starts with to override a key.
+pub const ENV_PREFIX: &str = "TASKLOOM_CONFIG_";
+/// The document kind config files are, as the reader names it.
+pub const KIND: &str = "taskloom-config";
+/// The `schema_version` this taskloom reads, and the only one: there is
+/// no older version to migrate.
+pub const SCHEMA_VERSION: u32 = 1;
+/// The config keys taskloom knows.
+pub const KEYS: [&str; 5] = [
+    "homing",
+    "plan_roots",
+    "schema_version",
+    "tag_permits",
+    "tag_schema",
+];
+/// The key naming where plan files are searched for.
+pub const PLAN_ROOTS: &str = "plan_roots";
+
+/// One config file's keys.
+#[derive(Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct File {
+    /// The stamp, read by the loader before the decode.
+    #[allow(dead_code)]
+    schema_version: Option<u32>,
+    #[allow(dead_code)]
+    homing: Option<String>,
+    tag_schema: Option<Vec<String>>,
+    plan_roots: Option<Vec<String>>,
+    /// Read from the work root's file alone ([`permits`]).
+    tag_permits: Option<permits::Raw>,
+}
+
+/// Taskloom's configuration over a filesystem and the environment.
+#[derive(Clone, Debug)]
+pub struct TaskloomConfig {
+    fs: Arc<dyn Fs>,
+    home: Option<PathBuf>,
+    root: FindRoot,
+    env: Vec<(OsString, OsString)>,
+    overrides: Vec<String>,
+}
+
+/// Where the work root is, asked each time the configuration is read.
+#[derive(Clone)]
+struct FindRoot(Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>);
+
+impl fmt::Debug for FindRoot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("FindRoot")
+    }
+}
+
+impl TaskloomConfig {
+    /// Configuration read from `home`'s and `root`'s config files on `fs`,
+    /// when they are known, and from `env`, the process's environment as
+    /// given (a variable whose name or value is not UTF-8 is skipped), with
+    /// `overrides` (`<path>=<value>`, as `--config-set` gives them)
+    /// applied last: bound once, where the configuration is made.
+    pub fn new(
+        fs: Arc<dyn Fs>,
+        home: Option<PathBuf>,
+        root: Option<PathBuf>,
+        env: Vec<(OsString, OsString)>,
+        overrides: Vec<String>,
+    ) -> Self {
+        TaskloomConfig::finding_root(fs, home, move || root.clone(), env, overrides)
+    }
+
+    /// [`TaskloomConfig::new`], the work root found by `root` each time the
+    /// configuration is read, and not before: making it does no I/O.
+    pub fn finding_root(
+        fs: Arc<dyn Fs>,
+        home: Option<PathBuf>,
+        root: impl Fn() -> Option<PathBuf> + Send + Sync + 'static,
+        env: Vec<(OsString, OsString)>,
+        overrides: Vec<String>,
+    ) -> Self {
+        TaskloomConfig {
+            fs,
+            home,
+            root: FindRoot(Arc::new(root)),
+            env,
+            overrides,
+        }
+    }
+
+    fn files(&self) -> impl Iterator<Item = PathBuf> {
+        [self.home.clone(), (self.root.0)()]
+            .into_iter()
+            .flatten()
+            .filter(|dir| !dir.as_os_str().is_empty())
+            .map(|dir| dir.join(DIR).join(FILE))
+    }
+
+    /// Refused where any layer sets a key that moved into the store, or
+    /// cannot be read: each file read (and held to being taskloom's), each
+    /// variable and override named.
+    fn moved_keys(&self) -> Result<(), ConfigError> {
+        for path in self.files() {
+            let file = read(&*self.fs, &path)?;
+            let held = [
+                ("tag_schema", file.tag_schema.is_some()),
+                (permits::KEY, file.tag_permits.is_some()),
+            ];
+            if let Some((key, _)) = held.into_iter().find(|(_, set)| *set) {
+                return Err(ConfigError::KeyMoved {
+                    source: path.display().to_string(),
+                    key: key.to_string(),
+                });
+            }
+        }
+        let flavor = self.fs.os().flavor();
+        for (name, value) in &self.env {
+            // Configuration reads only UTF-8: any other variable is
+            // skipped, not refused.
+            let (Some(name), Some(value)) = (name.to_str(), value.to_str()) else {
+                continue;
+            };
+            // An empty variable is unset, as the environment's are
+            // everywhere: no layer. The prefix is matched as the host
+            // compares names (any case on Windows).
+            let prefixed = flavor.env_has_prefix(name, ENV_PREFIX) && !value.is_empty();
+            let Some(key) = name.get(ENV_PREFIX.len()..).filter(|_| prefixed) else {
+                continue;
+            };
+            known(name, &key.to_ascii_lowercase())?;
+        }
+        for entry in &self.overrides {
+            let (path, _) = entry
+                .split_once('=')
+                .filter(|(path, _)| !path.trim().is_empty())
+                .ok_or_else(|| ConfigError::NotAnOverride {
+                    entry: entry.clone(),
+                })?;
+            known("--config-set", &path.trim().to_ascii_lowercase())?;
+        }
+        Ok(())
+    }
+}
+
+impl Configuration for TaskloomConfig {
+    fn moved(&mut self) -> Result<(), Report> {
+        self.moved_keys().map_err(|e| Report::of(&e))
+    }
+
+    fn tag_schema(&mut self) -> Result<Vec<String>, Report> {
+        let Some(root) = self.work_root() else {
+            return Ok(Vec::new());
+        };
+        let path = root.join(DIR).join(FILE);
+        let file = read(&*self.fs, &path).map_err(|e| Report::of(&e))?;
+        Ok(file.tag_schema.unwrap_or_default())
+    }
+
+    fn tag_permits(&mut self) -> Result<Option<TagPermits>, Report> {
+        self.permits().map_err(|e| Report::of(&e))
+    }
+
+    fn plan_roots(&mut self) -> Result<Option<Vec<String>>, Report> {
+        self.roots().map_err(|e| Report::of(&e))
+    }
+}
+
+impl ConfigurationWriter for TaskloomConfig {
+    fn write_tag_permits(&mut self, permits: &TagPermits) -> Result<(), Report> {
+        self.write_permits(permits).map_err(|e| Report::of(&e))
+    }
+
+    fn retire_moved(&mut self) -> Result<bool, Report> {
+        self.retire().map_err(|e| Report::of(&e))
+    }
+}
+
+impl TaskloomConfig {
+    /// `plan_roots` as the last layer setting it gives it: the home's file,
+    /// the work root's, the variable, then the overrides.
+    fn roots(&self) -> Result<Option<Vec<String>>, ConfigError> {
+        let mut roots = None;
+        for path in self.files() {
+            if let Some(set) = read(&*self.fs, &path)?.plan_roots {
+                roots = Some(set);
+            }
+        }
+        let flavor = self.fs.os().flavor();
+        for (name, value) in &self.env {
+            let (Some(name), Some(value)) = (name.to_str(), value.to_str()) else {
+                continue;
+            };
+            let key = name
+                .get(ENV_PREFIX.len()..)
+                .filter(|_| flavor.env_has_prefix(name, ENV_PREFIX) && !value.is_empty());
+            if key.is_some_and(|key| key.eq_ignore_ascii_case(PLAN_ROOTS)) {
+                roots = Some(listed(name, value)?);
+            }
+        }
+        for entry in &self.overrides {
+            if let Some((path, value)) = entry.split_once('=') {
+                if path.trim().eq_ignore_ascii_case(PLAN_ROOTS) {
+                    roots = Some(listed("--config-set", value)?);
+                }
+            }
+        }
+        Ok(roots)
+    }
+
+    /// The work root, when there is one.
+    fn work_root(&self) -> Option<PathBuf> {
+        (self.root.0)().filter(|dir| !dir.as_os_str().is_empty())
+    }
+
+    /// The work root's `tag_permits`, as the import reads them.
+    fn permits(&self) -> Result<Option<TagPermits>, ConfigError> {
+        let Some(root) = self.work_root().map(|dir| dir.join(DIR).join(FILE)) else {
+            return Ok(None);
+        };
+        let shown = root.display().to_string();
+        read(&*self.fs, &root)?
+            .tag_permits
+            .map(|raw| raw.permits(&shown))
+            .transpose()
+    }
+
+    /// `permits` written to the work root's config file by the fewest
+    /// edits ([`edit::edited`]), the file and its directory made when
+    /// there is none ([`to_edit`]); nothing written when it already
+    /// permits exactly them.
+    fn write_permits(&self, permits: &TagPermits) -> Result<(), ConfigError> {
+        let dir = self.work_root().ok_or(ConfigError::NoWorkRoot)?.join(DIR);
+        let path = dir.join(FILE);
+        let shown = path.display().to_string();
+        let source = to_edit(text_of(&*self.fs, &path)?);
+        // The file must read as taskloom's before it is edited.
+        parsed(&path, &source)?;
+        let edited = edit::edited(&shown, &source, permits)?;
+        if edited == source {
+            return Ok(());
+        }
+        let unwritable = |e: std::io::Error| ConfigError::Unwritable {
+            path: shown.clone(),
+            detail: e.to_string(),
+        };
+        self.fs
+            .create_dir_all(&dir, Mode::DIR)
+            .map_err(unwritable)?;
+        self.fs
+            .write_atomic(&path, edited.as_bytes(), Perms::KeepOr(Mode::FILE))
+            .map_err(unwritable)
+    }
+}
+
+/// What a permits write edits, of the config file holding `text` (none:
+/// no file). A file holding nothing, missing, empty or of comments alone
+/// (all missing, and current, by the config-versioning rule), is written
+/// as a file made is: stamped, so it reads back (Go's taskloom refuses a
+/// file without a stamp), after whatever comments it has, kept as
+/// written. Any other is edited as it is.
+fn to_edit(text: Option<String>) -> String {
+    let stamp = format!(
+        "{}: {SCHEMA_VERSION}\n",
+        angzarr_yaml::versioned::DEFAULT_KEY
+    );
+    let text = text.unwrap_or_default();
+    if !matches!(angzarr_yaml::parse(&text), Ok(angzarr_yaml::Value::Null)) {
+        return text;
+    }
+    match text.is_empty() || text.ends_with('\n') {
+        true => format!("{text}{stamp}"),
+        false => format!("{text}\n{stamp}"),
+    }
+}
+
+/// The reader of a config file: angzarr-yaml's versioned loader for the
+/// kind `taskloom-config`, stamped `schema_version`, at [`SCHEMA_VERSION`]
+/// with no older version to migrate.
+pub(crate) fn loader() -> Loader {
+    Migrations::new(KIND, SCHEMA_VERSION)
+        .build()
+        .expect("a kind with no steps is a whole chain")
+}
+
+/// The config file at `path` on `fs`; no keys when there is none.
+fn read(fs: &dyn Fs, path: &Path) -> Result<File, ConfigError> {
+    match text_of(fs, path)? {
+        Some(text) => parsed(path, &text),
+        None => Ok(File::default()),
+    }
+}
+
+/// The text of the config file at `path` on `fs`; `None` when there is
+/// none.
+fn text_of(fs: &dyn Fs, path: &Path) -> Result<Option<String>, ConfigError> {
+    match fs.read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(ConfigError::Unreadable {
+            path: path.display().to_string(),
+            detail: e.to_string(),
+        }),
+    }
+}
+
+/// `text`, the config file at `path`, as taskloom reads it.
+fn parsed(path: &Path, text: &str) -> Result<File, ConfigError> {
+    let shown = || path.display().to_string();
+    let file: File = loader()
+        .load_into(Some(&shown()), text)
+        .map_err(|e| match e.problem {
+            LoadProblem::TooNew { found, current } => ConfigError::Newer {
+                path: shown(),
+                version: found.into(),
+                current: current.into(),
+            },
+            _ => ConfigError::Load(e),
+        })?;
+    // A blank item is refused, never dropped, as a comma-separated list's
+    // is.
+    let blank = |list: &Vec<String>| list.iter().any(|item| item.trim().is_empty());
+    for (key, list) in [
+        ("tag_schema", &file.tag_schema),
+        (PLAN_ROOTS, &file.plan_roots),
+    ] {
+        if list.as_ref().is_some_and(blank) {
+            return Err(ConfigError::BlankItem {
+                source: shown(),
+                value: key.to_string(),
+            });
+        }
+    }
+    // Refused here, whichever file it is in, as the schema's list is: a
+    // config file is taskloom's whole or not at all.
+    if let Some(raw) = &file.tag_permits {
+        raw.clone().permits(&shown())?;
+    }
+    Ok(file)
+}
+
+impl TaskloomConfig {
+    /// The work root's config file with the moved keys taken out
+    /// ([`edit::retired`]): whether it held either. Nothing is written
+    /// where there is no work root, no file, or neither key in it.
+    fn retire(&self) -> Result<bool, ConfigError> {
+        let Some(dir) = self.work_root().map(|root| root.join(DIR)) else {
+            return Ok(false);
+        };
+        let path = dir.join(FILE);
+        let Some(source) = text_of(&*self.fs, &path)? else {
+            return Ok(false);
+        };
+        let shown = path.display().to_string();
+        let Some(edited) = edit::retired(&shown, &source)? else {
+            return Ok(false);
+        };
+        self.fs
+            .write_atomic(&path, edited.as_bytes(), Perms::KeepOr(Mode::FILE))
+            .map_err(|e| ConfigError::Unwritable {
+                path: shown,
+                detail: e.to_string(),
+            })?;
+        Ok(true)
+    }
+}
+
+/// The comma-separated `value`, set by `source` (a variable or
+/// `--config-set`), as a list: each item trimmed; a blank one refused.
+fn listed(source: &str, value: &str) -> Result<Vec<String>, ConfigError> {
+    let items: Vec<String> = value
+        .split(',')
+        .map(|item| item.trim().to_string())
+        .collect();
+    match items.iter().any(String::is_empty) {
+        true => Err(ConfigError::BlankItem {
+            source: source.to_string(),
+            value: PLAN_ROOTS.to_string(),
+        }),
+        false => Ok(items),
+    }
+}
+
+/// Whether `source` may set `key`: a key it knows, and none that moved.
+fn known(source: &str, key: &str) -> Result<(), ConfigError> {
+    match key {
+        "homing" | "schema_version" | PLAN_ROOTS => Ok(()),
+        "tag_schema" | permits::KEY => Err(ConfigError::KeyMoved {
+            source: source.to_string(),
+            key: key.to_string(),
+        }),
+        _ => Err(ConfigError::UnknownKey {
+            source: source.to_string(),
+            key: key.to_string(),
+        }),
+    }
+}
+
+#[cfg(test)]
+#[path = "lib.test.rs"]
+mod tests;

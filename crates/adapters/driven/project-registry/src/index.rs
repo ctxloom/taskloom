@@ -1,0 +1,262 @@
+//! The home registry, `~/.ctxloom/projects/index.yaml`: every project id
+//! and the path it was registered for, in schema version 1. It is read
+//! through angzarr-yaml, the one reader of every Rust config (the owner's
+//! ruling, 2026-10-31): its versioned loader, the kind `project-registry`
+//! stamped `schema_version` at [`SCHEMA_VERSION`] with no older version,
+//! as Go's schemaver versions it, and its strict decode. A registry with
+//! no stamp is current, as the config-versioning rule reads a kind with no
+//! older version (Go's schemaver refuses it). A file shared by
+//! Go's and Rust's binaries is strict for all (the same ruling): a key
+//! this version does not know, or a version it does not read, is refused,
+//! never kept, so the writers change the schema in lockstep. Changes are
+//! made under an exclusive lock on
+//! `index.yaml.lock`, the registry's lock file (taken through file-lock,
+//! as every ctxloom lock is), and written by rename, so a reader never
+//! sees half a file.
+
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use file_system::{Fs, Perms};
+
+use angzarr_yaml::versioned::{LoadError, Loader, Migrations};
+use angzarr_yaml::Value;
+use os::Mode;
+use serde::Deserialize;
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
+
+use crate::path::{canonical, same};
+use crate::RegistryError;
+
+/// A directory only its owner may enter: the registry's, beside the
+/// project stores, and each one above it that a save or the lock makes (the
+/// owner's ruling, 2026-11-12). The seam sets no mode on Windows, where the
+/// profile's ACL holds them.
+const PRIVATE_DIR: Mode = Mode::from_bits(0o700);
+
+/// The schema version this registry reads and writes, and the only one:
+/// there is no older version to migrate.
+pub const SCHEMA_VERSION: u32 = 1;
+
+/// The document kind the registry is, as the reader names it.
+pub const KIND: &str = "project-registry";
+
+/// One project: its id and the path it was registered for.
+#[derive(Clone, PartialEq, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Entry {
+    pub project_id: String,
+    pub path: String,
+    /// RFC 3339, as written.
+    pub created_at: String,
+    /// RFC 3339, as written; empty when it was not.
+    #[serde(default)]
+    pub last_seen_at: String,
+}
+
+#[derive(Clone, PartialEq, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Index {
+    /// The stamp; a registry with none is current (the config-versioning
+    /// rule: there is no older version for it to be).
+    #[serde(default = "current")]
+    pub schema_version: u32,
+    #[serde(default)]
+    pub projects: Vec<Entry>,
+}
+
+impl Index {
+    /// The id registered for `root`, a canonical path, if any: the first,
+    /// if several are. Each entry's path is compared canonical on `fs` too.
+    pub fn id_for(&self, fs: &dyn Fs, root: &Path) -> Option<&str> {
+        self.projects
+            .iter()
+            .find(|e| same(fs.os().flavor(), &canonical(fs, Path::new(&e.path)), root))
+            .map(|e| e.project_id.as_str())
+    }
+
+    /// Where the project `id` is rooted: the first path registered for it,
+    /// canonical; `None` when none is.
+    pub fn root_of(&self, fs: &dyn Fs, id: &str) -> Option<String> {
+        self.projects
+            .iter()
+            .find(|e| e.project_id == id)
+            .map(|e| canonical(fs, Path::new(&e.path)).display().to_string())
+    }
+
+    /// Whether `id` is registered, for any path.
+    pub fn holds(&self, id: &str) -> bool {
+        self.projects.iter().any(|e| e.project_id == id)
+    }
+
+    /// Register `id` for `path`, seen now.
+    pub fn register(&mut self, id: &str, path: &str) {
+        let now = OffsetDateTime::now_utc()
+            .format(&Rfc3339)
+            .expect("now formats as RFC 3339");
+        self.projects.push(Entry {
+            project_id: id.to_string(),
+            path: path.to_string(),
+            created_at: now.clone(),
+            last_seen_at: now,
+        });
+    }
+}
+
+/// The registry file under `home`.
+pub fn path(home: &Path) -> PathBuf {
+    home.join(".ctxloom").join("projects").join("index.yaml")
+}
+
+/// The stamp of a registry with none: this version.
+// Equivalent: `1`, its one mutant, is SCHEMA_VERSION, the only version.
+#[cfg_attr(test, mutants::skip)]
+fn current() -> u32 {
+    SCHEMA_VERSION
+}
+
+/// The registry at `path` on `fs`; empty if there is none.
+pub fn load(fs: &dyn Fs, path: &Path) -> Result<Index, RegistryError> {
+    let text = match fs.read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Index::default()),
+        Err(e) => return Err(RegistryError::io(path, e)),
+    };
+    if text.trim().is_empty() {
+        return Ok(Index::default());
+    }
+    load_text(&path.display().to_string(), &text).map_err(RegistryError::Load)
+}
+
+/// `text`, the registry at `source`, as the reader reads it.
+pub(crate) fn load_text(source: &str, text: &str) -> Result<Index, LoadError> {
+    loader().load_into(Some(source), text)
+}
+
+/// The registry's reader: angzarr-yaml's versioned loader for [`KIND`],
+/// at [`SCHEMA_VERSION`] with no older version to migrate.
+fn loader() -> Loader {
+    Migrations::new(KIND, SCHEMA_VERSION)
+        .build()
+        .expect("a kind with no steps is a whole chain")
+}
+
+/// Write `index` to `path` on `fs`, whole, by rename, its directory (and
+/// each one above it that is missing) made its owner's alone.
+pub fn save(fs: &dyn Fs, path: &Path, index: &Index) -> Result<(), RegistryError> {
+    let mut index = index.clone();
+    if index.schema_version == 0 {
+        index.schema_version = SCHEMA_VERSION;
+    }
+    let text = angzarr_yaml::write(&value(&index), usize::MAX);
+    private_dir(fs, path)?;
+    write_atomically(fs, path, text.as_bytes())
+}
+
+/// The directory of `path`, an absolute path, and each one above it that
+/// is missing, made its owner's alone ([`PRIVATE_DIR`]).
+fn private_dir(fs: &dyn Fs, path: &Path) -> Result<(), RegistryError> {
+    let dir = absolute(path)?.parent().unwrap_or(Path::new("/"));
+    fs.create_dir_all(dir, PRIVATE_DIR)
+        .map_err(|e| RegistryError::io(dir, e))
+}
+
+/// `index` as the document written: every field in block style, an entry's
+/// `last_seen_at` left out when it is empty.
+fn value(index: &Index) -> Value {
+    let entry = |e: &Entry| {
+        let mut fields = vec![
+            (
+                "project_id".to_string(),
+                Value::scalar(e.project_id.as_str()),
+            ),
+            ("path".to_string(), Value::scalar(e.path.as_str())),
+            (
+                "created_at".to_string(),
+                Value::scalar(e.created_at.as_str()),
+            ),
+        ];
+        if !e.last_seen_at.is_empty() {
+            fields.push((
+                "last_seen_at".to_string(),
+                Value::scalar(e.last_seen_at.as_str()),
+            ));
+        }
+        Value::Map(fields)
+    };
+    Value::Map(vec![
+        (
+            "schema_version".to_string(),
+            Value::scalar(index.schema_version.to_string()),
+        ),
+        (
+            "projects".to_string(),
+            Value::Seq(index.projects.iter().map(entry).collect()),
+        ),
+    ])
+}
+
+/// `path`, refused if it is relative: nothing here is written or locked
+/// relative to the working directory.
+fn absolute(path: &Path) -> Result<&Path, RegistryError> {
+    if path.is_absolute() {
+        Ok(path)
+    } else {
+        Err(RegistryError::RelativePath {
+            path: path.display().to_string(),
+        })
+    }
+}
+
+/// Write `bytes` to `path`, an absolute path, whole and private, by the
+/// seam's atomic write, creating the directory if need be. A directory
+/// made here is the work tree's (a marker's), made as std makes them;
+/// the registry's own is made private first ([`save`]).
+pub fn write_atomically(fs: &dyn Fs, path: &Path, bytes: &[u8]) -> Result<(), RegistryError> {
+    let dir = absolute(path)?.parent().unwrap_or(Path::new("/"));
+    // As std's create_dir_all makes them: 0777 before the umask.
+    fs.create_dir_all(dir, Mode::from_bits(0o777))
+        .map_err(|e| RegistryError::io(dir, e))?;
+    fs.write_atomic(path, bytes, Perms::Exact(Mode::PRIVATE_FILE))
+        .map_err(|e| RegistryError::io(path, e))
+}
+
+/// How long a change waits for whoever holds the registry's lock before
+/// giving up (file-lock's wait).
+pub use file_lock::LOCK_WAIT;
+
+/// An exclusive lock on the registry, held until dropped.
+pub use file_lock::Locked;
+
+/// Take the lock of the registry at `path`, an absolute path, waiting up
+/// to `wait` (in use, [`LOCK_WAIT`]) for whoever holds it: `index.yaml.lock`
+/// beside it, taken as every ctxloom lock is (file-lock's re-check and
+/// bounded wait). Its directory, the registry's, is made its owner's alone
+/// first, so the lock never makes it open to others.
+pub fn lock_within(fs: &dyn Fs, path: &Path, wait: Duration) -> Result<Locked, RegistryError> {
+    private_dir(fs, path)?;
+    let lock_path = absolute(path)?.with_file_name("index.yaml.lock");
+    file_lock::lock_within(fs, &lock_path, wait).map_err(from_lock)
+}
+
+/// A failure to take the registry's lock, as the registry's: a timeout
+/// and a replacement keep their own codes, naming the registry's lock, as
+/// does an I/O failure on the lock file; anything else is the lock's own
+/// failure, nested.
+fn from_lock(error: file_lock::LockError) -> RegistryError {
+    use file_lock::LockError;
+    match error {
+        LockError::Timeout { path, waited_ms } => RegistryError::LockTimeout { path, waited_ms },
+        LockError::Replaced { path, attempts } => RegistryError::LockReplaced { path, attempts },
+        LockError::RelativePath { path } => RegistryError::RelativePath { path },
+        LockError::Io { path, detail } => RegistryError::Io { path, detail },
+        other => RegistryError::LockFailed {
+            cause: angzarr_diagnostic::Report::of(&other),
+        },
+    }
+}
+
+#[cfg(test)]
+#[path = "index.test.rs"]
+pub(crate) mod tests;

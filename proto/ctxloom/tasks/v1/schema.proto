@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+// The store's tag rules: one schema stream per project store, its root
+// derived from a fixed name (`ids::compute_root("schema", "store")`), in a
+// domain of its own, so no task list (which projects the tasks domain)
+// ever lists it. It holds the rules as tagma config tags (`tagma.*`) and
+// taskloom's own (`taskloom.*`: the priority formulas); tagma alone
+// interprets them. Ordering is the stream's own: nothing numbers across
+// streams.
+package ctxloom.tasks.v1;
+
+import "io/angzarr/v1/options.proto";
+import "tagma/v1/tag.proto";
+
+// The store's tag rules, folded from the schema stream.
+message SchemaState {
+  option (io.angzarr.v1.component) = {
+    component_name: "schema"
+    aggregate: {domain: "schema"}
+  };
+
+  // Normalized: unique, sorted by their canonical spelling.
+  repeated tagma.v1.Tag tags = 1;
+  // Whether the stream has any history: a store whose schema stream has
+  // none is seeded when it is opened.
+  bool declared = 2;
+}
+
+// Add and remove schema tags in one change, as a task's Retag: the adds
+// first, then the removes, so a tag named in both ends up removed. Refused
+// when it names no tag (SchemaRejection::TagRequired), and when a tag is
+// outside `tagma.*` and `taskloom.*` (SchemaRejection::NotConfig): a task's
+// tag, not a rule. A malformed config tag is recorded: `taskloom manage
+// schema check` (tagma's check) reports it.
+message Declare {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.tasks.v1.SchemaState"
+    emits: ["ctxloom.tasks.v1.SchemaRetagged"]
+    refuses: "ctxloom.tasks.v1.SchemaTagRequired"
+    refuses: "ctxloom.tasks.v1.SchemaNotConfig"
+  };
+
+  repeated tagma.v1.Tag add = 1;
+  repeated tagma.v1.Tag remove = 2;
+}
+
+// Recorded only when a declare changes the rules: the whole tag set after
+// it, normalized, so folding it needs no rule and no prior state.
+message SchemaRetagged {
+  option (io.angzarr.v1.event) = {component: "ctxloom.tasks.v1.SchemaState"};
+
+  repeated tagma.v1.Tag tags = 1;
+}
+
+// A declare adding and removing nothing.
+message SchemaTagRequired {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+}
+
+// A tag outside `tagma.*` and `taskloom.*`: a task's tag, not a rule.
+message SchemaNotConfig {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string tag = 1;
+}

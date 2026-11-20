@@ -1,0 +1,349 @@
+syntax = "proto3";
+
+// One task is one aggregate: its stream's root is derived from its harp id
+// (`ids::compute_root("tasks", harp_id)`), in its project's store. A harp id
+// is therefore unique because a stream is: adding to a stream that already
+// holds a task is refused, and a removed task's stream keeps its harp
+// reserved, unless a prune removed it: a prune then purges the stream,
+// freeing the harp.
+package ctxloom.tasks.v1;
+
+import "google/protobuf/timestamp.proto";
+import "io/angzarr/v1/options.proto";
+import "tagma/v1/tag.proto";
+
+// The task, folded from its events. Derived values (whether the status is
+// terminal, the text hash, a priority) are computed when read, never stored.
+message TaskState {
+  option (io.angzarr.v1.component) = {
+    component_name: "task"
+    aggregate: {domain: "tasks"}
+  };
+
+  // The task's identity ("swift-amber"): what humans and references use.
+  string harp_id = 1;
+  string text = 2;
+  // A status name. The taxonomy (To Do, In Progress, Deferred, Done,
+  // Archived) is the default set, not a closed one.
+  string status = 3;
+  // The revive condition of a Deferred task: a task holds one exactly while
+  // it is Deferred. Setting one defers the task; clearing it, or moving the
+  // task to another status, revives it.
+  string trigger = 4;
+  // The session that created the task, if one did.
+  string origin_session = 5;
+  // Normalized: unique, sorted by their canonical spelling.
+  repeated tagma.v1.Tag tags = 6;
+  google.protobuf.Timestamp created_at = 7;
+  // When the status last changed (the add counts).
+  google.protobuf.Timestamp status_set_at = 8;
+  // When the task last entered Deferred; absent until it first does.
+  optional google.protobuf.Timestamp deferred_since = 9;
+  // Removed tasks keep their stream and their harp id, until a prune's
+  // removal is followed by its purge.
+  bool removed = 10;
+  // The status the task returns to when its trigger is cleared: the one it
+  // held when it was deferred (the initial status, for a task added
+  // Deferred). Empty exactly while the task is not Deferred.
+  string prior_status = 11;
+}
+
+// region commands
+//
+// A command that can defer a task carries the statuses that rule it, which
+// the application resolves from the configured taxonomy, so the domain
+// names none: `defers`, the status a trigger defers a task to, the one
+// that needs a trigger; and `initial`, the status a task gets when none is
+// given (and returns to, cleared of the trigger it was added Deferred
+// with). Both are required (refused empty: TaskRejection::Unresolved).
+
+// Create the task. The harp id is minted by the caller (minting is random,
+// and decide is deterministic); a stream that already holds a task refuses
+// it, and the caller mints another.
+message AddTask {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.tasks.v1.TaskState"
+    emits: ["ctxloom.tasks.v1.TaskAdded"]
+    refuses: "ctxloom.tasks.v1.TaskExists"
+    refuses: "ctxloom.tasks.v1.HarpIdRequired"
+    refuses: "ctxloom.tasks.v1.TextRequired"
+    refuses: "ctxloom.tasks.v1.Unresolved"
+    refuses: "ctxloom.tasks.v1.Blank"
+    refuses: "ctxloom.tasks.v1.StatusReserved"
+    refuses: "ctxloom.tasks.v1.TriggerWithStatus"
+    refuses: "ctxloom.tasks.v1.TriggerRequired"
+  };
+
+  string harp_id = 1;
+  string text = 2;
+  // Left out, `initial`. Given, never blank.
+  optional string status = 3;
+  // Given (never blank), the task is added `defers`, returning to `initial`
+  // when the trigger is cleared. Required when status is `defers`; refused
+  // with any other status (TaskRejection::TriggerWithStatus).
+  optional string trigger = 4;
+  repeated tagma.v1.Tag tags = 5;
+  // Left out, none. Given, never blank.
+  optional string origin_session = 6;
+  string defers = 7;
+  string initial = 8;
+}
+
+// Change the task's status, its trigger, or both; at least one is given.
+// `defers` is Deferred below, and `initial` To Do, as the default taxonomy
+// names them.
+//
+// A trigger given (never blank) defers the task, replacing any held: its
+// status becomes Deferred, and the status it held is kept to return to (a
+// Deferred task keeps the one it has). Given with a status, the status
+// must be Deferred (TaskRejection::TriggerWithStatus).
+//
+// A trigger given EMPTY clears the one held: a Deferred task returns to the
+// status it was deferred from, or to `status`,
+// when one is given (Deferred is refused: TaskRejection::TriggerRequired).
+// Clearing a trigger the task does not hold changes nothing.
+//
+// A trigger left out keeps the one held while the task stays Deferred.
+// Moving to Deferred needs a trigger, given here or held; moving to any
+// other status clears it, so a task holds a trigger exactly while it is
+// Deferred.
+message SetStatus {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.tasks.v1.TaskState"
+    emits: ["ctxloom.tasks.v1.StatusChanged"]
+    refuses: "ctxloom.tasks.v1.NoTask"
+    refuses: "ctxloom.tasks.v1.Removed"
+    refuses: "ctxloom.tasks.v1.Unresolved"
+    refuses: "ctxloom.tasks.v1.Blank"
+    refuses: "ctxloom.tasks.v1.StatusReserved"
+    refuses: "ctxloom.tasks.v1.StatusRequired"
+    refuses: "ctxloom.tasks.v1.TriggerWithStatus"
+    refuses: "ctxloom.tasks.v1.TriggerRequired"
+  };
+
+  // Given, never blank.
+  optional string status = 1;
+  optional string trigger = 2;
+  string defers = 3;
+  string initial = 4;
+}
+
+// Replace the task's text whole.
+message EditText {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.tasks.v1.TaskState"
+    emits: ["ctxloom.tasks.v1.TextEdited"]
+    refuses: "ctxloom.tasks.v1.NoTask"
+    refuses: "ctxloom.tasks.v1.Removed"
+    refuses: "ctxloom.tasks.v1.TextRequired"
+  };
+
+  string text = 1;
+}
+
+// Add and remove tags in one change. Both lists are final: a tag schema's
+// scalar collapse (a new `priority=high` displacing `priority=low`) is
+// resolved by the caller before the command is sent, so decide never reads
+// the schema.
+message Retag {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.tasks.v1.TaskState"
+    emits: ["ctxloom.tasks.v1.Retagged"]
+    refuses: "ctxloom.tasks.v1.NoTask"
+    refuses: "ctxloom.tasks.v1.Removed"
+    refuses: "ctxloom.tasks.v1.TagRequired"
+  };
+
+  repeated tagma.v1.Tag add = 1;
+  repeated tagma.v1.Tag remove = 2;
+}
+
+message RemoveTask {
+  option (io.angzarr.v1.command) = {
+    component: "ctxloom.tasks.v1.TaskState"
+    emits: ["ctxloom.tasks.v1.TaskRemoved"]
+    refuses: "ctxloom.tasks.v1.NoTask"
+    refuses: "ctxloom.tasks.v1.Removed"
+  };
+
+  RemovalReason reason = 1;
+}
+
+enum RemovalReason {
+  REMOVAL_REASON_UNSPECIFIED = 0;
+  // Removed by name.
+  REMOVAL_REASON_REMOVED = 1;
+  // Taken by a prune: a selection by status, age and tags.
+  REMOVAL_REASON_PRUNED = 2;
+}
+
+// endregion commands
+
+// region events
+
+// An event carries the values the task holds after it, not the change that
+// led there: apply assigns them and computes nothing, so folding an event
+// needs no rule and no prior state, and a consumer reads it whole.
+//
+// An event's instant is its page's `EventMeta.recorded_at`, which apply
+// is handed, so a new event copies none of it: `at` and `deferred_since`
+// are written only by events recorded before the owner's rulings
+// (2026-11-01), and read in preference where present.
+
+message TaskAdded {
+  option (io.angzarr.v1.event) = {component: "ctxloom.tasks.v1.TaskState"};
+
+  string harp_id = 1;
+  string text = 2;
+  string status = 3;
+  string trigger = 4;
+  // Normalized.
+  repeated tagma.v1.Tag tags = 5;
+  string origin_session = 6;
+  // The instant it was added, written only by events recorded before the
+  // owner's ruling (2026-11-01): later ones leave it out, and their instant
+  // is their `EventMeta.recorded_at`. When present it is read in
+  // preference. A binary older than the ruling cannot read an event
+  // without it.
+  optional google.protobuf.Timestamp at = 7;
+  // Written only by events recorded before ruling 25 (2026-11-01): the
+  // instant it was added when the task was added Deferred, absent
+  // otherwise. Later events leave it out and the task's is derived from
+  // event time: an add holding a trigger (so Deferred) defers the task at
+  // its `EventMeta.recorded_at`. When present it is read in preference.
+  optional google.protobuf.Timestamp deferred_since = 8;
+  // The status clearing its trigger returns it to, when it is added
+  // Deferred; empty otherwise.
+  string prior_status = 9;
+}
+
+message StatusChanged {
+  option (io.angzarr.v1.event) = {component: "ctxloom.tasks.v1.TaskState"};
+
+  string status = 1;
+  // The trigger the task holds after the change, changed or not.
+  string trigger = 2;
+  // The instant of the change, written only by events recorded before the
+  // owner's ruling (2026-11-01): later ones leave it out, and their instant
+  // is their `EventMeta.recorded_at`. When present it is read in
+  // preference. A binary older than the ruling cannot read an event
+  // without it.
+  optional google.protobuf.Timestamp at = 3;
+  // Written only by events recorded before ruling R4 (2026-11-01): the
+  // instant of the change when the task entered Deferred, otherwise the
+  // instant it last did, absent if it never had. Later events leave it out
+  // and the task's is derived from event time: a change leaving the task
+  // holding a trigger (so Deferred) defers it at its `EventMeta.recorded_at`,
+  // and any other keeps the one the task holds. When present it is read in
+  // preference.
+  optional google.protobuf.Timestamp deferred_since = 4;
+  // The status the task returns to when its trigger is cleared, after the
+  // change: empty unless it is Deferred.
+  string prior_status = 5;
+}
+
+message TextEdited {
+  option (io.angzarr.v1.event) = {component: "ctxloom.tasks.v1.TaskState"};
+
+  string text = 1;
+}
+
+// Recorded only when the retag changes the task's tags.
+message Retagged {
+  option (io.angzarr.v1.event) = {component: "ctxloom.tasks.v1.TaskState"};
+
+  // The task's tags after the retag, normalized.
+  repeated tagma.v1.Tag tags = 1;
+}
+
+message TaskRemoved {
+  option (io.angzarr.v1.event) = {component: "ctxloom.tasks.v1.TaskState"};
+
+  RemovalReason reason = 1;
+}
+
+// endregion events
+
+// region refusals
+//
+// One typed refusal per reason a command is refused, each listed in the
+// `refuses` of exactly the commands that can raise it. The status is the
+// gRPC meaning of what is refused, declared here and nowhere else; the
+// code, args and text a person reads are the domain's `TaskRejection`
+// (`rejection.rs`), mapped from the refusal's TYPE, never its status.
+
+// An add without a harp id.
+message HarpIdRequired {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+}
+
+// An add to a stream that already holds a task: the harp id is taken.
+message TaskExists {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_ALREADY_EXISTS;
+
+  string harp_id = 1;
+}
+
+// A command to a stream holding no task.
+message NoTask {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_NOT_FOUND;
+}
+
+// A command to a removed task.
+message Removed {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+
+  string harp_id = 1;
+}
+
+// Text that is empty once trimmed.
+message TextRequired {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+}
+
+// A status change giving neither a status nor a trigger.
+message StatusRequired {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+}
+
+// A status starting with the status-class sigil.
+message StatusReserved {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string status = 1;
+}
+
+// Deferred without a revive trigger, given or already held: the task's
+// state decides it, so a precondition.
+message TriggerRequired {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+}
+
+// A retag with no tag once trimmed.
+message TagRequired {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+}
+
+// A field given blank (`field` names it as the wire does).
+message Blank {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string field = 1;
+}
+
+// A trigger given with a status other than `defers`.
+message TriggerWithStatus {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string status = 1;
+  string defers = 2;
+}
+
+// A command missing a status the application resolves for it (`field`:
+// `defers` or `initial`).
+message Unresolved {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+
+  string field = 1;
+}
+// endregion

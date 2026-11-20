@@ -1,0 +1,21 @@
+[package]
+name = "ports"
+version = "0.1.0"
+description = "The ports the tasks, project and plans applications need from outside that angzarr-ports does not provide: project identity and its survey, the store opener and its integrity check, names, time, ids, waiting, configuration, and, for plans, the files, the tasks and rules they read, and ids"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-ports.workspace = true
+angzarr-diagnostic.workspace = true
+prost-types.workspace = true
+
+[features]
+# `testing`: deterministic stand-ins for the time and waiting ports, for
+# the applications' tests; their dev-dependencies turn it on.
+test-support = []
+
+[lints]
+workspace = true

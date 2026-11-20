@@ -1,0 +1,69 @@
+[package]
+name = "tasks-lib"
+version = "0.1.0"
+description = "The tasks use cases over the default adapters, wired once: the composition root the taskloom binary and ctxloom share"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-diagnostic.workspace = true
+# Their catalogs, in the wiring's (`catalog`).
+angzarr-embedded = { workspace = true, features = ["sqlite"] }
+angzarr-yaml.workspace = true
+# The store export's catalog (`catalog`).
+angzarr-store-transfer.workspace = true
+file-lock.workspace = true
+file-system.workspace = true
+harp-names.workspace = true
+jsonl-task-log.workspace = true
+os.workspace = true
+plan-files.workspace = true
+plans-application.workspace = true
+# The app's descriptor sets (`DESCRIPTOR_SETS`).
+tasks-proto.workspace = true
+angzarr-presentation.workspace = true
+project-application.workspace = true
+project-registry.workspace = true
+system.workspace = true
+task-store-sqlite.workspace = true
+tasks-application.workspace = true
+tasks-config.workspace = true
+
+[dev-dependencies]
+# Rendering catalogs' English (`english_for!`), for the tests that hold it
+# to Go's.
+angzarr-presentation = { workspace = true, features = ["test-support"] }
+# The runtime's and its store's keys, for the catalog's test.
+angzarr-ports.workspace = true
+fluent-syntax.workspace = true
+project-cli = { workspace = true, features = ["test-support"] }
+tokio.workspace = true
+# Dependencies already, here again for their test-support: every crate's
+# diagnostic_samples for the catalog tests, and os's fixtures.
+jsonl-task-log = { workspace = true, features = ["test-support"] }
+project-registry = { workspace = true, features = ["test-support"] }
+task-store-sqlite = { workspace = true, features = ["test-support"] }
+file-lock = { workspace = true, features = ["test-support"] }
+tasks-config = { workspace = true, features = ["test-support"] }
+project-application = { workspace = true, features = ["test-support"] }
+os = { workspace = true, features = ["test-support"] }
+file-system = { workspace = true, features = ["test-support"] }
+tasks-application = { workspace = true, features = ["test-support"] }
+tag-rules = { workspace = true, features = ["test-support"] }
+plans-application = { workspace = true, features = ["test-support"] }
+plan-files = { workspace = true, features = ["test-support"] }
+
+[build-dependencies]
+# The build writes the catalog's source under the crate's name
+# (angzarr_diagnostic::build): no catalog spells its crate's name.
+angzarr-diagnostic = { workspace = true, features = ["build"] }
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests: their
+# dev-dependency turns it on, and no build of a binary does.
+test-support = []
+
+[lints]
+workspace = true

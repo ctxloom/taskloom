@@ -1,0 +1,65 @@
+[package]
+name = "taskloom"
+version = "0.1.0"
+description = "The taskloom binary: the composition root that wires the tasks core to its adapters"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+clap.workspace = true
+file-lock.workspace = true
+os.workspace = true
+plans-cli.workspace = true
+angzarr-presentation.workspace = true
+project-cli.workspace = true
+store-cli.workspace = true
+tasks-application.workspace = true
+tasks-cli.workspace = true
+tasks-lib.workspace = true
+tasks-watch.workspace = true
+# The runtime the commands and watch run on; the stop signal (SIGINT or
+# SIGTERM, as Go's watch stops on) is the os crate's.
+tokio.workspace = true
+
+[dev-dependencies]
+angzarr-embedded = { workspace = true, features = ["sqlite", "test-support"] }
+angzarr-ports.workspace = true
+angzarr-diagnostic.workspace = true
+file-system = { workspace = true, features = ["test-support"] }
+fs4.workspace = true
+harp-names.workspace = true
+# The retry every command runs under, which a test stands its own kernel on.
+kernel-runner.workspace = true
+jsonl-task-log = { workspace = true, features = ["test-support"] }
+ports.workspace = true
+project-application = { workspace = true, features = ["test-support"] }
+project-registry = { workspace = true, features = ["test-support"] }
+serde.workspace = true
+serde_json.workspace = true
+system.workspace = true
+tagma-core.workspace = true
+task-priority = { workspace = true, features = ["test-support"] }
+task-store-sqlite = { workspace = true, features = ["test-support"] }
+tasks-config = { workspace = true, features = ["test-support"] }
+tasks = { workspace = true, features = ["test-support"] }
+time.workspace = true
+# Dependencies already, here again for their test-support: every crate's
+# diagnostic_samples for the catalog tests, and os's fixtures.
+project-cli = { workspace = true, features = ["test-support"] }
+tasks-watch = { workspace = true, features = ["test-support"] }
+tasks-cli = { workspace = true, features = ["test-support"] }
+file-lock = { workspace = true, features = ["test-support"] }
+os = { workspace = true, features = ["test-support"] }
+angzarr-presentation = { workspace = true, features = ["test-support"] }
+tasks-application = { workspace = true, features = ["test-support"] }
+tag-rules = { workspace = true, features = ["test-support"] }
+plans-application = { workspace = true, features = ["test-support"] }
+plan-files = { workspace = true, features = ["test-support"] }
+plans-cli = { workspace = true, features = ["test-support"] }
+store-cli = { workspace = true, features = ["test-support"] }
+angzarr-store-transfer.workspace = true
+
+[lints]
+workspace = true

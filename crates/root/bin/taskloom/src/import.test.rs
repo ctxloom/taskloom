@@ -1,0 +1,521 @@
+//! Acceptance: `taskloom manage migrate tasks` agrees with the reference fold, task by
+//! task.
+//!
+//! The reference fold is the oracle, dumped as JSON by `scripts/go-fold`'s
+//! harness (`scripts/compare-go-import.sh`). The fixtures
+//! (`fixtures/jsonl-logs`) are synthetic logs, one per kind of record the
+//! importer meets, and `fixtures/go-fold.json` is the reference fold of
+//! them. The same comparison runs over real logs, given by path, in an
+//! ignored test: the logs are copied into a temporary home first, so it
+//! never touches a real one.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use angzarr_embedded::{EventStore, Stream, StreamRef, Timestamp};
+use ports::{Project, TaskStores};
+use serde_json::Value;
+use task_store_sqlite::SqliteStores;
+use tasks::{TaskAggregate, TaskState};
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
+
+use super::{binary, disk, outside_every_work_root, Isolated, Ran, Temp};
+
+fn fixtures() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures")
+}
+
+/// A temporary home holding a copy of every log in `logs`.
+fn home_with(logs: &Path) -> Temp {
+    let home = Temp::new();
+    let tasks = home.path().join(".ctxloom/tasks");
+    disk::create_dir_all(&tasks).unwrap();
+    for path in disk::read_dir(logs).unwrap() {
+        if path.extension().is_some_and(|e| e == "jsonl") {
+            disk::copy(&path, tasks.join(path.file_name().unwrap())).unwrap();
+        }
+    }
+    home
+}
+
+/// `taskloom manage migrate tasks --json` in `home`, from a directory that is no
+/// project.
+fn import(home: &Path) -> (Ran, Value) {
+    let output = Command::new(binary())
+        .args(["manage", "migrate", "tasks", "--format", "json"])
+        .current_dir(outside_every_work_root())
+        .isolated(home)
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .output()
+        .expect("taskloom runs");
+    let ran = Ran::of(output);
+    let report = ran.json();
+    (ran, report)
+}
+
+/// Every task in the project's store, by harp; `None` when it has none.
+fn rust_tasks(home: &Path, project: &str) -> Option<BTreeMap<String, TaskState>> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let mut stores = SqliteStores::new(super::os());
+        let project = Project {
+            id: project.to_string(),
+            root: None,
+            store: home
+                .join(".ctxloom/projects")
+                .join(project)
+                .join("state.db"),
+        };
+        let store = stores.open_existing(&project).await.unwrap()?;
+        let registry = tasks_application::registry();
+        let mut tasks = BTreeMap::new();
+        for cover in store.covers("tasks").await.unwrap() {
+            let at = StreamRef::try_from(&cover).unwrap();
+            let slice = store.read(at, 0, None).await.unwrap();
+            let stream = Stream::<TaskAggregate>::replay(cover, &slice.pages, &registry).unwrap();
+            let state = stream.state().state().clone();
+            tasks.insert(state.harp_id.clone(), state);
+        }
+        Some(tasks)
+    })
+}
+
+fn instant(value: &Value) -> Option<Timestamp> {
+    let text = value.as_str()?;
+    let at = OffsetDateTime::parse(text, &Rfc3339).expect("Go writes RFC 3339");
+    Some(Timestamp {
+        seconds: at.unix_timestamp(),
+        nanos: i32::try_from(at.nanosecond()).unwrap(),
+    })
+}
+
+/// How one project's import compares with the reference fold of it.
+#[derive(Debug, Default)]
+struct Compared {
+    /// Tasks the reference fold holds, removed ones included.
+    go_tasks: usize,
+    /// Tasks that agree on every field.
+    agreeing: usize,
+    /// The tags of the live tasks in the reference fold, each task's
+    /// counted.
+    go_tags: usize,
+    /// Those of them the import refuses, reports and leaves out: not tags
+    /// in tagma's grammar, or refused whatever the schema (an operator
+    /// word, or in tagma's reserved namespaces).
+    refused_tags: usize,
+    /// `<harp>: <field>` for every field that disagrees: values are left
+    /// out, since a real log's are private.
+    mismatches: Vec<String>,
+    /// Tasks out of Deferred the fold gives a trigger the import does not:
+    /// expected (see `trigger_left_behind`), so not mismatches.
+    triggers_left_behind: usize,
+}
+
+/// Whether a disagreeing trigger is the one expected difference: the fold
+/// keeps a task's revive trigger after it leaves Deferred, while the tasks
+/// domain clears it then, since a trigger revives only a Deferred task. So
+/// a trigger the fold has and the import lacks, on a task not Deferred, is
+/// left behind by design; any other trigger difference, and every one on a
+/// Deferred task, is a mismatch.
+fn trigger_left_behind(task: &Value, state: &TaskState) -> bool {
+    state.status != "Deferred"
+        && state.trigger.is_empty()
+        && task["trigger"].as_str().is_some_and(|t| !t.is_empty())
+}
+
+/// `spelled`, in its canonical spelling, if the import brings it over: a
+/// tag in tagma's grammar that passes the schema-free check.
+fn importable(spelled: &str) -> Option<String> {
+    let tag = tasks::Tag::from(tagma_core::Tag::parse(spelled).ok()?);
+    tasks_application::schema_free_tag(&tag).ok()?;
+    Some(tag.to_string())
+}
+
+/// Compare the reference fold of one project with the store the import
+/// left.
+fn compare(go: &Value, rust: &BTreeMap<String, TaskState>) -> Compared {
+    let mut compared = Compared::default();
+    let mut seen = BTreeSet::new();
+    for task in go["tasks"].as_array().unwrap() {
+        compared.go_tasks += 1;
+        let harp = task["harp_id"].as_str().unwrap();
+        seen.insert(harp.to_string());
+        let Some(state) = rust.get(harp) else {
+            compared.mismatches.push(format!("{harp}: absent"));
+            continue;
+        };
+        let mut fields = Vec::new();
+        if task["removed"].as_bool().unwrap() {
+            if !state.removed {
+                fields.push("removed");
+            }
+        } else {
+            // The folded tags as tagma parses them, each in its canonical
+            // spelling; one the import refuses is left out, as the import
+            // leaves it out.
+            let go_tags = task["tags"].as_array().unwrap();
+            compared.go_tags += go_tags.len();
+            let kept: Vec<String> = go_tags
+                .iter()
+                .filter_map(|t| importable(t.as_str().unwrap()))
+                .collect();
+            compared.refused_tags += go_tags.len() - kept.len();
+            let tags: BTreeSet<String> = kept.into_iter().collect();
+            let tags: Vec<String> = tags.into_iter().collect();
+            let ours: Vec<String> = state.tags.iter().map(ToString::to_string).collect();
+            let checks = [
+                ("removed", !state.removed),
+                ("text", task["text"] == state.text),
+                ("status", task["status"] == state.status),
+                (
+                    "trigger",
+                    task["trigger"] == state.trigger || trigger_left_behind(task, state),
+                ),
+                (
+                    "origin_session",
+                    task["origin_session"] == state.origin_session,
+                ),
+                ("tags", tags == ours),
+                (
+                    "created_at",
+                    instant(&task["created_at"]) == Some(state.created_at),
+                ),
+                (
+                    "status_set_at",
+                    instant(&task["status_set_at"]) == Some(state.status_set_at),
+                ),
+                (
+                    "deferred_since",
+                    instant(&task["deferred_since"]) == state.deferred_since,
+                ),
+            ];
+            fields.extend(checks.iter().filter(|(_, ok)| !ok).map(|(f, _)| *f));
+        }
+        if !task["removed"].as_bool().unwrap() && trigger_left_behind(task, state) {
+            compared.triggers_left_behind += 1;
+        }
+        if fields.is_empty() {
+            compared.agreeing += 1;
+        }
+        compared
+            .mismatches
+            .extend(fields.iter().map(|f| format!("{harp}: {f}")));
+    }
+    for harp in rust.keys().filter(|h| !seen.contains(*h)) {
+        compared
+            .mismatches
+            .push(format!("{harp}: not in Go's fold"));
+    }
+    compared
+}
+
+/// The import's report of `project`.
+fn reported<'r>(report: &'r Value, project: &str) -> &'r Value {
+    report["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["project_id"] == project)
+        .unwrap_or_else(|| panic!("{project} reported"))
+}
+
+/// `(line, harp, why's code)` of every record the import left behind.
+fn lost(project: &Value) -> Vec<(u64, String, String)> {
+    project["lost"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| {
+            (
+                l["line"].as_u64().unwrap(),
+                l["harp_id"].as_str().unwrap().to_string(),
+                l["why"]["code"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect()
+}
+
+/// Compare every project of the reference fold `go` with what importing
+/// its logs into `home` left, checking on the way that the import reported
+/// what the fold could not give it. Mismatches by project, and the
+/// comparisons.
+fn check(go: &Value, home: &Path, report: &Value) -> BTreeMap<String, Compared> {
+    let mut all = BTreeMap::new();
+    for (project, fold) in go.as_object().unwrap() {
+        let ours = reported(report, project);
+        let rust = rust_tasks(home, project).unwrap_or_default();
+        if let Some(error) = fold.get("error") {
+            assert!(
+                !ours["failed"].is_null(),
+                "{project}: Go cannot fold it ({error}); the import must stop too"
+            );
+            assert!(rust.is_empty(), "{project}: nothing imported");
+            continue;
+        }
+        assert!(ours["failed"].is_null(), "{project}: {}", ours["failed"]);
+        // Every anomaly the fold met is accounted for: repaired, or
+        // reported displaced.
+        let anomalies = fold["anomalies"].as_array().unwrap();
+        let repaired = anomalies.iter().filter(|a| a["repaired"] == true).count();
+        assert_eq!(ours["repaired"], repaired, "{project}: repaired");
+        let displaced: Vec<&str> = anomalies
+            .iter()
+            .filter(|a| a["repaired"] == false)
+            .map(|a| a["harp_id"].as_str().unwrap())
+            .collect();
+        let reported_displaced: Vec<String> = lost(ours)
+            .into_iter()
+            .filter(|(_, _, why)| *why == super::codes::import_displaced())
+            .map(|(_, harp, _)| harp)
+            .collect();
+        assert_eq!(reported_displaced, displaced, "{project}: displaced adds");
+        all.insert(project.clone(), compare(fold, &rust));
+    }
+    all
+}
+
+/// Importing again changes nothing and reports everything already there.
+fn assert_idempotent(home: &Path, first: &Value) {
+    let (_, again) = import(home);
+    for (before, after) in first["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(again["projects"].as_array().unwrap())
+    {
+        let project = &after["project_id"];
+        assert_eq!(after["applied"], 0, "{project}: nothing applied again");
+        assert_eq!(after["tasks"], 0, "{project}: no task added again");
+        assert_eq!(
+            after["already"], before["applied"],
+            "{project}: every record found"
+        );
+        assert_eq!(after["lost"], before["lost"], "{project}: the same left");
+    }
+}
+
+/// Every fixture but `domain-refusals` agrees, task by task.
+fn assert_the_rest_agree(compared: &BTreeMap<String, Compared>) {
+    for (project, compared) in compared {
+        if project != "domain-refusals" {
+            assert_eq!(compared.mismatches, Vec::<String>::new(), "{project}");
+            assert_eq!(compared.agreeing, compared.go_tasks, "{project}");
+        }
+    }
+    assert!(compared["plain-history"].go_tasks >= 6);
+    // A trigger the fold keeps past Deferred, and the import does not, is
+    // expected, and counted; one on a task still Deferred must agree.
+    assert_eq!(compared["trigger-kept"].go_tasks, 3);
+    assert_eq!(compared["trigger-kept"].triggers_left_behind, 2);
+}
+
+#[test]
+fn test_the_import_agrees_with_gos_fold_of_every_fixture() {
+    let go: Value =
+        serde_json::from_str(&disk::read_to_string(fixtures().join("go-fold.json")).unwrap())
+            .unwrap();
+    let home = home_with(&fixtures().join("jsonl-logs"));
+    let (ran, report) = import(home.path());
+    assert!(!ran.ok, "the fixtures leave records behind, so it fails");
+    assert_eq!(report["complete"], false);
+    let compared = check(&go, home.path(), &report);
+
+    // Where the import and the reference fold disagree, the import said
+    // why: each record the tasks domain refuses, and every later record to
+    // its task.
+    let refusals = reported(&report, "domain-refusals");
+    let harp = |h: &str| h.to_string();
+    assert_eq!(
+        lost(refusals),
+        [
+            (1, harp("brisk-heron"), super::codes::text_required()),
+            (
+                2,
+                harp("brisk-heron"),
+                super::codes::import_task_not_imported()
+            ),
+            (3, harp("quiet-maple"), super::codes::trigger_required()),
+            (5, harp("tidy-otter"), super::codes::status_reserved()),
+            (6, harp("tidy-otter"), super::codes::trigger_required()),
+            (7, harp("tidy-otter"), super::codes::text_required()),
+            (10, harp(""), super::codes::harp_id_required()),
+        ]
+    );
+    assert_eq!(
+        compared["domain-refusals"].mismatches,
+        [
+            ": absent",
+            "brisk-heron: absent",
+            "quiet-maple: absent",
+            // A status the fold keeps untrimmed; the import trims it. Not
+            // reported.
+            "swift-lark: status",
+            "tidy-otter: text",
+            "tidy-otter: status",
+            "tidy-otter: status_set_at",
+            "tidy-otter: deferred_since",
+        ]
+    );
+    let collisions = reported(&report, "harp-collision");
+    assert_eq!(
+        lost(collisions),
+        [
+            (2, harp("brisk-heron"), super::codes::import_displaced()),
+            (6, harp("quiet-maple"), super::codes::import_displaced()),
+        ]
+    );
+    // A logged tag outside tagma's grammar is reported, record by record,
+    // and left out; the rest of the record imports, and `k="v"` is `k=v`.
+    let unparseable = reported(&report, "unparseable-tags");
+    let tag = super::codes::tag_unparseable();
+    let heron = || harp("brisk-heron");
+    assert_eq!(
+        lost(unparseable),
+        [
+            (1, heron(), tag.clone()),
+            (1, heron(), tag.clone()),
+            (2, heron(), tag.clone()),
+            (3, heron(), tag.clone()),
+            (4, heron(), tag.clone()),
+        ]
+    );
+    assert_eq!(
+        unparseable["lost"][1]["why"]["args"]["tag"], "area/cli",
+        "each names its tag"
+    );
+    assert_eq!(compared["unparseable-tags"].go_tags, 5);
+    assert_eq!(compared["unparseable-tags"].refused_tags, 3);
+    assert_the_rest_agree(&compared);
+
+    let counts = |p: &str, field: &str| reported(&report, p)[field].as_u64().unwrap();
+    assert_eq!(counts("union-merged", "repeated"), 2);
+    assert_eq!(counts("ignored-records", "ignored"), 4);
+    assert_eq!(counts("ignored-records", "unchanged"), 3);
+    assert_eq!(counts("repaired-collision", "tasks"), 2);
+    assert_eq!(counts("empty", "records"), 0);
+    assert!(
+        rust_tasks(home.path(), "empty").is_none(),
+        "no store for it"
+    );
+    let failed = |p: &str| reported(&report, p)["failed"]["code"].clone();
+    assert_eq!(failed("malformed"), super::codes::log_malformed());
+    assert_eq!(failed("unknown-op"), super::codes::log_unknown_op());
+    assert!(
+        !disk::exists(home.path().join(".ctxloom/projects/index.yaml")),
+        "an import binds no directory to a project"
+    );
+
+    assert_idempotent(home.path(), &report);
+}
+
+/// A trigger missing from the import is a mismatch on a task still
+/// Deferred, and on any other only when the fold has none to leave behind.
+#[test]
+fn test_a_trigger_differs_only_as_leaving_deferred_drops_it() {
+    let go = |status: &str, trigger: &str| {
+        serde_json::json!({"tasks": [{
+            "harp_id": "brisk-heron", "removed": false, "text": "t",
+            "status": status, "trigger": trigger, "origin_session": "",
+            "tags": [], "created_at": "2026-03-01T10:00:00Z",
+            "status_set_at": "2026-03-01T10:00:00Z", "deferred_since": null,
+        }]})
+    };
+    let at = instant(&serde_json::json!("2026-03-01T10:00:00Z")).unwrap();
+    let rust = |status: &str, trigger: &str| {
+        BTreeMap::from([(
+            "brisk-heron".to_string(),
+            TaskState {
+                harp_id: "brisk-heron".into(),
+                text: "t".into(),
+                status: status.into(),
+                trigger: trigger.into(),
+                created_at: at,
+                status_set_at: at,
+                ..TaskState::default()
+            },
+        )])
+    };
+    let left = compare(&go("Done", "later"), &rust("Done", ""));
+    assert_eq!(left.mismatches, Vec::<String>::new());
+    assert_eq!((left.agreeing, left.triggers_left_behind), (1, 1));
+
+    let deferred = compare(&go("Deferred", "later"), &rust("Deferred", ""));
+    assert_eq!(deferred.mismatches, ["brisk-heron: trigger"]);
+    assert_eq!(deferred.triggers_left_behind, 0);
+
+    let changed = compare(&go("Done", "later"), &rust("Done", "sooner"));
+    assert_eq!(changed.mismatches, ["brisk-heron: trigger"]);
+
+    let gained = compare(&go("Done", ""), &rust("Done", "later"));
+    assert_eq!(gained.mismatches, ["brisk-heron: trigger"]);
+}
+
+/// Over real logs: TASKLOOM_IMPORT_LOGS names a directory of JSONL logs
+/// (copied again here, so it is only read), TASKLOOM_GO_FOLD the reference
+/// fold of them. `scripts/compare-go-import.sh` sets both up from copies.
+#[test]
+#[ignore = "reads real logs, given by TASKLOOM_IMPORT_LOGS and TASKLOOM_GO_FOLD"]
+fn test_the_import_agrees_with_gos_fold_of_real_logs() {
+    let logs =
+        PathBuf::from(std::env::var_os("TASKLOOM_IMPORT_LOGS").expect("TASKLOOM_IMPORT_LOGS"));
+    let fold = PathBuf::from(std::env::var_os("TASKLOOM_GO_FOLD").expect("TASKLOOM_GO_FOLD"));
+    let go: Value = serde_json::from_str(&disk::read_to_string(fold).unwrap()).unwrap();
+    let home = home_with(&logs);
+    let (ran, report) = import(home.path());
+    let compared = check(&go, home.path(), &report);
+    let mut mismatched = 0;
+    let (mut tags, mut refused) = (0, 0);
+    for (project, compared) in &compared {
+        tags += compared.go_tags;
+        refused += compared.refused_tags;
+        let ours = reported(&report, project);
+        println!(
+            "{project}: {} Go tasks, {} agree, {} triggers left behind; {} records, {} imported, {} repeated, {} unchanged, {} ignored, {} repaired, {} not imported",
+            compared.go_tasks,
+            compared.agreeing,
+            compared.triggers_left_behind,
+            ours["records"],
+            ours["applied"],
+            ours["repeated"],
+            ours["unchanged"],
+            ours["ignored"],
+            ours["repaired"],
+            ours["lost"].as_array().unwrap().len(),
+        );
+        for (line, harp, why) in lost(ours) {
+            println!("  not imported: line {line}, {harp}: {why}");
+        }
+        for mismatch in &compared.mismatches {
+            println!("  MISMATCH {mismatch}");
+        }
+        mismatched += compared.mismatches.len();
+    }
+    println!(
+        "tags of live tasks: {tags}, {} imported, {refused} refused",
+        tags - refused
+    );
+    assert_idempotent(home.path(), &report);
+    assert_eq!(mismatched, 0, "every task agrees");
+    // What is left behind is only tags refused, if anything: those tagma
+    // cannot parse, operator words, or in its reserved namespaces.
+    let all_lost: Vec<String> = report["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|p| lost(p).into_iter().map(|(_, _, why)| why))
+        .collect();
+    assert!(
+        all_lost
+            .iter()
+            .all(|why| *why == super::codes::tag_unparseable()
+                || *why == super::codes::tag_operator_word()
+                || *why == super::codes::tag_reserved_namespace()),
+        "everything else imported: {}",
+        ran.stderr
+    );
+    assert_eq!(ran.ok, all_lost.is_empty());
+}

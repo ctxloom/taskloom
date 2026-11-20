@@ -1,0 +1,1075 @@
+//! Pruning over fake ports and angzarr-ports' in-memory store: what is selected,
+//! what is reported, what is removed and purged, and what a prune does
+//! when the store changes under it.
+
+use crate::english::English;
+use crate::fakes::{read_from, At};
+use angzarr_diagnostic::{code, Diagnostic};
+use angzarr_embedded::angzarr_ports::memory::MemoryStore;
+use ports::Timestamp;
+use tasks::{RemovalReason, RemoveTask, SetStatus, TaskCommand};
+
+use super::{cut, PruneRefusal};
+use crate::fakes::{ready, run, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores, Fault};
+use crate::{
+    task_cover, AppError, Dangling, ListQuery, NewTask, PruneRequest, PruneService, Pruning,
+    Service, TaskService, Via,
+};
+
+type Fake = Service<FakeIdentity, FakeStores, FakeNames, FakeClock, FakeDelay>;
+
+const DAY: i64 = 86_400;
+
+fn at(seconds: i64) -> Timestamp {
+    Timestamp { seconds, nanos: 0 }
+}
+
+// ------------------------------------------------------------ the cut
+
+const NOW: i64 = 1_800_000_000;
+
+fn cut_at(age: &str) -> Result<Timestamp, PruneRefusal> {
+    cut(age, at(NOW))
+}
+
+#[test]
+fn test_an_age_in_days_or_weeks_is_that_long_before_now() {
+    assert_eq!(cut_at("7d"), Ok(at(NOW - 7 * DAY)));
+    assert_eq!(cut_at(" 12w "), Ok(at(NOW - 84 * DAY)));
+    assert_eq!(
+        cut_at("+2d"),
+        Ok(at(NOW - 2 * DAY)),
+        "Go's Atoi takes a sign"
+    );
+}
+
+#[test]
+fn test_an_age_in_gos_duration_grammar_is_that_long_before_now() {
+    assert_eq!(cut_at("720h"), Ok(at(NOW - 30 * DAY)));
+    assert_eq!(cut_at("1h30m"), Ok(at(NOW - 5400)));
+    assert_eq!(cut_at("1.5h"), Ok(at(NOW - 5400)));
+    assert_eq!(cut_at("90s"), Ok(at(NOW - 90)));
+    assert_eq!(cut_at("+1m"), Ok(at(NOW - 60)));
+    assert_eq!(
+        cut_at("500ms"),
+        Ok(Timestamp {
+            seconds: NOW - 1,
+            nanos: 500_000_000
+        }),
+        "the nanoseconds borrow a second"
+    );
+    assert_eq!(
+        cut_at("1us"),
+        Ok(Timestamp {
+            seconds: NOW - 1,
+            nanos: 999_999_000
+        })
+    );
+    assert_eq!(
+        cut_at("2\u{b5}s3ns"),
+        Ok(Timestamp {
+            seconds: NOW - 1,
+            nanos: 999_997_997
+        })
+    );
+    assert_eq!(cut_at(".5h"), Ok(at(NOW - 1800)));
+    assert_eq!(cut_at("1.h"), Ok(at(NOW - 3600)), "Go takes a bare point");
+    assert_eq!(cut_at("1.25m"), Ok(at(NOW - 75)));
+    assert_eq!(
+        cut(
+            "1s",
+            Timestamp {
+                seconds: NOW,
+                nanos: 250
+            }
+        ),
+        Ok(Timestamp {
+            seconds: NOW - 1,
+            nanos: 250
+        }),
+        "now's nanoseconds are kept"
+    );
+    assert!(
+        cut_at("9223372036854775807ns").is_ok(),
+        "the longest duration Go's int64 holds"
+    );
+}
+
+#[test]
+fn test_a_date_is_its_midnight_utc() {
+    assert_eq!(cut_at("2026-01-01"), Ok(at(1_767_225_600)));
+    assert_eq!(cut_at("1970-01-01"), Ok(at(0)));
+    assert_eq!(cut_at("2024-02-29"), Ok(at(1_709_164_800)), "a leap day");
+    assert_eq!(cut_at("2000-02-29"), Ok(at(951_782_400)), "400 years leap");
+    assert_eq!(cut_at("2026-12-31"), Ok(at(1_798_675_200)));
+    assert_eq!(cut_at("2026-03-01"), Ok(at(1_772_323_200)));
+    assert_eq!(
+        cut_at("2026-04-30"),
+        Ok(at(1_777_507_200)),
+        "a 30-day month"
+    );
+    assert_eq!(cut_at("2026-02-28"), Ok(at(1_772_236_800)), "February");
+    assert_eq!(cut_at("1969-12-31"), Ok(at(-DAY)));
+}
+
+#[test]
+fn test_an_age_of_nothing_is_refused() {
+    assert_eq!(cut_at(""), Err(PruneRefusal::AgeRequired));
+    assert_eq!(cut_at("  "), Err(PruneRefusal::AgeRequired));
+}
+
+#[test]
+fn test_an_age_of_zero_or_less_is_refused() {
+    for age in ["0d", "0", "-1h", "0s", "-3w"] {
+        assert_eq!(
+            cut_at(age),
+            Err(PruneRefusal::AgeNotPositive {
+                age: age.to_string()
+            }),
+            "{age}"
+        );
+    }
+}
+
+#[test]
+fn test_an_age_that_is_neither_an_offset_nor_a_date_is_refused() {
+    for age in [
+        "soon",
+        "7",
+        "7x",
+        "d",
+        "h",
+        ".h",
+        "1.2.3h",
+        "-",
+        "+",
+        "1h-2m",
+        "2026-13-01",
+        "2026-00-10",
+        "2026-02-30",
+        "2026-04-31",
+        "2026-01-00",
+        "2023-02-29",
+        "1900-02-29",
+        "2026-1-01",
+        "2026/01/01",
+        "20260-1-01",
+        "2026-01-+1",
+        "99999999999999h",
+        "9223372036854775808ns",
+        "2562048h",
+        "2026-01/01",
+        "2026/01-01",
+        "1.5",
+        "1hh",
+    ] {
+        assert_eq!(
+            cut_at(age),
+            Err(PruneRefusal::AgeUnreadable {
+                age: age.to_string()
+            }),
+            "{age}"
+        );
+    }
+}
+
+#[test]
+fn test_each_refusal_renders_its_english_and_names_its_age() {
+    assert_eq!(
+        PruneRefusal::AgeUnreadable {
+            age: "soon".to_string()
+        }
+        .english(),
+        "the age soon is neither an offset (30d, 12w, 720h) nor a date (2026-01-01)"
+    );
+    assert_eq!(
+        PruneRefusal::AgeNotPositive {
+            age: "0d".to_string()
+        }
+        .english(),
+        "the age 0d is not a positive age"
+    );
+    assert_eq!(
+        PruneRefusal::AgeRequired.english(),
+        "a prune needs an age: an offset like 30d, or a date like 2026-01-01"
+    );
+    assert_eq!(
+        PruneRefusal::NoStatus.english(),
+        "a prune needs at least one status to select by: an empty status set is never read as every status"
+    );
+    let unreadable = PruneRefusal::AgeUnreadable {
+        age: "soon".to_string(),
+    };
+    let args = unreadable.args();
+    assert_eq!(args.len(), 1);
+    assert_eq!(args[0].0, "age");
+    assert!(PruneRefusal::NoStatus.args().is_empty());
+    assert!(PruneRefusal::AgeRequired.args().is_empty());
+}
+
+// ------------------------------------------------------------ the use case
+
+fn service(names: &[&str]) -> Fake {
+    Service::new(
+        FakeIdentity::default(),
+        FakeStores::default(),
+        FakeNames::of(names),
+        FakeClock::default(),
+        FakeDelay::default(),
+    )
+}
+
+fn add(service: &mut Fake, text: &str, status: Option<&str>, tags: &[&str]) -> String {
+    let task = NewTask {
+        text: text.to_string(),
+        status: status.map(str::to_string),
+        tags: tags.iter().map(|t| t.to_string()).collect(),
+        ..NewTask::default()
+    };
+    ready(service.add(task)).unwrap().task.harp_id
+}
+
+/// Ten days on: past the default cut for everything added so far.
+fn later(service: &mut Fake) {
+    service.clock.seconds += 10 * DAY;
+}
+
+fn request(apply: bool) -> PruneRequest {
+    PruneRequest {
+        statuses: vec!["Done".to_string()],
+        older_than: "7d".to_string(),
+        apply,
+        ..PruneRequest::default()
+    }
+}
+
+fn prune(service: &mut Fake, request: PruneRequest) -> Result<Pruning, AppError> {
+    ready(service.prune(request))
+}
+
+fn harps(pruning: &Pruning) -> Vec<&str> {
+    pruning
+        .pruned
+        .iter()
+        .map(|p| p.task.harp_id.as_str())
+        .collect()
+}
+
+fn listed(service: &mut Fake) -> Vec<String> {
+    let all = ListQuery {
+        all: true,
+        ..ListQuery::default()
+    };
+    ready(service.list(all))
+        .unwrap()
+        .rows
+        .into_iter()
+        .map(|row| row.task.harp_id)
+        .collect()
+}
+
+/// A project with a task in each status a prune treats differently.
+fn seeded() -> Fake {
+    let mut service = service(&["done-one", "archived-one", "to-do-one", "done-two"]);
+    add(&mut service, "Shipped", Some("Done"), &[]);
+    add(&mut service, "Put away", Some("Archived"), &[]);
+    add(&mut service, "Still to do", None, &[]);
+    add(
+        &mut service,
+        "Shipped too",
+        Some("Done"),
+        &["queue:release"],
+    );
+    service
+}
+
+#[test]
+fn test_without_apply_a_prune_reports_and_changes_nothing() {
+    let mut service = seeded();
+    later(&mut service);
+    let before = listed(&mut service);
+    let pruning = prune(&mut service, request(false)).unwrap();
+    assert!(!pruning.applied);
+    assert_eq!(
+        harps(&pruning),
+        ["done-one", "done-two"],
+        "in the order added"
+    );
+    assert_eq!(pruning.tasks_remaining, 2);
+    assert_eq!(
+        pruning.events_removed, 4,
+        "each task's add, and the removal a prune would record"
+    );
+    assert_eq!(pruning.statuses, ["Done"]);
+    assert_eq!(pruning.project, Some(crate::fakes::project()));
+    assert_eq!(listed(&mut service), before);
+    assert_eq!(
+        service.stores.store.attempts(),
+        1 + 4,
+        "the store's schema seeded, and the adds' units alone"
+    );
+    assert!(
+        service.stores.opened.len() == 4,
+        "opened to write by the adds only"
+    );
+}
+
+#[test]
+fn test_a_prune_reports_each_task_with_when_its_status_last_changed() {
+    let mut service = seeded();
+    later(&mut service);
+    let pruning = prune(&mut service, request(false)).unwrap();
+    let first = &pruning.pruned[0];
+    assert_eq!(first.task.text, "Shipped");
+    assert_eq!(first.task.status, "Done");
+    assert_eq!(first.status_set_at, first.task.created_at, "the add set it");
+    assert_eq!(
+        pruning.before,
+        at(1_700_000_000 + 10 * DAY + 6 - 7 * DAY),
+        "seven days before the prune's reading of the clock"
+    );
+}
+
+#[test]
+fn test_a_task_whose_status_changed_within_the_cut_is_kept() {
+    let mut service = seeded();
+    // Not ten days on: nothing is older than seven days.
+    let pruning = prune(&mut service, request(false)).unwrap();
+    assert!(pruning.pruned.is_empty());
+    assert_eq!(pruning.tasks_remaining, 4);
+
+    let mut just = request(false);
+    just.older_than = "2s".to_string();
+    let pruning = prune(&mut service, just).unwrap();
+    assert_eq!(
+        harps(&pruning),
+        ["done-one"],
+        "done-two's status was set at the cut, not before it"
+    );
+}
+
+#[test]
+fn test_a_prune_selects_by_each_status_asked_for_trimmed() {
+    let mut service = seeded();
+    later(&mut service);
+    let mut both = request(false);
+    both.statuses = vec![" Archived ".to_string(), "Done".to_string()];
+    let pruning = prune(&mut service, both).unwrap();
+    assert_eq!(harps(&pruning), ["done-one", "archived-one", "done-two"]);
+    assert_eq!(pruning.statuses, ["Archived", "Done"]);
+}
+
+#[test]
+fn test_a_tag_query_narrows_the_selection() {
+    let mut service = seeded();
+    later(&mut service);
+    let mut tagged = request(false);
+    tagged.tag_query = Some("queue:release".to_string());
+    let pruning = prune(&mut service, tagged).unwrap();
+    assert_eq!(harps(&pruning), ["done-two"]);
+    assert_eq!(pruning.tag_query.as_deref(), Some("queue:release"));
+    assert_eq!(pruning.tasks_remaining, 3);
+}
+
+#[test]
+fn test_a_prune_with_no_status_is_refused() {
+    let mut service = seeded();
+    let mut none = request(false);
+    none.statuses = Vec::new();
+    let error = prune(&mut service, none).unwrap_err();
+    assert_eq!(error.code(), code!("prune-no-status"));
+}
+
+// A status given blank is given: refused, never left out of the set.
+#[test]
+fn test_a_blank_status_given_to_a_prune_is_refused() {
+    let mut service = seeded();
+    for blank in ["", " "] {
+        let mut request = request(true);
+        request.statuses = vec!["Done".to_string(), blank.to_string()];
+        let error = prune(&mut service, request).unwrap_err();
+        assert_eq!(error, AppError::Blank { field: "status" });
+    }
+}
+
+#[test]
+fn test_a_status_class_is_refused_as_a_list_refuses_it() {
+    let mut service = seeded();
+    let mut class = request(false);
+    class.statuses = vec!["@terminal".to_string()];
+    let error = prune(&mut service, class).unwrap_err();
+    assert_eq!(
+        error.code(),
+        tasks::TaskRejection::StatusReserved {
+            status: String::new()
+        }
+        .code()
+    );
+}
+
+#[test]
+fn test_a_malformed_age_or_tag_query_is_refused_before_anything_is_read() {
+    let mut service = seeded();
+    let mut aged = request(true);
+    aged.older_than = "soon".to_string();
+    let error = prune(&mut service, aged).unwrap_err();
+    assert_eq!(error.code(), code!("prune-age-unreadable"));
+    assert_eq!(
+        error.english(),
+        "the age soon is neither an offset (30d, 12w, 720h) nor a date (2026-01-01)"
+    );
+
+    let mut queried = request(true);
+    queried.tag_query = Some("and".to_string());
+    let error = prune(&mut service, queried).unwrap_err();
+    assert_eq!(error.code(), code!("tag-query"));
+    assert_eq!(
+        service.stores.store.attempts(),
+        1 + 4,
+        "nothing was run: the seed and the adds"
+    );
+}
+
+#[test]
+fn test_a_prune_where_there_is_no_project_prunes_nothing_and_binds_none() {
+    let mut service = service(&[]);
+    let pruning = prune(&mut service, request(true)).unwrap();
+    assert_eq!(pruning.project, None);
+    assert!(pruning.pruned.is_empty());
+    assert!(pruning.applied);
+    assert!(service.identity.bound.is_none());
+    assert!(service.stores.opened.is_empty());
+}
+
+#[test]
+fn test_a_prune_of_a_project_with_no_store_yet_creates_none() {
+    let mut service = service(&[]);
+    service.identity.bound = Some(crate::fakes::project());
+    service.stores.absent = true;
+    let pruning = prune(&mut service, request(true)).unwrap();
+    assert_eq!(pruning.project, Some(crate::fakes::project()));
+    assert!(pruning.pruned.is_empty());
+    assert!(service.stores.opened.is_empty(), "never opened to write");
+}
+
+#[test]
+fn test_a_prune_whose_project_does_not_resolve_fails_with_why() {
+    let mut service = seeded();
+    service.identity.fails = Some(angzarr_diagnostic::Report::new("x-lost"));
+    let error = prune(&mut service, request(false)).unwrap_err();
+    assert_eq!(error.code(), "x-lost");
+}
+
+#[test]
+fn test_a_prune_whose_store_does_not_open_fails() {
+    let mut service = seeded();
+    service.stores.open_fails = true;
+    let error = prune(&mut service, request(false)).unwrap_err();
+    assert_eq!(error.code(), store_unavailable());
+}
+
+#[test]
+fn test_an_applied_prune_removes_and_purges_each_selected_task() {
+    let mut service = seeded();
+    later(&mut service);
+    let pruning = prune(&mut service, request(true)).unwrap();
+    assert!(pruning.applied);
+    assert_eq!(harps(&pruning), ["done-one", "done-two"]);
+    assert_eq!(
+        pruning.events_removed, 4,
+        "as the store reports: each add, and each removal recorded first"
+    );
+    assert_eq!(pruning.tasks_remaining, 2);
+    assert_eq!(listed(&mut service), ["archived-one", "to-do-one"]);
+    for harp in ["done-one", "done-two"] {
+        let held = ready(read_from(&service.stores.store, &task_cover(harp), 0)).unwrap();
+        assert_eq!(held, None, "{harp}'s stream is purged");
+    }
+    assert_eq!(
+        service.stores.store.attempts(),
+        1 + 4 + 4,
+        "the seed, the adds, and a removal and a purge, each its own unit, per task"
+    );
+}
+
+#[test]
+fn test_a_harp_freed_by_a_prune_can_be_minted_again_and_is_listed() {
+    let mut service = seeded();
+    later(&mut service);
+    prune(&mut service, request(true)).unwrap();
+    service.names = FakeNames::of(&["done-one"]);
+    let again = add(&mut service, "A new task", None, &[]);
+    assert_eq!(again, "done-one", "the harp is free again");
+    let all = ListQuery {
+        all: true,
+        ..ListQuery::default()
+    };
+    let listing = ready(service.list(all)).unwrap();
+    let texts: Vec<&str> = listing.tasks().map(|t| t.text.as_str()).collect();
+    assert_eq!(texts, ["Put away", "Still to do", "A new task"]);
+}
+
+#[test]
+fn test_a_removed_tasks_harp_stays_reserved_and_it_is_never_pruned() {
+    let mut service = service(&["gone-one", "gone-one", "other"]);
+    let harp = add(&mut service, "Removed by name", Some("Done"), &[]);
+    run(service.stores.store.inner(), &harp, remove_by_name());
+    later(&mut service);
+    let pruning = prune(&mut service, request(true)).unwrap();
+    assert!(pruning.pruned.is_empty());
+    assert_eq!(pruning.tasks_remaining, 0);
+    assert!(
+        ready(read_from(&service.stores.store, &task_cover(&harp), 0))
+            .unwrap()
+            .is_some(),
+        "its stream is kept"
+    );
+    assert_eq!(
+        add(&mut service, "Another", None, &[]),
+        "other",
+        "its harp is still taken"
+    );
+}
+
+// ------------------------------------------------------------ dangling
+
+#[test]
+fn test_a_survivor_naming_a_pruned_task_is_reported_and_left_as_written() {
+    let mut service = service(&["old-task", "keeper", "waiter", "bystander"]);
+    add(&mut service, "Finished", Some("Done"), &[]);
+    add(
+        &mut service,
+        "Follows old-task, and old-task again; not old-task-two",
+        None,
+        &["relates:old-task", "sig:plain"],
+    );
+    let waiting = NewTask {
+        text: "Waiting".to_string(),
+        status: Some("Deferred".to_string()),
+        trigger: Some("when old-task ships".to_string()),
+        ..NewTask::default()
+    };
+    ready(service.add(waiting)).unwrap();
+    add(&mut service, "Unrelated old task", None, &[]);
+    later(&mut service);
+    let pruning = prune(&mut service, request(true)).unwrap();
+    let dangling = |harp: &str, via: Via| Dangling {
+        harp_id: harp.to_string(),
+        pruned: "old-task".to_string(),
+        via,
+    };
+    assert_eq!(
+        pruning.dangling,
+        [
+            dangling("keeper", Via::Tag("relates:old-task".to_string())),
+            dangling("keeper", Via::Text),
+            dangling("waiter", Via::Trigger),
+        ]
+    );
+    let all = ListQuery {
+        all: true,
+        ..ListQuery::default()
+    };
+    let listing = ready(service.list(all)).unwrap();
+    assert_eq!(listing.rows[0].task.tags[0].to_string(), "relates:old-task");
+    assert_eq!(listing.rows[0].task.tags[1].to_string(), "sig:plain");
+}
+
+#[test]
+fn test_a_report_names_the_dangling_references_a_prune_would_leave() {
+    let mut service = service(&["old-task", "keeper"]);
+    add(&mut service, "Finished", Some("Done"), &[]);
+    add(&mut service, "After old-task", None, &[]);
+    later(&mut service);
+    let pruning = prune(&mut service, request(false)).unwrap();
+    assert_eq!(pruning.dangling.len(), 1);
+    assert_eq!(pruning.dangling[0].via.to_string(), "text");
+}
+
+#[test]
+fn test_a_via_is_spelled_as_gos() {
+    assert_eq!(
+        Via::Tag("relates:x".to_string()).to_string(),
+        "tag relates:x"
+    );
+    assert_eq!(Via::Text.to_string(), "text");
+    assert_eq!(Via::Trigger.to_string(), "trigger");
+}
+
+// ------------------------------------------------------------ races
+
+fn remove_by_name() -> TaskCommand {
+    RemoveTask {
+        reason: RemovalReason::Removed,
+    }
+    .into()
+}
+
+#[test]
+fn test_a_task_moved_since_the_selection_is_not_pruned() {
+    let mut service = seeded();
+    later(&mut service);
+    let reopen: TaskCommand = SetStatus {
+        status: Some("In Progress".to_string()),
+        trigger: None,
+        defers: tasks::DEFERRED.to_string(),
+        initial: tasks::TO_DO.to_string(),
+    }
+    .into();
+    service.stores.store.before(
+        At::Any,
+        Box::new(move |store: &MemoryStore| run(store, "done-one", reopen)),
+    );
+    let pruning = prune(&mut service, request(true)).unwrap();
+    assert_eq!(harps(&pruning), ["done-two"]);
+    assert_eq!(pruning.tasks_remaining, 3);
+    assert!(listed(&mut service).contains(&"done-one".to_string()));
+}
+
+#[test]
+fn test_a_task_retagged_out_of_the_query_since_the_selection_is_not_pruned() {
+    let mut service = seeded();
+    later(&mut service);
+    let untag: TaskCommand = tasks::Retag {
+        add: Vec::new(),
+        remove: vec![crate::parse_tag("queue:release").unwrap().unwrap()],
+    }
+    .into();
+    service.stores.store.before(
+        At::Any,
+        Box::new(move |store: &MemoryStore| run(store, "done-two", untag)),
+    );
+    let mut tagged = request(true);
+    tagged.tag_query = Some("queue:release".to_string());
+    let pruning = prune(&mut service, tagged).unwrap();
+    assert!(pruning.pruned.is_empty());
+    assert!(listed(&mut service).contains(&"done-two".to_string()));
+}
+
+#[test]
+fn test_a_task_removed_by_another_since_the_selection_is_skipped_and_kept() {
+    let mut service = seeded();
+    later(&mut service);
+    service.stores.store.before(
+        At::Any,
+        Box::new(|store: &MemoryStore| run(store, "done-one", remove_by_name())),
+    );
+    let pruning = prune(&mut service, request(true)).unwrap();
+    assert_eq!(harps(&pruning), ["done-two"]);
+    assert!(
+        ready(read_from(&service.stores.store, &task_cover("done-one"), 0))
+            .unwrap()
+            .is_some(),
+        "not this prune's to purge"
+    );
+}
+
+#[test]
+fn test_a_task_purged_by_another_since_the_selection_is_skipped() {
+    let mut service = seeded();
+    later(&mut service);
+    service.stores.store.before(
+        At::Any,
+        Box::new(|store: &MemoryStore| {
+            crate::fakes::purge(store, "done-one");
+        }),
+    );
+    let pruning = prune(&mut service, request(true)).unwrap();
+    assert_eq!(harps(&pruning), ["done-two"]);
+}
+
+#[test]
+fn test_a_removal_whose_answer_was_lost_is_purged_after_its_retry() {
+    let mut service = seeded();
+    later(&mut service);
+    service.stores.store.fail([Fault::LandsThenFails]);
+    let pruning = prune(&mut service, request(true)).unwrap();
+    assert_eq!(harps(&pruning), ["done-one", "done-two"]);
+    assert_eq!(
+        ready(read_from(&service.stores.store, &task_cover("done-one"), 0)).unwrap(),
+        None
+    );
+}
+
+#[test]
+fn test_a_purge_is_retried_through_store_failures() {
+    let mut service = seeded();
+    later(&mut service);
+    service
+        .stores
+        .store
+        .fail([Fault::Sound, Fault::Unavailable, Fault::Conflict]);
+    let pruning = prune(&mut service, request(true)).unwrap();
+    assert_eq!(harps(&pruning), ["done-one", "done-two"]);
+    assert_eq!(pruning.events_removed, 4);
+    assert_eq!(service.delay.slept.len(), 2, "two waits, one per failure");
+    assert_eq!(
+        ready(read_from(&service.stores.store, &task_cover("done-one"), 0)).unwrap(),
+        None
+    );
+}
+
+#[test]
+fn test_a_purge_that_no_retry_mends_fails_the_prune() {
+    let mut service = seeded();
+    later(&mut service);
+    service
+        .stores
+        .store
+        .fail([Fault::Sound, Fault::Discontinuous]);
+    let error = prune(&mut service, request(true)).unwrap_err();
+    assert_eq!(
+        error.code(),
+        angzarr_embedded::angzarr_ports::StoreError::Discontinuous {
+            stream: Box::default(),
+            expected: 0,
+            found: 0
+        }
+        .code()
+    );
+    assert!(
+        !listed(&mut service).contains(&"done-one".to_string()),
+        "removed, though not purged"
+    );
+}
+
+/// A project left half pruned: `done-one` removed by a prune whose purge
+/// then failed for good, so its stream, and its harp, are still held.
+fn half_pruned() -> Fake {
+    let mut service = seeded();
+    later(&mut service);
+    service
+        .stores
+        .store
+        .fail([Fault::Sound, Fault::Discontinuous]);
+    prune(&mut service, request(true)).unwrap_err();
+    assert!(
+        ready(read_from(&service.stores.store, &task_cover("done-one"), 0))
+            .unwrap()
+            .is_some(),
+        "removed, not purged"
+    );
+    service
+}
+
+#[test]
+fn test_a_report_names_a_task_a_prune_left_removed_but_not_purged() {
+    let mut service = half_pruned();
+    let begun = service.stores.store.attempts();
+    let pruning = prune(&mut service, request(false)).unwrap();
+    assert_eq!(harps(&pruning), ["done-one", "done-two"]);
+    assert_eq!(
+        pruning.events_removed,
+        2 + 2,
+        "done-one's add and the removal it holds; done-two's add and the removal to come"
+    );
+    assert_eq!(pruning.tasks_remaining, 2);
+    assert_eq!(
+        service.stores.store.attempts(),
+        begun,
+        "a report writes nothing"
+    );
+    assert!(
+        ready(read_from(&service.stores.store, &task_cover("done-one"), 0))
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[test]
+fn test_an_applied_prune_finishes_a_task_left_removed_but_not_purged() {
+    let mut service = half_pruned();
+    let pruning = prune(&mut service, request(true)).unwrap();
+    assert_eq!(harps(&pruning), ["done-one", "done-two"]);
+    assert_eq!(pruning.events_removed, 4, "as the store reports");
+    assert_eq!(
+        ready(read_from(&service.stores.store, &task_cover("done-one"), 0)).unwrap(),
+        None,
+        "its purge finished"
+    );
+    service.names = FakeNames::of(&["done-one"]);
+    assert_eq!(
+        add(&mut service, "A new task", None, &[]),
+        "done-one",
+        "its harp is free again"
+    );
+}
+
+#[test]
+fn test_a_half_done_prune_is_finished_whatever_this_prune_selects_by() {
+    // The prune that removed it selected it; this one only finishes it.
+    let mut service = half_pruned();
+    let mut archived = request(true);
+    archived.statuses = vec!["Archived".to_string()];
+    archived.tag_query = Some("queue:release".to_string());
+    let pruning = prune(&mut service, archived).unwrap();
+    assert_eq!(harps(&pruning), ["done-one"]);
+    assert_eq!(pruning.events_removed, 2);
+    assert_eq!(
+        ready(read_from(&service.stores.store, &task_cover("done-one"), 0)).unwrap(),
+        None
+    );
+}
+
+#[test]
+fn test_a_half_done_prune_finished_by_another_meanwhile_is_skipped() {
+    let mut service = half_pruned();
+    service.stores.store.before(
+        At::Any,
+        Box::new(|store: &MemoryStore| {
+            crate::fakes::purge(store, "done-one");
+        }),
+    );
+    let mut archived = request(true);
+    archived.statuses = vec!["Archived".to_string()];
+    archived.tag_query = Some("queue:release".to_string());
+    let pruning = prune(&mut service, archived).unwrap();
+    assert!(pruning.pruned.is_empty());
+    assert_eq!(pruning.events_removed, 0);
+}
+
+#[test]
+fn test_a_prune_whose_future_is_send() {
+    fn is_send<T: Send>(_: &T) {}
+    let mut service = seeded();
+    is_send(&service.prune(request(true)));
+}
+
+// A tag query given blank is a query given: refused, never read as no
+// query, so `--tag-query "$UNSET" --yes` cannot prune every task the
+// statuses and age select.
+#[test]
+fn test_a_blank_tag_query_given_is_refused_not_read_as_none() {
+    let mut service = seeded();
+    later(&mut service);
+    for blank in ["", " "] {
+        let asked = PruneRequest {
+            tag_query: Some(blank.to_string()),
+            ..request(true)
+        };
+        let error = prune(&mut service, asked).unwrap_err();
+        assert!(matches!(error, AppError::Blank { .. }), "{error:?}");
+    }
+    assert_eq!(listed(&mut service).len(), 4, "nothing pruned");
+}
+
+// A prune returns the dead letters its kernel calls answered (here the
+// test hands it one, as the tasks domain can be made to produce none),
+// each once.
+#[test]
+fn test_a_prune_returns_the_dead_letters_written_while_it_ran() {
+    let mut service = seeded();
+    later(&mut service);
+    service
+        .dead_letters
+        .push(crate::dead_letter_sample("prune"));
+    let pruning = prune(&mut service, request(true)).unwrap();
+    assert_eq!(pruning.dead_letters, [crate::dead_letter_sample("prune")]);
+    let pruning = prune(&mut service, request(true)).unwrap();
+    assert!(pruning.dead_letters.is_empty(), "each is returned once");
+}
+
+// A prune that fails carries the dead letters written while it ran on its
+// error, each once.
+#[test]
+fn test_a_failed_prune_carries_the_dead_letters_written_while_it_ran() {
+    let mut service = seeded();
+    service
+        .dead_letters
+        .push(crate::dead_letter_sample("prune"));
+    let refused = PruneRequest {
+        older_than: "soon".to_string(),
+        ..request(true)
+    };
+    let error = prune(&mut service, refused.clone()).unwrap_err();
+    assert_eq!(error.dead_letters(), [crate::dead_letter_sample("prune")]);
+    assert_eq!(error.code(), code!("prune-age-unreadable"));
+    let error = prune(&mut service, refused).unwrap_err();
+    assert!(error.dead_letters().is_empty(), "each is carried once");
+}
+
+// ------------------------------------------------------------ through Purge
+
+#[test]
+fn test_a_prune_records_the_removal_then_purges_through_purge_and_frees_the_harp() {
+    let mut service = service(&["done-one", "done-one"]);
+    add(&mut service, "Shipped", Some("Done"), &[]);
+    later(&mut service);
+    let pruning = prune(&mut service, request(true)).unwrap();
+    assert_eq!(harps(&pruning), ["done-one"]);
+    assert_eq!(pruning.events_removed, 2, "the add and the removal");
+    assert_eq!(
+        ready(read_from(&service.stores.store, &task_cover("done-one"), 0)).unwrap(),
+        None,
+        "purged"
+    );
+    let again = add(&mut service, "Again", None, &[]);
+    assert_eq!(again, "done-one", "the freed harp, minted again");
+}
+
+// Another prune purges the stream after this one read it removed, and a
+// task is minted on the freed harp, all before this prune's purge lands:
+// the new task is not this prune's to purge. The purge is at the head this
+// prune read (angzarr-ports' Purge, spec 14.43), so the store refuses it
+// as a conflict, and the retry reads the stream again, live.
+#[test]
+fn test_a_prune_never_purges_a_task_minted_on_its_harp_since_it_read() {
+    let mut service = service(&["done-one"]);
+    add(&mut service, "Shipped", Some("Done"), &[]);
+    later(&mut service);
+    service.stores.store.before(
+        At::Purge,
+        Box::new(|store: &MemoryStore| {
+            crate::fakes::purge(store, "done-one");
+            let mint: TaskCommand = tasks::AddTask {
+                harp_id: "done-one".to_string(),
+                text: "Minted since".to_string(),
+                status: None,
+                trigger: None,
+                tags: Vec::new(),
+                origin_session: None,
+                defers: tasks::DEFERRED.to_string(),
+                initial: tasks::TO_DO.to_string(),
+            }
+            .into();
+            run(store, "done-one", mint);
+        }),
+    );
+    prune(&mut service, request(true)).unwrap();
+    assert!(
+        listed(&mut service).contains(&"done-one".to_string()),
+        "the task minted since is kept"
+    );
+}
+
+// ------------------------------------------------------------ the purge
+
+/// A runner over `registry`, `clock` and `delay`, 5 attempts, 10ms
+/// doubling to 30ms; and the task swift-amber added, then removed, on
+/// `store`, through it.
+fn removed<'a>(
+    store: &crate::fakes::Flaky,
+    registry: &'a angzarr_embedded::Registry,
+    clock: &'a mut FakeClock,
+    delay: &'a mut FakeDelay,
+    remove: bool,
+) -> kernel_runner::Runner<'a, FakeClock, FakeDelay> {
+    use angzarr_embedded::v1::{CommandBook, Uuid};
+    use angzarr_embedded::CommandBookExt;
+    let mut runner = kernel_runner::Runner {
+        registry,
+        clock,
+        delay,
+        retry: kernel_runner::backoff(
+            std::time::Duration::from_millis(10),
+            std::time::Duration::from_millis(30),
+            5,
+        ),
+        // None is answered here; leaked, so the runner may outlive this.
+        dead_letters: Box::leak(Box::new(Vec::new())),
+    };
+    let add = tasks::AddTask {
+        harp_id: "swift-amber".to_string(),
+        text: "Ship it".to_string(),
+        status: None,
+        trigger: None,
+        tags: Vec::new(),
+        origin_session: None,
+        defers: tasks::DEFERRED.to_string(),
+        initial: tasks::TO_DO.to_string(),
+    };
+    let mut commands = vec![TaskCommand::from(add)];
+    if remove {
+        commands.push(
+            RemoveTask {
+                reason: RemovalReason::Pruned,
+            }
+            .into(),
+        );
+    }
+    for (n, command) in commands.into_iter().enumerate() {
+        let book = CommandBook::command_of(task_cover("swift-amber"), &command);
+        let id = Uuid::from_bytes([u8::try_from(n + 1).unwrap(); 16]);
+        ready(runner.run::<tasks::TaskAggregate, tasks::TaskRejection, _>(store, book, &id))
+            .unwrap()
+            .unwrap();
+    }
+    runner
+}
+
+fn events(store: &crate::fakes::Flaky) -> usize {
+    ready(read_from(store, &task_cover("swift-amber"), 0))
+        .unwrap()
+        .map_or(0, |slice| slice.pages.len())
+}
+
+#[test]
+fn test_a_purge_deletes_a_removed_tasks_stream_and_says_how_many_events() {
+    let store = crate::fakes::Flaky::default();
+    let registry = crate::registry();
+    let (mut clock, mut delay) = (FakeClock::default(), FakeDelay::default());
+    let mut runner = removed(&store, &registry, &mut clock, &mut delay, true);
+    let stream = task_cover("swift-amber");
+    assert_eq!(
+        ready(super::purge(&mut runner, &store, &stream)).unwrap(),
+        2
+    );
+    assert_eq!(events(&store), 0);
+    assert_eq!(
+        ready(super::purge(&mut runner, &store, &stream)).unwrap(),
+        0,
+        "no such stream"
+    );
+}
+
+#[test]
+fn test_a_purge_leaves_a_live_task_alone() {
+    // A task minted on the harp after the removal was purged by another.
+    let store = crate::fakes::Flaky::default();
+    let registry = crate::registry();
+    let (mut clock, mut delay) = (FakeClock::default(), FakeDelay::default());
+    let mut runner = removed(&store, &registry, &mut clock, &mut delay, false);
+    let stream = task_cover("swift-amber");
+    assert_eq!(
+        ready(super::purge(&mut runner, &store, &stream)).unwrap(),
+        0
+    );
+    assert_eq!(events(&store), 1, "kept");
+}
+
+#[test]
+fn test_a_purge_gives_up_once_its_attempts_are_spent() {
+    let store = crate::fakes::Flaky::default();
+    let registry = crate::registry();
+    let (mut clock, mut delay) = (FakeClock::default(), FakeDelay::default());
+    let mut runner = removed(&store, &registry, &mut clock, &mut delay, true);
+    runner.delay.slept.clear();
+    store.fail(vec![Fault::Conflict; 5]);
+    let stream = task_cover("swift-amber");
+    let Err(AppError::GaveUp { attempts, error }) =
+        ready(super::purge(&mut runner, &store, &stream))
+    else {
+        panic!("gave up");
+    };
+    assert_eq!(attempts, 5);
+    assert_eq!(
+        error.code(),
+        angzarr_embedded::angzarr_ports::StoreError::Conflict {
+            stream: Box::default(),
+            expected: 0,
+            actual: 0
+        }
+        .code()
+    );
+    assert_eq!(runner.delay.slept.len(), 4);
+    assert_eq!(events(&store), 2, "nothing purged");
+}
+
+/// angzarr-ports' code for a store that could not say: its code, whatever
+/// the cause.
+fn store_unavailable() -> String {
+    use angzarr_embedded::angzarr_ports::{Cause, StoreError};
+    StoreError::Unavailable(Cause::new("", []))
+        .code()
+        .to_string()
+}

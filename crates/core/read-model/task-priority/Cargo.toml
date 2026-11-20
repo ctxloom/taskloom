@@ -1,0 +1,35 @@
+[package]
+name = "task-priority"
+version = "0.1.0"
+description = "Task priority: derived when read from the priority_fn and decay_fn formulas, never stored"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+prost-types.workspace = true
+angzarr-diagnostic.workspace = true
+expr-lang.workspace = true
+tasks.workspace = true
+
+[dev-dependencies]
+# Rendering catalogs' English (`english_for!`), for the tests that hold it
+# to Go's.
+angzarr-presentation = { workspace = true, features = ["test-support"] }
+fluent-syntax = "0.11"
+mutants.workspace = true
+tagma-core.workspace = true
+
+[build-dependencies]
+# The build writes the catalog's source under the crate's name
+# (angzarr_diagnostic::build): no catalog spells its crate's name.
+angzarr-diagnostic = { workspace = true, features = ["build"] }
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests: their
+# dev-dependency turns it on, and no build of a binary does.
+test-support = []
+
+[lints]
+workspace = true

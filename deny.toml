@@ -1,0 +1,83 @@
+# cargo-deny: what may enter the dependency graph. `just lint-deps` runs it.
+
+[advisories]
+version = 2
+# RustSec advisories. An ignore needs the advisory id and why it does not
+# apply here.
+ignore = [
+  # Exposure: only a process that opens a database file together with a
+  # sibling -wal file written by a less trusted party (the store's bundled
+  # SQLite < 3.54.0 can return uninitialized page-cache memory). Delete this
+  # entry when the store moves to libsqlite3-sys >= 0.39.
+  { id = "RUSTSEC-2026-0459", reason = "bundled SQLite via the store; databases are the user's own; upstream bump pending" },
+]
+
+[licenses]
+version = 2
+# taskloom is Apache-2.0 OR BSD-3-Clause; only permissive licenses are allowed
+# here, and the angzarr crates below are the sole copyleft exceptions.
+allow = [
+  "Apache-2.0",
+  "BSD-3-Clause",
+  "MIT",
+  "Unicode-3.0",
+  "Zlib",
+]
+confidence-threshold = 0.9
+
+# angzarr's shared runtime crates are AGPL-3.0-only with the angzarr runtime
+# exception (its LICENSE-EXCEPTION); the SPDX expression with the additional
+# term is not in `allow`, so each is allowed by name.
+[[licenses.exceptions]]
+crate = "angzarr-bus"
+allow = ["AGPL-3.0-only WITH AdditionRef-angzarr-runtime-exception"]
+
+[[licenses.exceptions]]
+crate = "angzarr-diagnostic"
+allow = ["AGPL-3.0-only WITH AdditionRef-angzarr-runtime-exception"]
+
+[[licenses.exceptions]]
+crate = "angzarr-embedded"
+allow = ["AGPL-3.0-only WITH AdditionRef-angzarr-runtime-exception"]
+
+[[licenses.exceptions]]
+crate = "angzarr-ports"
+allow = ["AGPL-3.0-only WITH AdditionRef-angzarr-runtime-exception"]
+
+[[licenses.exceptions]]
+crate = "angzarr-presentation"
+allow = ["AGPL-3.0-only WITH AdditionRef-angzarr-runtime-exception"]
+
+[[licenses.exceptions]]
+crate = "angzarr-store-transfer"
+allow = ["AGPL-3.0-only WITH AdditionRef-angzarr-runtime-exception"]
+
+[[licenses.exceptions]]
+crate = "angzarr-yaml"
+allow = ["AGPL-3.0-only WITH AdditionRef-angzarr-runtime-exception"]
+
+[licenses.private]
+# Not ignored: the git dependencies (angzarr-proto) are `publish = false`
+# too, and their licenses are exactly what must be checked.
+ignore = false
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# A path dependency has no version; allowed for unpublished crates only.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = [
+  # angzarr: one workspace (core, the platform crates os, file-system and
+  # file-lock, angzarr-build and angzarr-codegen, angzarr-embedded and the
+  # router it runs handlers through).
+  "https://github.com/angzarr-io/angzarr",
+  # tagma: the tag grammar and query engine, and its Tag message.
+  "https://github.com/benjaminabbitt/tagma",
+  # harp-core: the word lists task and project ids are minted from.
+  "https://github.com/benjaminabbitt/harp",
+]

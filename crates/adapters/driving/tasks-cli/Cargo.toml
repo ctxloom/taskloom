@@ -1,0 +1,40 @@
+[package]
+name = "tasks-cli"
+version = "0.1.0"
+description = "The tasks command line: arguments parsed into use cases, and their answers rendered as text or JSON"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+angzarr-diagnostic.workspace = true
+clap.workspace = true
+angzarr-presentation.workspace = true
+serde.workspace = true
+tasks-application.workspace = true
+tasks-presentation.workspace = true
+
+[dev-dependencies]
+# The test support's block_on_ready.
+angzarr-embedded = { workspace = true, features = ["test-support"] }
+# Rendering catalogs' English (`english_for!`), for the tests that hold it
+# to Go's.
+angzarr-presentation = { workspace = true, features = ["test-support"] }
+fluent-syntax.workspace = true
+serde_json.workspace = true
+# Its `dead_letter_sample`, a letter for the tests to say.
+tasks-application = { workspace = true, features = ["test-support"] }
+
+[build-dependencies]
+# The build writes the catalog's source under the crate's name
+# (angzarr_diagnostic::build): no catalog spells its crate's name.
+angzarr-diagnostic = { workspace = true, features = ["build"] }
+
+[features]
+# `diagnostic_samples`, for other crates' catalog tests: their
+# dev-dependency turns it on, and no build of a binary does.
+test-support = []
+
+[lints]
+workspace = true

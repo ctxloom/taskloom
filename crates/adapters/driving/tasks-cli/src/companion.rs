@@ -1,0 +1,81 @@
+//! The companion contract ctxloom reads from taskloom: `version --format
+//! json`, which its boot probe parses (`name`, `version`, and
+//! `lock_protocol`, which it asks of every running binary before it
+//! removes a lock file), and `loadout --format yaml`, the document of the
+//! hooks and context taskloom contributes to a session.
+
+use std::io::{self, Write};
+use std::str::FromStr;
+
+use angzarr_presentation::{Format, Render, UnknownFormat};
+use serde::Serialize;
+
+use crate::{output_failed, CliError};
+
+/// The loadout document (`fixtures/go/loadout.yaml`) with the human's
+/// reviewed factual changes (`fixtures/reviewed.rs`): a parity test holds
+/// it to the fixture with those applied. Printed as it is, comments and
+/// all.
+pub const LOADOUT: &str = include_str!("loadout.yaml");
+
+/// A `--format` value: one of presentation's formats, or `yaml`, which
+/// only `loadout` speaks.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum Asked {
+    Format(Format),
+    Yaml,
+}
+
+impl FromStr for Asked {
+    type Err = UnknownFormat;
+
+    fn from_str(value: &str) -> Result<Asked, UnknownFormat> {
+        match value {
+            "yaml" => Ok(Asked::Yaml),
+            other => other.parse().map(Asked::Format),
+        }
+    }
+}
+
+/// What `version` reports: its fields in this order, `lock_protocol` left
+/// out when 0.
+#[derive(Serialize)]
+pub struct VersionJson<'a> {
+    pub name: &'a str,
+    pub version: &'a str,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub lock_protocol: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+impl Render for VersionJson<'_> {
+    fn json(&self) -> impl Serialize + '_ {
+        self
+    }
+
+    /// The bare version.
+    fn text(&self, out: &mut dyn Write) -> io::Result<()> {
+        writeln!(out, "{}", self.version)
+    }
+}
+
+/// Print the loadout, unless another format than yaml was asked for (a
+/// `--format` other than yaml); then nothing is printed.
+pub(crate) fn loadout(asked: Option<Asked>, out: &mut dyn Write) -> Result<(), CliError> {
+    if let Some(Asked::Format(format)) = asked {
+        return Err(CliError::LoadoutFormat {
+            format: format_name(format).to_string(),
+        });
+    }
+    out.write_all(LOADOUT.as_bytes()).map_err(output_failed)
+}
+
+fn format_name(format: Format) -> &'static str {
+    match format {
+        Format::Text => "text",
+        Format::Json => "json",
+    }
+}

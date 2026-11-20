@@ -1,0 +1,1061 @@
+//! The import, over fake JSONL logs and angzarr-ports' in-memory store, run
+//! through angzarr-embedded's kernel as the binary runs it over SQLite.
+
+use crate::english::English;
+use crate::fakes::{failing, read_from};
+use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
+use angzarr_embedded::Stream;
+use ports::Timestamp;
+use ports::{JsonlOp, JsonlRecord, JsonlTaskLogs};
+use tasks::{TaskAggregate, TaskState};
+
+use super::{anomaly_key, record_command_id, Step};
+use crate::fakes::{ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores, Fault};
+use crate::{
+    task_cover, ImportReport, ImportRequest, ImportService, Importer, Lost, NewTask, ProjectImport,
+    Service, TaskService, Why,
+};
+
+/// A port's failure, as a fake answers it: its code names no crate, since
+/// the use case passes any port's failure on as it is.
+const PORT_FAILURE: &str = "a-port-failed";
+
+const PROJECT: &str = "jolly-mute-magma";
+const HARP: &str = "swift-amber";
+
+/// The logs by project id, read in the order given; failing on cue.
+#[derive(Default)]
+struct FakeLogs {
+    logs: BTreeMap<String, Vec<JsonlRecord>>,
+    projects_fail: Option<Report>,
+    records_fail: Option<Report>,
+    read: Vec<String>,
+}
+
+impl JsonlTaskLogs for FakeLogs {
+    fn projects(&mut self) -> Result<Vec<String>, Report> {
+        match &self.projects_fail {
+            Some(report) => Err(report.clone()),
+            None => Ok(self.logs.keys().cloned().collect()),
+        }
+    }
+
+    fn records(&mut self, project_id: &str) -> Result<Option<Vec<JsonlRecord>>, Report> {
+        self.read.push(project_id.to_string());
+        if let Some(report) = &self.records_fail {
+            return Err(report.clone());
+        }
+        Ok(self.logs.get(project_id).cloned())
+    }
+}
+
+type Fake = Importer<FakeIdentity, FakeStores, FakeDelay, FakeLogs>;
+
+fn service(records: Vec<JsonlRecord>) -> Fake {
+    over(FakeStores::default(), records)
+}
+
+/// The importer of `records`, as the one project's log, into `stores`.
+fn over(stores: FakeStores, records: Vec<JsonlRecord>) -> Fake {
+    let mut logs = FakeLogs::default();
+    logs.logs.insert(PROJECT.to_string(), records);
+    Importer::new(FakeIdentity::default(), stores, FakeDelay::default(), logs)
+}
+
+fn import(service: &mut Fake) -> ImportReport {
+    ready(service.import(ImportRequest::default())).unwrap()
+}
+
+/// The one project's part of `report`.
+fn only(report: &ImportReport) -> &ProjectImport {
+    assert_eq!(report.projects.len(), 1, "{report:?}");
+    &report.projects[0]
+}
+
+fn at(seconds: i64) -> Timestamp {
+    Timestamp {
+        seconds: 1_770_000_000 + seconds,
+        nanos: 0,
+    }
+}
+
+/// The task `harp` as its stream holds it.
+fn state(service: &mut Fake, harp: &str) -> Option<TaskState> {
+    let slice = ready(read_from(&service.stores.store, &task_cover(harp), 0)).unwrap()?;
+    let stream =
+        Stream::<TaskAggregate>::replay(task_cover(harp), &slice.pages, &crate::registry())
+            .unwrap();
+    Some(stream.state().state().clone())
+}
+
+/// How many events `harp`'s stream holds.
+fn events(service: &mut Fake, harp: &str) -> usize {
+    ready(read_from(&service.stores.store, &task_cover(harp), 0))
+        .unwrap()
+        .map_or(0, |slice| slice.pages.len())
+}
+
+/// A record of `op` to `harp` at `second`, its line unlike any other's
+/// (a clone repeats it).
+fn record(op: JsonlOp, harp: &str, second: i64) -> JsonlRecord {
+    let mut record = JsonlRecord {
+        line: 0,
+        raw: String::new(),
+        op,
+        task: harp.to_string(),
+        text: String::new(),
+        status: String::new(),
+        trigger: String::new(),
+        session: String::new(),
+        repair_of: String::new(),
+        tags: Vec::new(),
+        ts: at(second),
+    };
+    static LINES: AtomicUsize = AtomicUsize::new(0);
+    record.raw = format!("line {}", LINES.fetch_add(1, Ordering::Relaxed));
+    record
+}
+
+fn add(harp: &str, text: &str, second: i64) -> JsonlRecord {
+    JsonlRecord {
+        text: text.to_string(),
+        status: "To Do".to_string(),
+        session: "calm-otter".to_string(),
+        ..record(JsonlOp::Add, harp, second)
+    }
+}
+
+fn status(harp: &str, status: &str, trigger: &str, second: i64) -> JsonlRecord {
+    JsonlRecord {
+        status: status.to_string(),
+        trigger: trigger.to_string(),
+        ..record(JsonlOp::Status, harp, second)
+    }
+}
+
+fn tags(op: JsonlOp, harp: &str, tags: &[&str], second: i64) -> JsonlRecord {
+    JsonlRecord {
+        tags: tags.iter().map(|t| t.to_string()).collect(),
+        ..record(op, harp, second)
+    }
+}
+
+fn text(harp: &str, text: &str, second: i64) -> JsonlRecord {
+    JsonlRecord {
+        text: text.to_string(),
+        ..record(JsonlOp::Text, harp, second)
+    }
+}
+
+/// `records`, numbered as lines from 1 in the order given.
+fn numbered(mut records: Vec<JsonlRecord>) -> Vec<JsonlRecord> {
+    for (i, record) in records.iter_mut().enumerate() {
+        record.line = u32::try_from(i + 1).unwrap();
+    }
+    records
+}
+
+fn strings(values: &[&str]) -> Vec<String> {
+    values.iter().map(|v| v.to_string()).collect()
+}
+
+// ------------------------------------------------------------ fidelity
+
+#[test]
+fn test_an_add_imports_the_task_with_its_harp_session_and_time() {
+    let mut service = service(numbered(vec![JsonlRecord {
+        status: "In Progress".to_string(),
+        trigger: " later ".to_string(),
+        tags: strings(&["b", " a", "b", ""]),
+        ..add(HARP, " Write the tour ", 1)
+    }]));
+    let report = import(&mut service);
+    let project = only(&report);
+    assert_eq!(project.project_id, PROJECT);
+    assert_eq!((project.records, project.tasks, project.applied), (1, 1, 1));
+    let task = state(&mut service, HARP).expect("imported");
+    assert_eq!(task.harp_id, HARP);
+    assert_eq!(task.text, "Write the tour");
+    assert_eq!(task.status, "In Progress");
+    // Go keeps a trigger given with any status; here only a Deferred task
+    // holds one (the human's rulings on L, 2026-10-27), so it is left out of
+    // the add, and kept by the import for a later deferral that names none.
+    assert_eq!(task.trigger, "", "held only while Deferred");
+    assert_eq!(spelled(&task.tags), strings(&["a", "b"]));
+    assert_eq!(task.origin_session, "calm-otter");
+    assert_eq!(task.created_at, at(1), "Go's instant, not the clock's");
+    assert_eq!(task.status_set_at, at(1));
+    assert_eq!(task.deferred_since, None);
+    assert!(!task.removed);
+    assert_eq!(service.identity.pins, [Some(PROJECT.to_string())]);
+    assert_eq!(service.stores.opened, [PROJECT]);
+}
+
+#[test]
+fn test_an_add_with_no_status_is_to_do() {
+    let mut service = service(vec![JsonlRecord {
+        status: String::new(),
+        ..add(HARP, "Ship it", 1)
+    }]);
+    import(&mut service);
+    assert_eq!(state(&mut service, HARP).unwrap().status, "To Do");
+}
+
+#[test]
+fn test_status_changes_keep_the_logged_instants() {
+    let mut service = service(vec![
+        add(HARP, "Revisit", 1),
+        status(HARP, "Deferred", "after the release", 5),
+        status(HARP, "In Progress", "", 9),
+    ]);
+    import(&mut service);
+    let task = state(&mut service, HARP).unwrap();
+    assert_eq!(task.status, "In Progress");
+    // Reverses the reviewed "kept on leaving Deferred" (the human's ruling
+    // on L, 2026-10-27): leaving Deferred clears the trigger.
+    assert_eq!(task.trigger, "", "cleared on leaving Deferred");
+    assert_eq!(task.status_set_at, at(9));
+    assert_eq!(task.deferred_since, Some(at(5)));
+    assert_eq!(task.created_at, at(1));
+}
+
+// An import runs each record on a clock stopped at the record's instant:
+// its events are recorded at it and copy none of it into their payloads
+// (the owner's ruling, 2026-11-01), and the task replayed keeps the log's
+// instants.
+#[test]
+fn test_imported_events_carry_no_instant_and_are_recorded_at_the_records() {
+    use angzarr_embedded::Payload as _;
+    use tasks::TaskEvent;
+
+    let mut service = service(vec![
+        add(HARP, "Revisit", 1),
+        status(HARP, "Deferred", "after the release", 5),
+        status(HARP, "In Progress", "", 9),
+    ]);
+    import(&mut service);
+    let slice = ready(read_from(&service.stores.store, &task_cover(HARP), 0))
+        .unwrap()
+        .expect("imported");
+    let mut recorded = Vec::new();
+    for page in &slice.pages {
+        let at = match TaskEvent::from_any({
+            let Some(angzarr_embedded::v1::event_page::Body::Event(e)) = &page.body else {
+                panic!("no event")
+            };
+            e
+        })
+        .unwrap()
+        {
+            TaskEvent::TaskAdded(added) => added.at,
+            TaskEvent::StatusChanged(changed) => changed.at,
+            other => panic!("an add and status changes, not {other:?}"),
+        };
+        assert_eq!(at, None, "no instant copied into the payload");
+        recorded.push(page.meta.as_ref().and_then(|meta| meta.recorded_at));
+    }
+    assert_eq!(recorded, [Some(at(1)), Some(at(5)), Some(at(9))]);
+    let task = state(&mut service, HARP).unwrap();
+    assert_eq!(
+        (task.created_at, task.status_set_at, task.deferred_since),
+        (at(1), at(9), Some(at(5)))
+    );
+}
+
+// Go's empty string is a value left out: an add's status, trigger and
+// session, and a status change's trigger.
+#[test]
+fn test_gos_empty_values_are_read_as_left_out() {
+    let mut service = service(numbered(vec![
+        JsonlRecord {
+            status: String::new(),
+            trigger: String::new(),
+            session: String::new(),
+            ..add(HARP, "Revisit", 1)
+        },
+        status(HARP, "Deferred", "after the release", 2),
+        status(HARP, "Deferred", "", 3),
+    ]));
+    let report = import(&mut service);
+    assert_eq!(only(&report).lost, [], "nothing refused as blank");
+    let task = state(&mut service, HARP).unwrap();
+    assert_eq!(
+        (task.status.as_str(), task.trigger.as_str()),
+        ("Deferred", "after the release")
+    );
+    assert_eq!(task.origin_session, "");
+    assert_eq!(task.prior_status, "To Do");
+}
+
+// Go keeps the trigger a task leaves Deferred with, and defers it again on
+// that one when a status change names none; the import does the same by
+// giving it, since here leaving Deferred clears it.
+#[test]
+fn test_a_go_task_deferred_again_without_a_trigger_defers_on_the_one_go_held() {
+    let mut service = service(numbered(vec![
+        add(HARP, "Revisit", 1),
+        status(HARP, "Deferred", "after the release", 2),
+        status(HARP, "In Progress", "", 3),
+        status(HARP, "Deferred", "", 4),
+    ]));
+    let report = import(&mut service);
+    assert_eq!(only(&report).lost, []);
+    let task = state(&mut service, HARP).unwrap();
+    assert_eq!(
+        (task.status.as_str(), task.trigger.as_str()),
+        ("Deferred", "after the release")
+    );
+    assert_eq!(task.prior_status, "In Progress");
+    assert_eq!(task.deferred_since, Some(at(4)));
+}
+
+// Go records a trigger given with any status; here a trigger with another
+// status is refused, so the import leaves it out of the command and keeps
+// it for a later deferral that names none, as Go does.
+#[test]
+fn test_a_go_trigger_given_with_another_status_is_kept_for_a_later_deferral() {
+    let mut service = service(numbered(vec![
+        JsonlRecord {
+            status: "In Progress".to_string(),
+            trigger: "after the release".to_string(),
+            ..add(HARP, "Revisit", 1)
+        },
+        status(HARP, "Done", "after v2", 2),
+        status(HARP, "Deferred", "", 3),
+    ]));
+    let report = import(&mut service);
+    assert_eq!(only(&report).lost, [], "no trigger refused with a status");
+    let task = state(&mut service, HARP).unwrap();
+    assert_eq!(
+        (task.status.as_str(), task.trigger.as_str()),
+        ("Deferred", "after v2")
+    );
+    assert_eq!(task.prior_status, "Done");
+}
+
+#[test]
+fn test_an_add_deferred_records_when() {
+    let mut service = service(vec![JsonlRecord {
+        status: "Deferred".to_string(),
+        trigger: "after the release".to_string(),
+        ..add(HARP, "Revisit", 3)
+    }]);
+    import(&mut service);
+    assert_eq!(
+        state(&mut service, HARP).unwrap().deferred_since,
+        Some(at(3))
+    );
+}
+
+#[test]
+fn test_edits_tags_untags_and_a_removal_are_imported() {
+    let mut service = service(vec![
+        add(HARP, "Draft", 1),
+        text(HARP, "Final", 2),
+        tags(JsonlOp::Tag, HARP, &["x", "y"], 3),
+        tags(JsonlOp::Untag, HARP, &["x"], 4),
+        add("calm-otter", "Gone", 5),
+        record(JsonlOp::Remove, "calm-otter", 6),
+    ]);
+    let report = import(&mut service);
+    assert_eq!(only(&report).applied, 6);
+    assert_eq!(only(&report).tasks, 2);
+    let task = state(&mut service, HARP).unwrap();
+    assert_eq!(task.text, "Final");
+    assert_eq!(spelled(&task.tags), strings(&["y"]));
+    assert_eq!(
+        task.status_set_at,
+        at(1),
+        "an edit or retag is no status change"
+    );
+    let gone = state(&mut service, "calm-otter").unwrap();
+    assert!(gone.removed);
+    assert_eq!(gone.text, "Gone");
+}
+
+#[test]
+fn test_records_replay_in_time_order_and_the_log_breaks_ties() {
+    // A union merge can put a later record first in the file; two records
+    // at one instant apply in the file's order.
+    let mut service = service(numbered(vec![
+        status(HARP, "Done", "", 5),
+        add(HARP, "Ship it", 1),
+        status(HARP, "In Progress", "", 7),
+        status(HARP, "Archived", "", 7),
+    ]));
+    let report = import(&mut service);
+    assert!(only(&report).lost.is_empty(), "{report:?}");
+    let task = state(&mut service, HARP).unwrap();
+    assert_eq!(task.status, "Archived");
+    assert_eq!(task.status_set_at, at(7));
+}
+
+#[test]
+fn test_a_line_repeated_byte_for_byte_counts_once() {
+    let first = tags(JsonlOp::Untag, HARP, &["x"], 4);
+    let mut service = service(vec![
+        add(HARP, "Ship it", 1),
+        tags(JsonlOp::Tag, HARP, &["x"], 2),
+        first.clone(),
+        tags(JsonlOp::Tag, HARP, &["x"], 5),
+        first,
+    ]);
+    let report = import(&mut service);
+    let project = only(&report);
+    assert_eq!(project.records, 5);
+    assert_eq!(project.repeated, 1);
+    assert_eq!(project.applied, 4);
+    assert_eq!(
+        spelled(&state(&mut service, HARP).unwrap().tags),
+        strings(&["x"])
+    );
+}
+
+#[test]
+fn test_records_go_ignores_are_ignored() {
+    let mut service = service(vec![
+        status("never-added", "Done", "", 1),
+        add(HARP, "Ship it", 2),
+        record(JsonlOp::Remove, HARP, 3),
+        text(HARP, "After removal", 4),
+        record(JsonlOp::Remove, HARP, 5),
+    ]);
+    let report = import(&mut service);
+    let project = only(&report);
+    assert_eq!(project.ignored, 3);
+    assert_eq!(project.applied, 2);
+    assert!(project.lost.is_empty());
+    assert_eq!(state(&mut service, "never-added"), None);
+    assert_eq!(state(&mut service, HARP).unwrap().text, "Ship it");
+}
+
+#[test]
+fn test_a_retag_that_changes_nothing_records_nothing() {
+    let mut service = service(vec![
+        JsonlRecord {
+            tags: strings(&["x"]),
+            ..add(HARP, "Ship it", 1)
+        },
+        tags(JsonlOp::Tag, HARP, &["x", " "], 2),
+        tags(JsonlOp::Untag, HARP, &["absent"], 3),
+        tags(JsonlOp::Tag, HARP, &[" "], 4),
+    ]);
+    let report = import(&mut service);
+    assert_eq!(only(&report).unchanged, 3);
+    assert_eq!(only(&report).applied, 1);
+    assert_eq!(events(&mut service, HARP), 1);
+}
+
+// A logged tag that is not a tag in tagma's grammar is reported and left
+// out; the rest of its record imports. The fold still counts it.
+#[test]
+fn test_a_logged_tag_outside_the_grammar_is_reported_and_the_rest_imported() {
+    let mut service = service(numbered(vec![
+        JsonlRecord {
+            tags: strings(&["ok", "has space"]),
+            ..add(HARP, "Ship it", 1)
+        },
+        tags(JsonlOp::Tag, HARP, &["a/b", "y"], 2),
+        tags(JsonlOp::Tag, HARP, &["c/d"], 3),
+        tags(JsonlOp::Untag, HARP, &["has space"], 4),
+    ]));
+    let report = import(&mut service);
+    let project = only(&report);
+    let lost: Vec<(u32, String)> = project
+        .lost
+        .iter()
+        .map(|l| (l.line, l.why.to_string()))
+        .collect();
+    assert_eq!(lost.len(), 4, "{lost:?}");
+    assert_eq!(
+        lost.iter().map(|(line, _)| *line).collect::<Vec<_>>(),
+        [1, 2, 3, 4]
+    );
+    assert!(lost[0].1.contains("has space"), "{lost:?}");
+    assert!(project
+        .lost
+        .iter()
+        .all(|l| l.why.code() == crate::fakes::tag_code("tag-unparseable")));
+    let named: Vec<&str> = project.lost[0]
+        .why
+        .args()
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    assert_eq!(named, ["tag", "ext_err_txt"], "the why is the refusal's");
+    assert_eq!(project.applied, 2, "the add, and the tag of y");
+    assert_eq!(project.unchanged, 0, "each record changed Go's tags");
+    assert_eq!(
+        spelled(&state(&mut service, HARP).unwrap().tags),
+        ["ok", "y"]
+    );
+}
+
+// A logged tag in tagma's reserved namespaces (`tagma`, `tagma.*`) is
+// tagma's own config: carried on a task, a query reads it as config (a
+// `tagma.hide` hides tags from it, a `tagma.arity` collapses another task's
+// values). It is refused as a write refuses it, reported and left out; the
+// rest of its record imports.
+#[test]
+fn test_a_logged_tag_in_tagmas_namespace_is_reported_and_left_out() {
+    let mut service = service(numbered(vec![
+        JsonlRecord {
+            tags: strings(&["tagma.hide:\"x:*\"=true", "ok"]),
+            ..add(HARP, "Ship it", 1)
+        },
+        JsonlRecord {
+            tags: strings(&["x:k"]),
+            ..add("calm-bay", "Seen", 2)
+        },
+        add("dim-fern", "Configures", 3),
+        tags(JsonlOp::Tag, "dim-fern", &["tagma.arity:\"p:k\"=scalar"], 4),
+        JsonlRecord {
+            tags: strings(&["p:k=1", "p:k=2"]),
+            ..add("wry-moss", "Both", 5)
+        },
+    ]));
+    let report = import(&mut service);
+    let project = only(&report);
+    let lost: Vec<(u32, &str)> = project
+        .lost
+        .iter()
+        .map(|l| (l.line, l.why.code()))
+        .collect();
+    assert_eq!(
+        lost,
+        [
+            (1, crate::fakes::tag_code("tag-reserved-namespace")),
+            (4, crate::fakes::tag_code("tag-reserved-namespace")),
+        ]
+    );
+    assert_eq!(
+        project.applied, 4,
+        "the four adds; the retag leaves nothing"
+    );
+    assert_eq!(spelled(&state(&mut service, HARP).unwrap().tags), ["ok"]);
+    assert!(state(&mut service, "dim-fern").unwrap().tags.is_empty());
+    let harps = [HARP, "calm-bay", "dim-fern", "wry-moss"];
+    let held: Vec<(&str, Vec<tasks::Tag>)> = harps
+        .iter()
+        .map(|h| (*h, state(&mut service, h).unwrap().tags))
+        .collect();
+    let candidates = || held.iter().map(|(h, t)| (*h, t.as_slice()));
+    let schema = crate::rules::StoreRules::parsed(&[]);
+    let select = |query| crate::query::select(Some(query), candidates(), &schema).unwrap();
+    assert!(select("*:k").contains("calm-bay"), "nothing hides x:k");
+    assert!(select("p:k=1").contains("wry-moss"), "p:k is not scalar");
+}
+
+// A logged bare tag spelled as a query operator (`and`, `or`, `not`, in
+// any case) could never be queried; it is refused as a write refuses it,
+// reported and left out, on an add and on a retag; the rest imports. One
+// with a namespace or a value is a tag like any other.
+#[test]
+fn test_a_logged_operator_word_tag_is_reported_and_left_out() {
+    let mut service = service(numbered(vec![
+        JsonlRecord {
+            tags: strings(&["and", "ok", "x:not", "or=1"]),
+            ..add(HARP, "Ship it", 1)
+        },
+        tags(JsonlOp::Tag, HARP, &["NOT", "y"], 2),
+    ]));
+    let report = import(&mut service);
+    let project = only(&report);
+    let lost: Vec<(u32, &str)> = project
+        .lost
+        .iter()
+        .map(|l| (l.line, l.why.code()))
+        .collect();
+    assert_eq!(
+        lost,
+        [
+            (1, crate::fakes::tag_code("tag-operator-word")),
+            (2, crate::fakes::tag_code("tag-operator-word")),
+        ]
+    );
+    assert_eq!(project.applied, 2, "the add, and the tag of y");
+    assert_eq!(
+        spelled(&state(&mut service, HARP).unwrap().tags),
+        ["ok", "or=1", "x:not", "y"]
+    );
+}
+
+// The log keeps tags as strings, so it can hold one tag twice, spelled two
+// ways; an untag of one spelling leaves the other, and the task still
+// carries the tag. A real log has this (`sig:"a.b"` beside `sig:a.b`).
+#[test]
+fn test_a_task_keeps_a_tag_the_log_still_holds_under_another_spelling() {
+    let mut service = service(numbered(vec![
+        JsonlRecord {
+            tags: strings(&["sig:\"a.b\""]),
+            ..add(HARP, "Ship it", 1)
+        },
+        tags(JsonlOp::Tag, HARP, &["sig:a.b"], 2),
+        tags(JsonlOp::Untag, HARP, &["sig:a.b"], 3),
+        tags(JsonlOp::Untag, HARP, &["sig:\"a.b\""], 4),
+    ]));
+    let report = import(&mut service);
+    let project = only(&report);
+    assert!(project.lost.is_empty());
+    assert_eq!(
+        project.unchanged, 2,
+        "one tag, spelled again, then one of two"
+    );
+    assert_eq!(project.applied, 2, "the add, and the last untag");
+    assert!(state(&mut service, HARP).unwrap().tags.is_empty());
+}
+
+// ------------------------------------------------------------ anomalies
+
+#[test]
+fn test_a_displaced_duplicate_add_is_reported_and_its_records_go_to_the_first() {
+    let mut service = service(numbered(vec![
+        add(HARP, "First", 1),
+        JsonlRecord {
+            session: "other-session".to_string(),
+            ..add(HARP, "Second", 2)
+        },
+        status(HARP, "Done", "", 3),
+    ]));
+    let report = import(&mut service);
+    let project = only(&report);
+    assert_eq!(
+        project.lost,
+        [Lost {
+            line: 2,
+            op: "add",
+            harp_id: HARP.to_string(),
+            text: "Second".to_string(),
+            why: Why::Displaced,
+        }]
+    );
+    assert_eq!(project.tasks, 1);
+    let task = state(&mut service, HARP).unwrap();
+    assert_eq!(
+        (task.text.as_str(), task.status.as_str()),
+        ("First", "Done")
+    );
+    assert!(!report.complete());
+}
+
+#[test]
+fn test_a_repaired_duplicate_add_imports_under_its_fresh_harp() {
+    let displaced = add(HARP, "Second", 2);
+    let repair = JsonlRecord {
+        repair_of: anomaly_key(&displaced),
+        raw: "repair".to_string(),
+        ..add("calm-otter", "Second", 2)
+    };
+    let mut service = service(vec![add(HARP, "First", 1), displaced, repair]);
+    let report = import(&mut service);
+    let project = only(&report);
+    assert_eq!(project.repaired, 1);
+    assert_eq!(project.tasks, 2);
+    assert!(project.lost.is_empty());
+    assert!(report.complete());
+    let repaired = state(&mut service, "calm-otter").unwrap();
+    assert_eq!(repaired.text, "Second");
+    assert_eq!(repaired.created_at, at(2), "the displaced add's own time");
+}
+
+#[test]
+fn test_a_repair_found_after_its_anomaly_still_counts() {
+    // Every repair is collected before an anomaly is judged.
+    let displaced = add(HARP, "Second", 5);
+    let repair = JsonlRecord {
+        repair_of: anomaly_key(&displaced),
+        ..add("calm-otter", "Second", 9)
+    };
+    let mut service = service(vec![add(HARP, "First", 1), displaced, repair]);
+    assert_eq!(only(&import(&mut service)).repaired, 1);
+}
+
+#[test]
+fn test_a_record_to_a_task_that_was_not_imported_is_reported() {
+    let mut service = service(numbered(vec![
+        add(HARP, "   ", 1),
+        status(HARP, "Done", "", 2),
+        tags(JsonlOp::Tag, HARP, &["x"], 3),
+        record(JsonlOp::Remove, HARP, 4),
+        text(HARP, "after", 5),
+    ]));
+    let report = import(&mut service);
+    let project = only(&report);
+    let why: Vec<(u32, &Why)> = project.lost.iter().map(|l| (l.line, &l.why)).collect();
+    let Why::Refused(refused) = why[0].1 else {
+        panic!("refused: {why:?}");
+    };
+    assert_eq!(refused.code(), tasks::TaskRejection::TextRequired.code());
+    assert_eq!(
+        why[1..],
+        [
+            (2, &Why::TaskNotImported),
+            (3, &Why::TaskNotImported),
+            (4, &Why::TaskNotImported),
+        ]
+    );
+    assert_eq!(project.ignored, 1, "after its removal, Go ignores it too");
+    assert_eq!(project.tasks, 0);
+    assert_eq!(state(&mut service, HARP), None);
+}
+
+#[test]
+fn test_a_record_the_domain_refuses_is_reported_and_the_task_goes_on() {
+    let mut service = service(numbered(vec![
+        add(HARP, "Ship it", 1),
+        status(HARP, "Deferred", "", 2),
+        status(HARP, "@open", "", 3),
+        text(HARP, "Shipped", 4),
+    ]));
+    let report = import(&mut service);
+    let codes: Vec<(u32, &str)> = only(&report)
+        .lost
+        .iter()
+        .map(|l| match &l.why {
+            Why::Refused(r) => (l.line, r.code()),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    let reserved = tasks::TaskRejection::StatusReserved {
+        status: "@open".to_string(),
+    };
+    assert_eq!(
+        codes,
+        [
+            (2, tasks::TaskRejection::TriggerRequired.code()),
+            (3, reserved.code())
+        ]
+    );
+    let task = state(&mut service, HARP).unwrap();
+    assert_eq!(
+        (task.status.as_str(), task.text.as_str()),
+        ("To Do", "Shipped")
+    );
+}
+
+#[test]
+fn test_a_harp_a_task_here_already_holds_is_reported_and_left_alone() {
+    let mut tasks = Service::new(
+        FakeIdentity::default(),
+        FakeStores::default(),
+        FakeNames::of(&[HARP]),
+        FakeClock::default(),
+        FakeDelay::default(),
+    );
+    let native = NewTask {
+        text: "Native".to_string(),
+        ..NewTask::default()
+    };
+    ready(tasks.add(native)).unwrap();
+    let records = vec![add(HARP, "From Go", 1), text(HARP, "Go edit", 2)];
+    let mut service = over(tasks.stores, records);
+    let report = import(&mut service);
+    let lost: Vec<&Why> = only(&report).lost.iter().map(|l| &l.why).collect();
+    assert_eq!(lost, [&Why::HarpTaken, &Why::TaskNotImported]);
+    assert_eq!(state(&mut service, HARP).unwrap().text, "Native");
+}
+
+// ------------------------------------------------------------ re-running
+
+#[test]
+fn test_importing_again_duplicates_nothing() {
+    let records = vec![
+        add(HARP, "Ship it", 1),
+        tags(JsonlOp::Tag, HARP, &["x"], 2),
+        status(HARP, "Done", "", 3),
+    ];
+    let mut service = service(records);
+    import(&mut service);
+    let before = events(&mut service, HARP);
+    let again = import(&mut service);
+    let project = only(&again);
+    assert_eq!((project.applied, project.tasks, project.already), (0, 0, 3));
+    assert_eq!(events(&mut service, HARP), before);
+    assert!(again.complete());
+}
+
+#[test]
+fn test_an_import_that_stopped_part_way_resumes() {
+    let records = vec![
+        add(HARP, "Ship it", 1),
+        status(HARP, "In Progress", "", 2),
+        status(HARP, "Done", "", 3),
+    ];
+    let mut service = service(records);
+    service.retry = kernel_runner::backoff(
+        kernel_runner::KERNEL_RETRY.initial_backoff,
+        kernel_runner::KERNEL_RETRY.max_backoff,
+        1,
+    );
+    // The add lands, but its answer is lost and no retry is allowed: the
+    // import stops there.
+    service.stores.store = failing(&[Fault::LandsThenFails]);
+    let first = import(&mut service);
+    let stopped = only(&first);
+    assert_eq!(
+        stopped.failed.as_ref().map(|r| r.code()),
+        Some(code!("gave-up"))
+    );
+    assert_eq!(stopped.applied, 0);
+    assert!(!first.complete());
+    let second = import(&mut service);
+    let resumed = only(&second);
+    assert_eq!((resumed.already, resumed.applied, resumed.tasks), (1, 2, 0));
+    assert_eq!(state(&mut service, HARP).unwrap().status, "Done");
+    assert_eq!(events(&mut service, HARP), 3);
+}
+
+#[test]
+fn test_records_appended_since_are_imported_next_time() {
+    let mut service = service(vec![add(HARP, "Ship it", 1)]);
+    import(&mut service);
+    let log = service.jsonl_logs.logs.get_mut(PROJECT).unwrap();
+    log.push(status(HARP, "Done", "", 2));
+    let report = import(&mut service);
+    assert_eq!((only(&report).already, only(&report).applied), (1, 1));
+    assert_eq!(state(&mut service, HARP).unwrap().status, "Done");
+}
+
+#[test]
+fn test_a_record_imports_under_the_command_id_its_line_derives() {
+    let add = add(HARP, "Ship it", 1);
+    let id = record_command_id(&add.raw);
+    let mut service = service(vec![add]);
+    import(&mut service);
+    let cover = task_cover(HARP);
+    let stream = angzarr_embedded::StreamRef::try_from(&cover).unwrap();
+    let id = angzarr_embedded::angzarr_ports::Uuid::try_from(&id).unwrap();
+    let found = ready(angzarr_embedded::EventStore::find_command(
+        service.stores.store.inner(),
+        stream,
+        id,
+    ))
+    .unwrap();
+    assert_eq!(found.len(), 1);
+}
+
+#[test]
+fn test_a_command_id_is_the_lines_and_only_its() {
+    assert_eq!(record_command_id("a"), record_command_id("a"));
+    assert_ne!(record_command_id("a"), record_command_id("b"));
+    assert_ne!(
+        record_command_id("a"),
+        angzarr_embedded::ids::fact_command_id("a"),
+        "prefixed, so no other fact's id"
+    );
+}
+
+#[test]
+fn test_a_command_id_keeps_the_prefix_imported_stores_already_hold() {
+    assert_eq!(
+        record_command_id("a"),
+        angzarr_embedded::ids::fact_command_id("ctxloom-go-task-log:a"),
+        "a store imported before the rename finds its records again"
+    );
+}
+
+// ------------------------------------------------------------ projects
+
+#[test]
+fn test_every_project_with_a_log_is_imported_in_turn() {
+    let mut service = service(vec![add(HARP, "One", 1)]);
+    service.jsonl_logs.logs.insert(
+        "able-calm-fox".to_string(),
+        vec![add("calm-otter", "Two", 1)],
+    );
+    let report = import(&mut service);
+    let ids: Vec<&str> = report
+        .projects
+        .iter()
+        .map(|p| p.project_id.as_str())
+        .collect();
+    assert_eq!(ids, ["able-calm-fox", PROJECT]);
+    assert_eq!(service.jsonl_logs.read, ["able-calm-fox", PROJECT]);
+    assert_eq!(
+        service.identity.pins,
+        [Some("able-calm-fox".to_string()), Some(PROJECT.to_string())]
+    );
+    assert_eq!(state(&mut service, "calm-otter").unwrap().text, "Two");
+}
+
+#[test]
+fn test_a_named_project_alone_is_imported() {
+    let mut service = service(vec![add(HARP, "One", 1)]);
+    service.jsonl_logs.logs.insert(
+        "able-calm-fox".to_string(),
+        vec![add("calm-otter", "Two", 1)],
+    );
+    let request = ImportRequest {
+        project: Some(PROJECT.to_string()),
+    };
+    let report = ready(service.import(request)).unwrap();
+    assert_eq!(only(&report).project_id, PROJECT);
+    assert_eq!(service.jsonl_logs.read, [PROJECT]);
+}
+
+#[test]
+fn test_a_named_project_without_a_log_fails() {
+    let mut service = service(Vec::new());
+    let request = ImportRequest {
+        project: Some("tpyo".to_string()),
+    };
+    let report = ready(service.import(request)).unwrap();
+    let failed = only(&report).failed.clone().expect("failed");
+    assert_eq!(failed.code(), code!("no-jsonl-log"));
+    assert_eq!(
+        failed.english(),
+        "Go taskloom has no task log for project tpyo"
+    );
+    assert!(matches!(&failed.args()[..], [("project", Arg::Str(s))] if s == "tpyo"));
+    assert!(!report.complete());
+}
+
+#[test]
+fn test_an_empty_log_opens_no_store() {
+    let mut service = service(Vec::new());
+    let report = import(&mut service);
+    assert_eq!(only(&report).records, 0);
+    assert!(only(&report).failed.is_none());
+    assert!(service.identity.pins.is_empty());
+    assert!(service.stores.opened.is_empty());
+    assert!(report.complete());
+}
+
+#[test]
+fn test_logs_that_cannot_be_listed_fail_the_import() {
+    let mut service = service(Vec::new());
+    service.jsonl_logs.projects_fail = Some(Report::new(PORT_FAILURE));
+    let error = ready(service.import(ImportRequest::default())).unwrap_err();
+    assert_eq!(error.code(), PORT_FAILURE);
+}
+
+#[test]
+fn test_a_log_that_cannot_be_read_fails_its_project() {
+    let mut service = service(vec![add(HARP, "One", 1)]);
+    service.jsonl_logs.records_fail = Some(Report::new(PORT_FAILURE));
+    let report = import(&mut service);
+    assert_eq!(
+        only(&report).failed.as_ref().map(|r| r.code()),
+        Some(PORT_FAILURE)
+    );
+    assert!(service.stores.opened.is_empty());
+}
+
+#[test]
+fn test_a_project_that_cannot_resolve_fails() {
+    let mut service = service(vec![add(HARP, "One", 1)]);
+    service.identity.fails = Some(Report::new(PORT_FAILURE));
+    let report = import(&mut service);
+    assert_eq!(
+        only(&report).failed.as_ref().map(|r| r.code()),
+        Some(PORT_FAILURE)
+    );
+}
+
+#[test]
+fn test_a_store_that_does_not_open_fails_the_project() {
+    let mut service = service(vec![add(HARP, "One", 1)]);
+    service.stores.open_fails = true;
+    let report = import(&mut service);
+    assert_eq!(
+        only(&report).failed.as_ref().map(|r| r.code()),
+        Some(store_unavailable().as_str())
+    );
+}
+
+#[test]
+fn test_the_import_future_is_send() {
+    fn is_send<T: Send>(_: &T) {}
+    let mut service = service(Vec::new());
+    is_send(&service.import(ImportRequest::default()));
+}
+
+// ------------------------------------------------------------ keys
+
+#[test]
+fn test_the_anomaly_key_is_gos() {
+    // The anomaly key the log's repair wrote for the same event.
+    let mut record = add(HARP, "Write the tour", 0);
+    record.ts = Timestamp {
+        seconds: 1_775_046_645,
+        nanos: 123_456_000,
+    };
+    assert_eq!(anomaly_key(&record), "ac654bfdf930");
+    record.text = " padded ".to_string();
+    record.session = String::new();
+    record.ts.nanos = 0;
+    assert_eq!(anomaly_key(&record), "f44d6594623d");
+}
+
+#[test]
+fn test_a_step_is_a_command_or_why_not() {
+    // The fold's verdicts, apart from any store.
+    let records = vec![
+        add(HARP, "Ship it", 1),
+        tags(JsonlOp::Untag, HARP, &["x"], 2),
+    ];
+    let mut fold = super::Fold::new(&records);
+    assert!(matches!(fold.step(&records[0]), Step::Run(_)));
+    assert_eq!(fold.step(&records[1]), Step::Unchanged);
+    assert_eq!(fold.step(&record(JsonlOp::Text, "other", 3)), Step::Ignored);
+}
+
+// ------------------------------------------------------------ reasons
+
+#[test]
+fn test_each_reason_renders_its_english_and_a_refusal_is_its_rejection() {
+    let english: Vec<String> = [Why::Displaced, Why::HarpTaken, Why::TaskNotImported]
+        .iter()
+        .map(|w| w.english())
+        .collect();
+    assert_eq!(
+        english,
+        [
+            "another task holds this harp in Go's log: run Go's `taskloom repair`, then import again",
+            "a task not imported from this record already holds this harp",
+            "its task was not imported",
+        ]
+    );
+    let reserved = tasks::TaskRejection::StatusReserved {
+        status: "@x".to_string(),
+    };
+    let refused = Why::Refused(Report::of(&reserved));
+    assert_eq!(
+        refused.english(),
+        "the status @x is not allowed: '@' is reserved for status classes"
+    );
+    assert_eq!(refused.code(), reserved.code());
+    assert_eq!(refused.args().len(), 1);
+    assert!(Why::Displaced.args().is_empty());
+}
+
+/// Each tag in its canonical spelling.
+fn spelled(tags: &[tasks::Tag]) -> Vec<String> {
+    tags.iter().map(ToString::to_string).collect()
+}
+
+// An import returns the dead letters its kernel calls answered (here the
+// test hands it one, as the tasks domain can be made to produce none),
+// each once.
+#[test]
+fn test_an_import_returns_the_dead_letters_written_while_it_ran() {
+    let mut service = service(vec![add("swift-amber", "Ship it", 1)]);
+    service
+        .dead_letters
+        .push(crate::dead_letter_sample("import"));
+    let report = import(&mut service);
+    assert_eq!(report.dead_letters, [crate::dead_letter_sample("import")]);
+    assert!(import(&mut service).dead_letters.is_empty(), "each once");
+}
+
+/// angzarr-ports' code for a store that could not say: its code, whatever
+/// the cause.
+fn store_unavailable() -> String {
+    use angzarr_embedded::angzarr_ports::{Cause, StoreError};
+    StoreError::Unavailable(Cause::new("", []))
+        .code()
+        .to_string()
+}

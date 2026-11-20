@@ -1,0 +1,151 @@
+[workspace]
+resolver = "2"
+members = ["crates/*/*/*"]
+
+[workspace.package]
+edition = "2021"
+# The newest any dependency needs: angzarr-build (and its angzarr-codegen),
+# a build dependency, needs 1.96.
+rust-version = "1.96"
+license = "Apache-2.0 OR BSD-3-Clause"
+publish = false
+
+[workspace.dependencies]
+# prost must be the version angzarr-proto generates for, so ctxloom's
+# messages and angzarr's are built by one prost.
+prost = "0.14"
+prost-types = "0.14"
+
+# angzarr-build (the markup domain layer generator, with angzarr-codegen) is
+# a crate of the angzarr workspace (github.com/angzarr-io/angzarr), pinned by full commit, so a fresh clone builds with no
+# sibling checkouts; bumps are deliberate commits. To build against local
+# checkouts while changing them together, see "Co-developing angzarr or
+# tagma" in CLAUDE.md. Every angzarr crate below is at the same commit, so the
+# graph holds one angzarr-proto and one angzarr-diagnostic even counting build
+# dependencies.
+angzarr-build = { git = "https://github.com/angzarr-io/angzarr", rev = "52d48ccf4005da563fcf63c4e7babe66e281e53b" }
+
+# angzarr-embedded, angzarr's in-app runtime, taskloom's
+# (taskloom-on-angzarr-embedded.plan.md). Pinned by rev on angzarr's main
+# (the router, angzarr-proto, angzarr-ports and angzarr-diagnostic are its
+# sibling crates at that same commit): the kernel at
+# its crate root, its codes `angzarr-embedded-*` and a condition the spec
+# keys coded under its key; a catch-up's step one moment of the store,
+# its purges told from the covers its own read listed; and angzarr-proto,
+# angzarr-ports, angzarr-diagnostic and, behind its `sqlite` feature, angzarr-store-sqlite
+# re-exported, so the graph holds one of each; and, behind its
+# `test-support` feature, the test support the tests share
+# (`angzarr_embedded::testing`). angzarr-proto and angzarr-store-sqlite are
+# reached through those re-exports (`angzarr_embedded::angzarr_proto`,
+# `angzarr_embedded::angzarr_store_sqlite`) and not pinned here.
+angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr", rev = "52d48ccf4005da563fcf63c4e7babe66e281e53b" }
+angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr", rev = "52d48ccf4005da563fcf63c4e7babe66e281e53b" }
+# angzarr core's shared crates, at the commit angzarr-embedded is at, so the graph holds one of each. angzarr-diagnostic, the coded
+# error trait every error here implements, is pinned directly rather than
+# through angzarr-embedded's re-export so the crates that have no use for
+# the kernel do not link it; with its `build` feature, it is every crate's
+# build dependency that writes the crate's catalog under its name.
+# angzarr-ports, angzarr's storage contract, is pinned directly for its
+# `memory` feature (the in-memory store the tests run on), which the
+# re-export cannot turn on.
+angzarr-diagnostic = { git = "https://github.com/angzarr-io/angzarr", rev = "52d48ccf4005da563fcf63c4e7babe66e281e53b" }
+angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "52d48ccf4005da563fcf63c4e7babe66e281e53b" }
+# angzarr-yaml, the one reader for every Rust config (owner ruling,
+# 2026-10-31): versioned documents (`schema_version`, migrated on read,
+# a newer one refused), a strict serde decode with key paths, and edits in
+# place that keep comments. tasks-config and project-registry read through
+# it. Its only dependencies are angzarr-diagnostic and serde.
+angzarr-yaml = { git = "https://github.com/angzarr-io/angzarr", rev = "52d48ccf4005da563fcf63c4e7babe66e281e53b" }
+# angzarr-presentation, presentation at the driving edge for any domain
+# (JSON or UTF-8 text, diagnostics rendered from the crates' catalogs,
+# display-width text helpers), moved from this repository into angzarr core
+# (decision 36, 2026-11-02); its codes are `angzarr-presentation-*`. Its
+# `test-support` feature renders a diagnostic's English from catalogs
+# (`english_for!`), for the tests that hold it to an expected text.
+angzarr-presentation = { git = "https://github.com/angzarr-io/angzarr", rev = "52d48ccf4005da563fcf63c4e7babe66e281e53b" }
+# angzarr-store-transfer, a store carried across a proto generation
+# (store-export-import.plan.md): every row of a store written as JSONL in
+# proto3's JSON mapping, its payloads expanded through the app's
+# descriptors, and the re-fold digest's lines; `taskloom manage store
+# export` and `fold-digest` write them. At the core rev of the crates above.
+angzarr-store-transfer = { git = "https://github.com/angzarr-io/angzarr", rev = "52d48ccf4005da563fcf63c4e7babe66e281e53b" }
+# The platform crates, moved from this repository into the angzarr workspace
+# (decision 36): `os` (everything that differs between operating systems),
+# `file-system` (the seam all file I/O goes through) and `file-lock`
+# (advisory locks over both). At the same angzarr commit as the crates above.
+os = { git = "https://github.com/angzarr-io/angzarr", rev = "52d48ccf4005da563fcf63c4e7babe66e281e53b" }
+file-system = { git = "https://github.com/angzarr-io/angzarr", rev = "52d48ccf4005da563fcf63c4e7babe66e281e53b" }
+file-lock = { git = "https://github.com/angzarr-io/angzarr", rev = "52d48ccf4005da563fcf63c4e7babe66e281e53b" }
+tasks-proto = { path = "crates/core/wire/tasks-proto" }
+tasks = { path = "crates/core/domain/tasks" }
+task-lists = { path = "crates/core/read-model/task-lists" }
+task-priority = { path = "crates/core/read-model/task-priority" }
+plans-application = { path = "crates/core/application/plans-application" }
+kernel-runner = { path = "crates/core/application/kernel-runner" }
+ports = { path = "crates/core/ports/ports" }
+tag-rules = { path = "crates/core/application/tag-rules" }
+tasks-application = { path = "crates/core/application/tasks-application" }
+project-application = { path = "crates/core/application/project-application" }
+project-registry = { path = "crates/adapters/driven/project-registry" }
+harp-names = { path = "crates/adapters/driven/harp-names" }
+task-store-sqlite = { path = "crates/adapters/driven/task-store-sqlite" }
+jsonl-task-log = { path = "crates/adapters/driven/jsonl-task-log" }
+tasks-config = { path = "crates/adapters/driven/tasks-config" }
+plan-files = { path = "crates/adapters/driven/plan-files" }
+system = { path = "crates/adapters/driven/system" }
+tasks-cli = { path = "crates/adapters/driving/tasks-cli" }
+tasks-lib = { path = "crates/root/lib/tasks-lib" }
+tasks-presentation = { path = "crates/adapters/driving/tasks-presentation" }
+tasks-watch = { path = "crates/adapters/driving/tasks-watch" }
+project-cli = { path = "crates/adapters/driving/project-cli" }
+plans-cli = { path = "crates/adapters/driving/plans-cli" }
+store-cli = { path = "crates/adapters/driving/store-cli" }
+
+# tagma: the tag grammar and query engine (tagma-core), with the SemVer
+# 2.0.0 comparator a `type=semver` target orders by (`tagma_core::semver`),
+# and its Tag message (tagma-proto), pinned by full commit; bumps are
+# deliberate commits.
+tagma-core = { git = "https://github.com/benjaminabbitt/tagma", rev = "021e8b00f6343e188fa579ee70c9cd4a5ffce4bc" }
+tagma-proto = { git = "https://github.com/benjaminabbitt/tagma", rev = "021e8b00f6343e188fa579ee70c9cd4a5ffce4bc" }
+
+# Task and project ids: harp's word lists, as Go's harp ports them.
+harp-core = { git = "https://github.com/benjaminabbitt/harp", rev = "e27196f5a425ffcf8e443aab95d2bf085cd2b134" }
+
+# Third-party, for the adapters and the composition root.
+# The watch cursor's text: base64url of JSON (already in the graph).
+base64 = "0.22"
+clap = { version = "4.5", features = ["derive", "string"] }
+# The catalogs' tests read each catalog's messages and variables.
+fluent-syntax = "0.11"
+fs4 = "1.1"
+# `#[mutants::skip]`, for a mutant judged equivalent. The core takes it as a
+# dev-dependency, behind `cfg_attr(test, ...)`, so it links nothing new.
+mutants = "0.0.4"
+rand = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+time = { version = "0.3", features = ["formatting", "parsing"] }
+tokio = { version = "1", features = ["rt", "time"] }
+# The one read of a store file before it is opened (task-store-sqlite's
+# generation probe): the ledger and the first event page, on a connection
+# that changes nothing. The same sqlx angzarr-store-sqlite links (0.8, the
+# sqlite driver on tokio), so the lock holds one.
+sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio"] }
+# Priority's formula evaluator: expr-lang's Rust port, so the formulas Go's
+# expr-lang evaluates mean the same here. Pinned exactly, at 2.1.0
+# (2026-08-21). No default features: the formulas are arithmetic, and the
+# rest (time zones, JSON, regex) would link crates they never use.
+expr-lang = { version = "=2.1.0", default-features = false }
+uuid = { version = "1", features = ["v5", "v7"] }
+
+[workspace.lints.clippy]
+invisible_characters = "deny"
+unicode_not_nfc = "deny"
+non_ascii_literal = "deny"
+# Complexity, at clippy's defaults except nesting, whose threshold is in
+# clippy.toml (and crates/core/clippy.toml, which shadows it there).
+cognitive_complexity = "warn"
+too_many_lines = "warn"
+excessive_nesting = "warn"
+

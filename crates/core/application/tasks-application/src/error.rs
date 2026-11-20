@@ -1,0 +1,393 @@
+//! Why a use case did not complete.
+
+use std::fmt;
+
+use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
+
+use crate::DeadLetter;
+
+/// Why a use case did not complete. A wrapper of another error
+/// ([`AppError::Rejected`], [`AppError::TagRefused`], [`AppError::Failed`],
+/// [`AppError::Identity`], [`AppError::Configuration`],
+/// [`AppError::TagQuery`], [`AppError::Prune`], [`AppError::Priority`],
+/// [`AppError::DeadLettered`]) is that error's diagnostic: its code, args
+/// and English.
+#[derive(Clone, PartialEq, Debug)]
+pub enum AppError {
+    /// The domain refused the command: tell the person.
+    Rejected(Report),
+    /// A tag given to a write was refused before any command was sent
+    /// ([`crate::TagRefusal`]): tell the person.
+    TagRefused(Report),
+    /// The store or the kernel failed in a way a retry will not mend.
+    Failed(Report),
+    /// The project could not be resolved.
+    Identity(Report),
+    /// The configuration could not be read, or its tag schema is malformed.
+    Configuration(Report),
+    /// A malformed tag query ([`crate::query::QueryError`]).
+    TagQuery(Report),
+    /// A prune refused before it read anything ([`crate::PruneRefusal`]).
+    Prune(Report),
+    /// Every attempt the retry budget allows failed with a retryable error;
+    /// `error` is the last.
+    GaveUp { attempts: u32, error: Report },
+    /// Every freshly minted task id was already taken.
+    HarpsExhausted { attempts: u32 },
+    /// A task the store accepted is not there when read: a retry answered
+    /// DUPLICATE, which recorded nothing, whose task was removed and purged
+    /// since it landed, so the write did land. A write that commits answers
+    /// its task from the commit itself, never from a read.
+    Vanished { harp_id: String },
+    /// A change to an existing task where the work root has no project.
+    NoProject,
+    /// A status filter's value starting with `@` that names no class.
+    UnknownStatusClass { status: String },
+    /// A sort taskloom does not know.
+    UnknownSort { sort: String },
+    /// A value given blank (`field` names it, as a request does: `status`,
+    /// `trigger`, `origin_session`, `request_id`, `term`, `tag_query`,
+    /// `sort`, or `limit`, given as 0): a value given is never read as one left out.
+    Blank { field: &'static str },
+    /// A status change giving a trigger and clearing the trigger at once.
+    TriggerAndClear,
+    /// An add given a request id each of whose `probes` derived harps
+    /// ([`crate::KEYED_PROBES`]) holds a task another request added: refused,
+    /// never merged into any of their streams.
+    AddRequestIdCollides { request_id: String, probes: u32 },
+    /// Priority could not be derived (`task_priority::PriorityError`): a
+    /// formula that does not compile, or a task it cannot score.
+    Priority(Report),
+    /// Ids asked for that no task holds: every one of them.
+    NotFound { harp_ids: Vec<String> },
+    /// Ids held in more than one project, read across projects: each with
+    /// the projects holding it.
+    Ambiguous { held: Vec<(String, Vec<String>)> },
+    /// A permit not spelled as one: a namespace (`area:`), a namespace's
+    /// key (`area:cli`) or a flat tag (`urgent`), with no value, outside
+    /// tagma's namespace, and not a query operator.
+    PermitMalformed { permit: String },
+    /// A revoke of what is not among the project's permits (a key of an
+    /// open namespace among them: its namespace's permit admits it).
+    PermitNotDeclared { permit: String },
+    /// A revoke of a permit tasks still carry a tag under: every one of
+    /// them, by harp id.
+    PermitInUse {
+        permit: String,
+        harp_ids: Vec<String>,
+    },
+    /// `error`, from a write whose kernel calls answered `dead_letters`
+    /// (never none): `error`'s diagnostic, its code, args and English,
+    /// with the letters beside it for the driving adapter to say.
+    DeadLettered {
+        error: Box<AppError>,
+        dead_letters: Vec<DeadLetter>,
+    },
+}
+
+impl AppError {
+    /// The dead letters the kernel calls of the use case that failed
+    /// with this answered: none for most.
+    pub fn dead_letters(&self) -> &[DeadLetter] {
+        match self {
+            AppError::DeadLettered { dead_letters, .. } => dead_letters,
+            _ => &[],
+        }
+    }
+
+    /// The process exit code of this failure, by the owner's rule: 2 when
+    /// the request is invalid on its own content (a tag no permit admits, an
+    /// out-of-range or unreadable value, a missing trigger, a blank, a
+    /// malformed query or permit), however late the use case found it;
+    /// 1 when it ran against state and the answer was negative (no such
+    /// task, a permit still in use, a store that failed).
+    pub fn exit_code(&self) -> u8 {
+        match self {
+            AppError::DeadLettered { error, .. } => error.exit_code(),
+            AppError::Rejected(cause) => {
+                let (removed, exists) = (
+                    tasks::TaskRejection::Removed {
+                        harp_id: String::new(),
+                    },
+                    tasks::TaskRejection::TaskExists {
+                        harp_id: String::new(),
+                    },
+                );
+                let negative = [
+                    tasks::TaskRejection::NoTask.code(),
+                    removed.code(),
+                    exists.code(),
+                ];
+                if negative.contains(&cause.code()) {
+                    1
+                } else {
+                    2
+                }
+            }
+            AppError::TagRefused(_)
+            | AppError::TagQuery(_)
+            | AppError::Prune(_)
+            | AppError::UnknownStatusClass { .. }
+            | AppError::UnknownSort { .. }
+            | AppError::Blank { .. }
+            | AppError::TriggerAndClear
+            | AppError::PermitMalformed { .. } => 2,
+            AppError::Failed(_)
+            | AppError::Identity(_)
+            | AppError::Configuration(_)
+            | AppError::GaveUp { .. }
+            | AppError::HarpsExhausted { .. }
+            | AppError::Vanished { .. }
+            | AppError::NoProject
+            | AppError::AddRequestIdCollides { .. }
+            | AppError::Priority(_)
+            | AppError::NotFound { .. }
+            | AppError::Ambiguous { .. }
+            | AppError::PermitNotDeclared { .. }
+            | AppError::PermitInUse { .. } => 1,
+        }
+    }
+
+    /// Whether this is the domain's refusal of a task that is not there
+    /// (`tasks::TaskRejection::NoTask`), with dead letters or without: what
+    /// a driving adapter asks, which sees no domain.
+    pub fn is_no_task(&self) -> bool {
+        self.code() == tasks::TaskRejection::NoTask.code()
+    }
+
+    /// This error, carrying `dead_letters` when there are any.
+    fn with_dead_letters(self, dead_letters: Vec<DeadLetter>) -> AppError {
+        match dead_letters.is_empty() {
+            true => self,
+            false => AppError::DeadLettered {
+                error: Box::new(self),
+                dead_letters,
+            },
+        }
+    }
+}
+
+/// A command not decided, as a use case fails with it.
+impl From<tag_rules::RulesRefusal> for AppError {
+    fn from(refusal: tag_rules::RulesRefusal) -> Self {
+        AppError::TagRefused(Report::of(&refusal))
+    }
+}
+
+impl From<kernel_runner::Unrun> for AppError {
+    fn from(unrun: kernel_runner::Unrun) -> AppError {
+        match unrun {
+            kernel_runner::Unrun::GaveUp { attempts, error } => {
+                AppError::GaveUp { attempts, error }
+            }
+            kernel_runner::Unrun::Failed(error) => AppError::Failed(error),
+        }
+    }
+}
+
+/// A domain's refusal of a command, as a use case fails with it: its
+/// report (the rejection's key and args).
+impl<R> From<kernel_runner::Refusal<R>> for AppError {
+    fn from(refusal: kernel_runner::Refusal<R>) -> AppError {
+        AppError::Rejected(refusal.report)
+    }
+}
+
+/// `result`, its error carrying `dead_letters`, taken, when there are any
+/// ([`AppError::DeadLettered`]): a failure is said with them, as a success
+/// is.
+pub(crate) fn carrying<T>(
+    result: Result<T, AppError>,
+    dead_letters: &mut Vec<DeadLetter>,
+) -> Result<T, AppError> {
+    result.map_err(|error| error.with_dead_letters(std::mem::take(dead_letters)))
+}
+
+/// Each of `ids`, quoted, comma-separated.
+fn quoted(ids: &[String]) -> String {
+    ids.iter()
+        .map(|id| format!("{id:?}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Each id held twice and the projects that hold it.
+fn held_in(held: &[(String, Vec<String>)]) -> String {
+    held.iter()
+        .map(|(id, projects)| format!("{id:?} in {}", projects.join(", ")))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+impl fmt::Display for AppError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        angzarr_diagnostic::display(self, f)
+    }
+}
+
+impl Diagnostic for AppError {
+    fn code(&self) -> &str {
+        match self {
+            AppError::Rejected(cause)
+            | AppError::TagRefused(cause)
+            | AppError::Failed(cause)
+            | AppError::Identity(cause)
+            | AppError::Configuration(cause)
+            | AppError::TagQuery(cause)
+            | AppError::Prune(cause)
+            | AppError::Priority(cause) => cause.code(),
+            AppError::DeadLettered { error, .. } => error.code(),
+            AppError::GaveUp { .. } => code!("gave-up"),
+            AppError::HarpsExhausted { .. } => code!("harps-exhausted"),
+            AppError::Vanished { .. } => code!("vanished"),
+            AppError::NoProject => code!("no-project"),
+            AppError::UnknownStatusClass { .. } => code!("unknown-status-class"),
+            AppError::UnknownSort { .. } => code!("unknown-sort"),
+            AppError::Blank { .. } => code!("blank"),
+            AppError::TriggerAndClear => code!("trigger-and-clear"),
+            AppError::AddRequestIdCollides { .. } => code!("add-request-id-collides"),
+            AppError::NotFound { .. } => code!("not-found"),
+            AppError::Ambiguous { .. } => code!("ambiguous"),
+            AppError::PermitMalformed { .. } => code!("permit-malformed"),
+            AppError::PermitNotDeclared { .. } => code!("permit-not-declared"),
+            AppError::PermitInUse { .. } => code!("permit-in-use"),
+        }
+    }
+
+    fn args(&self) -> Vec<(&str, Arg)> {
+        match self {
+            AppError::Rejected(cause)
+            | AppError::TagRefused(cause)
+            | AppError::Failed(cause)
+            | AppError::Identity(cause)
+            | AppError::Configuration(cause)
+            | AppError::TagQuery(cause)
+            | AppError::Prune(cause)
+            | AppError::Priority(cause) => cause.args(),
+            AppError::DeadLettered { error, .. } => error.args(),
+            AppError::GaveUp { attempts, error } => vec![
+                ("attempts", (*attempts).into()),
+                ("error", Arg::nested(error)),
+            ],
+            AppError::HarpsExhausted { attempts } => vec![("attempts", (*attempts).into())],
+            AppError::Vanished { harp_id } => vec![("harp_id", harp_id.as_str().into())],
+            AppError::NoProject | AppError::TriggerAndClear => Vec::new(),
+            AppError::AddRequestIdCollides { request_id, probes } => vec![
+                ("request_id", request_id.as_str().into()),
+                ("probes", (*probes).into()),
+            ],
+            AppError::UnknownStatusClass { status } => vec![
+                ("status", status.as_str().into()),
+                ("classes", crate::read::classes().into()),
+            ],
+            AppError::UnknownSort { sort } => vec![("sort", sort.as_str().into())],
+            AppError::Blank { field } => vec![("field", (*field).into())],
+            AppError::NotFound { harp_ids } => vec![
+                ("harp_ids", quoted(harp_ids).into()),
+                ("count", harp_ids.len().into()),
+            ],
+            AppError::Ambiguous { held } => {
+                vec![("held", held_in(held).into()), ("count", held.len().into())]
+            }
+            AppError::PermitMalformed { permit } | AppError::PermitNotDeclared { permit } => {
+                vec![("permit", permit.as_str().into())]
+            }
+            AppError::PermitInUse { permit, harp_ids } => vec![
+                ("permit", permit.as_str().into()),
+                ("harp_ids", quoted(harp_ids).into()),
+                ("count", harp_ids.len().into()),
+            ],
+        }
+    }
+}
+
+/// This crate's en-US messages, its name first: what an edge's catalog
+/// embeds to render its diagnostics.
+pub const EN_US: (&str, &str) = (
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
+);
+
+/// The en-US catalogs of every diagnostic a use case returns but its
+/// adapters': the domain's rejections and this crate's errors.
+pub const CATALOGS: [(&str, &str); 4] =
+    [tasks::EN_US, task_priority::EN_US, tag_rules::EN_US, EN_US];
+
+/// One value of every error this crate defines, and of every reason an
+/// import gives for leaving a record behind (not the wrappers, whose codes
+/// are their causes'), for the catalog test.
+#[cfg(any(test, feature = "test-support"))]
+pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
+    let mut samples: Vec<Box<dyn Diagnostic>> = vec![
+        Box::new(AppError::GaveUp {
+            attempts: 10,
+            error: Report::new("x-busy"),
+        }),
+        Box::new(AppError::HarpsExhausted { attempts: 100 }),
+        Box::new(AppError::Vanished {
+            harp_id: "swift-amber".to_string(),
+        }),
+        Box::new(AppError::NoProject),
+        Box::new(crate::import::NoJsonlLog {
+            project: "jolly-mute-magma".to_string(),
+        }),
+        Box::new(AppError::UnknownStatusClass {
+            status: "@done".to_string(),
+        }),
+        Box::new(AppError::UnknownSort {
+            sort: "age".to_string(),
+        }),
+        Box::new(AppError::Blank { field: "trigger" }),
+        Box::new(AppError::TriggerAndClear),
+        Box::new(AppError::AddRequestIdCollides {
+            request_id: "r-1".to_string(),
+            probes: 8,
+        }),
+        Box::new(AppError::NotFound {
+            harp_ids: vec!["swift-amber".to_string(), "calm-otter".to_string()],
+        }),
+        Box::new(AppError::Ambiguous {
+            held: vec![(
+                "swift-amber".to_string(),
+                vec!["jolly-mute-magma".to_string(), "brisk-tall-oak".to_string()],
+            )],
+        }),
+        Box::new(AppError::PermitMalformed {
+            permit: "area:cli=x".to_string(),
+        }),
+        Box::new(AppError::PermitNotDeclared {
+            permit: "sig:".to_string(),
+        }),
+        Box::new(AppError::PermitInUse {
+            permit: "area:cli".to_string(),
+            harp_ids: vec!["swift-amber".to_string(), "calm-otter".to_string()],
+        }),
+        Box::new(crate::Why::Displaced),
+        Box::new(crate::Why::HarpTaken),
+        Box::new(crate::Why::TaskNotImported),
+    ];
+    samples.extend(
+        crate::lint::samples()
+            .into_iter()
+            .map(|f| Box::new(f) as Box<dyn Diagnostic>),
+    );
+    samples.extend(
+        crate::prune::samples()
+            .into_iter()
+            .map(|p| Box::new(p) as Box<dyn Diagnostic>),
+    );
+    samples.extend(
+        crate::priority::samples()
+            .into_iter()
+            .map(|n| Box::new(n) as Box<dyn Diagnostic>),
+    );
+    samples.push(Box::new(crate::query::QueryError {
+        query: "and".to_string(),
+        postfix: "x".to_string(),
+    }));
+    samples
+}
+
+#[cfg(test)]
+#[path = "error.test.rs"]
+mod tests;

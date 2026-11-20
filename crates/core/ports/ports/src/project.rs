@@ -1,0 +1,183 @@
+//! What a directory's project identity rests on, and the changes that
+//! repair or rebind it, and whether a project's database is sound: the
+//! ports behind the `project` commands. And a project's database written
+//! out whole, behind `store export`.
+
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use angzarr_diagnostic::Report;
+
+/// Where a resolved project id came from, in the order resolution tries
+/// them.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum IdSource {
+    /// `--project`.
+    Flag,
+    /// CTXLOOM_PROJECT_ID.
+    Environment,
+    /// `<root>/.project-id`.
+    Marker,
+    /// The older `<root>/.ctxloom/project-id`.
+    LegacyMarker,
+    /// The registry's entry for the root's path.
+    Registry,
+}
+
+impl IdSource {
+    /// A stable name, for output.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            IdSource::Flag => "flag",
+            IdSource::Environment => "environment",
+            IdSource::Marker => "marker",
+            IdSource::LegacyMarker => "legacy-marker",
+            IdSource::Registry => "registry",
+        }
+    }
+}
+
+/// One entry of the registry, and what is at its path now.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Registered {
+    pub id: String,
+    /// The path as the registry holds it.
+    pub path: String,
+    /// The path compared canonical, as resolution compares it.
+    pub canonical: String,
+    /// Whether a directory is at the path now.
+    pub exists: bool,
+}
+
+/// What the identity of the directory a command runs in rests on: read,
+/// never written.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Survey {
+    /// The work root, canonical.
+    pub work_root: String,
+    /// Where its identity is kept, canonical: the work root, or a linked
+    /// worktree's primary checkout when the worktree has no marker of its
+    /// own.
+    pub root: String,
+    /// The id resolution gives, and where it came from; `None` when it
+    /// finds none (a write would mint one).
+    pub resolved: Option<(String, IdSource)>,
+    /// The id in `<root>/.project-id`, if it holds one.
+    pub marker: Option<String>,
+    /// The id in the older `<root>/.ctxloom/project-id`, if it holds one.
+    pub legacy_marker: Option<String>,
+    /// Every registry entry, in the registry's order.
+    pub registry: Vec<Registered>,
+    /// The ids with a directory under [`Survey::projects`], sorted.
+    pub databases: Vec<String>,
+    /// The directory projects' databases are kept in
+    /// (`~/.ctxloom/projects`).
+    pub projects: PathBuf,
+}
+
+impl Survey {
+    /// The database of the project `id`.
+    pub fn store(&self, id: &str) -> PathBuf {
+        self.projects.join(id).join("state.db")
+    }
+
+    /// The registry's entries for the canonical path `path`.
+    pub fn entries_at<'s>(&'s self, path: &'s str) -> impl Iterator<Item = &'s Registered> + 's {
+        self.registry.iter().filter(move |e| e.canonical == path)
+    }
+
+    /// The registry's entries for `id`.
+    pub fn entries_of<'s>(&'s self, id: &'s str) -> impl Iterator<Item = &'s Registered> + 's {
+        self.registry.iter().filter(move |e| e.id == id)
+    }
+}
+
+/// One change to a directory's binding. A database is never rewritten:
+/// binding a directory elsewhere changes only its marker and the registry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Change {
+    /// Write `id` into `<root>/.project-id`.
+    WriteMarker { root: String, id: String },
+    /// Register `id` for the canonical path `path`.
+    Register { id: String, path: String },
+    /// Remove every registry entry for `id` whose path is `path`,
+    /// canonical.
+    Unregister { id: String, path: String },
+    /// Delete the project's directory under the projects directory, its
+    /// database with it.
+    RemoveDatabase { id: String },
+}
+
+/// The registry, the markers and the projects directory, surveyed and
+/// changed.
+///
+/// Synchronous, and it blocks on the filesystem and the registry's lock,
+/// as [`crate::ProjectIdentity`] does.
+pub trait ProjectAdmin {
+    /// What the working directory's identity rests on; `pinned` is
+    /// `--project`.
+    fn survey(&mut self, pinned: Option<&str>) -> Result<Survey, Report>;
+
+    /// Make `changes`, in order, under the registry's lock, if a survey
+    /// of the working directory taken under it (no pin: a change is never
+    /// made to a pinned project) is still `seen`; refused, changing
+    /// nothing, if anything changed since.
+    fn apply(&mut self, seen: &Survey, changes: &[Change]) -> Result<(), Report>;
+}
+
+/// What checking a project's database found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Checked {
+    /// No database is there: nothing to check, and no damage.
+    Absent,
+    /// The database reported no problem.
+    Intact,
+    /// The database reported problems in its own file: the store's
+    /// diagnostic of them, its code and args.
+    Damaged(Report),
+}
+
+/// A project's database, checked whole for damage, and never repaired.
+///
+/// Synchronous, and it blocks on the database, as [`ProjectAdmin`] does.
+pub trait StoreCheck {
+    /// The database at `store`, checked as it was last committed, opened
+    /// read-only: nothing is created, migrated or written, and no writer
+    /// is waited on. A failure to run the check is the error, never
+    /// damage.
+    fn check(&mut self, store: &Path) -> Result<Checked, Report>;
+}
+
+/// What an export of a project's database wrote: how many records lie
+/// between its header and its end, and over how many streams.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Exported {
+    pub records: u64,
+    pub streams: u64,
+}
+
+/// A project's database written out whole, as angzarr-store-transfer's
+/// JSONL (every row it keeps, in proto3's JSON mapping), to be carried to
+/// a build of another proto generation (store-export-import.plan.md), and
+/// never changed.
+///
+/// Synchronous, and it blocks on the database, as [`StoreCheck`] does.
+pub trait StoreExport {
+    /// The database at `store` written to `out`, its business payloads
+    /// expanded through `descriptors` (encoded `FileDescriptorSet`s: the
+    /// app's own; angzarr's are always taken). Its ledger is judged before
+    /// it is opened: one that is not this build's migration set, older or
+    /// newer, is refused, and nothing is migrated, created or written.
+    /// Nothing reaches `out` unless every row passes. `None`: no database
+    /// is there, and nothing is written.
+    fn export(
+        &mut self,
+        store: &Path,
+        descriptors: &[&[u8]],
+        out: &mut dyn Write,
+    ) -> Result<Option<Exported>, Report>;
+}
+
+#[cfg(test)]
+#[path = "project.test.rs"]
+mod tests;

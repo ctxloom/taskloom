@@ -1,0 +1,229 @@
+//! Why a project could not be resolved.
+
+use std::fmt;
+use std::path::Path;
+
+use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
+use angzarr_yaml::versioned::LoadError;
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum RegistryError {
+    /// The home directory's variable (HOME, or USERPROFILE on Windows:
+    /// `flavor`'s) is not set, so there is no registry and no store.
+    NoHome { flavor: os::Flavor },
+    /// A file could not be read or written.
+    Io { path: String, detail: String },
+    /// An id that is not a clean path segment: from the flag, the
+    /// environment or a marker, any of which a third party can set.
+    InvalidId {
+        id: String,
+        origin: String,
+        reason: String,
+    },
+    /// The registry does not load through the reader (angzarr-yaml's,
+    /// kind `project-registry`): not the YAML it reads, a version it does
+    /// not read, a key this version does not know or a value of the wrong
+    /// shape. Its code and args are the reader's: the file, and the
+    /// problem, with the key path where the decode failed.
+    Load(LoadError),
+    /// Every freshly minted project id was already registered.
+    Exhausted { attempts: u32 },
+    /// The working directory, needed to find the work root, cannot be read
+    /// (it was deleted, say).
+    NoWorkingDirectory { detail: String },
+    /// A file the registry would write or lock is at a relative path, which
+    /// would land wherever the process happens to run.
+    RelativePath { path: String },
+    /// The registry's lock was held by another process for longer than
+    /// the wait.
+    LockTimeout { path: String, waited_ms: u64 },
+    /// Each lock taken was on a lock file unlinked meanwhile.
+    LockReplaced { path: String, attempts: u32 },
+    /// The registry, a marker or the projects directory changed between
+    /// planning a change and making it.
+    Changed,
+    /// What a removal would delete is not a database's directory.
+    NotADatabase { path: String },
+    /// A linked worktree whose git directory is gone: its primary checkout
+    /// was deleted or moved.
+    StaleWorktree { root: String, git_dir: String },
+    /// The registry's lock could not be taken: the lock's own failure, its
+    /// key and args.
+    LockFailed { cause: Report },
+    /// The configured marker location is not a path under the project's
+    /// root (empty, absolute, or climbing out with `..`).
+    InvalidMarkerPath { path: String, reason: String },
+    /// Two markers of one root name different projects: which to trust is
+    /// not for the registry to pick. Both are left as they are.
+    MarkerConflict {
+        path: String,
+        id: String,
+        other_path: String,
+        other_id: String,
+    },
+}
+
+impl RegistryError {
+    pub(crate) fn io(path: &Path, error: impl fmt::Display) -> RegistryError {
+        RegistryError::Io {
+            path: path.display().to_string(),
+            detail: error.to_string(),
+        }
+    }
+}
+
+impl fmt::Display for RegistryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        angzarr_diagnostic::display(self, f)
+    }
+}
+
+impl Diagnostic for RegistryError {
+    fn code(&self) -> &str {
+        match self {
+            RegistryError::NoHome { .. } => code!("no-home"),
+            RegistryError::Io { .. } => code!("io"),
+            RegistryError::InvalidId { .. } => code!("invalid-id"),
+            RegistryError::Load(e) => e.code(),
+            RegistryError::Exhausted { .. } => code!("exhausted"),
+            RegistryError::NoWorkingDirectory { .. } => code!("no-cwd"),
+            RegistryError::RelativePath { .. } => code!("relative-path"),
+            RegistryError::LockTimeout { .. } => code!("lock-timeout"),
+            RegistryError::LockReplaced { .. } => code!("lock-replaced"),
+            RegistryError::Changed => code!("changed"),
+            RegistryError::NotADatabase { .. } => code!("not-a-database"),
+            RegistryError::StaleWorktree { .. } => code!("stale-worktree"),
+            RegistryError::LockFailed { .. } => code!("lock-failed"),
+            RegistryError::InvalidMarkerPath { .. } => code!("invalid-marker-path"),
+            RegistryError::MarkerConflict { .. } => code!("marker-conflict"),
+        }
+    }
+
+    fn args(&self) -> Vec<(&str, Arg)> {
+        match self {
+            RegistryError::NoHome { flavor } => vec![("var", flavor.home_var().into())],
+            RegistryError::Changed => Vec::new(),
+            RegistryError::Load(e) => e.args(),
+            RegistryError::Io { path, detail } => {
+                vec![
+                    ("path", path.as_str().into()),
+                    ("ext_err_txt", detail.as_str().into()),
+                ]
+            }
+            RegistryError::InvalidId { id, origin, reason } => vec![
+                ("id", id.as_str().into()),
+                ("origin", origin.as_str().into()),
+                ("reason", reason.as_str().into()),
+            ],
+            RegistryError::Exhausted { attempts } => vec![("attempts", (*attempts).into())],
+            RegistryError::NoWorkingDirectory { detail } => {
+                vec![("ext_err_txt", detail.as_str().into())]
+            }
+            RegistryError::RelativePath { path } | RegistryError::NotADatabase { path } => {
+                vec![("path", path.as_str().into())]
+            }
+            RegistryError::LockTimeout { path, waited_ms } => vec![
+                ("path", path.as_str().into()),
+                ("waited_ms", (*waited_ms).into()),
+            ],
+            RegistryError::StaleWorktree { root, git_dir } => vec![
+                ("root", root.as_str().into()),
+                ("git_dir", git_dir.as_str().into()),
+            ],
+            RegistryError::LockReplaced { path, attempts } => vec![
+                ("path", path.as_str().into()),
+                ("attempts", (*attempts).into()),
+            ],
+            RegistryError::LockFailed { cause } => vec![("cause", Arg::nested(cause))],
+            RegistryError::InvalidMarkerPath { path, reason } => vec![
+                ("path", path.as_str().into()),
+                ("reason", reason.as_str().into()),
+            ],
+            RegistryError::MarkerConflict {
+                path,
+                id,
+                other_path,
+                other_id,
+            } => vec![
+                ("path", path.as_str().into()),
+                ("id", id.as_str().into()),
+                ("other_path", other_path.as_str().into()),
+                ("other_id", other_id.as_str().into()),
+            ],
+        }
+    }
+}
+
+/// This crate's en-US messages, its name first: what an edge's catalog
+/// embeds to render its diagnostics.
+pub const EN_US: (&str, &str) = (
+    env!("CARGO_PKG_NAME"),
+    include_str!(concat!(env!("OUT_DIR"), "/en-US.ftl")),
+);
+
+/// One value of every error, for the catalog test.
+#[cfg(any(test, feature = "test-support"))]
+pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
+    let path = || "/home/u/.ctxloom/projects/index.yaml".to_string();
+    let detail = || "permission denied".to_string();
+    vec![
+        Box::new(RegistryError::NoHome {
+            flavor: os::Flavor::Unix,
+        }),
+        Box::new(RegistryError::Io {
+            path: path(),
+            detail: detail(),
+        }),
+        Box::new(RegistryError::InvalidId {
+            id: "../x".to_string(),
+            origin: "--project".to_string(),
+            reason: "it contains '/'".to_string(),
+        }),
+        Box::new(RegistryError::Load(
+            crate::index::load_text(&path(), "schema_version: 2\n")
+                .expect_err("a newer registry is refused"),
+        )),
+        Box::new(RegistryError::Exhausted { attempts: 100 }),
+        Box::new(RegistryError::NoWorkingDirectory {
+            detail: "No such file or directory (os error 2)".to_string(),
+        }),
+        Box::new(RegistryError::RelativePath {
+            path: "index.yaml".to_string(),
+        }),
+        Box::new(RegistryError::LockTimeout {
+            path: "/home/u/.ctxloom/projects/index.yaml.lock".to_string(),
+            waited_ms: 10000,
+        }),
+        Box::new(RegistryError::LockReplaced {
+            path: "/home/u/.ctxloom/projects/index.yaml.lock".to_string(),
+            attempts: 16,
+        }),
+        Box::new(RegistryError::Changed),
+        Box::new(RegistryError::NotADatabase {
+            path: "/home/u/.ctxloom/projects/jolly-mute-magma".to_string(),
+        }),
+        Box::new(RegistryError::StaleWorktree {
+            root: "/work/linked".to_string(),
+            git_dir: "/work/main/.git/worktrees/linked".to_string(),
+        }),
+        Box::new(RegistryError::LockFailed {
+            cause: Report::of(&file_lock::LockError::NotRegular {
+                path: "/h/.ctxloom/projects/index.yaml.lock".to_string(),
+            }),
+        }),
+        Box::new(RegistryError::InvalidMarkerPath {
+            path: "../id".to_string(),
+            reason: "it climbs out of the root".to_string(),
+        }),
+        Box::new(RegistryError::MarkerConflict {
+            path: "/work/tree/.myapp/project-id".to_string(),
+            id: "one-id".to_string(),
+            other_path: "/work/tree/.project-id".to_string(),
+            other_id: "other-id".to_string(),
+        }),
+    ]
+}
+
+#[cfg(test)]
+#[path = "error.test.rs"]
+mod tests;

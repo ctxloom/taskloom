@@ -1,0 +1,7 @@
+# What is specific to taskloom for the dev module (rust-support's tools/dev).
+# Its git dependencies are in Cargo.toml (full-hash revs); no pin lives outside
+# it (CLAUDE.md names the set in words, with short hashes), so there is no
+# [[site]]. tagma's checkout is not named `tagma` (~/workspace/kvtag), and
+# a checkout of the merged angzarr, if named otherwise, goes in ~/.config/angzarr-dev/repos.toml.
+schema = 1
+min_version = "1.0.0"

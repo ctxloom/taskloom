@@ -1,0 +1,448 @@
+//! Acceptance: `taskloom manage project`, the real binary in a temporary home,
+//! finding and correcting a directory bound to the wrong project, so its
+//! tasks no longer seem lost.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use serde_json::Value;
+
+use super::{binary, disk, Isolated, Ran, Temp};
+
+#[path = "../../../../adapters/driven/task-store-sqlite/src/damage.test.rs"]
+mod damage;
+
+/// A temporary home, and trees made in a temporary directory beside it.
+struct World {
+    home: Temp,
+    trees: Temp,
+}
+
+impl World {
+    fn new() -> World {
+        World {
+            home: Temp::new(),
+            trees: Temp::new(),
+        }
+    }
+
+    /// A new directory named `name`, canonical.
+    fn tree(&self, name: &str) -> PathBuf {
+        let dir = disk::canonicalize(self.trees.path()).unwrap().join(name);
+        disk::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// `taskloom args` in `cwd`, its work root ([`Isolated::working_in`]),
+    /// with only HOME and PATH set besides.
+    fn run(&self, cwd: &Path, args: &[&str]) -> Ran {
+        let output = Command::new(binary())
+            .args(args)
+            .isolated(self.home.path())
+            .working_in(cwd)
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .output()
+            .expect("taskloom runs");
+        Ran::of(output)
+    }
+
+    /// `taskloom args --json` in `cwd`, which must succeed: its document.
+    fn json(&self, cwd: &Path, args: &[&str]) -> Value {
+        let mut args = args.to_vec();
+        args.extend(["--format", "json"]);
+        let ran = self.run(cwd, &args);
+        assert!(ran.ok, "{args:?}: {}", ran.stderr);
+        ran.json()
+    }
+
+    /// Add a task in `cwd`: the project it went to.
+    fn add(&self, cwd: &Path, text: &str) -> String {
+        let ran = self.run(cwd, &["tasks", "add", text, "--format", "json"]);
+        assert!(ran.ok, "add: {}", ran.stderr);
+        self.json(cwd, &["manage", "project", "show"])["project_id"]
+            .as_str()
+            .expect("a project")
+            .to_string()
+    }
+
+    fn texts(&self, cwd: &Path) -> Vec<String> {
+        self.json(cwd, &["tasks", "list"])
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["text"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    fn database(&self, id: &str) -> PathBuf {
+        self.home.path().join(".ctxloom").join("projects").join(id)
+    }
+}
+
+fn kinds(problems: &Value) -> Vec<&str> {
+    problems
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["kind"].as_str().unwrap())
+        .collect()
+}
+
+// A checkout above the trees (TMPDIR inside a worktree's target/) is no
+// project of theirs: each tree is its own work root, and the checkout's
+// marker is neither read nor healed.
+#[test]
+fn test_a_checkout_above_the_trees_is_not_their_project() {
+    let world = World::new();
+    let above = disk::canonicalize(world.trees.path()).unwrap();
+    disk::create_dir_all(above.join(".git")).unwrap();
+    disk::write(above.join(".project-id"), "jolly-mute-magma\n").unwrap();
+    let tree = world.tree("tree");
+    let id = world.add(&tree, "in the tree");
+    assert_ne!(id, "jolly-mute-magma");
+    let shown = world.json(&tree, &["manage", "project", "show"]);
+    assert_eq!(shown["work_root"], tree.display().to_string(), "{shown}");
+    assert_eq!(
+        world.json(&tree, &["manage", "doctor", "heal"])["changes"],
+        Value::Array(vec![])
+    );
+    assert_eq!(
+        disk::read_to_string(above.join(".project-id")).unwrap(),
+        "jolly-mute-magma\n",
+        "the checkout's marker is untouched"
+    );
+}
+
+#[test]
+fn test_a_second_clone_with_the_committed_marker_shares_the_project_by_design() {
+    // Clones share by default (decided 2026-10-21): the committed
+    // .project-id is the project, wherever it is checked out.
+    let world = World::new();
+    let first = world.tree("first");
+    let second = world.tree("second");
+    let id = world.add(&first, "the first clone's task");
+    disk::copy(first.join(".project-id"), second.join(".project-id")).unwrap();
+
+    // Before any heal, the second clone already reads and writes the store.
+    assert_eq!(world.texts(&second), ["the first clone's task"]);
+    let shown = world.json(&second, &["manage", "project", "show"]);
+    assert_eq!(shown["project_id"], id.as_str());
+    assert_eq!(
+        shown["shared_with"],
+        serde_json::json!([format!("{}", first.display())])
+    );
+    assert_eq!(
+        kinds(&shown["problems"]),
+        ["unregistered"],
+        "only unregistered"
+    );
+    let text = world.run(&second, &["manage", "project", "show", "--format", "text"]);
+    assert!(
+        text.stdout.contains(&format!(
+            "Shared:   {} (another tree holding the same project id: one project, one database)",
+            first.display()
+        )),
+        "{}",
+        text.stdout
+    );
+
+    // heal registers the second tree beside the first, and that is all.
+    let healed = world.json(&second, &["manage", "doctor", "heal", "--yes"]);
+    assert_eq!(healed["applied"], true);
+    assert_eq!(
+        healed["changes"],
+        serde_json::json!([{"kind": "register", "project_id": id, "path": second.display().to_string()}])
+    );
+    assert_eq!(healed["unresolved"], serde_json::json!([]));
+    let shown = world.json(&second, &["manage", "project", "show"]);
+    assert_eq!(kinds(&shown["problems"]), [""; 0], "sharing is no problem");
+    let from_first = world.json(&first, &["manage", "project", "show"]);
+    assert_eq!(
+        from_first["shared_with"],
+        serde_json::json!([second.display().to_string()]),
+        "and the first sees the second"
+    );
+
+    // An agent in either writes into the one list.
+    world.add(&second, "the second clone's task");
+    assert_eq!(
+        world.texts(&first),
+        ["the first clone's task", "the second clone's task"]
+    );
+}
+
+#[test]
+fn test_a_tree_that_forked_is_repointed_and_its_own_database_orphaned_then_removed() {
+    let world = World::new();
+    let original = world.tree("original");
+    let copy = world.tree("copy");
+    let kept = world.add(&original, "the original's task");
+    let forked = world.add(&copy, "the copy's task");
+    assert_ne!(kept, forked);
+    assert_eq!(world.texts(&copy), ["the copy's task"], "it seems lost");
+
+    let refused = world.run(&copy, &["manage", "doctor", "repoint", &kept, "--yes"]);
+    assert!(!refused.ok);
+    assert!(
+        refused.stderr.contains("pass --share"),
+        "{}",
+        refused.stderr
+    );
+    let would = world.json(&copy, &["manage", "doctor", "repoint", &kept, "--share"]);
+    assert_eq!(would["applied"], false);
+    assert_eq!(world.texts(&copy), ["the copy's task"], "only reported");
+
+    let made = world.json(
+        &copy,
+        &["manage", "doctor", "repoint", &kept, "--share", "--yes"],
+    );
+    assert_eq!(made["applied"], true);
+    assert_eq!(made["previous"], forked.as_str());
+    assert_eq!(world.texts(&copy), ["the original's task"], "found again");
+    assert_eq!(
+        disk::read_to_string(copy.join(".project-id")).unwrap(),
+        format!("{kept}\n")
+    );
+
+    let shown = world.json(&copy, &["manage", "project", "show"]);
+    assert_eq!(shown["project_id"], kept.as_str());
+    assert_eq!(kinds(&shown["problems"]), ["orphan"]);
+    assert_eq!(shown["problems"][0]["project_id"], forked.as_str());
+    let orphans = world.json(&copy, &["manage", "doctor", "orphans"]);
+    assert_eq!(orphans[0]["project_id"], forked.as_str());
+
+    let not_orphaned = world.run(
+        &copy,
+        &["manage", "doctor", "orphans", "remove", &kept, "--yes"],
+    );
+    assert!(!not_orphaned.ok, "a live database is refused");
+    let reported = world.json(&copy, &["manage", "doctor", "orphans", "remove", &forked]);
+    assert_eq!(reported["applied"], false);
+    assert!(disk::exists(world.database(&forked)), "only reported");
+    let removed = world.json(
+        &copy,
+        &["manage", "doctor", "orphans", "remove", &forked, "--yes"],
+    );
+    assert_eq!(removed["applied"], true);
+    assert!(!disk::exists(world.database(&forked)));
+    assert!(disk::exists(world.database(&kept).join("state.db")));
+    assert_eq!(world.texts(&original), ["the original's task"]);
+    assert_eq!(
+        world.json(&copy, &["manage", "doctor", "orphans"]),
+        Value::Array(vec![])
+    );
+}
+
+#[test]
+fn test_a_lost_marker_is_shown_and_healed_from_the_registry() {
+    let world = World::new();
+    let tree = world.tree("tree");
+    let id = world.add(&tree, "a task");
+    disk::remove_file(tree.join(".project-id")).unwrap();
+
+    let shown = world.json(&tree, &["manage", "project", "show"]);
+    assert_eq!(shown["source"], "registry");
+    assert_eq!(kinds(&shown["problems"]), ["missing-marker"]);
+    assert_eq!(shown["entries"][0]["project_id"], id.as_str());
+    assert_eq!(
+        shown["database"],
+        world.database(&id).join("state.db").display().to_string()
+    );
+
+    let would = world.json(&tree, &["manage", "doctor", "heal"]);
+    assert_eq!(would["changes"][0]["kind"], "write-marker");
+    assert!(!disk::exists(tree.join(".project-id")), "only reported");
+    let text = world.run(
+        &tree,
+        &["manage", "doctor", "heal", "--yes", "--format", "text"],
+    );
+    assert!(text.ok, "{}", text.stderr);
+    assert!(text.stdout.starts_with("Changed:\n"), "{}", text.stdout);
+    assert_eq!(
+        disk::read_to_string(tree.join(".project-id")).unwrap(),
+        format!("{id}\n")
+    );
+    let healed = world.json(&tree, &["manage", "project", "show"]);
+    assert_eq!(kinds(&healed["problems"]), Vec::<&str>::new());
+    assert_eq!(
+        world.json(&tree, &["manage", "doctor", "heal"])["changes"],
+        Value::Array(vec![])
+    );
+}
+
+#[test]
+fn test_a_linked_worktree_shares_its_primary_checkouts_tasks() {
+    let world = World::new();
+    let primary = world.tree("primary");
+    let git = |cwd: &Path, args: &[&str]| {
+        let out = Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+            .args(args)
+            .current_dir(cwd)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&primary, &["init", "-q"]);
+    git(&primary, &["commit", "-q", "--allow-empty", "-m", "first"]);
+    let linked = disk::canonicalize(world.trees.path())
+        .unwrap()
+        .join("linked");
+    git(
+        &primary,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "linked",
+            &linked.display().to_string(),
+        ],
+    );
+
+    let id = world.add(&linked.join("."), "added in the worktree");
+    assert!(
+        !disk::exists(linked.join(".project-id")),
+        "nothing to merge back"
+    );
+    assert_eq!(world.texts(&primary), ["added in the worktree"]);
+    let shown = world.json(&linked, &["manage", "project", "show"]);
+    assert_eq!(shown["project_id"], id.as_str());
+    assert_eq!(shown["root"], primary.display().to_string());
+    assert_eq!(shown["work_root"], linked.display().to_string());
+}
+
+#[test]
+fn test_every_project_command_answers_as_text_too() {
+    let world = World::new();
+    let tree = world.tree("tree");
+    for args in [
+        &["manage", "project", "show"][..],
+        &["manage", "doctor", "heal"],
+        &["manage", "doctor", "orphans"],
+    ] {
+        let ran = world.run(&tree, &[args, &["--format", "text"]].concat());
+        assert!(ran.ok, "{args:?}: {}", ran.stderr);
+        assert!(
+            serde_json::from_str::<Value>(&ran.stdout).is_err(),
+            "{}",
+            ran.stdout
+        );
+    }
+    assert!(
+        !disk::exists(world.home.path().join(".ctxloom/projects/index.yaml")),
+        "a read binds nothing"
+    );
+}
+
+/// The database at `path` as the binary left it: whole on its own, no log
+/// or index beside it, looked at the moment the command exited. Each
+/// command closes its store before it exits (ruling 131), so nothing is
+/// opened or waited for here (as it was while the binary dropped it, and
+/// left its log behind).
+fn settled(path: &Path) {
+    for suffix in ["-wal", "-shm"] {
+        let mut beside = path.as_os_str().to_owned();
+        beside.push(suffix);
+        assert!(
+            !disk::exists(Path::new(&beside)),
+            "the command left {} beside the database",
+            Path::new(&beside).display()
+        );
+    }
+}
+
+#[test]
+fn test_heal_reports_a_damaged_database_from_the_catalog_and_leaves_it_damaged() {
+    let world = World::new();
+    let tree = world.tree("tree");
+    let id = world.add(&tree, "a task");
+    let database = world.database(&id).join("state.db");
+    settled(&database);
+    // Damaged in a copy, then put in the database's place.
+    let copy = world.trees.path().join("copy.db");
+    disk::write(
+        &copy,
+        damage::damaged(
+            &disk::read(&database).unwrap(),
+            "events_by_command",
+            |page| {
+                *page.last_mut().unwrap() ^= 1;
+            },
+        ),
+    )
+    .unwrap();
+    disk::rename(&copy, &database).unwrap();
+    let before = disk::read(&database).unwrap();
+
+    let found = world.json(&tree, &["manage", "doctor", "heal", "--yes"]);
+    assert_eq!(found["changes"], Value::Array(vec![]), "nothing to repair");
+    assert_eq!(kinds(&found["unresolved"]), ["damaged"]);
+    let damaged = &found["unresolved"][0];
+    assert_eq!(damaged["project_id"], id.as_str());
+    assert_eq!(damaged["database"], database.display().to_string());
+    let damage = &damaged["damage"];
+    assert_eq!(
+        damage["code"],
+        angzarr_embedded::angzarr_store_sqlite::damage_sample().code()
+    );
+    let first = damage["args"]["first"].as_str().expect("the first problem");
+    assert!(first.contains("events_by_command"), "{damage}");
+    assert!(damage["args"]["more"].is_u64(), "{damage}");
+    assert!(
+        damage["message"]
+            .as_str()
+            .unwrap()
+            .starts_with(&format!("the database file is damaged: {first}")),
+        "{damage}"
+    );
+
+    let text = world.run(&tree, &["manage", "doctor", "heal", "--format", "text"]);
+    assert!(text.ok, "{}", text.stderr);
+    assert!(
+        text.stdout.contains(&format!(
+            "Not resolved:\n  - {}, the database of {id}: the database file is damaged: {first}",
+            database.display()
+        )),
+        "{}",
+        text.stdout
+    );
+    assert!(
+        text.stdout
+            .contains("heal reports damage and does not repair it"),
+        "{}",
+        text.stdout
+    );
+    assert_eq!(disk::read(&database).unwrap(), before, "never repaired");
+}
+
+#[test]
+fn test_heal_finds_no_damage_in_a_sound_database() {
+    let world = World::new();
+    let tree = world.tree("tree");
+    world.add(&tree, "a task");
+    let healed = world.json(&tree, &["manage", "doctor", "heal"]);
+    assert_eq!(healed["unresolved"], Value::Array(vec![]));
+    let text = world.run(&tree, &["manage", "doctor", "heal", "--format", "text"]);
+    assert_eq!(text.stdout, "Nothing to change.\n");
+}
+
+#[test]
+fn test_heal_of_a_project_with_no_database_is_no_damage_and_creates_none() {
+    let world = World::new();
+    let tree = world.tree("tree");
+    let id = world.add(&tree, "a task");
+    disk::remove_dir_all(world.database(&id)).unwrap();
+    let healed = world.json(&tree, &["manage", "doctor", "heal", "--yes"]);
+    assert_eq!(healed["unresolved"], Value::Array(vec![]));
+    assert!(
+        !disk::exists(world.database(&id)),
+        "the check created nothing"
+    );
+}
