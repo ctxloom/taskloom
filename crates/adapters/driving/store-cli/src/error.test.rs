@@ -27,3 +27,31 @@ fn test_every_diagnostic_has_a_catalog_message_with_exactly_its_args() {
     assert_eq!(codes.len(), samples.len());
     assert_eq!(angzarr_diagnostic::catalog::check(name, text, &samples), []);
 }
+
+#[test]
+fn test_a_state_that_forbids_is_declined_and_what_broke_is_a_failure() {
+    use crate::CliError;
+    use angzarr_store_transfer::ExportError;
+    use cli_support::ExitClass;
+    use project_application::ProjectError;
+    use tasks_application::AppError;
+
+    let status = |error: CliError| error.exit().code(false);
+    assert_eq!(
+        status(CliError::Project(ProjectError::NoDatabase {
+            id: "x".into()
+        })),
+        48
+    );
+    assert_eq!(status(CliError::Tasks(AppError::NoProject)), 48);
+    assert_eq!(
+        status(CliError::Digest(ExportError::PendingOutbox { entries: 1 })),
+        32
+    );
+    assert_eq!(
+        status(CliError::Output {
+            detail: "closed".into()
+        }),
+        32
+    );
+}

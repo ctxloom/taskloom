@@ -117,3 +117,23 @@ fn test_every_code_is_under_the_crates_name_with_its_message() {
         []
     );
 }
+
+#[test]
+fn test_a_request_the_state_forbids_is_declined_and_a_port_that_broke_is_a_failure() {
+    use exit_code::ExitClass;
+
+    let status = |error: ProjectError| error.exit().code(false);
+    assert_eq!(status(ProjectError::Port(Report::new("a-port-io"))), 32);
+    for declined in [
+        ProjectError::UnknownProject { id: "x".into() },
+        ProjectError::InUse {
+            id: "x".into(),
+            path: "/p".into(),
+        },
+        ProjectError::NotOrphan { id: "x".into() },
+        ProjectError::NoProject,
+        ProjectError::NoDatabase { id: "x".into() },
+    ] {
+        assert_eq!(status(declined.clone()), 48, "{declined:?}");
+    }
+}

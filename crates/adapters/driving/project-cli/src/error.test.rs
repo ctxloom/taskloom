@@ -97,3 +97,33 @@ fn test_every_code_is_under_the_crates_name_with_its_message() {
         []
     );
 }
+
+#[test]
+fn test_a_pin_the_command_does_not_take_is_declined_and_a_closed_output_is_a_failure() {
+    use cli_support::ExitClass;
+
+    let status = |error: CliError| error.exit().code(false);
+    assert_eq!(
+        status(CliError::ProjectNotTaken {
+            command: "doctor".into()
+        }),
+        48
+    );
+    assert_eq!(
+        status(CliError::Project(ProjectError::NoProject)),
+        48,
+        "the use case's own class"
+    );
+    assert_eq!(
+        status(CliError::Project(ProjectError::Port(
+            angzarr_diagnostic::Report::new("x-io")
+        ))),
+        32
+    );
+    assert_eq!(
+        status(CliError::Output {
+            detail: "closed".into()
+        }),
+        32
+    );
+}

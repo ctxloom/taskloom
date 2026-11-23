@@ -143,3 +143,58 @@ fn test_every_code_is_under_the_crates_name_with_its_message() {
         []
     );
 }
+
+#[test]
+fn test_each_error_ends_the_command_by_its_class() {
+    use cli_support::ExitClass;
+    use tasks_application::AppError;
+
+    let status = |error: CliError| error.exit().code(false);
+    for (error, expected) in [
+        (CliError::App(AppError::HarpsExhausted { attempts: 1 }), 32),
+        (CliError::App(AppError::NoProject), 48),
+        (
+            CliError::Output {
+                detail: "closed".into(),
+            },
+            32,
+        ),
+        (
+            CliError::Incomplete {
+                stopped: 1,
+                lost: 2,
+            },
+            32,
+        ),
+        (CliError::LintViolations { count: 2 }, 49),
+        (CliError::SchemaFindings { count: 1 }, 49),
+        (CliError::LintCheckedNothing, 48),
+        (
+            CliError::Usage {
+                detail: "bad".into(),
+            },
+            48,
+        ),
+        (
+            CliError::Format(angzarr_presentation::UnknownFormat {
+                value: "yaml".into(),
+            }),
+            48,
+        ),
+        (
+            CliError::LoadoutFormat {
+                format: "json".into(),
+            },
+            48,
+        ),
+        (
+            CliError::Removed {
+                instead: "tasks add".into(),
+            },
+            48,
+        ),
+        (CliError::PlanImportRemoved, 48),
+    ] {
+        assert_eq!(status(error.clone()), expected, "{error:?}");
+    }
+}

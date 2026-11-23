@@ -206,3 +206,80 @@ fn test_no_application_source_reads_a_refusals_status() {
         }
     }
 }
+
+/// The class of a failure, as the published status of a plain command.
+fn status(error: &AppError) -> u8 {
+    use exit_code::ExitClass;
+    error.exit().code(false)
+}
+
+#[test]
+fn test_a_request_the_content_or_the_state_forbids_is_declined_with_48() {
+    let declined = [
+        AppError::Rejected(cause()),
+        AppError::TagRefused(cause()),
+        AppError::Configuration(cause()),
+        AppError::TagQuery(cause()),
+        AppError::Prune(cause()),
+        AppError::Priority(cause()),
+        AppError::NoProject,
+        AppError::UnknownStatusClass {
+            status: "@x".into(),
+        },
+        AppError::UnknownSort { sort: "x".into() },
+        AppError::Blank { field: "text" },
+        AppError::TriggerAndClear,
+        AppError::AddRequestIdCollides {
+            request_id: "r".into(),
+            probes: 1,
+        },
+        AppError::NotFound {
+            harp_ids: vec!["a".into()],
+        },
+        AppError::Ambiguous {
+            held: vec![("a".into(), vec!["p".into(), "q".into()])],
+        },
+        AppError::PermitMalformed { permit: "x".into() },
+        AppError::PermitNotDeclared { permit: "x".into() },
+        AppError::PermitInUse {
+            permit: "x".into(),
+            harp_ids: vec!["a".into()],
+        },
+    ];
+    for error in declined {
+        assert_eq!(status(&error), 48, "{error:?}");
+    }
+}
+
+#[test]
+fn test_what_the_store_or_the_kernel_broke_is_a_failure_with_32() {
+    let failed = [
+        AppError::Failed(cause()),
+        AppError::Identity(cause()),
+        AppError::GaveUp {
+            attempts: 3,
+            error: cause(),
+        },
+        AppError::HarpsExhausted { attempts: 3 },
+        AppError::Vanished {
+            harp_id: "a".into(),
+        },
+    ];
+    for error in failed {
+        assert_eq!(status(&error), 32, "{error:?}");
+    }
+}
+
+#[test]
+fn test_dead_letters_do_not_change_the_class_of_the_failure_they_ride_on() {
+    for (inner, expected) in [
+        (AppError::Failed(cause()), 32),
+        (AppError::Blank { field: "text" }, 48),
+    ] {
+        let wrapped = AppError::DeadLettered {
+            error: Box::new(inner),
+            dead_letters: Vec::new(),
+        };
+        assert_eq!(status(&wrapped), expected, "{wrapped:?}");
+    }
+}

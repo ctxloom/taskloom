@@ -3207,3 +3207,51 @@ fn test_the_loadout_forbids_agents_every_schema_changing_command_unasked() {
     );
     assert!(loadout.contains("Reading the rules (`taskloom manage schema"));
 }
+
+fn never_answers(_: Line, _: Globals, _: &Catalog, _: &mut dyn Write, _: &mut dyn Write) -> u8 {
+    unreachable!("the parser answers these")
+}
+
+#[test]
+fn test_help_and_the_version_exit_0_and_16_under_the_detailed_flag_and_a_usage_error_48() {
+    let context = Context::default();
+    for (args, plain, detailed) in [
+        (&["--version"][..], 0, 16),
+        (&["--help"], 0, 16),
+        (&["frobnicate"], 48, 48),
+        (&["list"], 48, 48),
+    ] {
+        let mut flagged = args.to_vec();
+        flagged.insert(0, "--detailed-exitcode");
+        assert_eq!(ran(&context, args, never_answers).code, plain, "{args:?}");
+        assert_eq!(
+            ran(&context, &flagged, never_answers).code,
+            detailed,
+            "{flagged:?}"
+        );
+    }
+}
+
+#[test]
+fn test_a_detailed_flag_after_the_double_dash_is_no_flag() {
+    let context = Context::default();
+    let ran = ran(
+        &context,
+        &["--help", "--", "--detailed-exitcode"],
+        never_answers,
+    );
+    assert_eq!(ran.code, 0);
+}
+
+#[test]
+fn test_the_detailed_flag_is_read_into_the_globals_wherever_it_stands() {
+    for args in [
+        &["taskloom", "--detailed-exitcode", "tasks", "list"][..],
+        &["taskloom", "tasks", "list", "--detailed-exitcode"],
+    ] {
+        let (_, globals) = parsed(args);
+        assert!(globals.detailed_exitcode, "{args:?}");
+    }
+    let (_, globals) = parsed(&["taskloom", "tasks", "list"]);
+    assert!(!globals.detailed_exitcode);
+}
