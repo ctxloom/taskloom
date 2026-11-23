@@ -14,6 +14,7 @@
 //! permit, and a permit is a presence.
 
 use angzarr_diagnostic::{code, Diagnostic, Report};
+use exit_code::ExitClass;
 
 use crate::fakes::{ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores};
 use crate::{
@@ -683,7 +684,11 @@ fn test_a_dry_run_revoke_answers_what_it_would_do_and_changes_nothing() {
     let already = ready(service.permit(change("area:mcp"))).unwrap();
     assert!(!already.changed, "already permitted: no change");
     let error = ready(service.revoke(change("nothing:held"))).unwrap_err();
-    assert_eq!(error.exit_code(), 1, "refused as a real revoke is");
+    assert_eq!(
+        error.exit().code(false),
+        48,
+        "declined as a real revoke is: the state forbids it"
+    );
 }
 
 // Ruling 4: revoking what stored tasks still carry is refused, listing

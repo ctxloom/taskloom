@@ -9,6 +9,7 @@ use std::io::{self, Write};
 
 use angzarr_diagnostic::Diagnostic;
 use angzarr_presentation::{Catalog, Envelope, Format, Render};
+use cli_support::Exit;
 use serde::Serialize;
 use tasks_application::{ImportReport, ImportRequest, ImportService, Lost, ProjectImport};
 
@@ -24,7 +25,7 @@ pub enum ImportGroup {
 }
 
 /// `import` on `importer`, of `--project`'s log or every one, written in
-/// `format`: its report on `out`, and the exit code, 1 when the import
+/// `format`: its report on `out`, and the exit, a failure (32) when the import
 /// could not start or left something behind.
 pub async fn run_import<S: ImportService>(
     project: Option<String>,
@@ -33,7 +34,7 @@ pub async fn run_import<S: ImportService>(
     importer: &mut S,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> u8 {
+) -> Exit {
     let result = match importer.import(ImportRequest { project }).await {
         Ok(report) => imported(&report, format, catalog, out, err),
         Err(e) => Err(CliError::App(e)),

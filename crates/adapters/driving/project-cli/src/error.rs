@@ -3,6 +3,7 @@
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
+use cli_support::{Exit, ExitClass};
 use project_application::ProjectError;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -16,13 +17,15 @@ pub enum CliError {
     ProjectNotTaken { command: String },
 }
 
-impl CliError {
-    /// The exit code: 2 for a request invalid on its own content (a pin the
-    /// command does not take), 1 otherwise.
-    pub fn exit_code(&self) -> u8 {
+/// A decline (48) for a request invalid on its own content (a pin the
+/// command does not take); the use case's own exit for what it answered; a
+/// failure (32) where the answer could not be written out.
+impl ExitClass for CliError {
+    fn exit(&self) -> Exit {
         match self {
-            CliError::ProjectNotTaken { .. } => 2,
-            CliError::Project(_) | CliError::Output { .. } => 1,
+            CliError::ProjectNotTaken { .. } => Exit::REFUSED,
+            CliError::Project(error) => error.exit(),
+            CliError::Output { .. } => Exit::FAILED,
         }
     }
 }

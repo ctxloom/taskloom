@@ -1628,7 +1628,7 @@ fn test_a_store_an_older_generation_wrote_is_refused_by_every_command_and_left_u
         ] {
             let ran = env.run(args);
             assert!(!ran.ok, "{args:?} refused");
-            assert_eq!(ran.code, 1, "{args:?}: {}", ran.stderr);
+            assert_eq!(ran.code, 32, "{args:?}: {}", ran.stderr);
             assert_eq!(ran.stdout, "", "{args:?}: an error leaves stdout empty");
             let envelope = one_document(&ran.stderr);
             // As any store the build cannot use: the store is unavailable,
@@ -1781,6 +1781,9 @@ mod codes;
 
 #[path = "companion.test.rs"]
 mod companion;
+
+#[path = "exit_codes.test.rs"]
+mod exit_codes;
 
 #[path = "grammar.test.rs"]
 mod grammar;

@@ -159,7 +159,7 @@ fn ran(args: &[&str], json: bool, projects: &mut Projects<Fake, FakeCheck>) -> R
         &mut err,
     );
     Ran {
-        code,
+        code: code.code(false),
         out: String::from_utf8(out).unwrap(),
         err: String::from_utf8(err).unwrap(),
     }
@@ -353,9 +353,9 @@ fn test_repoint_reports_what_it_was() {
 }
 
 #[test]
-fn test_a_refused_command_exits_1_naming_the_program() {
+fn test_a_refused_command_exits_48_naming_the_program() {
     let ran = ran(&["doctor", "repoint", "tpyo"], false, &mut projects());
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 48);
     assert_eq!(ran.out, "");
     assert_eq!(
         ran.err,
@@ -366,7 +366,7 @@ fn test_a_refused_command_exits_1_naming_the_program() {
 #[test]
 fn test_in_json_a_refused_command_writes_its_envelope_on_stderr() {
     let ran = ran(&["doctor", "repoint", "tpyo"], true, &mut projects());
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 48);
     assert_eq!(ran.out, "");
     let envelope: Value = serde_json::from_str(&ran.err).expect("one JSON document");
     assert_eq!(
@@ -429,7 +429,7 @@ fn test_show_reports_the_pinned_project() {
         &mut Vec::new(),
         &mut Vec::new(),
     );
-    assert_eq!(code, 0);
+    assert_eq!(code.code(false), 0);
     assert_eq!(projects.admin().pinned, [Some("pinned-id".to_string())]);
 }
 
@@ -447,7 +447,7 @@ impl Write for Broken {
 }
 
 #[test]
-fn test_output_that_cannot_be_written_exits_1() {
+fn test_output_that_cannot_be_written_exits_32() {
     for json in [true, false] {
         for args in [
             &["project", "show"][..],
@@ -468,7 +468,11 @@ fn test_output_that_cannot_be_written_exits_1() {
                 &mut Broken,
                 &mut err,
             );
-            assert_eq!(code, 1);
+            assert_eq!(
+                code.code(false),
+                32,
+                "an answer that cannot be written is a failure"
+            );
             let err = String::from_utf8(err).unwrap();
             if json {
                 let envelope: Value = serde_json::from_str(&err).expect("an envelope");
@@ -514,7 +518,7 @@ fn test_project_is_refused_by_every_command_but_show() {
                 &mut err,
             );
             let err = String::from_utf8(err).unwrap();
-            assert_eq!(code, 2, "{args:?}");
+            assert_eq!(code.code(false), 48, "{args:?}");
             assert!(out.is_empty(), "{args:?}");
             let expected = format!(
                 "--project is not taken by manage doctor {command}, which acts on this directory's project: only manage project show takes it"

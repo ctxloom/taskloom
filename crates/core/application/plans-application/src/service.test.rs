@@ -1,6 +1,7 @@
 //! The plans use cases over in-memory plan files, tasks and rules.
 
 use angzarr_diagnostic::{code, Diagnostic};
+use exit_code::{Exit, ExitClass};
 
 use super::*;
 use crate::fakes::{ready, words, MemFiles, MemTasks, Roots, Words};
@@ -404,7 +405,7 @@ fn a_tag_added_is_held_to_the_stores_rules_and_a_tag_removed_is_not() {
     // Closed to everything but the seeded vocabulary.
     s.tasks.rules = None;
     let refused = ready(s.tag("aa-bb", "area:other", true)).unwrap_err();
-    assert!(refused.invalid(), "{refused}");
+    assert_eq!(refused.exit(), Exit::REFUSED, "{refused}");
     assert_eq!(tags_of(&mut s, "aa-bb"), ["area:cli", "human:decision"]);
     // Taking one out asks nothing of the rules.
     let plan = ready(s.tag("aa-bb", "area:cli", false)).unwrap();
@@ -422,7 +423,7 @@ fn a_tag_no_rule_could_admit_is_refused_before_a_file_is_read() {
         "not a tag (((",
     ] {
         let error = ready(s.tag("no-such", tag, true)).unwrap_err();
-        assert!(error.invalid(), "{tag}: {error}");
+        assert_eq!(error.exit(), Exit::REFUSED, "{tag}: {error}");
     }
     assert_eq!(s.tasks.asked, 0);
 }

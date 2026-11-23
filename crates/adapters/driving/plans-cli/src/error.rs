@@ -3,6 +3,7 @@
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
+use cli_support::{Exit, ExitClass};
 use plans_application::PlanError;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -25,15 +26,20 @@ pub enum CliError {
     WatchFailed { error: PlanError },
 }
 
-impl CliError {
-    /// The exit code it ends the command with: 2 for a request invalid on
-    /// its own content (a usage error the parser cannot see, a status that
-    /// is none, a tag no rule admits, a blank root), else 1.
-    pub fn exit_code(&self) -> u8 {
+/// A decline (48) for a request invalid on its own content (a usage error
+/// the parser cannot see, a stamp-plan payload that is no JSON or names no
+/// file); the use case's own exit for what it answered; a failure (32)
+/// where the answer could not be written out.
+impl ExitClass for CliError {
+    fn exit(&self) -> Exit {
         match self {
-            CliError::NoLink { .. } => 2,
-            CliError::Plan(error) if error.invalid() => 2,
-            _ => 1,
+            CliError::NoLink { .. } | CliError::HookPayload { .. } | CliError::HookNoFile => {
+                Exit::REFUSED
+            }
+            CliError::Plan(error)
+            | CliError::HookFailed { error }
+            | CliError::WatchFailed { error } => error.exit(),
+            CliError::Output { .. } => Exit::FAILED,
         }
     }
 }

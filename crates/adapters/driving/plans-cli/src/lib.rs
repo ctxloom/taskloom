@@ -32,6 +32,7 @@ use std::io::{self, Write};
 
 use angzarr_presentation::{Catalog, Format, Render};
 use clap::{Args, Subcommand};
+use cli_support::{Exit, ExitClass};
 use plans_application::{Link, NewPlan, PlanQuery, SetPlan};
 
 #[cfg(any(test, feature = "test-support"))]
@@ -78,7 +79,7 @@ pub enum Command {
         after_help = "Examples:\n  taskloom plans unlink brisk-cedar-otter --governs swift-amber-falcon"
     )]
     Unlink(LinkArgs),
-    /// Check every plan file; exit 1 on a finding
+    /// Check every plan file; exit 49 on a finding
     #[command(
         after_help = "Examples:\n  taskloom plans check\n\nA finding is a frontmatter that does not parse, no id, a duplicate id, a tag the\nstore's rules do not admit, a governed task or a superseded plan that does not\nexist, or a status written by hand that is not one."
     )]
@@ -193,7 +194,7 @@ pub struct Settings {
 }
 
 /// Run `command` against `plans`, writing to `out` and `err` with messages
-/// from `catalog`; the exit code.
+/// from `catalog`; the exit it ends with.
 pub async fn run<P: Plans>(
     command: Command,
     settings: &Settings,
@@ -201,12 +202,13 @@ pub async fn run<P: Plans>(
     plans: &mut P,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> u8 {
+) -> Exit {
     match answer(command, settings, catalog, plans, out).await {
-        Ok(found) => u8::from(found),
+        Ok(true) => Exit::FATAL_FINDINGS,
+        Ok(false) => Exit::OK,
         Err(error) => {
             let _ = report(&error, settings, catalog, err);
-            error.exit_code()
+            error.exit()
         }
     }
 }
@@ -232,7 +234,7 @@ fn rendered(out: &mut dyn Write, format: Format, view: &impl Render) -> Result<(
 }
 
 /// The command answered; whether it found something (`check`'s findings),
-/// which is exit 1.
+/// which is fatal findings (49).
 async fn answer<P: Plans>(
     command: Command,
     settings: &Settings,

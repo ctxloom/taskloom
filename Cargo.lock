@@ -382,6 +382,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
+name = "cli-support"
+version = "0.2.0"
+source = "git+https://github.com/benjaminabbitt/rust-support?rev=fea46b99ab2b44beeb3d76c05a9f0d4239844451#fea46b99ab2b44beeb3d76c05a9f0d4239844451"
+dependencies = [
+ "angzarr-diagnostic",
+ "angzarr-presentation",
+ "clap",
+ "exit-code",
+ "serde",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -576,6 +588,11 @@ dependencies = [
  "parking",
  "pin-project-lite",
 ]
+
+[[package]]
+name = "exit-code"
+version = "0.2.0"
+source = "git+https://github.com/benjaminabbitt/rust-support?rev=fea46b99ab2b44beeb3d76c05a9f0d4239844451#fea46b99ab2b44beeb3d76c05a9f0d4239844451"
 
 [[package]]
 name = "expr-lang"
@@ -1513,6 +1530,7 @@ dependencies = [
  "angzarr-diagnostic",
  "angzarr-embedded",
  "angzarr-yaml",
+ "exit-code",
  "fluent-syntax",
  "mutants",
  "ports",
@@ -1529,6 +1547,7 @@ dependencies = [
  "angzarr-embedded",
  "angzarr-presentation",
  "clap",
+ "cli-support",
  "fluent-syntax",
  "plans-application",
  "serde",
@@ -1614,6 +1633,7 @@ version = "0.1.0"
 dependencies = [
  "angzarr-diagnostic",
  "angzarr-presentation",
+ "exit-code",
  "fluent-syntax",
  "ports",
 ]
@@ -1625,6 +1645,7 @@ dependencies = [
  "angzarr-diagnostic",
  "angzarr-presentation",
  "clap",
+ "cli-support",
  "fluent-syntax",
  "project-application",
  "serde",
@@ -2360,6 +2381,7 @@ dependencies = [
  "angzarr-presentation",
  "angzarr-store-transfer",
  "clap",
+ "cli-support",
  "fluent-syntax",
  "project-application",
  "prost",
@@ -2516,6 +2538,7 @@ dependencies = [
  "angzarr-presentation",
  "angzarr-store-transfer",
  "clap",
+ "cli-support",
  "file-lock",
  "file-system",
  "fs4",
@@ -2571,6 +2594,7 @@ dependencies = [
  "angzarr-diagnostic",
  "angzarr-embedded",
  "angzarr-presentation",
+ "exit-code",
  "fluent-syntax",
  "kernel-runner",
  "mutants",
@@ -2592,6 +2616,7 @@ dependencies = [
  "angzarr-embedded",
  "angzarr-presentation",
  "clap",
+ "cli-support",
  "fluent-syntax",
  "serde",
  "serde_json",
@@ -2673,6 +2698,7 @@ dependencies = [
  "angzarr-presentation",
  "base64",
  "clap",
+ "cli-support",
  "fluent-syntax",
  "os",
  "serde",

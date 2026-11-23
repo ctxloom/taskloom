@@ -1,6 +1,7 @@
 //! The errors' English, the wrapper's delegation, and the catalog.
 
 use angzarr_diagnostic::Diagnostic;
+use cli_support::ExitClass;
 use tasks_application::AppError;
 
 angzarr_presentation::english_for!(&[crate::EN_US.1]);
@@ -106,7 +107,7 @@ fn test_every_code_is_under_the_crates_name_with_its_message() {
 }
 
 #[test]
-fn test_an_invalid_cursor_is_exit_2_and_everything_else_exit_1() {
+fn test_a_request_the_content_or_the_state_forbids_is_declined_and_what_broke_is_a_failure() {
     let invalid = [
         WatchError::CursorMalformed,
         WatchError::CursorVersion {
@@ -119,20 +120,25 @@ fn test_an_invalid_cursor_is_exit_2_and_everything_else_exit_1() {
         },
     ];
     for error in invalid {
-        assert_eq!(error.exit_code(), 2, "{error}");
+        assert_eq!(error.exit().code(false), 48, "{error}");
     }
-    let ran = [
+    let forbidden = [
         WatchError::NoProject,
         WatchError::UnknownProject {
             project: "p".to_string(),
         },
+    ];
+    for error in forbidden {
+        assert_eq!(error.exit().code(false), 48, "{error}");
+    }
+    let broke = [
         WatchError::Output {
             detail: "gone".to_string(),
         },
         WatchError::App(AppError::HarpsExhausted { attempts: 1 }),
     ];
-    for error in ran {
-        assert_eq!(error.exit_code(), 1, "{error}");
+    for error in broke {
+        assert_eq!(error.exit().code(false), 32, "{error}");
     }
 }
 

@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 angzarr-embedded.workspace = true
 angzarr-diagnostic.workspace = true
+exit-code.workspace = true
 # Each command run through the kernel, as every context runs one.
 kernel-runner.workspace = true
 ports.workspace = true

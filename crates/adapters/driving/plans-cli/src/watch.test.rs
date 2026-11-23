@@ -110,7 +110,7 @@ fn lines(script: Vec<Snapshot>, ticks: usize) -> (u8, Vec<Value>, String) {
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
-    (code, lines, String::from_utf8(err).unwrap())
+    (code.code(false), lines, String::from_utf8(err).unwrap())
 }
 
 #[test]
@@ -122,7 +122,7 @@ fn the_first_line_is_the_priming_one_and_a_stop_ends_with_exit_0() {
 }
 
 #[test]
-fn a_priming_line_alone_when_the_snapshot_cannot_be_taken_is_the_error_and_exit_1() {
+fn a_priming_line_alone_when_the_snapshot_cannot_be_taken_is_the_error_and_the_errors_exit() {
     let settings = Settings {
         format: Format::Text,
         session: String::new(),
@@ -143,7 +143,7 @@ fn a_priming_line_alone_when_the_snapshot_cannot_be_taken_is_the_error_and_exit_
         &mut out,
         &mut err,
     ));
-    assert_eq!(code, 1);
+    assert_eq!(code.code(false), 48, "NoChange is declined");
     assert!(
         out.is_empty(),
         "no priming line before the watch is established"
@@ -191,7 +191,7 @@ fn after_ticks(script: Vec<Snapshot>, ticks: usize) -> (u8, Vec<Value>) {
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
-    (code, lines)
+    (code.code(false), lines)
 }
 
 #[test]

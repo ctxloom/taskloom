@@ -3,6 +3,7 @@
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
+use exit_code::{Exit, ExitClass};
 use tag_rules::{RulesRefusal, TagRefusal};
 
 use crate::FrontError;
@@ -89,27 +90,40 @@ pub enum PlanError {
     Tasks(Report),
 }
 
-impl PlanError {
-    /// Whether the request is invalid on its own content (the CLI's exit
-    /// 2): refused before any file or task was asked about it. The rest
-    /// ran against state, and the answer was negative (exit 1).
-    pub fn invalid(&self) -> bool {
-        matches!(
-            self,
+/// A decline (48) where the request is invalid on its own content or the
+/// state forbids it (no such plan, an ambiguous id, a file in the way, no
+/// work root, a plan file whose frontmatter cannot be edited); a failure
+/// (32) where a file or the project's tasks could not be read or written.
+impl ExitClass for PlanError {
+    fn exit(&self) -> Exit {
+        match self {
+            PlanError::Unreadable { .. }
+            | PlanError::HarpsExhausted { .. }
+            | PlanError::Files(_)
+            | PlanError::Tasks(_) => Exit::FAILED,
             PlanError::UnknownStatus { .. }
-                | PlanError::HandSuperseded
-                | PlanError::NoChange
-                | PlanError::BlankTitle
-                | PlanError::NotAPlanPath { .. }
-                | PlanError::Tag(_)
-                | PlanError::Rules(_)
-                | PlanError::SupersedeSelf { .. }
-                | PlanError::SupersedeCycle { .. }
-                | PlanError::TagQuery { .. }
-                | PlanError::Config(_)
-        )
+            | PlanError::HandSuperseded
+            | PlanError::NoChange
+            | PlanError::BlankTitle
+            | PlanError::NotAPlanPath { .. }
+            | PlanError::Tag(_)
+            | PlanError::Rules(_)
+            | PlanError::SupersedeSelf { .. }
+            | PlanError::SupersedeCycle { .. }
+            | PlanError::TagQuery { .. }
+            | PlanError::Config(_)
+            | PlanError::NoSuchPlan(_)
+            | PlanError::NoSuchTask(_)
+            | PlanError::Ambiguous { .. }
+            | PlanError::NoId { .. }
+            | PlanError::Frontmatter { .. }
+            | PlanError::FileExists { .. }
+            | PlanError::NoWorkRoot(_) => Exit::REFUSED,
+        }
     }
+}
 
+impl PlanError {
     /// The error this one wraps, whose diagnostic it is: none for one of
     /// this crate's own.
     fn wrapped(&self) -> Option<&dyn Diagnostic> {

@@ -101,6 +101,14 @@ project-cli = { path = "crates/adapters/driving/project-cli" }
 plans-cli = { path = "crates/adapters/driving/plans-cli" }
 store-cli = { path = "crates/adapters/driving/store-cli" }
 
+# rust-support: `cli-support` (what every driving CLI adapter shares: the
+# command's `Exit`, `usage_exit`, the `--detailed-exitcode` flag) and
+# `exit-code` (the exit-code convention as a pure type, `ExitClass`, which
+# the core's errors implement). Pinned by full commit, at the angzarr core
+# the crates above are at; bumps are deliberate commits.
+cli-support = { git = "https://github.com/benjaminabbitt/rust-support", rev = "fea46b99ab2b44beeb3d76c05a9f0d4239844451" }
+exit-code = { git = "https://github.com/benjaminabbitt/rust-support", rev = "fea46b99ab2b44beeb3d76c05a9f0d4239844451" }
+
 # tagma: the tag grammar and query engine (tagma-core), with the SemVer
 # 2.0.0 comparator a `type=semver` target orders by (`tagma_core::semver`),
 # and its Tag message (tagma-proto), pinned by full commit; bumps are

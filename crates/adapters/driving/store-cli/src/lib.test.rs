@@ -186,7 +186,7 @@ impl World {
             &mut err,
         ));
         Ran {
-            code,
+            code: code.code(false),
             out: String::from_utf8(out).unwrap(),
             err: String::from_utf8(err).unwrap(),
         }
@@ -224,7 +224,7 @@ fn test_export_writes_the_file_to_stdout_and_its_note_to_stderr() {
 }
 
 #[test]
-fn test_an_export_refused_says_why_on_stderr_and_exits_1() {
+fn test_an_export_refused_says_why_on_stderr_and_exits_48() {
     let mut world = World::new();
     world.projects = Projects::new(
         Fake { pinned: Vec::new() },
@@ -234,7 +234,7 @@ fn test_an_export_refused_says_why_on_stderr_and_exits_1() {
         },
     );
     let ran = world.run(&["store", "export"], None);
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 48);
     assert_eq!(ran.out, "", "nothing on stdout");
     assert_eq!(
         ran.err,
@@ -266,7 +266,7 @@ fn test_a_digest_that_fails_says_why_and_writes_nothing() {
     let mut world = World::new();
     world.tasks.folded = Err(AppError::NoProject);
     let ran = world.run(&["store", "fold-digest"], None);
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 48);
     assert_eq!(ran.out, "");
     assert!(ran.err.starts_with("taskloom: "), "{}", ran.err);
     assert_eq!(

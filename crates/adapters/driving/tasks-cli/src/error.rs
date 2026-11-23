@@ -4,6 +4,7 @@ use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
 use angzarr_presentation::UnknownFormat;
+use cli_support::{Exit, ExitClass};
 use tasks_application::AppError;
 
 #[cfg(any(test, feature = "test-support"))]
@@ -39,27 +40,27 @@ pub enum CliError {
     PlanImportRemoved,
 }
 
-impl CliError {
-    /// The process exit code, by the owner's rule: 2 when the request is
-    /// invalid on its own content and was refused before any state was read
-    /// (a usage error, a format the command does not speak, a removed
-    /// spelling, and what the use case judged invalid, as
-    /// [`AppError::exit_code`] says); 1 when it ran against state and the
-    /// answer was negative (a `check` that found something, a task that is
-    /// not there, an output that could not be written).
-    pub fn exit_code(&self) -> u8 {
+/// A decline (48) where the request is invalid on its own content and was
+/// refused before any state was read (a usage error, a format the command
+/// does not speak, a removed spelling, a lint that checked no target) or as
+/// the use case judged it ([`AppError`]'s own class); fatal findings (49)
+/// where a `check` examined the store and found it unworkable; a failure
+/// (32) where an output could not be written or an import left something
+/// behind.
+impl ExitClass for CliError {
+    fn exit(&self) -> Exit {
         match self {
-            CliError::App(error) => error.exit_code(),
-            CliError::Output { .. }
-            | CliError::Incomplete { .. }
-            | CliError::LintViolations { .. }
-            | CliError::LintCheckedNothing
-            | CliError::SchemaFindings { .. } => 1,
-            CliError::Usage { .. }
+            CliError::App(error) => error.exit(),
+            CliError::Output { .. } | CliError::Incomplete { .. } => Exit::FAILED,
+            CliError::LintViolations { .. } | CliError::SchemaFindings { .. } => {
+                Exit::FATAL_FINDINGS
+            }
+            CliError::LintCheckedNothing
+            | CliError::Usage { .. }
             | CliError::Format(_)
             | CliError::LoadoutFormat { .. }
             | CliError::Removed { .. }
-            | CliError::PlanImportRemoved => 2,
+            | CliError::PlanImportRemoved => Exit::REFUSED,
         }
     }
 }

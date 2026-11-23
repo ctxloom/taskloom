@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 angzarr-diagnostic.workspace = true
+exit-code.workspace = true
 # The editor that changes a frontmatter in place, keeping every byte the
 # edit does not touch (as tasks-config edits the config file).
 angzarr-yaml.workspace = true

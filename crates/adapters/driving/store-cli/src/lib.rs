@@ -21,6 +21,7 @@ use angzarr_presentation::Catalog;
 use angzarr_store_transfer::angzarr_ports::angzarr_proto::v1::Cover;
 use angzarr_store_transfer::{descriptor_pool, write_digest, Digested};
 use clap::Subcommand;
+use cli_support::{Exit, ExitClass};
 use project_application::{ProjectAdmin, Projects, StoreExport};
 use tasks_application::{DigestService, Folded};
 
@@ -73,7 +74,7 @@ pub async fn run<A, C, T>(
     use_cases: UseCases<'_, A, C, T>,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> u8
+) -> Exit
 where
     A: ProjectAdmin,
     C: StoreExport,
@@ -84,11 +85,11 @@ where
         Command::FoldDigest => digest(settings, use_cases.tasks, out).await,
     };
     let said = match done {
-        Ok(None) => return 0,
-        Ok(Some(note)) => say(settings, catalog, &note, err).map(|()| 0),
-        Err(error) => say(settings, catalog, &error, err).map(|()| 1),
+        Ok(None) => return Exit::OK,
+        Ok(Some(note)) => say(settings, catalog, &note, err).map(|()| Exit::OK),
+        Err(error) => say(settings, catalog, &error, err).map(|()| error.exit()),
     };
-    said.unwrap_or(1)
+    said.unwrap_or(Exit::FAILED)
 }
 
 /// `diagnostic` on stderr: its catalog message after the program's name.

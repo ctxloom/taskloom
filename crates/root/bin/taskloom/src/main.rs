@@ -22,6 +22,8 @@ use std::io::{self, IsTerminal, Read};
 use std::process::ExitCode;
 use std::time::Duration;
 
+use cli_support::Exit;
+
 use tasks_cli::Context;
 use tasks_lib::{Close, Taskloom};
 
@@ -177,7 +179,7 @@ impl From<Command> for Routed {
     }
 }
 
-/// `code`, the command's, once `held`'s store is closed and waited for
+/// `exit`, the command's, once `held`'s store is closed and waited for
 /// (ruling 131), before the process exits: dropped, its close would be left
 /// to the driver's thread, which the exit never lets run, and the store's
 /// log would stay beside it. A close that fails is said, and fails a
@@ -185,14 +187,14 @@ impl From<Command> for Routed {
 fn closing(
     runtime: &tokio::runtime::Runtime,
     held: impl Close,
-    code: u8,
+    exit: Exit,
     catalog: &angzarr_presentation::Catalog,
-) -> ExitCode {
+) -> Exit {
     match runtime.block_on(held.close()) {
-        Ok(()) => ExitCode::from(code),
+        Ok(()) => exit,
         Err(e) => {
             eprintln!("{}: {}", tasks_cli::PROG, catalog.message(&e));
-            ExitCode::from(code.max(1))
+            exit.worst(Exit::FAILED)
         }
     }
 }
@@ -205,9 +207,9 @@ fn import(
     project: Option<String>,
     format: angzarr_presentation::Format,
     catalog: &angzarr_presentation::Catalog,
-) -> ExitCode {
+) -> Exit {
     let mut importer = taskloom.importer();
-    let code = runtime.block_on(tasks_cli::run_import(
+    let exit = runtime.block_on(tasks_cli::run_import(
         project,
         format,
         catalog,
@@ -215,7 +217,7 @@ fn import(
         &mut io::stdout().lock(),
         &mut io::stderr().lock(),
     ));
-    closing(runtime, importer, code, catalog)
+    closing(runtime, importer, exit, catalog)
 }
 
 /// `taskloom tasks watch`: the project's task events on stdout, polled every
@@ -226,7 +228,7 @@ fn watch<W: tasks_application::WatchService>(
     service: &mut W,
     settings: &tasks_watch::Settings,
     catalog: &angzarr_presentation::Catalog,
-) -> u8 {
+) -> Exit {
     runtime.block_on(async {
         // SIGINT or SIGTERM (on Windows Ctrl-C, Ctrl-Break, or the
         // console's close, logoff or shutdown), listened for from here,
@@ -235,7 +237,7 @@ fn watch<W: tasks_application::WatchService>(
             Ok(stop) => stop,
             Err(e) => {
                 eprintln!("{}: cannot listen for signals: {e}", tasks_cli::PROG);
-                return 1;
+                return Exit::FAILED;
             }
         };
         // Stdin is not watched: the VS Code extension starts the watch
@@ -263,7 +265,7 @@ fn store_group(
     command: store_cli::Command,
     project: Option<String>,
     catalog: &angzarr_presentation::Catalog,
-) -> ExitCode {
+) -> Exit {
     let mut projects = taskloom.projects();
     let mut tasks = taskloom.tasks();
     let settings = store_cli::Settings {
@@ -275,7 +277,7 @@ fn store_group(
         projects: &mut projects,
         tasks: &mut tasks,
     };
-    let code = runtime.block_on(store_cli::run(
+    let exit = runtime.block_on(store_cli::run(
         command,
         &settings,
         catalog,
@@ -284,7 +286,7 @@ fn store_group(
         &mut io::stderr().lock(),
     ));
     // The projects' check and export close the stores they open.
-    closing(runtime, tasks, code, catalog)
+    closing(runtime, tasks, exit, catalog)
 }
 
 /// The project commands, over the project registry and the SQLite store's
@@ -294,16 +296,16 @@ fn project_group(
     group: project_cli::Command,
     settings: &project_cli::Settings,
     catalog: &angzarr_presentation::Catalog,
-) -> ExitCode {
+) -> Exit {
     let mut projects = taskloom.projects();
-    ExitCode::from(project_cli::run(
+    project_cli::run(
         group,
         settings,
         catalog,
         &mut projects,
         &mut io::stdout().lock(),
         &mut io::stderr().lock(),
-    ))
+    )
 }
 
 /// How often `plans watch` looks at the plan files: the work tree is
@@ -327,13 +329,13 @@ fn plans_watch<P: plans_cli::Plans>(
     plans: &mut P,
     settings: &plans_cli::Settings,
     catalog: &angzarr_presentation::Catalog,
-) -> u8 {
+) -> Exit {
     runtime.block_on(async {
         let stop = match os.stop_signal() {
             Ok(stop) => stop,
             Err(e) => {
                 eprintln!("{}: cannot listen for signals: {e}", tasks_cli::PROG);
-                return 1;
+                return Exit::FAILED;
             }
         };
         let mut ticks = PlanTicks(tasks_watch::Interval::every(PLANS_POLL));
@@ -358,19 +360,19 @@ fn stamp_plan(
     project: Option<String>,
     settings: &plans_cli::Settings,
     catalog: &angzarr_presentation::Catalog,
-) -> ExitCode {
+) -> Exit {
     let mut payload = String::new();
     // A payload that cannot be read is the hook's to say, as an empty one.
     let _ = io::stdin().lock().read_to_string(&mut payload);
     let mut plans = taskloom.plans(project);
-    let code = plans_cli::stamp(
+    let exit = plans_cli::stamp(
         &payload,
         settings,
         catalog,
         &mut plans,
         &mut io::stderr().lock(),
     );
-    closing(runtime, plans, code, catalog)
+    closing(runtime, plans, exit, catalog)
 }
 
 /// The `plans` group, over the plans use cases: the plan files wherever
@@ -382,9 +384,9 @@ fn plan_group(
     project: Option<String>,
     settings: &plans_cli::Settings,
     catalog: &angzarr_presentation::Catalog,
-) -> ExitCode {
+) -> Exit {
     let mut plans = taskloom.plans(project);
-    let code = runtime.block_on(plans_cli::run(
+    let exit = runtime.block_on(plans_cli::run(
         group,
         settings,
         catalog,
@@ -392,7 +394,7 @@ fn plan_group(
         &mut io::stdout().lock(),
         &mut io::stderr().lock(),
     ));
-    closing(runtime, plans, code, catalog)
+    closing(runtime, plans, exit, catalog)
 }
 
 /// What the command line reads from the process besides its arguments.
@@ -417,14 +419,14 @@ fn main() -> ExitCode {
         Ok(runtime) => runtime,
         Err(e) => {
             eprintln!("{}: cannot start: {e}", tasks_cli::PROG);
-            return ExitCode::FAILURE;
+            return Exit::FAILED.process(false);
         }
     };
     let catalog = match catalog() {
         Ok(catalog) => catalog,
         Err(e) => {
             eprintln!("{}: {e}", tasks_cli::PROG);
-            return ExitCode::FAILURE;
+            return Exit::FAILED.process(false);
         }
     };
     let context = context();
@@ -441,6 +443,7 @@ fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(code) => return ExitCode::from(code),
     };
+    let detailed = globals.detailed_exitcode;
     // The working directory, HOME, CTXLOOM_ROOT, CTXLOOM_PROJECT_ID and
     // the variables, read once; an unreadable working directory fails
     // only the commands that need it.
@@ -451,7 +454,7 @@ fn main() -> ExitCode {
         Ok(taskloom) => taskloom,
         Err(e) => {
             eprintln!("{}: {}", tasks_cli::PROG, catalog.message(&e));
-            return ExitCode::FAILURE;
+            return Exit::FAILED.process(false);
         }
     };
     let routed = Routed::from(command);
@@ -459,10 +462,11 @@ fn main() -> ExitCode {
         Routed::Tasks(command) => command,
         Routed::Mounted(other) => {
             return mounted(&runtime, &taskloom, other, globals, &context, &catalog)
+                .process(detailed)
         }
     };
     let mut service = taskloom.tasks();
-    let code = runtime.block_on(tasks_cli::run(
+    let exit = runtime.block_on(tasks_cli::run(
         command,
         globals,
         &context,
@@ -471,7 +475,7 @@ fn main() -> ExitCode {
         &mut stdout.lock(),
         &mut stderr.lock(),
     ));
-    closing(&runtime, service, code, &catalog)
+    closing(&runtime, service, exit, &catalog).process(detailed)
 }
 
 /// The commands that are no task use case's: `manage migrate tasks`, `tasks
@@ -483,10 +487,10 @@ fn mounted(
     globals: tasks_cli::Globals,
     context: &Context,
     catalog: &angzarr_presentation::Catalog,
-) -> ExitCode {
+) -> Exit {
     let format = match globals.format(context, catalog, &mut io::stderr().lock()) {
         Ok(format) => format,
-        Err(code) => return ExitCode::from(code),
+        Err(exit) => return exit,
     };
     let project = globals.project;
     let plan_settings = || plans_cli::Settings {
@@ -510,14 +514,14 @@ fn mounted(
         }
         Mounted::PlansWatch => {
             let mut plans = taskloom.plans(project);
-            let code = plans_watch(
+            let exit = plans_watch(
                 runtime,
                 taskloom.fs().os(),
                 &mut plans,
                 &plan_settings(),
                 catalog,
             );
-            closing(runtime, plans, code, catalog)
+            closing(runtime, plans, exit, catalog)
         }
         Mounted::StampPlan => stamp_plan(runtime, taskloom, project, &plan_settings(), catalog),
         Mounted::Watch(args) => {
@@ -529,14 +533,14 @@ fn mounted(
                 prog: tasks_cli::PROG,
             };
             let mut service = taskloom.tasks();
-            let code = watch(
+            let exit = watch(
                 runtime,
                 taskloom.fs().os(),
                 &mut service,
                 &settings,
                 catalog,
             );
-            closing(runtime, service, code, catalog)
+            closing(runtime, service, exit, catalog)
         }
     }
 }

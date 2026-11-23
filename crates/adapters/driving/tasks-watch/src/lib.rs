@@ -29,15 +29,18 @@
 //! Windows Ctrl-C, Ctrl-Break or the console's close, logoff or shutdown,
 //! as its long help says; never its stdin closing, since a subscriber
 //! such as the VS Code extension starts it with stdin from /dev/null), or
-//! the watch fails. A failure is reported as every command's is: exit 2
-//! where the cursor is invalid on its own content, 1 where the watch ran
-//! against state and failed (no such project).
+//! the watch fails. A failure is reported as every command's is: declined
+//! (48) where the cursor is invalid on its own content or the watch ran
+//! against state that forbids it (no such project), failed (32) where it
+//! broke.
 
 mod cursor;
 mod error;
 
 use std::future::{poll_fn, Future};
 use std::io::{self, Write};
+
+use cli_support::{Exit, ExitClass};
 use std::pin::pin;
 use std::task::Poll;
 use std::time::Duration;
@@ -285,8 +288,8 @@ impl Lines<'_> {
 }
 
 /// Stream `service`'s events to `out`, polling on each of `ticks`, until
-/// `stop` resolves (exit 0) or the watch fails (the error on `err`,
-/// rendered from `catalog`; exit 2 for an invalid cursor, else 1).
+/// `stop` resolves (ok) or the watch fails (the error on `err`,
+/// rendered from `catalog`; the error's own exit).
 pub async fn run<W: WatchService>(
     service: &mut W,
     settings: &Settings,
@@ -295,12 +298,12 @@ pub async fn run<W: WatchService>(
     catalog: &Catalog,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> u8 {
+) -> Exit {
     match stream(service, settings, ticks, stop, out).await {
-        Ok(()) => 0,
+        Ok(()) => Exit::OK,
         Err(error) => {
             let _ = report(&error, settings, catalog, err);
-            error.exit_code()
+            error.exit()
         }
     }
 }

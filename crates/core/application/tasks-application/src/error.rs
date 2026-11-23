@@ -3,6 +3,7 @@
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
+use exit_code::{Exit, ExitClass};
 
 use crate::DeadLetter;
 
@@ -95,59 +96,6 @@ impl AppError {
         }
     }
 
-    /// The process exit code of this failure, by the owner's rule: 2 when
-    /// the request is invalid on its own content (a tag no permit admits, an
-    /// out-of-range or unreadable value, a missing trigger, a blank, a
-    /// malformed query or permit), however late the use case found it;
-    /// 1 when it ran against state and the answer was negative (no such
-    /// task, a permit still in use, a store that failed).
-    pub fn exit_code(&self) -> u8 {
-        match self {
-            AppError::DeadLettered { error, .. } => error.exit_code(),
-            AppError::Rejected(cause) => {
-                let (removed, exists) = (
-                    tasks::TaskRejection::Removed {
-                        harp_id: String::new(),
-                    },
-                    tasks::TaskRejection::TaskExists {
-                        harp_id: String::new(),
-                    },
-                );
-                let negative = [
-                    tasks::TaskRejection::NoTask.code(),
-                    removed.code(),
-                    exists.code(),
-                ];
-                if negative.contains(&cause.code()) {
-                    1
-                } else {
-                    2
-                }
-            }
-            AppError::TagRefused(_)
-            | AppError::TagQuery(_)
-            | AppError::Prune(_)
-            | AppError::UnknownStatusClass { .. }
-            | AppError::UnknownSort { .. }
-            | AppError::Blank { .. }
-            | AppError::TriggerAndClear
-            | AppError::PermitMalformed { .. } => 2,
-            AppError::Failed(_)
-            | AppError::Identity(_)
-            | AppError::Configuration(_)
-            | AppError::GaveUp { .. }
-            | AppError::HarpsExhausted { .. }
-            | AppError::Vanished { .. }
-            | AppError::NoProject
-            | AppError::AddRequestIdCollides { .. }
-            | AppError::Priority(_)
-            | AppError::NotFound { .. }
-            | AppError::Ambiguous { .. }
-            | AppError::PermitNotDeclared { .. }
-            | AppError::PermitInUse { .. } => 1,
-        }
-    }
-
     /// Whether this is the domain's refusal of a task that is not there
     /// (`tasks::TaskRejection::NoTask`), with dead letters or without: what
     /// a driving adapter asks, which sees no domain.
@@ -163,6 +111,41 @@ impl AppError {
                 error: Box::new(self),
                 dead_letters,
             },
+        }
+    }
+}
+
+/// What a failure ends the command with, by the exit-code convention: a
+/// decline (48) when the request is invalid on its own content or the state
+/// forbids it (no such task, a permit still in use, a configuration that
+/// cannot be read), however late the use case found it; a failure (32)
+/// when the command tried and the store or the kernel broke.
+impl ExitClass for AppError {
+    fn exit(&self) -> Exit {
+        match self {
+            AppError::DeadLettered { error, .. } => error.exit(),
+            AppError::Rejected(_)
+            | AppError::TagRefused(_)
+            | AppError::Configuration(_)
+            | AppError::TagQuery(_)
+            | AppError::Prune(_)
+            | AppError::UnknownStatusClass { .. }
+            | AppError::UnknownSort { .. }
+            | AppError::Blank { .. }
+            | AppError::TriggerAndClear
+            | AppError::PermitMalformed { .. }
+            | AppError::NoProject
+            | AppError::AddRequestIdCollides { .. }
+            | AppError::NotFound { .. }
+            | AppError::Ambiguous { .. }
+            | AppError::PermitNotDeclared { .. }
+            | AppError::PermitInUse { .. }
+            | AppError::Priority(_) => Exit::REFUSED,
+            AppError::Failed(_)
+            | AppError::Identity(_)
+            | AppError::GaveUp { .. }
+            | AppError::HarpsExhausted { .. }
+            | AppError::Vanished { .. } => Exit::FAILED,
         }
     }
 }

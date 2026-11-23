@@ -12,6 +12,7 @@
 use std::io::Write;
 
 use angzarr_presentation::Catalog;
+use cli_support::Exit;
 use plans_application::Plans;
 use serde_json::Value;
 
@@ -32,14 +33,14 @@ fn edited(payload: &str) -> Result<String, CliError> {
 }
 
 /// Stamp the session `settings` carries into the plan file `payload`
-/// names; the exit code, always 0.
+/// names; the exit, always ok.
 pub fn stamp<P: Plans>(
     payload: &str,
     settings: &Settings,
     catalog: &Catalog,
     plans: &mut P,
     err: &mut dyn Write,
-) -> u8 {
+) -> Exit {
     let stamped = edited(payload).and_then(|path| {
         plans
             .stamp(&path, &settings.session)
@@ -49,7 +50,7 @@ pub fn stamp<P: Plans>(
     if let Err(error) = stamped {
         let _ = writeln!(err, "{}: {}", settings.prog, catalog.message(&error));
     }
-    0
+    Exit::OK
 }
 
 #[cfg(test)]

@@ -207,7 +207,7 @@ fn stream(service: &mut Scripted, settings: &Settings, ticks: u32) -> Streamed {
         &mut err,
     ));
     Streamed {
-        code,
+        code: code.code(false),
         lines: String::from_utf8(out)
             .unwrap()
             .lines()
@@ -413,7 +413,7 @@ fn test_since_is_kept_verbatim_even_where_another_spelling_decodes_the_same() {
 // ------------------------------------------------------------ refusals
 
 #[test]
-fn test_a_cursor_invalid_on_its_own_content_is_exit_2_before_the_store_is_asked() {
+fn test_a_cursor_invalid_on_its_own_content_is_exit_48_before_the_store_is_asked() {
     for bad in ["", "not a cursor"] {
         let mut service = Scripted::of(vec![]);
         let resumed = Settings {
@@ -421,7 +421,7 @@ fn test_a_cursor_invalid_on_its_own_content_is_exit_2_before_the_store_is_asked(
             ..json_settings()
         };
         let streamed = stream(&mut service, &resumed, 3);
-        assert_eq!(streamed.code, 2, "{bad:?}: {}", streamed.err);
+        assert_eq!(streamed.code, 48, "{bad:?}: {}", streamed.err);
         assert!(streamed.lines.is_empty(), "{bad:?}: no priming line");
         assert_eq!(service.requests, [], "{bad:?}: no state was read");
     }
@@ -442,7 +442,7 @@ fn test_an_unknown_version_names_the_supported_one() {
         ..json_settings()
     };
     let streamed = stream(&mut Scripted::of(vec![]), &resumed, 0);
-    assert_eq!(streamed.code, 2);
+    assert_eq!(streamed.code, 48);
     let envelope: Value = serde_json::from_str(&streamed.err).unwrap();
     assert_eq!(envelope["code"], code!("cursor-version"));
     assert_eq!(envelope["args"]["found"], 999);
@@ -460,14 +460,14 @@ fn base64_encode(bytes: &[u8]) -> String {
 }
 
 #[test]
-fn test_another_projects_cursor_is_exit_2_before_any_stream_is_read() {
+fn test_another_projects_cursor_is_exit_48_before_any_stream_is_read() {
     let mut service = Scripted::of(vec![true]);
     let resumed = Settings {
         since: Some(encode("swift-amber-falcon", &Positions::new())),
         ..json_settings()
     };
     let streamed = stream(&mut service, &resumed, 3);
-    assert_eq!(streamed.code, 2, "{}", streamed.err);
+    assert_eq!(streamed.code, 48, "{}", streamed.err);
     assert!(streamed.lines.is_empty());
     assert_eq!(
         (service.headed, service.scanned.len(), service.polled),
@@ -478,11 +478,11 @@ fn test_another_projects_cursor_is_exit_2_before_any_stream_is_read() {
 }
 
 #[test]
-fn test_a_project_with_no_store_is_exit_1_with_no_priming_line() {
+fn test_a_project_with_no_store_is_exit_48_with_no_priming_line() {
     let mut service = Scripted::of(vec![]);
     service.no_store = true;
     let streamed = stream(&mut service, &json_settings(), 3);
-    assert_eq!(streamed.code, 1);
+    assert_eq!(streamed.code, 48);
     assert!(streamed.lines.is_empty());
     let envelope: Value = serde_json::from_str(&streamed.err).unwrap();
     assert_eq!(envelope["code"], code!("unknown-project"));
@@ -496,14 +496,14 @@ fn test_a_project_with_no_store_is_exit_1_with_no_priming_line() {
         since: Some(encode("swift-amber-falcon", &Positions::new())),
         ..json_settings()
     };
-    assert_eq!(stream(&mut service, &resumed, 3).code, 1);
+    assert_eq!(stream(&mut service, &resumed, 3).code, 48);
 }
 
 #[test]
 fn test_a_watch_where_there_is_no_project_says_so_and_writes_no_line() {
     let mut service = Scripted::default();
     let streamed = stream(&mut service, &settings(Format::Text), 3);
-    assert_eq!(streamed.code, 1);
+    assert_eq!(streamed.code, 48);
     assert!(streamed.lines.is_empty());
     assert_eq!(
         streamed.err,
@@ -540,7 +540,7 @@ fn test_a_watch_a_poll_or_a_scan_that_fails_ends_the_stream_with_why() {
         ..Scripted::of(vec![])
     };
     let streamed = stream(&mut service, &json_settings(), 3);
-    assert_eq!(streamed.code, 1);
+    assert_eq!(streamed.code, 32);
     assert!(streamed.lines.is_empty());
     let envelope: Value = serde_json::from_str(&streamed.err).unwrap();
     assert_eq!(envelope["code"], AppError::NoProject.code());
@@ -548,14 +548,14 @@ fn test_a_watch_a_poll_or_a_scan_that_fails_ends_the_stream_with_why() {
     let mut service = Scripted::of(vec![false]);
     service.polls.push_back(Err(why.clone()));
     let streamed = stream(&mut service, &settings(Format::Text), 3);
-    assert_eq!(streamed.code, 1);
+    assert_eq!(streamed.code, 32);
     assert_eq!(streamed.lines.len(), 1, "what was written stays written");
     assert!(streamed.err.starts_with("taskloom: "), "{}", streamed.err);
 
     let mut service = Scripted::of(vec![true]);
     service.scans.push_back(Err(why.clone()));
     let streamed = stream(&mut service, &json_settings(), 3);
-    assert_eq!(streamed.code, 1);
+    assert_eq!(streamed.code, 32);
     assert_eq!(streamed.lines.len(), 1);
 
     // The replay of a resume fails the same way.
@@ -565,7 +565,7 @@ fn test_a_watch_a_poll_or_a_scan_that_fails_ends_the_stream_with_why() {
         since: Some(cursor(&[])),
         ..json_settings()
     };
-    assert_eq!(stream(&mut service, &resumed, 3).code, 1);
+    assert_eq!(stream(&mut service, &resumed, 3).code, 32);
 }
 
 // ------------------------------------------------------------ the heartbeat
@@ -706,7 +706,7 @@ fn test_a_stream_no_one_reads_ends_with_why() {
         &mut Gone,
         &mut err,
     ));
-    assert_eq!(code, 1);
+    assert_eq!(code.code(false), 32, "an output that is gone is a failure");
     let envelope: Value = serde_json::from_str(&String::from_utf8(err).unwrap()).unwrap();
     assert_eq!(envelope["code"], code!("output"));
     assert_eq!(service.polled, 0);

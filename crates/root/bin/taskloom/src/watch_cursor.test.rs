@@ -297,30 +297,30 @@ fn b64url_encode(bytes: &[u8]) -> String {
 // ------------------------------------------------------------ 1. unknown project
 
 #[test]
-fn test_an_unknown_project_exits_1_with_no_priming_line() {
+fn test_an_unknown_project_exits_48_with_no_priming_line() {
     let env = world();
     // Today: the priming line, then it runs on. Ran against state, not
     // found: exit 1, and stdout stays empty.
-    refused(&env, &["--project", "no-such-project"], 1);
+    refused(&env, &["--project", "no-such-project"], 48);
 }
 
 #[test]
-fn test_an_unknown_project_is_exit_1_with_a_cursor_too() {
+fn test_an_unknown_project_is_exit_48_with_a_cursor_too() {
     let env = world();
     let cursor = some_cursor(&env);
     refused(
         &env,
         &["--project", "no-such-project", "--since", &cursor],
-        1,
+        48,
     );
 }
 
 #[test]
-fn test_no_project_here_is_exit_1_not_a_priming_line() {
+fn test_no_project_here_is_exit_48_not_a_priming_line() {
     // A work tree with no project yet: the same negative answer, and
     // nothing created. (The message itself is pinned in watch.test.rs.)
     let env = Env::new(SESSION);
-    refused(&env, &[], 1);
+    refused(&env, &[], 48);
 }
 
 // ------------------------------------------------------------ 2. the priming line
@@ -542,7 +542,7 @@ fn test_resume_delivers_exactly_the_events_after_a_line_across_streams() {
 // ------------------------------------------------------------ 5. invalid and pruned cursors
 
 #[test]
-fn test_a_malformed_cursor_is_exit_2() {
+fn test_a_malformed_cursor_is_exit_48() {
     let env = world();
     let real = some_cursor(&env);
     let cut = real[..real.len() / 2].to_string();
@@ -557,27 +557,27 @@ fn test_a_malformed_cursor_is_exit_2() {
     ] {
         // Invalid on its own content: refused before any state is read,
         // so exit 2 and no priming line.
-        let ended = refused(&env, &["--since", bad], 2);
+        let ended = refused(&env, &["--since", bad], 48);
         let _ = ended;
     }
 }
 
 #[test]
-fn test_a_malformed_cursor_is_exit_2_even_where_there_is_no_project() {
+fn test_a_malformed_cursor_is_exit_48_even_where_there_is_no_project() {
     // Invalid on its own content beats "no project": 2, not 1.
     let env = Env::new(SESSION);
-    refused(&env, &["--since", "not a cursor"], 2);
+    refused(&env, &["--since", "not a cursor"], 48);
     // And with an unknown project too.
     let env = world();
     refused(
         &env,
         &["--project", "no-such-project", "--since", "not a cursor"],
-        2,
+        48,
     );
 }
 
 #[test]
-fn test_a_cursor_of_an_unknown_version_is_exit_2() {
+fn test_a_cursor_of_an_unknown_version_is_exit_48() {
     // PROPOSAL (pending owner review): the encoding assumed here is base64url
     // of a JSON object with a `v` member; see the file header.
     let env = world();
@@ -587,7 +587,7 @@ fn test_a_cursor_of_an_unknown_version_is_exit_2() {
     assert_eq!(forged["v"], 1, "the cursor carries its version: {forged}");
     forged["v"] = json!(999);
     let forged = b64url_encode(forged.to_string().as_bytes());
-    refused(&env, &["--since", &forged], 2);
+    refused(&env, &["--since", &forged], 48);
 }
 
 #[test]
@@ -643,7 +643,7 @@ fn test_plans_watch_takes_no_cursor() {
         &env,
         &["plans", "watch", "--since", "x", "--format", "json"],
     );
-    assert_eq!(ended.code, Some(2), "{}{}", ended.stdout, ended.stderr);
+    assert_eq!(ended.code, Some(48), "{}{}", ended.stdout, ended.stderr);
 }
 
 // ------------------------------------------------------------ 6. a new stream starts at 0
@@ -702,9 +702,9 @@ fn test_a_quiet_store_gets_heartbeat_lines_at_the_interval() {
 }
 
 #[test]
-fn test_a_heartbeat_that_is_not_a_number_is_exit_2() {
+fn test_a_heartbeat_that_is_not_a_number_is_exit_48() {
     let env = world();
-    refused(&env, &["--heartbeat", "soon"], 2);
+    refused(&env, &["--heartbeat", "soon"], 48);
 }
 
 #[test]
@@ -861,7 +861,7 @@ fn test_resume_primes_with_the_requested_cursor_not_the_head() {
 }
 
 #[test]
-fn test_a_cursor_carries_the_project_and_a_foreign_projects_is_exit_2() {
+fn test_a_cursor_carries_the_project_and_a_foreign_projects_is_exit_48() {
     // Orchestrator decision, pending owner review. The `project` member
     // assumes the PROPOSAL encoding; the refusal does not.
     let env = world();
@@ -872,7 +872,7 @@ fn test_a_cursor_carries_the_project_and_a_foreign_projects_is_exit_2() {
     let other = world();
     assert_ne!(project_id(&other), project);
     // Invalid on its own content: refused before any stream is read.
-    refused(&other, &["--since", &cursor], 2);
+    refused(&other, &["--since", &cursor], 48);
 }
 
 #[test]
@@ -987,7 +987,7 @@ fn test_an_unknown_version_names_the_supported_one() {
     let env = world();
     let mut forged = decoded(&some_cursor(&env));
     forged["v"] = json!(999);
-    let ended = refused(&env, &["--since", &encoded(&forged)], 2);
+    let ended = refused(&env, &["--since", &encoded(&forged)], 48);
     assert!(has_number(&ended.stderr, 999), "{}", ended.stderr);
     assert!(has_number(&ended.stderr, 1), "{}", ended.stderr);
 }

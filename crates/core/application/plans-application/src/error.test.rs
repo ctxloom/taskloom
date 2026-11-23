@@ -90,8 +90,9 @@ fn a_wrapper_is_its_causes_diagnostic() {
 }
 
 #[test]
-fn a_request_invalid_on_its_own_content_is_told_from_one_that_ran_against_state() {
+fn a_request_the_state_or_its_content_forbids_is_declined_and_what_broke_is_a_failure() {
     use crate::PlanError;
+    use exit_code::{Exit, ExitClass};
 
     let report = angzarr_diagnostic::Report::new("x-busy");
     for invalid in [
@@ -115,9 +116,9 @@ fn a_request_invalid_on_its_own_content_is_told_from_one_that_ran_against_state(
         },
         PlanError::Config(report.clone()),
     ] {
-        assert!(invalid.invalid(), "{invalid}");
+        assert_eq!(invalid.exit(), Exit::REFUSED, "{invalid}");
     }
-    for negative in [
+    for forbidden in [
         PlanError::NoSuchPlan("x".into()),
         PlanError::NoSuchTask("x".into()),
         PlanError::Ambiguous {
@@ -125,14 +126,18 @@ fn a_request_invalid_on_its_own_content_is_told_from_one_that_ran_against_state(
             paths: "y".into(),
         },
         PlanError::NoId { path: "x".into() },
-        PlanError::Unreadable { path: "x".into() },
         PlanError::FileExists { path: "x".into() },
-        PlanError::HarpsExhausted { attempts: 1 },
         PlanError::NoWorkRoot(report.clone()),
+    ] {
+        assert_eq!(forbidden.exit(), Exit::REFUSED, "{forbidden}");
+    }
+    for broke in [
+        PlanError::Unreadable { path: "x".into() },
+        PlanError::HarpsExhausted { attempts: 1 },
         PlanError::Files(report.clone()),
         PlanError::Tasks(report),
     ] {
-        assert!(!negative.invalid(), "{negative}");
+        assert_eq!(broke.exit(), Exit::FAILED, "{broke}");
     }
 }
 

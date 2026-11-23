@@ -296,7 +296,7 @@ fn test_each_group_has_exactly_its_ruled_verbs() {
 fn test_there_is_no_manage_check() {
     // The shell composes the checks (`&&`, a just recipe): owner's ruling.
     let env = Env::new(SESSION);
-    refused(&env, &["manage", "check"], 2);
+    refused(&env, &["manage", "check"], 48);
     assert!(!names(&page(&["manage"]).long.stdout).contains("check"));
 }
 
@@ -309,7 +309,7 @@ fn test_there_is_no_manage_check() {
 fn removed(args: &[&str], instead: &str) {
     let env = Env::new(SESSION);
     let ran = run_bounded(&env, args, Duration::from_secs(30));
-    assert_eq!(ran.code, 2, "{args:?}: {}{}", ran.stdout, ran.stderr);
+    assert_eq!(ran.code, 48, "{args:?}: {}{}", ran.stdout, ran.stderr);
     let message = format!("removed: use {instead}");
     assert!(
         ran.stderr.contains(&message),
@@ -373,7 +373,7 @@ fn test_help_is_no_command_at_the_top_or_below() {
         &["tasks", "help"],
         &["manage", "schema", "help"],
     ] {
-        let ran = refused(&env, args, 2);
+        let ran = refused(&env, args, 48);
         assert_eq!(ran.stdout, "", "{args:?}");
     }
 }
@@ -485,7 +485,7 @@ fn test_json_flag_after_the_command_is_refused_with_use_format_json() {
         &["manage", "version", "--json"],
         &["loadout", "--json"],
     ] {
-        let ran = refused(&env, args, 2);
+        let ran = refused(&env, args, 48);
         assert!(
             ran.stderr.contains("removed: use --format json"),
             "{args:?}: {}",
@@ -510,7 +510,7 @@ fn test_global_is_removed_everywhere_and_says_use_project_per_project() {
         &["manage", "schema", "statuses", "list", "--global"],
         &["--global", "tasks", "list"],
     ] {
-        let ran = refused(&env, args, 2);
+        let ran = refused(&env, args, 48);
         assert!(
             ran.stderr
                 .contains("removed: use --project <id> per project"),
@@ -528,7 +528,7 @@ fn test_global_is_removed_everywhere_and_says_use_project_per_project() {
 #[test]
 fn test_json_flag_before_the_command_is_refused_with_use_format_json() {
     let env = Env::new(SESSION);
-    let ran = refused(&env, &["--json", "tasks", "list"], 2);
+    let ran = refused(&env, &["--json", "tasks", "list"], 48);
     assert!(
         ran.stderr.contains("removed: use --format json"),
         "{}",
@@ -611,7 +611,7 @@ fn test_tasks_set_trigger_defers_with_status_deferred() {
 fn test_tasks_set_with_nothing_to_set_is_a_usage_error() {
     let env = Env::new(SESSION);
     let harp = add_task(&env, "Idle");
-    let ran = refused(&env, &["tasks", "set", &harp], 2);
+    let ran = refused(&env, &["tasks", "set", &harp], 48);
     assert_eq!(ran.stdout, "");
 }
 
@@ -682,7 +682,7 @@ fn test_tasks_set_with_a_blank_request_id_is_refused_before_it_runs() {
     refused(
         &env,
         &["tasks", "set", &harp, "--text", "X", "--request-id", " "],
-        2,
+        48,
     );
     assert_eq!(shown(&env, &harp)["text"], "First");
 }
@@ -712,7 +712,7 @@ fn test_tasks_tag_replayed_under_its_request_id_applies_once() {
 // ------------------------------------------------------------ 5. exit codes
 
 #[test]
-fn test_a_usage_error_exits_2_on_stderr_and_prints_no_answer() {
+fn test_a_usage_error_exits_48_on_stderr_and_prints_no_answer() {
     let env = Env::new(SESSION);
     for args in [
         &["tasks", "add"][..],                   // a missing argument
@@ -723,17 +723,17 @@ fn test_a_usage_error_exits_2_on_stderr_and_prints_no_answer() {
         &["tasks", "show"],                      // a missing harp id
         &["manage", "doctor", "repoint"],        // a missing project id
     ] {
-        let ran = refused(&env, args, 2);
+        let ran = refused(&env, args, 48);
         assert_eq!(ran.stdout, "", "{args:?}");
         assert!(!ran.stderr.is_empty(), "{args:?} says why");
     }
 }
 
 #[test]
-fn test_a_tag_no_permit_admits_is_refused_with_2_and_adds_nothing() {
+fn test_a_tag_no_permit_admits_is_refused_with_48_and_adds_nothing() {
     let env = Env::new(SESSION);
     add_task(&env, "Seed");
-    let ran = refused(&env, &["tasks", "add", "Tagged", "--tag", "nope:thing"], 2);
+    let ran = refused(&env, &["tasks", "add", "Tagged", "--tag", "nope:thing"], 48);
     assert!(ran.stderr.contains("not-permitted"), "{}", ran.stderr);
     assert_eq!(
         ok(&env, &["tasks", "list"]).as_array().map(Vec::len),
@@ -742,15 +742,15 @@ fn test_a_tag_no_permit_admits_is_refused_with_2_and_adds_nothing() {
 }
 
 #[test]
-fn test_tagging_with_a_tag_no_permit_admits_exits_2_and_changes_nothing() {
+fn test_tagging_with_a_tag_no_permit_admits_exits_48_and_changes_nothing() {
     let env = Env::new(SESSION);
     let harp = add_task(&env, "Seed");
-    refused(&env, &["tasks", "tag", "add", &harp, "nope:thing"], 2);
+    refused(&env, &["tasks", "tag", "add", &harp, "nope:thing"], 48);
     assert_eq!(shown(&env, &harp)["tags"], json!([]));
 }
 
 #[test]
-fn test_arguments_refused_before_anything_ran_exit_2() {
+fn test_arguments_refused_before_anything_ran_exit_48() {
     // Each is wrong on its face, whatever the store holds.
     let env = Env::new(SESSION);
     add_task(&env, "Seed");
@@ -764,12 +764,12 @@ fn test_arguments_refused_before_anything_ran_exit_2() {
         &["tasks", "list", "--format", "yaml"],
         &["loadout", "--format", "json"],
     ] {
-        refused(&env, args, 2);
+        refused(&env, args, 48);
     }
 }
 
 #[test]
-fn test_a_check_that_finds_a_violation_exits_1_naming_it() {
+fn test_a_check_that_finds_a_violation_exits_49_naming_it() {
     let env = Env::new(SESSION);
     permit_every_tag(&env);
     let clean = ok(&env, &["tasks", "check"]);
@@ -791,7 +791,7 @@ fn test_a_check_that_finds_a_violation_exits_1_naming_it() {
             r#"tagma.enum:"area:x"=b"#,
         ],
     );
-    let ran = refused(&env, &["tasks", "check", "--format", "json"], 1);
+    let ran = refused(&env, &["tasks", "check", "--format", "json"], 49);
     assert_eq!(
         one_document(&ran.stdout)["violations"][0]["harp_id"],
         harp.as_str()
@@ -817,12 +817,12 @@ fn test_schema_check_exits_0_when_clean_and_1_on_a_finding() {
             r#"tagma.permit:"*:secret"=false"#,
         ],
     );
-    let ran = refused(&env, &["manage", "schema", "check", "--format", "json"], 1);
+    let ran = refused(&env, &["manage", "schema", "check", "--format", "json"], 49);
     assert_eq!(one_document(&ran.stdout)[0]["code"], "malformed-value");
 }
 
 #[test]
-fn test_the_store_refusing_a_write_exits_1() {
+fn test_the_store_refusing_a_write_exits_48() {
     // Revoking a permit a task's tag still needs: the arguments are fine,
     // the store refuses.
     let env = Env::new(SESSION);
@@ -832,7 +832,7 @@ fn test_the_store_refusing_a_write_exits_1() {
     refused(
         &env,
         &["manage", "schema", "permits", "remove", "area:cli", "--yes"],
-        1,
+        48,
     );
     assert_eq!(permitted_keys(&env, "area"), ["cli"], "still permitted");
 }
@@ -1284,17 +1284,17 @@ fn test_top_level_help_is_under_two_kilobytes() {
 // against state and the answer was negative.
 
 #[test]
-fn test_an_out_of_range_tag_value_is_refused_with_2_and_adds_nothing() {
+fn test_an_out_of_range_tag_value_is_refused_with_48_and_adds_nothing() {
     let env = Env::new(SESSION);
     let harp = add_task(&env, "Seed");
     // The seeded rules: triage:level is 1-5.
     let ran = refused(
         &env,
         &["tasks", "add", "Tagged", "--tag", "triage:level=7"],
-        2,
+        48,
     );
     assert!(ran.stderr.contains("out-of-range"), "{}", ran.stderr);
-    refused(&env, &["tasks", "tag", "add", &harp, "triage:level=7"], 2);
+    refused(&env, &["tasks", "tag", "add", &harp, "triage:level=7"], 48);
     assert_eq!(shown(&env, &harp)["tags"], json!([]));
     assert_eq!(
         ok(&env, &["tasks", "list"]).as_array().map(Vec::len),
@@ -1303,7 +1303,7 @@ fn test_an_out_of_range_tag_value_is_refused_with_2_and_adds_nothing() {
 }
 
 #[test]
-fn test_a_value_outside_a_declared_enum_is_refused_with_2() {
+fn test_a_value_outside_a_declared_enum_is_refused_with_48() {
     let env = Env::new(SESSION);
     permit_every_tag(&env);
     ok(
@@ -1320,17 +1320,17 @@ fn test_a_value_outside_a_declared_enum_is_refused_with_2() {
         ],
     );
     let harp = add_task(&env, "Seed");
-    let ran = refused(&env, &["tasks", "tag", "add", &harp, "area:x=c"], 2);
+    let ran = refused(&env, &["tasks", "tag", "add", &harp, "area:x=c"], 48);
     assert!(ran.stderr.contains("not-in-enum"), "{}", ran.stderr);
     assert_eq!(shown(&env, &harp)["tags"], json!([]));
     ok(&env, &["tasks", "tag", "add", &harp, "area:x=b"]);
 }
 
 #[test]
-fn test_adding_a_deferred_task_with_no_trigger_is_refused_with_2() {
+fn test_adding_a_deferred_task_with_no_trigger_is_refused_with_48() {
     let env = Env::new(SESSION);
     add_task(&env, "Seed");
-    let ran = refused(&env, &["tasks", "add", "Waits", "--status", "Deferred"], 2);
+    let ran = refused(&env, &["tasks", "add", "Waits", "--status", "Deferred"], 48);
     assert_eq!(ran.stdout, "");
     assert_eq!(
         ok(&env, &["tasks", "list", "--all"])
@@ -1341,16 +1341,16 @@ fn test_adding_a_deferred_task_with_no_trigger_is_refused_with_2() {
 }
 
 #[test]
-fn test_a_task_no_store_holds_is_answered_with_1_on_show_and_on_set() {
+fn test_a_task_no_store_holds_is_answered_with_48_on_show_and_on_set() {
     let env = Env::new(SESSION);
     add_task(&env, "Seed");
-    let shown = refused(&env, &["tasks", "show", "no-such-task"], 1);
+    let shown = refused(&env, &["tasks", "show", "no-such-task"], 48);
     assert_eq!(shown.stdout, "");
-    refused(&env, &["tasks", "set", "no-such-task", "--text", "X"], 1);
+    refused(&env, &["tasks", "set", "no-such-task", "--text", "X"], 48);
     refused(
         &env,
         &["tasks", "set", "no-such-task", "--status", "Done"],
-        1,
+        48,
     );
 }
 
@@ -1360,7 +1360,7 @@ fn test_a_task_no_store_holds_is_answered_with_1_on_show_and_on_set() {
 fn test_removed_plan_import_says_plans_are_files_and_imports_nothing() {
     // owner-accepted 2026-11-03.
     let env = Env::new(SESSION);
-    let ran = refused(&env, &["plan", "import"], 2);
+    let ran = refused(&env, &["plan", "import"], 48);
     assert!(
         ran.stderr
             .contains("removed: plans are files; there is nothing to import"),
@@ -1506,7 +1506,7 @@ fn test_tasks_set_clear_trigger_with_trigger_is_a_usage_error() {
     let ran = refused(
         &env,
         &["tasks", "set", &harp, "--clear-trigger", "--trigger", "x"],
-        2,
+        48,
     );
     assert_eq!(ran.stdout, "");
 }

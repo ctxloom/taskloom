@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 clap.workspace = true
+cli-support.workspace = true
 file-lock.workspace = true
 os.workspace = true
 plans-cli.workspace = true

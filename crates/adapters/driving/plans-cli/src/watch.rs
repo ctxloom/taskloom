@@ -32,6 +32,7 @@ use std::pin::pin;
 use std::task::Poll;
 
 use angzarr_presentation::Catalog;
+use cli_support::{Exit, ExitClass};
 use plans_application::{changes, Change, Delta, Event, Plans, Snapshot};
 use serde_json::{json, Map, Value};
 
@@ -101,7 +102,7 @@ fn emit(out: &mut dyn Write, line: &Value) -> Result<(), CliError> {
 }
 
 /// Stream the plan files' changes to `out`, looking on each of `ticks`,
-/// until `stop` resolves (exit 0) or the watch fails (exit 1, the error on
+/// until `stop` resolves (ok) or the watch fails (its error's exit, the error on
 /// `err`, rendered from `catalog`).
 pub async fn run<P: Plans>(
     plans: &mut P,
@@ -111,12 +112,12 @@ pub async fn run<P: Plans>(
     catalog: &Catalog,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> u8 {
+) -> Exit {
     match stream(plans, ticks, stop, catalog, out).await {
-        Ok(()) => 0,
+        Ok(()) => Exit::OK,
         Err(error) => {
             let _ = report(&error, settings, catalog, err);
-            1
+            error.exit()
         }
     }
 }

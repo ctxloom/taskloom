@@ -547,7 +547,7 @@ mod ticked {
                 &mut err,
             )
             .await;
-            assert_eq!(code, 0, "{}", String::from_utf8_lossy(&err));
+            assert_eq!(code.code(false), 0, "{}", String::from_utf8_lossy(&err));
             let lines = String::from_utf8(out).unwrap().lines().count();
 
             let listing = service(&project)

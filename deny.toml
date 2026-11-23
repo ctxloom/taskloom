@@ -80,4 +80,7 @@ allow-git = [
   "https://github.com/benjaminabbitt/tagma",
   # harp-core: the word lists task and project ids are minted from.
   "https://github.com/benjaminabbitt/harp",
+  # rust-support: cli-support (what every driving CLI adapter shares) and the
+  # exit-code convention it re-exports.
+  "https://github.com/benjaminabbitt/rust-support",
 ]

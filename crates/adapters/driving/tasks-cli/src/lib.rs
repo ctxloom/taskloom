@@ -32,6 +32,7 @@ use std::io::{self, Write};
 use angzarr_diagnostic::Diagnostic;
 use angzarr_presentation::{Catalog, CatalogError, Format, Render, Source, UnknownFormat};
 use clap::{Args, Parser, Subcommand};
+use cli_support::{usage_exit, Exit, ExitClass};
 use tasks_application::{
     dead_letter_line, DeadLetter, PermitService, PruneService, RuleWarning, SchemaService,
     TaskService, Written,
@@ -89,6 +90,10 @@ pub struct Globals {
     /// Override a configuration key for this run (repeatable).
     #[arg(long = "config-set", global = true, value_name = "PATH=VALUE")]
     pub config_set: Vec<String>,
+    /// Exit 16-31 for every success (16: ok, 17: would change something);
+    /// without it every success exits 0.
+    #[arg(long = "detailed-exitcode", global = true)]
+    pub detailed_exitcode: bool,
 }
 
 /// The verbs of `tasks`.
@@ -208,14 +213,14 @@ pub enum Command {
 
 impl Globals {
     /// The format asked for, else text on a terminal and JSON off one; or,
-    /// when it is yaml, which only `loadout` speaks, the exit code of
-    /// refusing it on `err`.
+    /// when it is yaml, which only `loadout` speaks, the exit of refusing
+    /// it on `err`.
     pub fn format(
         &self,
         context: &Context,
         catalog: &Catalog,
         err: &mut dyn Write,
-    ) -> Result<Format, u8> {
+    ) -> Result<Format, Exit> {
         let asked = match self.format {
             Some(Asked::Yaml) => {
                 let refused = CliError::Format(UnknownFormat {
@@ -252,11 +257,21 @@ fn asked_format(args: &[OsString], context: &Context) -> Format {
     Format::choose(false, asked, context.stdout_is_terminal)
 }
 
+/// Whether `args` ask for `--detailed-exitcode`, read without parsing them:
+/// for a command line that never parses, whose status the flag still sets.
+fn asked_detailed(args: &[OsString]) -> bool {
+    args.iter()
+        .skip(1)
+        .take_while(|word| *word != "--")
+        .any(|word| word == "--detailed-exitcode")
+}
+
 /// The command line `args` (the program name first) parsed as `P`, or the
-/// exit code of answering it without a command: help (asked for, or a
-/// group given no command) and `--version` (or `-v`) on `out`, exit 0; a
-/// usage error, or a removed spelling ([`removed`]), on `err`, exit 2 (in
-/// the format the words ask for, since clap parsed nothing).
+/// process's status for answering it without a command: help (asked for,
+/// or a group given no command) and `--version` (or `-v`) on `out`, a
+/// success (0, or 16 under `--detailed-exitcode`); a usage error, or a
+/// removed spelling ([`removed`]), on `err`, refused (48) (in the format
+/// the words ask for, since clap parsed nothing).
 /// `--version` prints Go's cobra line, `<prog> version <version>`, the
 /// version `manage version` reports, in text whatever the format: the VS
 /// Code extension's probe reads the word after `version` on its first line.
@@ -270,7 +285,7 @@ pub fn parse<P: Parser>(
     let args: Vec<OsString> = args.into_iter().collect();
     if let Some(refusal) = removed(&args) {
         let _ = report(&refusal, asked_format(&args, context), catalog, err);
-        return Err(refusal.exit_code());
+        return Err(refusal.exit().code(asked_detailed(&args)));
     }
     let command = without_help_command(
         P::command()
@@ -289,23 +304,26 @@ pub fn parse<P: Parser>(
         .and_then(|mut matches| P::from_arg_matches_mut(&mut matches));
     parsed.map_err(|e| {
         use clap::error::ErrorKind;
-        match e.kind() {
+        let exit = match e.kind() {
             ErrorKind::DisplayVersion => {
                 let _ = writeln!(out, "{PROG} version {}", context.version);
-                return 0;
+                Exit::OK
             }
-            // A group given no command prints its help, as `--help` does.
+            // A group given no command prints its help, as `--help` does: a
+            // success, though clap words it as an error.
             ErrorKind::DisplayHelp | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand => {
                 let _ = write!(out, "{}", e.render());
-                return 0;
+                Exit::OK
             }
-            _ => {}
-        }
-        let usage = CliError::Usage {
-            detail: e.render().to_string(),
+            _ => {
+                let usage = CliError::Usage {
+                    detail: e.render().to_string(),
+                };
+                let _ = report(&usage, asked_format(&args, context), catalog, err);
+                usage_exit(&e)
+            }
         };
-        let _ = report(&usage, asked_format(&args, context), catalog, err);
-        usage.exit_code()
+        exit.code(asked_detailed(&args))
     })
 }
 
@@ -398,7 +416,7 @@ pub fn removed(args: &[OsString]) -> Option<CliError> {
 }
 
 /// Run `command` under the global flags against `use_cases`, writing to
-/// `out` and `err` with messages from `catalog`; the exit code.
+/// `out` and `err` with messages from `catalog`; the exit it ends with.
 pub async fn run<S>(
     command: Command,
     globals: Globals,
@@ -407,7 +425,7 @@ pub async fn run<S>(
     service: &mut S,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> u8
+) -> Exit
 where
     S: TaskService + PruneService + PermitService + SchemaService,
 {
@@ -468,23 +486,23 @@ where
     finish(result, format, catalog, err)
 }
 
-/// The exit code of `result`, its error reported in `format`, after any
-/// dead letters the use case that failed carries.
+/// The exit of `result`, its error reported in `format`, after any dead
+/// letters the use case that failed carries.
 pub(crate) fn finish(
     result: Result<(), CliError>,
     format: Format,
     catalog: &Catalog,
     err: &mut dyn Write,
-) -> u8 {
+) -> Exit {
     match result {
-        Ok(()) => 0,
+        Ok(()) => Exit::OK,
         Err(error) => {
             // A failed use case's dead letters are said before its error.
             if let CliError::App(failed) = &error {
                 let _ = dead_lettered(failed.dead_letters(), err);
             }
             let _ = report(&error, format, catalog, err);
-            error.exit_code()
+            error.exit()
         }
     }
 }

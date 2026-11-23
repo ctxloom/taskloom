@@ -4,6 +4,7 @@
 use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
+use cli_support::{Exit, ExitClass};
 use tasks_application::AppError;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -15,10 +16,10 @@ pub enum WatchError {
     NoProject,
     /// `--since` is no cursor this build wrote: it does not decode, or
     /// names a stream that is no task stream's. Invalid on its own
-    /// content: exit 2, before any state is read.
+    /// content: declined, before any state is read.
     CursorMalformed,
     /// A cursor of a version this build does not read, naming the one it
-    /// does. Exit 2.
+    /// does. Declined.
     CursorVersion { found: u64, supported: u64 },
     /// A cursor taken from another project's watch. Exit 2, before any
     /// stream is read.
@@ -27,7 +28,7 @@ pub enum WatchError {
         project: String,
     },
     /// The project has no store: it was never written to, or there is no
-    /// such project. Exit 1: it was looked for and not found.
+    /// such project. Declined: it was looked for and not found.
     UnknownProject { project: String },
     /// A line could not be written: the reader went away.
     Output { detail: String },
@@ -41,15 +42,20 @@ impl fmt::Display for WatchError {
 
 impl std::error::Error for WatchError {}
 
-impl WatchError {
-    /// The exit code: 2 where the request is invalid on its own content,
-    /// 1 where it ran against state and failed.
-    pub fn exit_code(&self) -> u8 {
+/// A decline (48) where the request is invalid on its own content (a
+/// cursor that is malformed, of another version or another project's) or
+/// the state forbids it (no such project); a failure (32) where the watch
+/// ran against state and broke.
+impl ExitClass for WatchError {
+    fn exit(&self) -> Exit {
         match self {
-            WatchError::CursorMalformed
+            WatchError::App(error) => error.exit(),
+            WatchError::NoProject
+            | WatchError::CursorMalformed
             | WatchError::CursorVersion { .. }
-            | WatchError::CursorForeign { .. } => 2,
-            _ => 1,
+            | WatchError::CursorForeign { .. }
+            | WatchError::UnknownProject { .. } => Exit::REFUSED,
+            WatchError::Output { .. } => Exit::FAILED,
         }
     }
 }

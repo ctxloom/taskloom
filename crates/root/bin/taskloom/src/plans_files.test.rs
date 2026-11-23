@@ -310,7 +310,7 @@ fn test_plan_roots_is_comma_separated_in_config_set() {
 }
 
 #[test]
-fn test_a_blank_plan_root_is_refused_with_exit_2_from_every_source() {
+fn test_a_blank_plan_root_is_refused_with_exit_48_from_every_source() {
     let env = world();
     let dir = Temp::new();
     let good = dir.path().display().to_string();
@@ -342,13 +342,13 @@ fn test_a_blank_plan_root_is_refused_with_exit_2_from_every_source() {
         format!(",{good}"),
     ] {
         let set = format!("plan_roots={blank}");
-        let ran = exits(&env, &["plans", "list", "--config-set", &set], 2);
+        let ran = exits(&env, &["plans", "list", "--config-set", &set], 48);
         assert_eq!(ran.stdout, "", "{blank:?}");
         let ran = env.run_with(
             &["plans", "list"],
             &[("TASKLOOM_CONFIG_PLAN_ROOTS", &blank)],
         );
-        assert_eq!(ran.code, 2, "env {blank:?}: {}", ran.stderr);
+        assert_eq!(ran.code, 48, "env {blank:?}: {}", ran.stderr);
     }
 
     disk::create_dir_all(env.project.path().join(".taskloom")).unwrap();
@@ -357,7 +357,7 @@ fn test_a_blank_plan_root_is_refused_with_exit_2_from_every_source() {
         format!("plan_roots:\n  - \"{good}\"\n  - \"\"\n"),
     )
     .unwrap();
-    exits(&env, &["plans", "list"], 2);
+    exits(&env, &["plans", "list"], 48);
 }
 
 // ------------------------------------------------------ 2. the frontmatter
@@ -461,7 +461,7 @@ fn test_a_plan_cannot_be_set_to_superseded_by_hand() {
             "--status",
             "superseded",
         ],
-        2,
+        48,
     );
     assert_eq!(read(&file), before);
 }
@@ -700,7 +700,7 @@ fn test_plans_add_writes_a_plan_file_under_the_default_plans_root_with_a_minted_
 }
 
 #[test]
-fn test_show_takes_an_id_or_a_path_and_a_plan_not_found_is_exit_1() {
+fn test_show_takes_an_id_or_a_path_and_a_plan_not_found_is_exit_48() {
     let env = world();
     let file = write_plan(
         &env,
@@ -723,7 +723,7 @@ fn test_show_takes_an_id_or_a_path_and_a_plan_not_found_is_exit_1() {
     assert!(raw.ok, "{}", raw.stderr);
     assert_eq!(raw.stdout, read(&file));
 
-    exits(&env, &["plans", "show", "no-such-plan"], 1);
+    exits(&env, &["plans", "show", "no-such-plan"], 48);
     exits(
         &env,
         &[
@@ -731,12 +731,12 @@ fn test_show_takes_an_id_or_a_path_and_a_plan_not_found_is_exit_1() {
             "show",
             &s(&under(env.project.path(), "docs/missing.plan.md")),
         ],
-        1,
+        48,
     );
 }
 
 #[test]
-fn test_set_changes_status_and_title_and_an_unknown_status_is_exit_2_leaving_the_file() {
+fn test_set_changes_status_and_title_and_an_unknown_status_is_exit_48_leaving_the_file() {
     // PROPOSAL, pending owner review: `plans set <plan> --status S --title T`,
     // flags as `tasks set` has them; <plan> an id or a path as `show` takes.
     let env = world();
@@ -776,7 +776,7 @@ fn test_set_changes_status_and_title_and_an_unknown_status_is_exit_2_leaving_the
     let refused = exits(
         &env,
         &["plans", "set", "quiet-amber-falcon", "--status", "nonsense"],
-        2,
+        48,
     );
     assert!(refused.stderr.contains("nonsense"), "{}", refused.stderr);
     assert_eq!(read(&file), before);
@@ -785,7 +785,7 @@ fn test_set_changes_status_and_title_and_an_unknown_status_is_exit_2_leaving_the
 // ----------------------------------------------------------------- 6. tags
 
 #[test]
-fn test_a_tag_no_permit_admits_is_exit_2_and_the_file_is_untouched() {
+fn test_a_tag_no_permit_admits_is_exit_48_and_the_file_is_untouched() {
     let env = seeded_world();
     let file = write_plan(
         &env,
@@ -809,14 +809,14 @@ fn test_a_tag_no_permit_admits_is_exit_2_and_the_file_is_untouched() {
     let refused = exits(
         &env,
         &["plans", "tag", "add", "quiet-amber-falcon", "area:cli"],
-        2,
+        48,
     );
     assert!(refused.stderr.contains("area:cli"), "{}", refused.stderr);
     assert_eq!(read(&file), before);
 }
 
 #[test]
-fn test_the_retired_ctxloom_plan_tag_is_exit_2_on_a_plan_too() {
+fn test_the_retired_ctxloom_plan_tag_is_exit_48_on_a_plan_too() {
     let env = world();
     let file = write_plan(
         &env,
@@ -837,7 +837,7 @@ fn test_the_retired_ctxloom_plan_tag_is_exit_2_on_a_plan_too() {
             "quiet-amber-falcon",
             r#"ctxloom:plan="x""#,
         ],
-        2,
+        48,
     );
     assert!(
         refused.stderr.contains("ctxloom:plan"),
@@ -1014,7 +1014,7 @@ fn test_tasks_show_no_longer_prints_a_plans_line() {
 // ----------------------------------------------------- 8. link and unlink
 
 #[test]
-fn test_link_governs_edits_the_frontmatter_and_a_task_that_does_not_exist_is_exit_1() {
+fn test_link_governs_edits_the_frontmatter_and_a_task_that_does_not_exist_is_exit_48() {
     let env = world();
     let task = add_task(&env, "Real");
     let file = write_plan(
@@ -1047,7 +1047,7 @@ fn test_link_governs_edits_the_frontmatter_and_a_task_that_does_not_exist_is_exi
             "--governs",
             "ghost-of-a-task",
         ],
-        1,
+        48,
     );
     assert_eq!(read(&file), before);
 
@@ -1126,7 +1126,7 @@ fn test_link_supersedes_edits_the_frontmatter_and_derives_the_superseded_status(
 }
 
 #[test]
-fn test_a_self_supersede_or_a_cycle_is_exit_2_and_leaves_the_files() {
+fn test_a_self_supersede_or_a_cycle_is_exit_48_and_leaves_the_files() {
     let env = world();
     let a = write_plan(
         &env,
@@ -1160,7 +1160,7 @@ fn test_a_self_supersede_or_a_cycle_is_exit_2_and_leaves_the_files() {
             "--supersedes",
             "quiet-amber-falcon",
         ],
-        2,
+        48,
     );
     exits(
         &env,
@@ -1171,7 +1171,7 @@ fn test_a_self_supersede_or_a_cycle_is_exit_2_and_leaves_the_files() {
             "--supersedes",
             "brisk-cedar-otter",
         ],
-        2,
+        48,
     );
     assert_eq!((read(&a), read(&b)), (a_before, b_before));
 }
@@ -1181,8 +1181,8 @@ fn test_a_self_supersede_or_a_cycle_is_exit_2_and_leaves_the_files() {
 /// Each of `faulty` named in `plans check`'s findings, in JSON and in
 /// text, which exits 1; `clean` named in neither.
 fn check_names(env: &Env, faulty: &[&Path], clean: &[&Path]) {
-    let as_json = exits(env, &["plans", "check", "--format", "json"], 1);
-    let as_text = exits(env, &["plans", "check", "--format", "text"], 1);
+    let as_json = exits(env, &["plans", "check", "--format", "json"], 49);
+    let as_text = exits(env, &["plans", "check", "--format", "text"], 49);
     for file in faulty {
         for out in [&as_json.stdout, &as_text.stdout] {
             assert!(out.contains(&shown(file)), "{file:?} is not named: {out}");

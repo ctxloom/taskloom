@@ -183,7 +183,7 @@ fn run_as(format: Format, args: &[&str], fake: &mut Fake) -> Ran {
         &mut err,
     ));
     Ran {
-        code,
+        code: code.code(false),
         out: String::from_utf8(out).unwrap(),
         err: String::from_utf8(err).unwrap(),
     }
@@ -325,7 +325,7 @@ fn link_makes_one_call_per_link_and_unlink_unmakes() {
         ]
     );
     let none = run_as(Format::Json, &["link", "p"], &mut fake);
-    assert_eq!(none.code, 2);
+    assert_eq!(none.code, 48);
     assert!(none.err.contains("--governs"), "{}", none.err);
     assert_eq!(fake.asked.len(), 4, "nothing asked");
 }
@@ -346,7 +346,7 @@ fn a_supersedes_beside_a_governs_is_a_usage_error() {
 }
 
 #[test]
-fn the_use_cases_refusals_exit_2_when_invalid_on_their_own_content_and_1_otherwise() {
+fn the_use_cases_refusals_exit_48_whether_invalid_on_their_own_content_or_forbidden_by_the_state() {
     let mut fake = Fake {
         failure: Some(PlanError::UnknownStatus {
             status: "nonsense".into(),
@@ -358,14 +358,14 @@ fn the_use_cases_refusals_exit_2_when_invalid_on_their_own_content_and_1_otherwi
         &["set", "p", "--status", "nonsense"],
         &mut fake,
     );
-    assert_eq!(ran.code, 2);
+    assert_eq!(ran.code, 48);
     assert!(ran.err.contains("nonsense"), "{}", ran.err);
     let json = run_as(
         Format::Json,
         &["set", "p", "--status", "nonsense"],
         &mut fake,
     );
-    assert_eq!(json.code, 2);
+    assert_eq!(json.code, 48);
     let envelope: Value = serde_json::from_str(&json.err).unwrap();
     assert_eq!(envelope["code"], "plans-application-unknown-status");
 
@@ -376,12 +376,12 @@ fn the_use_cases_refusals_exit_2_when_invalid_on_their_own_content_and_1_otherwi
         vec!["check"],
         vec!["tag", "add", "p", "x"],
     ] {
-        assert_eq!(run_as(Format::Text, &args, &mut fake).code, 1, "{args:?}");
+        assert_eq!(run_as(Format::Text, &args, &mut fake).code, 48, "{args:?}");
     }
 }
 
 #[test]
-fn check_is_exit_0_and_clean_or_exit_1_naming_each_finding() {
+fn check_is_exit_0_and_clean_or_exit_49_naming_each_finding() {
     let mut fake = Fake::default();
     let clean = run_as(Format::Json, &["check"], &mut fake);
     assert_eq!(clean.code, 0);
@@ -396,7 +396,7 @@ fn check_is_exit_0_and_clean_or_exit_1_naming_each_finding() {
         }],
     };
     let found = run_as(Format::Json, &["check"], &mut fake);
-    assert_eq!(found.code, 1);
+    assert_eq!(found.code, 49);
     let doc: Value = serde_json::from_str(&found.out).unwrap();
     assert_eq!(doc["ok"], false);
     assert_eq!(
@@ -405,7 +405,7 @@ fn check_is_exit_0_and_clean_or_exit_1_naming_each_finding() {
     );
     assert_eq!(doc["findings"][0]["args"]["path"], "/tree/bad.plan.md");
     let text = run_as(Format::Text, &["check"], &mut fake);
-    assert_eq!(text.code, 1);
+    assert_eq!(text.code, 49);
     assert!(text.out.contains("/tree/bad.plan.md"), "{}", text.out);
     assert_eq!(
         run_as(Format::Text, &["check"], &mut Fake::default()).out,
@@ -414,7 +414,7 @@ fn check_is_exit_0_and_clean_or_exit_1_naming_each_finding() {
 }
 
 #[test]
-fn a_write_that_cannot_be_made_to_the_output_is_exit_1() {
+fn a_write_that_cannot_be_made_to_the_output_is_exit_32() {
     struct Broken;
     impl Write for Broken {
         fn write(&mut self, _: &[u8]) -> io::Result<usize> {
@@ -440,7 +440,7 @@ fn a_write_that_cannot_be_made_to_the_output_is_exit_1() {
         &mut Broken,
         &mut err,
     ));
-    assert_eq!(code, 1);
+    assert_eq!(code.code(false), 32);
     let envelope: Value = serde_json::from_slice(&err).unwrap();
     assert_eq!(envelope["code"], "plans-cli-output");
 }

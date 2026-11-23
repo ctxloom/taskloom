@@ -329,7 +329,7 @@ fn run_in(context: &Context, fake: &mut Fake, args: &[&str]) -> Ran {
             panic!("not a task command: {args:?}")
         };
         run_with(fake, |use_cases| {
-            ready(run(command, globals, context, catalog, use_cases, out, err))
+            ready(run(command, globals, context, catalog, use_cases, out, err)).code(false)
         })
     })
 }
@@ -520,19 +520,19 @@ fn test_an_explicit_format_wins_over_the_terminal() {
 fn test_add_needs_text() {
     let mut fake = Fake::default();
     let ran = run_on(&mut fake, true, &["tasks", "add"]);
-    assert_eq!(ran.code, 2);
+    assert_eq!(ran.code, 48);
     assert!(ran.err.contains("required"), "{}", ran.err);
     assert!(fake.added.is_empty());
 }
 
 #[test]
-fn test_a_failed_add_says_why_on_stderr_and_exits_1() {
+fn test_a_failed_add_says_why_on_stderr_and_exits_32() {
     let mut fake = Fake {
         written: Some(Err(AppError::HarpsExhausted { attempts: 100 })),
         ..Fake::default()
     };
     let ran = run_on(&mut fake, true, &["tasks", "add", "x"]);
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 32);
     assert_eq!(ran.out, "");
     assert_eq!(ran.err, "taskloom: no free task id after 100 tries\n");
 }
@@ -597,7 +597,7 @@ fn test_tag_in_json_is_the_task() {
 }
 
 #[test]
-fn test_a_failed_tag_exits_1() {
+fn test_a_failed_tag_exits_32() {
     let mut fake = Fake {
         written: Some(Err(AppError::Vanished {
             harp_id: "x".to_string(),
@@ -605,7 +605,7 @@ fn test_a_failed_tag_exits_1() {
         ..Fake::default()
     };
     let ran = run_on(&mut fake, true, &["tasks", "tag", "add", "x", "a"]);
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 32);
     assert!(ran.err.starts_with("taskloom: task x"), "{}", ran.err);
 }
 
@@ -727,21 +727,21 @@ fn test_status_passes_a_trigger_alone_and_a_clearing_of_the_trigger() {
             "--clear-trigger",
         ],
     );
-    assert_eq!(ran.code, 2, "{}", ran.err);
+    assert_eq!(ran.code, 48, "{}", ran.err);
     assert_eq!(fake.moved.len(), sent);
 }
 
 #[test]
 fn test_status_needs_an_id_and_a_change_and_says_why_it_failed() {
     let ran = run_on(&mut Fake::default(), true, &["tasks", "set", "swift-amber"]);
-    assert_eq!(ran.code, 2);
+    assert_eq!(ran.code, 48);
     assert!(
         ran.err.contains("--trigger"),
         "names what it needs: {}",
         ran.err
     );
     let ran = run_on(&mut Fake::default(), true, &["tasks", "set"]);
-    assert_eq!(ran.code, 2);
+    assert_eq!(ran.code, 48);
     let mut fake = Fake {
         written: Some(Err(AppError::NoProject)),
         ..Fake::default()
@@ -751,7 +751,7 @@ fn test_status_needs_an_id_and_a_change_and_says_why_it_failed() {
         true,
         &["tasks", "set", "swift-amber", "--status", "Done"],
     );
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 48);
     assert_eq!(
         ran.err,
         "taskloom: there is no project here yet, so no task to change\n"
@@ -775,7 +775,7 @@ fn test_status_keeps_its_own_error_unless_the_status_is_a_task() {
         true,
         &["tasks", "set", "nope", "--status", "Done"],
     );
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 48);
     assert_eq!(ran.err, "taskloom: there is no such task\n");
     let mut fake = Fake {
         written: no_task(),
@@ -849,7 +849,7 @@ fn test_edit_joins_its_words_and_answers_like_add() {
 #[test]
 fn test_edit_needs_text_and_says_why_it_failed() {
     let ran = run_on(&mut Fake::default(), true, &["tasks", "set", "swift-amber"]);
-    assert_eq!(ran.code, 2);
+    assert_eq!(ran.code, 48);
     let mut fake = Fake {
         written: Some(Err(AppError::NoProject)),
         ..Fake::default()
@@ -859,7 +859,7 @@ fn test_edit_needs_text_and_says_why_it_failed() {
         true,
         &["tasks", "set", "swift-amber", "--text", "x"],
     );
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 48);
     assert!(
         ran.err.starts_with("taskloom: there is no project"),
         "{}",
@@ -915,14 +915,14 @@ fn test_set_sends_the_text_then_the_status_under_distinct_derived_keys() {
             "--clear-trigger",
         ],
     );
-    assert_eq!(ran.code, 2);
+    assert_eq!(ran.code, 48);
     assert_eq!((fake.edits.len(), fake.moved.len()), (1, 1));
 }
 
 // `--global` is removed: the cross-project case is `--project <id>` per
 // project. A stub, refused before anything runs.
 #[test]
-fn test_global_is_a_removed_flag_refused_with_2() {
+fn test_global_is_a_removed_flag_refused_with_48() {
     for args in [
         &["tasks", "list", "--global"][..],
         &["--global", "tasks", "summary"],
@@ -930,7 +930,7 @@ fn test_global_is_a_removed_flag_refused_with_2() {
     ] {
         let mut fake = Fake::default();
         let ran = run_on(&mut fake, true, args);
-        assert_eq!(ran.code, 2, "{args:?}");
+        assert_eq!(ran.code, 48, "{args:?}");
         assert_eq!(ran.out, "", "{args:?}");
         assert!(
             ran.err.contains("removed: use --project <id> per project"),
@@ -1059,7 +1059,7 @@ fn test_show_across_projects_heads_each_task_with_its_project() {
 #[test]
 fn test_show_needs_an_id_and_says_which_were_not_found() {
     let ran = run_on(&mut Fake::default(), true, &["tasks", "show"]);
-    assert_eq!(ran.code, 2);
+    assert_eq!(ran.code, 48);
     let mut fake = Fake {
         details: Some(Err(AppError::NotFound {
             harp_ids: vec!["nope".to_string()],
@@ -1067,7 +1067,7 @@ fn test_show_needs_an_id_and_says_which_were_not_found() {
         ..Fake::default()
     };
     let ran = run_on(&mut fake, true, &["tasks", "show", "nope"]);
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 48);
     assert_eq!(ran.out, "");
     assert_eq!(
         ran.err,
@@ -1354,7 +1354,7 @@ fn lint_report(reach: Reach, checked: usize, found: usize) -> Option<Result<Lint
 }
 
 #[test]
-fn test_lint_says_each_violation_and_exits_1_for_any() {
+fn test_lint_says_each_violation_and_exits_49_for_any() {
     let mut fake = Fake {
         report_of_lint: lint_report(Reach::Project(project()), 3, 2),
         ..Fake::default()
@@ -1371,7 +1371,7 @@ fn test_lint_says_each_violation_and_exits_1_for_any() {
             "tag_schema=x",
         ],
     );
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 49);
     assert_eq!(
         fake.linted,
         [Scope {
@@ -1385,7 +1385,7 @@ fn test_lint_says_each_violation_and_exits_1_for_any() {
     );
     assert_eq!(ran.err, "taskloom: 2 tag-standard violations found\n");
     let ran = run_on(&mut fake, false, &["tasks", "check"]);
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 49);
     let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
     assert_eq!(json["checked_targets"], 3);
     let first = &json["violations"][0];
@@ -1424,7 +1424,7 @@ fn test_lint_across_projects_names_each_violations_project() {
 }
 
 #[test]
-fn test_a_clean_lint_exits_0_and_one_that_checked_nothing_exits_1() {
+fn test_a_clean_lint_exits_0_and_one_that_checked_nothing_exits_48() {
     let mut fake = Fake {
         report_of_lint: lint_report(Reach::Project(project()), 3, 0),
         ..Fake::default()
@@ -1440,7 +1440,7 @@ fn test_a_clean_lint_exits_0_and_one_that_checked_nothing_exits_1() {
     );
     fake.report_of_lint = lint_report(Reach::Project(project()), 0, 0);
     let ran = run_on(&mut fake, true, &["tasks", "check"]);
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 48);
     assert_eq!(
         ran.out,
         "0 targets checked: the tag schema declares no enum or range for the check to run on\n"
@@ -1812,13 +1812,13 @@ fn test_list_says_on_stderr_what_a_search_hid_and_a_limit_left_out() {
 }
 
 #[test]
-fn test_a_failed_list_exits_1() {
+fn test_a_failed_list_exits_32() {
     let mut fake = Fake {
         listing: Some(Err(AppError::HarpsExhausted { attempts: 1 })),
         ..Fake::default()
     };
     let ran = run_on(&mut fake, true, &["tasks", "list"]);
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 32);
     assert!(ran.err.starts_with("taskloom: "), "{}", ran.err);
 }
 
@@ -1833,9 +1833,9 @@ fn test_help_is_written_to_stdout_and_exits_0() {
 }
 
 #[test]
-fn test_an_unknown_command_is_a_usage_error_exiting_2() {
+fn test_an_unknown_command_is_a_usage_error_exiting_48() {
     let ran = run_on(&mut Fake::default(), true, &["frobnicate"]);
-    assert_eq!(ran.code, 2);
+    assert_eq!(ran.code, 48);
     assert_eq!(ran.out, "");
     assert!(ran.err.contains("frobnicate"), "{}", ran.err);
 }
@@ -1886,7 +1886,7 @@ fn test_output_that_cannot_be_written_fails_with_why() {
                 &mut err,
             ))
         });
-        assert_eq!(code, 1);
+        assert_eq!(code.code(false), 32);
         assert_eq!(
             String::from_utf8(err).unwrap().lines().last(),
             Some("taskloom: cannot write the output: closed"),
@@ -1910,7 +1910,7 @@ fn test_output_that_cannot_be_written_fails_with_why() {
             &mut err,
         ))
     });
-    assert_eq!(code, 1);
+    assert_eq!(code.code(false), 32);
     let envelope: serde_json::Value = serde_json::from_slice(&err).unwrap();
     assert_eq!(envelope["code"], code!("output"));
     assert_eq!(envelope["message"], "cannot write the output: closed");
@@ -1925,7 +1925,7 @@ fn test_a_text_error_is_its_catalog_message_not_its_english() {
         ..Fake::default()
     };
     let ran = run_on(&mut fake, true, &["tasks", "add", "x"]);
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 48);
     assert_eq!(ran.err, "taskloom: there is no such task\n");
 }
 
@@ -1939,7 +1939,7 @@ fn test_a_json_error_is_an_envelope_on_stderr_with_its_cause_nested() {
         ..Fake::default()
     };
     let ran = run_on(&mut fake, false, &["tasks", "add", "x"]);
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 32);
     assert_eq!(ran.out, "", "stdout holds answers only");
     let envelope: serde_json::Value = serde_json::from_str(&ran.err).unwrap();
     assert_eq!(
@@ -1974,7 +1974,7 @@ fn test_a_usage_error_in_json_is_an_envelope() {
         ),
     ] {
         let ran = run_on(&mut Fake::default(), terminal, args);
-        assert_eq!(ran.code, 2, "{args:?}");
+        assert_eq!(ran.code, 48, "{args:?}");
         assert_eq!(ran.out, "", "{args:?}");
         let envelope: serde_json::Value =
             serde_json::from_str(&ran.err).unwrap_or_else(|e| panic!("{args:?}: {e}: {}", ran.err));
@@ -1996,7 +1996,7 @@ fn test_a_usage_error_in_text_is_clap_s_own_words() {
         &["frobnicate", "--format"][..],
     ] {
         let ran = run_on(&mut Fake::default(), true, args);
-        assert_eq!(ran.code, 2, "{args:?}");
+        assert_eq!(ran.code, 48, "{args:?}");
         assert!(ran.err.starts_with("error: "), "{args:?}: {}", ran.err);
     }
 }
@@ -2048,8 +2048,9 @@ fn import_on(importer: &mut FakeImporter, terminal: bool, args: &[&str]) -> Ran 
                 importer,
                 out,
                 err,
-            )),
-            Err(code) => code,
+            ))
+            .code(false),
+            Err(exit) => exit.code(false),
         }
     })
 }
@@ -2114,7 +2115,7 @@ fn test_import_that_left_records_behind_fails_after_saying_which() {
         ..FakeImporter::default()
     };
     let ran = import_on(&mut fake, true, &["manage", "migrate", "tasks"]);
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 32);
     assert!(ran.out.contains("not imported: line 1"), "{}", ran.out);
     assert_eq!(
         ran.err,
@@ -2131,7 +2132,7 @@ fn test_import_that_stopped_in_a_project_fails() {
         ..FakeImporter::default()
     };
     let ran = import_on(&mut fake, true, &["manage", "migrate", "tasks"]);
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 32);
     assert_eq!(
         ran.err,
         "taskloom: not everything was imported: 1 projects stopped, 0 records not imported\n"
@@ -2145,7 +2146,7 @@ fn test_import_that_cannot_start_fails_with_why() {
         ..FakeImporter::default()
     };
     let ran = import_on(&mut fake, true, &["manage", "migrate", "tasks"]);
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 48);
     assert_eq!(ran.out, "");
     assert!(
         ran.err.starts_with("taskloom: there is no project"),
@@ -2241,7 +2242,7 @@ fn test_the_loadout_in_another_format_is_refused_and_prints_nothing() {
         (&["--format", "text", "loadout"], "text"),
     ] {
         let ran = run_on(&mut Fake::default(), true, args);
-        assert_eq!(ran.code, 2, "{args:?}");
+        assert_eq!(ran.code, 48, "{args:?}");
         assert_eq!(ran.out, "", "{args:?}");
         assert!(
             ran.err.contains(&format!("not {asked}")),
@@ -2258,7 +2259,7 @@ fn test_yaml_is_only_the_loadout_s() {
         &["manage", "version", "--format", "yaml"],
     ] {
         let ran = run_on(&mut Fake::default(), true, args);
-        assert_eq!(ran.code, 2, "{args:?}");
+        assert_eq!(ran.code, 48, "{args:?}");
         assert_eq!(ran.out, "", "{args:?}");
         assert_eq!(
             ran.err, "taskloom: the format yaml is not one of text or json\n",
@@ -2277,7 +2278,7 @@ fn test_a_format_no_command_speaks_is_angzarr_presentation_s_code_in_json() {
         false,
         &["tasks", "list", "--format", "yaml"],
     );
-    assert_eq!(ran.code, 2);
+    assert_eq!(ran.code, 48);
     assert_eq!(ran.out, "");
     let envelope: serde_json::Value =
         serde_json::from_str(&ran.err).unwrap_or_else(|e| panic!("{e}: {}", ran.err));
@@ -2463,7 +2464,7 @@ fn test_a_prune_where_there_is_no_project_says_so_on_stderr() {
 }
 
 #[test]
-fn test_a_refused_prune_says_why_and_exits_2() {
+fn test_a_refused_prune_says_why_and_exits_48() {
     let refusal = Report::of(&tasks_application::PruneRefusal::AgeUnreadable {
         age: "soon".to_string(),
     });
@@ -2472,7 +2473,7 @@ fn test_a_refused_prune_says_why_and_exits_2() {
         ..Fake::default()
     };
     let ran = run_on(&mut fake, true, &["tasks", "prune", "--older-than", "soon"]);
-    assert_eq!(ran.code, 2);
+    assert_eq!(ran.code, 48);
     assert_eq!(ran.out, "");
     assert_eq!(
         ran.err,
@@ -2539,7 +2540,7 @@ fn test_a_failed_writes_dead_letters_are_said_on_stderr_before_its_error() {
             terminal,
             &["tasks", "set", "swift-amber", "--text", "x"],
         );
-        assert_eq!(ran.code, 1);
+        assert_eq!(ran.code, 48);
         let (letter, rest) = ran.err.split_once('\n').unwrap();
         assert_eq!(letter, LINE);
         assert!(rest.contains(error), "{}", ran.err);
@@ -2660,7 +2661,7 @@ fn test_a_refused_revoke_names_the_tasks_still_carrying_it() {
         true,
         &["manage", "schema", "permits", "remove", "area:cli", "--yes"],
     );
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 48);
     assert_eq!(ran.out, "");
     assert_eq!(
         ran.err,
@@ -2852,7 +2853,7 @@ fn test_schema_unread_is_an_error() {
         ..Fake::default()
     };
     let ran = run_on(&mut fake, true, &["manage", "schema", "show"]);
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 48);
     assert_eq!(ran.out, "");
     assert!(ran.err.starts_with("taskloom: "), "{}", ran.err);
 }
@@ -2907,7 +2908,7 @@ fn test_schema_check_prints_tagmas_findings_and_fails_on_any() {
         ..Fake::default()
     };
     let ran = run_on(&mut fake, true, &["manage", "schema", "check"]);
-    assert_eq!(ran.code, 1);
+    assert_eq!(ran.code, 49);
     assert_eq!(ran.out, "inert-false\ttagma.permit:x=false\tfacet=permit\n");
     assert!(
         ran.err
@@ -3088,7 +3089,7 @@ fn test_a_write_passes_its_request_id_on_as_given() {
             " ",
         ],
     );
-    assert_eq!(ran.code, 2, "{}", ran.err);
+    assert_eq!(ran.code, 48, "{}", ran.err);
     assert_eq!((fake.edits.len(), fake.moved.len()), (2, 2));
 }
 

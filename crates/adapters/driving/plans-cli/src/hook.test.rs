@@ -63,7 +63,7 @@ fn run(payload: &str, plans: &mut Stamping) -> (u8, String) {
     let catalog = Catalog::en_us(&sources).unwrap();
     let mut err = Vec::new();
     let code = stamp(payload, &settings, &catalog, plans, &mut err);
-    (code, String::from_utf8(err).unwrap())
+    (code.code(false), String::from_utf8(err).unwrap())
 }
 
 #[test]

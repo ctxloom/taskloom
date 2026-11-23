@@ -61,21 +61,33 @@ fn every_code_is_prefixed_with_the_crates_name() {
 }
 
 #[test]
-fn a_request_invalid_on_its_own_content_exits_2_and_any_other_1() {
+fn a_request_the_content_or_the_state_forbids_exits_48_and_what_broke_32() {
     use crate::CliError;
+    use cli_support::ExitClass;
     use plans_application::PlanError;
 
-    assert_eq!(CliError::NoLink { command: "unlink" }.exit_code(), 2);
+    let code = |error: CliError| error.exit().code(false);
+    assert_eq!(code(CliError::NoLink { command: "unlink" }), 48);
     assert_eq!(
-        CliError::Plan(PlanError::UnknownStatus { status: "x".into() }).exit_code(),
-        2
+        code(CliError::Plan(PlanError::UnknownStatus {
+            status: "x".into()
+        })),
+        48
     );
-    assert_eq!(CliError::Plan(PlanError::NoChange).exit_code(), 2);
+    assert_eq!(code(CliError::Plan(PlanError::NoChange)), 48);
+    assert_eq!(code(CliError::Plan(PlanError::NoSuchPlan("p".into()))), 48);
     assert_eq!(
-        CliError::Plan(PlanError::NoSuchPlan("p".into())).exit_code(),
-        1
+        code(CliError::Plan(PlanError::Unreadable { path: "p".into() })),
+        32
     );
-    assert_eq!(CliError::Output { detail: "x".into() }.exit_code(), 1);
+    assert_eq!(code(CliError::Output { detail: "x".into() }), 32);
+    assert_eq!(code(CliError::HookNoFile), 48);
+    assert_eq!(
+        code(CliError::WatchFailed {
+            error: PlanError::Unreadable { path: "p".into() }
+        }),
+        32
+    );
 }
 
 /// The catalog is exported under the crate's package name, and every code

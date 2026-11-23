@@ -22,6 +22,7 @@ use std::io::{self, Write};
 
 use angzarr_presentation::{Catalog, Format};
 use clap::Subcommand;
+use cli_support::{Exit, ExitClass};
 use project_application::{ProjectAdmin, Projects, StoreCheck};
 
 #[cfg(any(test, feature = "test-support"))]
@@ -117,7 +118,7 @@ pub struct Settings {
 }
 
 /// Run `command` against `projects`, writing to `out` and `err` with
-/// messages from `catalog`; the exit code.
+/// messages from `catalog`; the exit it ends with.
 pub fn run<A: ProjectAdmin, C: StoreCheck>(
     command: Command,
     settings: &Settings,
@@ -125,12 +126,12 @@ pub fn run<A: ProjectAdmin, C: StoreCheck>(
     projects: &mut Projects<A, C>,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> u8 {
+) -> Exit {
     match answer(command, settings, catalog, projects, out) {
-        Ok(()) => 0,
+        Ok(()) => Exit::OK,
         Err(error) => {
             let _ = report(&error, settings, catalog, err);
-            error.exit_code()
+            error.exit()
         }
     }
 }

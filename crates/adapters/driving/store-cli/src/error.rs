@@ -5,6 +5,7 @@ use std::fmt;
 
 use angzarr_diagnostic::{code, Arg, Diagnostic};
 use angzarr_store_transfer::ExportError;
+use cli_support::{Exit, ExitClass};
 use project_application::ProjectError;
 use tasks_application::AppError;
 
@@ -18,6 +19,18 @@ pub enum CliError {
     Digest(ExportError),
     /// The answer could not be written out.
     Output { detail: String },
+}
+
+/// The use case's own exit for what it answered; a failure (32) where a
+/// digest line or the answer could not be written.
+impl ExitClass for CliError {
+    fn exit(&self) -> Exit {
+        match self {
+            CliError::Project(error) => error.exit(),
+            CliError::Tasks(error) => error.exit(),
+            CliError::Digest(_) | CliError::Output { .. } => Exit::FAILED,
+        }
+    }
 }
 
 impl fmt::Display for CliError {
