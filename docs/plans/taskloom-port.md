@@ -8,7 +8,7 @@ Command names below are the port's, Go's own (`list`, `status`, `lint`, `plan`,
 ...). Since the CLI consolidation the commands are noun-verb: `tasks list`,
 `tasks set`, `tasks check`, `plans`, `manage schema ...`, `manage migrate
 ...`, `manage doctor ...`, `manage project show`, `manage version`; the old
-names print `removed: use <new command>` and exit 2.
+names print `removed: use <new command>` and exit 48.
 
 Written 2026-10-20. The Go taskloom is `cmd/taskloom` and
 `internal/shared/tasks` (with `internal/taskloom/{config,engine,workdir}`) in
@@ -98,7 +98,7 @@ cutover ("What remains").
   five then every other in use; `tags` counts active and total over what
   its filters select, the schema's hidden tags left out; `lint` (Go's
   `internal/shared/tasks/lint`) sweeps every task and the schema's
-  formulas, each finding a diagnostic, and exits 1 on a violation or when
+  formulas, each finding a diagnostic, and exits 49 on a violation (fatal findings) or 48 when
   it checked no target.
   - Prune (`PruneService`, opt-in on a `PurgingStore`) is Go's: it selects
     live tasks by status (at least one; Done by default), by their status
@@ -130,7 +130,7 @@ cutover ("What remains").
     before cannot be told from the old by its sequence). Nothing numbers
     across streams, so lines are ordered per stream only. A commit no
     task stream sees moves the token and writes no line. A project with
-    no store is an unknown project to the CLI (exit 1). The binary's
+    no store is an unknown project to the CLI (exit 48). The binary's
     in-process watch tests force a prune whole, its halves apart, a mint
     on its freed harp and a commit no task sees between polls, tick by
     tick.
@@ -224,8 +224,8 @@ cutover ("What remains").
   of `{"v":1,"project":<id>,"streams":{"tasks/<root>[@edition]":<next>}}`
   (a proposal pending owner review) and covers every line before it on the
   wire. The use case is polled each tick (100ms) and a tick that finds the
-  token moved reads the streams. Exit 2 for a cursor that is malformed, of
-  another version or another project's (before any state is read), 1 for a
+  token moved reads the streams. Exit 48 for a cursor that is malformed, of
+  another version or another project's (before any state is read), and for a
   project with no store. It ends at SIGINT or SIGTERM (tokio's `signal` feature), as Go's (on
   Windows at Ctrl-C, Ctrl-Break, or the console's close, logoff or
   shutdown, as Go's os.Interrupt and SIGTERM there), never at a closed stdin (the VS Code extension starts it with stdin from
@@ -275,7 +275,7 @@ cutover ("What remains").
   its line (annals' fact namespace, prefixed), so re-running finds what an
   earlier run imported, resumes one that stopped, and picks up what Go
   appended since. It binds no directory: the project is the log's id.
-  It exits 1 when it left anything behind, naming each record and why.
+  It exits 32 when it left anything behind, naming each record and why.
   Its acceptance test compares the store task by task with Go's own fold
   (`scripts/go-fold`, laid into Go's package with `go test -overlay`) over
   synthetic fixtures, one per kind of record (`fixtures/jsonl-logs`);
@@ -717,7 +717,11 @@ restarted on a freed harp is under "Where it stands".
 
 ## Driving adapters
 
-- CLI: the Go command set and flags (inventory below). Exit codes 0 and 1.
+- CLI: the Go command set and flags (inventory below). Exit codes by the exit-code convention
+  (rust-support's docs/exit-codes.md, 2026-11-22; before it 0/1/2): 0 for every
+  success (16 under `--detailed-exitcode`), 32 when the command tried and
+  something broke, 48 when the request or the state forbids it (a usage error
+  among them), 49 when a `check` found violations.
   Warnings and errors carry a fix line.
 - Formats (Decided 9): JSON, for jq and other programs, and UTF-8 text,
   for people; JSON when stdout is not a terminal. Go's yaml, toml and
@@ -728,7 +732,7 @@ restarted on a freed harp is under "Where it stands".
   stream (`watch`) is JSON Lines; field names are stable, in a fixed order,
   with absent values explicit (`[]`, `""`, `null`). An error in JSON is a
   `{code, args, message}` envelope on stderr, a nested cause an envelope in
-  its turn, and the exit code is 1; in text it is the catalog message.
+  its turn, and the exit code is 32 or 48 by what ended it; in text it is the catalog message.
 - Presentation (Decided 10). Formats are not core ports: the core returns
   typed values and `TaskService` is the driving seam (`WatchService` is
   polled for whether the store changed, not pushed into a presenter).

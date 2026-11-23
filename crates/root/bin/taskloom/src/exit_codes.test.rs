@@ -127,4 +127,17 @@ fn test_plans_check_with_findings_exits_49_and_clean_exits_0() {
     let env = Env::new(SESSION);
     env.seed("first");
     exits(&env.run(&["plans", "check"]), 0, "no plans, no findings");
+    let plans = env.project.path().join("docs/design");
+    super::disk::create_dir_all(&plans).unwrap();
+    super::disk::write(plans.join("broken.plan.md"), "---\nid: [unclosed\n").unwrap();
+    exits(
+        &env.run(&["plans", "check"]),
+        49,
+        "a plan file with bad frontmatter",
+    );
+    exits(
+        &env.run(&["plans", "check", "--detailed-exitcode"]),
+        49,
+        "findings under the flag",
+    );
 }

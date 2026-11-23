@@ -126,7 +126,7 @@ pub enum Tasks {
         after_help = "Examples:\n  taskloom tasks prune --older-than 30d\n  taskloom tasks prune --older-than 30d --yes"
     )]
     Prune(commands::PruneArgs),
-    /// Check every task's tags against the store's rules; exit 1 on a finding
+    /// Check every task's tags against the store's rules; exit 49 on a finding
     #[command(after_help = "Examples:\n  taskloom tasks check")]
     Check,
 }

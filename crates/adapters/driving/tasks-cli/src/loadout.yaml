@@ -113,11 +113,12 @@ run:
         - The old spellings (`taskloom list`, `add`, `show`, `status`, `edit`,
           `tag`, `tags`, `summary`, `lint`, `prune`, `schema`, `plan`,
           `watch`, and the old json shorthand flag) are removed, not aliased: each
-          prints `removed: use <new command>` and exits 2.
-        - Exit codes: 0 success; 1 the command ran against the store and the
-          answer was negative (no such task, a `check` finding); 2 the
-          request is invalid on its own content (bad arguments, a tag no
-          permit admits) and nothing was read or written.
+          prints `removed: use <new command>` and exits 48.
+        - Exit codes: 0 success (16 under `--detailed-exitcode`); 32 the
+          command tried and something broke (a store that cannot be used, a
+          write that failed); 48 the request or the state forbids it (bad
+          arguments, a tag no permit admits, no such task, a removed
+          spelling) and nothing was changed; 49 a `check` found violations.
 
         ## Use `--format json` FIRST, paired with jq — on every command
 

@@ -396,7 +396,7 @@ pub enum SchemaCommand {
     /// Print the store's tag rules as tagma config tags
     #[command(after_help = "Examples:\n  taskloom manage schema export")]
     Export,
-    /// Check the store's tag rules; exit 1 on any finding
+    /// Check the store's tag rules; exit 49 on any finding
     #[command(after_help = "Examples:\n  taskloom manage schema check")]
     Check,
     /// Add and remove the store's tag rules (a person's command)
@@ -582,7 +582,7 @@ pub(crate) async fn tags(
 }
 
 /// Check the tasks' tags, then refuse when it found a violation or checked no target, so
-/// that CI sees it in the exit code.
+/// that CI sees it in the exit code (49, fatal findings).
 pub(crate) async fn check(
     ctx: Ctx<'_>,
     service: &mut impl TaskService,

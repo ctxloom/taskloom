@@ -242,7 +242,7 @@ generations) and tries to decode its first event page as this build's
 `EventPage`: every older page fails, since `payload` was a length-delimited
 field 3 and `sequence` is a varint there now. Such a store is refused with
 `task-store-sqlite-older-generation` (args `path`, `archive`), carried as
-the cause of the envelope's `angzarr-ports-store-unavailable`, exit 1 like
+the cause of the envelope's `angzarr-ports-store-unavailable`, exit 32 (a failure) like
 every store the build cannot use, with not one byte, entry or mtime of the
 store or its directory changed. The message says how to archive it: move
 `state.db` (and `state.db-wal`, `state.db-shm`) aside, e.g. to
@@ -314,6 +314,21 @@ The angzarr pins are one commit of one repository, 71b453a of
 github.com/angzarr-io/angzarr (diagnostic, ports, yaml, presentation,
 store-transfer, embedded and its router, the platform crates, angzarr-build).
 They move together; the lock holds one of each.
+
+## Exit codes follow rust-support's convention
+
+Every command ends with an `Exit` of rust-support's `exit-code` (re-exported
+by `cli-support`); there is no other exit-code table. Every success exits 0,
+or 16 under the global `--detailed-exitcode`; a failure (the command tried
+and something broke: a store, a write, an output) 32; a decline (a usage
+error, a removed spelling, a request the content or the state forbids: no
+such task, a permit in use) 48; a `check` that examined the store and found
+violations 49. A usage error is 48, never clap's 2; help, `--version` and a
+bare group's help are successes. Each error type says its class by
+implementing `ExitClass` (the core's in the application crates, with
+`exit-code`; the adapters' in the CLI crates); a new error variant is
+classified in its `exit()`, which every match must name. The convention's
+text is rust-support's `docs/exit-codes.md`.
 
 ## Errors are localizable: a code, args, and an en-US message
 

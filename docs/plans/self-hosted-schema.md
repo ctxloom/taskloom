@@ -51,7 +51,7 @@ or closed by `"*:*"=false`) has the seed's permits written on its first
 open, its `=true` permits kept as presences, its other valued ones dropped.
 
 **CLI.** `manage schema show` (same JSON shape as now), `manage schema
-export`, `manage schema check` (exits non-zero on findings), `manage schema
+export`, `manage schema check` (exits 49 on findings), `manage schema
 declare --add/--remove` (a preview unless `--yes`), `manage migrate schema`.
 `manage schema permits add X` adds
 `tagma.permit:"X"`, a presence (`area:` becomes `"area:*"`), and nothing
