@@ -384,7 +384,7 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 [[package]]
 name = "cli-support"
 version = "0.2.0"
-source = "git+https://github.com/benjaminabbitt/rust-support?rev=fcad01b0a4a0c6283dd529daf02ece614c429fc1#fcad01b0a4a0c6283dd529daf02ece614c429fc1"
+source = "git+https://github.com/benjaminabbitt/rust-support?rev=5bc1d60f1a10d4902b2daad36c348e9bc39c15fa#5bc1d60f1a10d4902b2daad36c348e9bc39c15fa"
 dependencies = [
  "angzarr-diagnostic",
  "angzarr-presentation",
@@ -592,7 +592,7 @@ dependencies = [
 [[package]]
 name = "exit-code"
 version = "0.2.0"
-source = "git+https://github.com/benjaminabbitt/rust-support?rev=fcad01b0a4a0c6283dd529daf02ece614c429fc1#fcad01b0a4a0c6283dd529daf02ece614c429fc1"
+source = "git+https://github.com/benjaminabbitt/rust-support?rev=5bc1d60f1a10d4902b2daad36c348e9bc39c15fa#5bc1d60f1a10d4902b2daad36c348e9bc39c15fa"
 
 [[package]]
 name = "expr-lang"
