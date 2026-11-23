@@ -446,3 +446,25 @@ fn test_heal_of_a_project_with_no_database_is_no_damage_and_creates_none() {
         "the check created nothing"
     );
 }
+
+#[test]
+fn test_a_heal_preview_exits_17_when_it_would_repair_and_16_when_nothing_is_damaged() {
+    let world = World::new();
+    let tree = world.tree("tree");
+    world.add(&tree, "a task");
+    let code = |args: &[&str]| world.run(&tree, args).code;
+    let heal = ["manage", "doctor", "heal"];
+    assert_eq!(code(&[&heal[..], &["--detailed-exitcode"]].concat()), 16);
+    disk::remove_file(tree.join(".project-id")).unwrap();
+    assert_eq!(code(&heal), 0, "a preview without the flag");
+    assert_eq!(code(&[&heal[..], &["--detailed-exitcode"]].concat()), 17);
+    assert_eq!(
+        code(&[&heal[..], &["--yes", "--dry-run", "--detailed-exitcode"]].concat()),
+        17
+    );
+    assert_eq!(
+        code(&[&heal[..], &["--yes", "--detailed-exitcode"]].concat()),
+        16,
+        "applied"
+    );
+}

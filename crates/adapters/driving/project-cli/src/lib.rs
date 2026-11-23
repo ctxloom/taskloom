@@ -128,7 +128,7 @@ pub fn run<A: ProjectAdmin, C: StoreCheck>(
     err: &mut dyn Write,
 ) -> Exit {
     match answer(command, settings, catalog, projects, out) {
-        Ok(()) => Exit::OK,
+        Ok(exit) => exit,
         Err(error) => {
             let _ = report(&error, settings, catalog, err);
             error.exit()
@@ -156,7 +156,7 @@ fn answer<A: ProjectAdmin, C: StoreCheck>(
     catalog: &Catalog,
     projects: &mut Projects<A, C>,
     out: &mut dyn Write,
-) -> Result<(), CliError> {
+) -> Result<Exit, CliError> {
     let unpinned = match &command {
         Command::Project(ProjectCommand::Show) => None,
         Command::Doctor(DoctorCommand::Heal { .. }) => Some("heal"),
@@ -174,6 +174,7 @@ fn answer<A: ProjectAdmin, C: StoreCheck>(
                 .show(settings.project.as_deref())
                 .map_err(CliError::Project)?;
             angzarr_presentation::render(out, settings.format, &Show(&shown, catalog))
+                .map(|()| Exit::OK)
         }
         Command::Doctor(DoctorCommand::Heal { yes, dry_run }) => {
             let plan = projects.heal(yes && !dry_run).map_err(CliError::Project)?;
@@ -193,6 +194,7 @@ fn answer<A: ProjectAdmin, C: StoreCheck>(
         Command::Doctor(DoctorCommand::Orphans { action: None }) => {
             let orphans = projects.orphans().map_err(CliError::Project)?;
             angzarr_presentation::render(out, settings.format, &Orphans(&orphans))
+                .map(|()| Exit::OK)
         }
         Command::Doctor(DoctorCommand::Orphans {
             action:
@@ -218,10 +220,20 @@ fn planned(
     catalog: &Catalog,
     plan: &project_application::Plan,
     yes_ignored: bool,
-) -> io::Result<()> {
+) -> io::Result<Exit> {
     match yes_ignored {
         true => angzarr_presentation::render(out, settings.format, &YesIgnored(plan, catalog)),
         false => angzarr_presentation::render(out, settings.format, &Planned(plan, catalog)),
+    }
+    .map(|()| after(plan))
+}
+
+/// The exit after a plan: a plan that was not made and holds changes is
+/// "would change"; one made, or with nothing to make, is ok.
+fn after(plan: &project_application::Plan) -> Exit {
+    match !plan.applied && !plan.changes.is_empty() {
+        true => Exit::WOULD_CHANGE,
+        false => Exit::OK,
     }
 }
 

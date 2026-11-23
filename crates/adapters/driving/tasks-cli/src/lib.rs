@@ -32,7 +32,9 @@ use std::io::{self, Write};
 use angzarr_diagnostic::Diagnostic;
 use angzarr_presentation::{Catalog, CatalogError, Format, Render, Source, UnknownFormat};
 use clap::{Args, Parser, Subcommand};
-use cli_support::{usage_exit, Exit, ExitClass};
+use cli_support::{
+    detailed_exitcode_arg, exit_statuses, usage_exit, Exit, ExitClass, ExitStatuses,
+};
 use tasks_application::{
     dead_letter_line, DeadLetter, PermitService, PruneService, RuleWarning, SchemaService,
     TaskService, Written,
@@ -90,10 +92,6 @@ pub struct Globals {
     /// Override a configuration key for this run (repeatable).
     #[arg(long = "config-set", global = true, value_name = "PATH=VALUE")]
     pub config_set: Vec<String>,
-    /// Exit 16-31 for every success (16: ok, 17: would change something);
-    /// without it every success exits 0.
-    #[arg(long = "detailed-exitcode", global = true)]
-    pub detailed_exitcode: bool,
 }
 
 /// The verbs of `tasks`.
@@ -266,7 +264,8 @@ fn asked_detailed(args: &[OsString]) -> bool {
         .any(|word| word == "--detailed-exitcode")
 }
 
-/// The command line `args` (the program name first) parsed as `P`, or the
+/// The command line `args` (the program name first) parsed as `P`, with the
+/// statuses its `--detailed-exitcode` flag binds, or the
 /// process's status for answering it without a command: help (asked for,
 /// or a group given no command) and `--version` (or `-v`) on `out`, a
 /// success (0, or 16 under `--detailed-exitcode`); a usage error, or a
@@ -281,16 +280,17 @@ pub fn parse<P: Parser>(
     catalog: &Catalog,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<P, u8> {
+) -> Result<(P, ExitStatuses), u8> {
     let args: Vec<OsString> = args.into_iter().collect();
     if let Some(refusal) = removed(&args) {
         let _ = report(&refusal, asked_format(&args, context), catalog, err);
-        return Err(refusal.exit().code(asked_detailed(&args)));
+        return Err(ExitStatuses::new(asked_detailed(&args)).code(refusal.exit()));
     }
     let command = without_help_command(
         P::command()
             .version(context.version.clone())
             .disable_version_flag(true)
+            .arg(detailed_exitcode_arg())
             .arg(
                 clap::Arg::new("version")
                     .short('v')
@@ -299,9 +299,10 @@ pub fn parse<P: Parser>(
                     .action(clap::ArgAction::Version),
             ),
     );
-    let parsed = command
-        .try_get_matches_from(&args)
-        .and_then(|mut matches| P::from_arg_matches_mut(&mut matches));
+    let parsed = command.try_get_matches_from(&args).and_then(|mut matches| {
+        let statuses = exit_statuses(&matches);
+        P::from_arg_matches_mut(&mut matches).map(|parsed| (parsed, statuses))
+    });
     parsed.map_err(|e| {
         use clap::error::ErrorKind;
         let exit = match e.kind() {
@@ -323,7 +324,7 @@ pub fn parse<P: Parser>(
                 usage_exit(&e)
             }
         };
-        exit.code(asked_detailed(&args))
+        ExitStatuses::new(asked_detailed(&args)).code(exit)
     })
 }
 
@@ -446,44 +447,51 @@ where
     };
     let result = match command {
         Command::Tasks(tasks) => match tasks {
-            Tasks::Add(args) => commands::add(args, ctx, service, out, err).await,
-            Tasks::Set(args) => commands::set(args, ctx, service, out, err).await,
-            Tasks::Show(args) => commands::show(args, ctx, service, out, err).await,
-            Tasks::Check => commands::check(ctx, service, out, err).await,
-            Tasks::Summary => commands::summary(ctx, service, out, err).await,
+            Tasks::Add(args) => done(commands::add(args, ctx, service, out, err).await),
+            Tasks::Set(args) => done(commands::set(args, ctx, service, out, err).await),
+            Tasks::Show(args) => done(commands::show(args, ctx, service, out, err).await),
+            Tasks::Check => done(commands::check(ctx, service, out, err).await),
+            Tasks::Summary => done(commands::summary(ctx, service, out, err).await),
             Tasks::Tag(TagCommand::Add(args)) => {
-                commands::tag(args, true, ctx, service, out, err).await
+                done(commands::tag(args, true, ctx, service, out, err).await)
             }
             Tasks::Tag(TagCommand::Remove(args)) => {
-                commands::tag(args, false, ctx, service, out, err).await
+                done(commands::tag(args, false, ctx, service, out, err).await)
             }
-            Tasks::List(args) => commands::list(args, ctx, service, out, err).await,
+            Tasks::List(args) => done(commands::list(args, ctx, service, out, err).await),
             Tasks::Prune(args) => commands::prune(args, ctx, service, out, err).await,
         },
         Command::Schema(Schema::Rules(command)) => {
             commands::schema(command, ctx, service, out, err).await
         }
         Command::Schema(Schema::Vocabulary(vocabulary)) => match vocabulary {
-            Vocabulary::Permits(PermitsCommand::List) => commands::permits(ctx, service, out).await,
+            Vocabulary::Permits(PermitsCommand::List) => {
+                done(commands::permits(ctx, service, out).await)
+            }
             Vocabulary::Permits(PermitsCommand::Add(args)) => {
-                commands::permit(args, ctx, service, out).await
+                done(commands::permit(args, ctx, service, out).await)
             }
             Vocabulary::Permits(PermitsCommand::Remove(args)) => {
                 commands::revoke(args, ctx, service, out, err).await
             }
             Vocabulary::Tags(TagsCommand::List(args)) => {
-                commands::tags(args, ctx, service, out, err).await
+                done(commands::tags(args, ctx, service, out, err).await)
             }
             Vocabulary::Statuses(StatusesCommand::List) => {
-                commands::statuses(ctx, service, out, err).await
+                done(commands::statuses(ctx, service, out, err).await)
             }
         },
-        Command::ImportConfig => commands::import_config(ctx, service, out).await,
-        Command::Version => version(context, format, out),
+        Command::ImportConfig => done(commands::import_config(ctx, service, out).await),
+        Command::Version => done(version(context, format, out)),
         // Answered above: it has its own format.
-        Command::Loadout => Ok(()),
+        Command::Loadout => Ok(Exit::OK),
     };
-    finish(result, format, catalog, err)
+    finish_with(result, format, catalog, err)
+}
+
+/// A command that ends well, ends ok.
+fn done(result: Result<(), CliError>) -> Result<Exit, CliError> {
+    result.map(|()| Exit::OK)
 }
 
 /// The exit of `result`, its error reported in `format`, after any dead
@@ -494,8 +502,19 @@ pub(crate) fn finish(
     catalog: &Catalog,
     err: &mut dyn Write,
 ) -> Exit {
+    finish_with(done(result), format, catalog, err)
+}
+
+/// [`finish`], for a command that ends well with an exit of its own (a
+/// preview that would change something).
+pub(crate) fn finish_with(
+    result: Result<Exit, CliError>,
+    format: Format,
+    catalog: &Catalog,
+    err: &mut dyn Write,
+) -> Exit {
     match result {
-        Ok(()) => Exit::OK,
+        Ok(exit) => exit,
         Err(error) => {
             // A failed use case's dead letters are said before its error.
             if let CliError::App(failed) = &error {

@@ -141,3 +141,90 @@ fn test_plans_check_with_findings_exits_49_and_clean_exits_0() {
         "findings under the flag",
     );
 }
+
+// ------------------------------------------------------------ previews
+
+/// A preview exits 17 under `--detailed-exitcode` when applying it would
+/// change something and 16 when it would change nothing; without the flag
+/// both exit 0. Applying it is a plain success.
+fn previews(env: &Env, args: &[&str], with_work: bool) {
+    let (flagged, plain) = if with_work { (17, 0) } else { (16, 0) };
+    let mut detailed = args.to_vec();
+    detailed.push("--detailed-exitcode");
+    exits(&env.run(&detailed), flagged, &format!("{args:?} flagged"));
+    exits(&env.run(args), plain, &format!("{args:?} plain"));
+}
+
+#[test]
+fn test_a_schema_declaration_preview_that_would_change_exits_17_and_one_that_would_not_16() {
+    let env = Env::new(SESSION);
+    env.permit_every_tag();
+    let rule = r#"tagma.enum:"area:x"=a"#;
+    previews(&env, &["manage", "schema", "declare", "--add", rule], true);
+    previews(
+        &env,
+        &[
+            "manage",
+            "schema",
+            "declare",
+            "--add",
+            rule,
+            "--yes",
+            "--dry-run",
+        ],
+        true,
+    );
+    exits(
+        &env.run(&["manage", "schema", "declare", "--add", rule, "--yes"]),
+        0,
+        "applied",
+    );
+    exits(
+        &env.run(&[
+            "manage",
+            "schema",
+            "declare",
+            "--add",
+            rule,
+            "--yes",
+            "--detailed-exitcode",
+        ]),
+        16,
+        "applied under the flag",
+    );
+    previews(&env, &["manage", "schema", "declare", "--add", rule], false);
+}
+
+#[test]
+fn test_a_permit_removal_preview_exits_17_and_its_application_16() {
+    let env = Env::new(SESSION);
+    env.permit_every_tag();
+    exits(
+        &env.run(&["manage", "schema", "permits", "add", "area:cli"]),
+        0,
+        "permit",
+    );
+    let remove = ["manage", "schema", "permits", "remove", "area:cli"];
+    previews(&env, &remove, true);
+    let mut applied = remove.to_vec();
+    applied.extend(["--yes", "--detailed-exitcode"]);
+    exits(&env.run(&applied), 16, "applied");
+}
+
+#[test]
+fn test_a_prune_preview_exits_17_when_it_would_take_a_task_and_16_when_it_would_take_none() {
+    let env = Env::new(SESSION);
+    env.seed("open work");
+    let prune = ["tasks", "prune", "--older-than", "1ns"];
+    previews(&env, &prune, false);
+    exits(
+        &env.run(&["tasks", "add", "Finished", "--status", "Done"]),
+        0,
+        "a Done task",
+    );
+    previews(&env, &prune, true);
+    let mut applied = prune.to_vec();
+    applied.extend(["--yes", "--detailed-exitcode"]);
+    exits(&env.run(&applied), 16, "applied");
+    previews(&env, &prune, false);
+}

@@ -11,6 +11,8 @@ use tasks_application::{
     DEFAULT_OLDER_THAN, DEFAULT_PRUNE_STATUSES,
 };
 
+use cli_support::Exit;
+
 use crate::prune::{apply_command, PruneReport};
 use crate::render::{
     Added, Changed, Checked, Counted, DeclaredView, Detailed, Exported, Linted, Listed, Permits,
@@ -291,7 +293,9 @@ pub struct RemovePermitArgs {
 /// A change that previews unless told to apply.
 #[derive(Args, Debug, Clone, Copy)]
 pub struct ApplyArgs {
-    /// Make the change; without it, only report what it would do.
+    /// Make the change; without it, only report what it would do (exit 17
+    /// under --detailed-exitcode when it would change something, 16 when
+    /// not).
     #[arg(long)]
     yes: bool,
     /// Report what it would do and change nothing (wins over --yes).
@@ -303,6 +307,17 @@ impl ApplyArgs {
     /// Whether the change is made: asked for, and not a dry run.
     pub fn applies(self) -> bool {
         self.yes && !self.dry_run
+    }
+
+    /// The exit of the command: a preview (the change not made) that
+    /// `would_change` something is the success "would change" (17 under
+    /// `--detailed-exitcode`); a preview that would change nothing, and a
+    /// change made, are ok.
+    fn exit_after(self, would_change: bool) -> Exit {
+        match !self.applies() && would_change {
+            true => Exit::WOULD_CHANGE,
+            false => Exit::OK,
+        }
     }
 
     /// Whether `--yes` was given and `--dry-run` overruled it; `would` is
@@ -342,11 +357,10 @@ pub(crate) async fn revoke(
     service: &mut impl PermitService,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<(), CliError> {
-    let applies = args.apply.applies();
-    let ignored = args
-        .apply
-        .ignored(|| vec![format!("remove the permit {}", args.permit)]);
+) -> Result<Exit, CliError> {
+    let apply = args.apply;
+    let applies = apply.applies();
+    let ignored = apply.ignored(|| vec![format!("remove the permit {}", args.permit)]);
     let command = format!("{PROG} manage schema permits remove {} --yes", args.permit);
     let change = PermitChange {
         permit: args.permit,
@@ -359,7 +373,8 @@ pub(crate) async fn revoke(
     };
     angzarr_presentation::render(out, ctx.format, &Previewed(&view, !applies, ignored))
         .map_err(output_failed)?;
-    previewed(applies, command, ctx.catalog, err)
+    previewed(applies, command, ctx.catalog, err)?;
+    Ok(apply.exit_after(permitted.changed))
 }
 
 /// After a preview, say on stderr that nothing changed and what applies it.
@@ -428,12 +443,14 @@ pub(crate) async fn schema(
     service: &mut (impl TaskService + SchemaService + PermitService),
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<(), CliError> {
+) -> Result<Exit, CliError> {
     let format = ctx.format;
     match command {
         SchemaCommand::Show => {
             let schema = service.tag_schema().await.map_err(CliError::App)?;
-            angzarr_presentation::render(out, format, &Schema(&schema)).map_err(output_failed)
+            angzarr_presentation::render(out, format, &Schema(&schema))
+                .map(|()| Exit::OK)
+                .map_err(output_failed)
         }
         // Printed in its own format, tagma's syntax, whatever is asked,
         // as `loadout` is in yaml: it is what tagma reads back.
@@ -442,7 +459,9 @@ pub(crate) async fn schema(
                 .schema_export(ctx.project)
                 .await
                 .map_err(CliError::App)?;
-            angzarr_presentation::render(out, Format::Text, &Exported(&tags)).map_err(output_failed)
+            angzarr_presentation::render(out, Format::Text, &Exported(&tags))
+                .map(|()| Exit::OK)
+                .map_err(output_failed)
         }
         SchemaCommand::Check => {
             let findings = service
@@ -452,34 +471,46 @@ pub(crate) async fn schema(
             angzarr_presentation::render(out, format, &Checked(&findings))
                 .map_err(output_failed)?;
             match findings.len() {
-                0 => Ok(()),
+                0 => Ok(Exit::OK),
                 count => Err(CliError::SchemaFindings { count }),
             }
         }
-        SchemaCommand::Declare(declare) => {
-            let applies = declare.apply.applies();
-            let ignored = declare.apply.ignored(|| {
-                let rules = |verb: &str, rules: &[String]| {
-                    rules
-                        .iter()
-                        .map(|rule| format!("{verb} the rule {rule}"))
-                        .collect::<Vec<_>>()
-                };
-                [rules("add", &declare.add), rules("remove", &declare.remove)].concat()
-            });
-            let command = declaration_command(&declare);
-            let declaration = Declaration {
-                add: declare.add,
-                remove: declare.remove,
-                dry_run: !applies,
-            };
-            let declared = service.declare(declaration).await.map_err(CliError::App)?;
-            let view = DeclaredView(&declared);
-            angzarr_presentation::render(out, format, &Previewed(&view, !applies, ignored))
-                .map_err(output_failed)?;
-            previewed(applies, command, ctx.catalog, err)
-        }
+        SchemaCommand::Declare(declare) => declare_rules(declare, ctx, service, out, err).await,
     }
+}
+
+/// `manage schema declare`: the rules added and removed, or what they would
+/// do; a preview that would change the rules is "would change".
+async fn declare_rules(
+    declare: DeclareArgs,
+    ctx: Ctx<'_>,
+    service: &mut impl PermitService,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<Exit, CliError> {
+    let apply = declare.apply;
+    let applies = apply.applies();
+    let ignored = apply.ignored(|| {
+        let rules = |verb: &str, rules: &[String]| {
+            rules
+                .iter()
+                .map(|rule| format!("{verb} the rule {rule}"))
+                .collect::<Vec<_>>()
+        };
+        [rules("add", &declare.add), rules("remove", &declare.remove)].concat()
+    });
+    let command = declaration_command(&declare);
+    let declaration = Declaration {
+        add: declare.add,
+        remove: declare.remove,
+        dry_run: !applies,
+    };
+    let declared = service.declare(declaration).await.map_err(CliError::App)?;
+    let view = DeclaredView(&declared);
+    angzarr_presentation::render(out, ctx.format, &Previewed(&view, !applies, ignored))
+        .map_err(output_failed)?;
+    previewed(applies, command, ctx.catalog, err)?;
+    Ok(apply.exit_after(declared.changed))
 }
 
 /// The command that applies exactly the declaration given.
@@ -633,7 +664,7 @@ pub(crate) async fn prune(
     service: &mut impl PruneService,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Result<(), CliError> {
+) -> Result<Exit, CliError> {
     let apply = apply_command(&args.older_than, &args.status, args.tag_query.as_deref());
     let apply_args = args.apply;
     let request = PruneRequest {
@@ -669,11 +700,13 @@ pub(crate) async fn prune(
         None => angzarr_presentation::render(out, format, &report),
     }
     .map_err(output_failed)?;
+    let exit = apply_args.exit_after(!pruning.pruned.is_empty());
     if pruning.applied || pruning.pruned.is_empty() {
-        return Ok(());
+        return Ok(exit);
     }
     let report_only = Notice::ReportOnly { command: apply };
-    notify(&report_only, catalog, err).map_err(output_failed)
+    notify(&report_only, catalog, err).map_err(output_failed)?;
+    Ok(exit)
 }
 
 /// Say on stderr which project a read was in: the one here, by name, or

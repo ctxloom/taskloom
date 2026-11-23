@@ -22,7 +22,7 @@ use std::io::{self, IsTerminal, Read};
 use std::process::ExitCode;
 use std::time::Duration;
 
-use cli_support::Exit;
+use cli_support::{Exit, ExitStatuses};
 
 use tasks_cli::Context;
 use tasks_lib::{Close, Taskloom};
@@ -419,14 +419,14 @@ fn main() -> ExitCode {
         Ok(runtime) => runtime,
         Err(e) => {
             eprintln!("{}: cannot start: {e}", tasks_cli::PROG);
-            return Exit::FAILED.process(false);
+            return ExitStatuses::new(false).process(Exit::FAILED);
         }
     };
     let catalog = match catalog() {
         Ok(catalog) => catalog,
         Err(e) => {
             eprintln!("{}: {e}", tasks_cli::PROG);
-            return Exit::FAILED.process(false);
+            return ExitStatuses::new(false).process(Exit::FAILED);
         }
     };
     let context = context();
@@ -439,11 +439,10 @@ fn main() -> ExitCode {
         &mut stdout.lock(),
         &mut stderr.lock(),
     );
-    let Cli { globals, command } = match parsed {
-        Ok(cli) => cli,
+    let (Cli { globals, command }, statuses) = match parsed {
+        Ok(parsed) => parsed,
         Err(code) => return ExitCode::from(code),
     };
-    let detailed = globals.detailed_exitcode;
     // The working directory, HOME, CTXLOOM_ROOT, CTXLOOM_PROJECT_ID and
     // the variables, read once; an unreadable working directory fails
     // only the commands that need it.
@@ -454,15 +453,15 @@ fn main() -> ExitCode {
         Ok(taskloom) => taskloom,
         Err(e) => {
             eprintln!("{}: {}", tasks_cli::PROG, catalog.message(&e));
-            return Exit::FAILED.process(false);
+            return ExitStatuses::new(false).process(Exit::FAILED);
         }
     };
     let routed = Routed::from(command);
     let command = match routed {
         Routed::Tasks(command) => command,
         Routed::Mounted(other) => {
-            return mounted(&runtime, &taskloom, other, globals, &context, &catalog)
-                .process(detailed)
+            let exit = mounted(&runtime, &taskloom, other, globals, &context, &catalog);
+            return statuses.process(exit);
         }
     };
     let mut service = taskloom.tasks();
@@ -475,7 +474,7 @@ fn main() -> ExitCode {
         &mut stdout.lock(),
         &mut stderr.lock(),
     ));
-    closing(&runtime, service, exit, &catalog).process(detailed)
+    statuses.process(closing(&runtime, service, exit, &catalog))
 }
 
 /// The commands that are no task use case's: `manage migrate tasks`, `tasks

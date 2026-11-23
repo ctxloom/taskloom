@@ -183,7 +183,8 @@ pub const CONSOLIDATION: &[(&str, &str)] = &[
           `tag`, `tags`, `summary`, `lint`, `prune`, `schema`, `plan`,
           `watch`, and the old json shorthand flag) are removed, not aliased: each
           prints `removed: use <new command>` and exits 48.
-        - Exit codes: 0 success (16 under `--detailed-exitcode`); 32 the
+        - Exit codes: 0 success (16 under `--detailed-exitcode`; 17 for a
+          preview that would change something); 32 the
           command tried and something broke (a store that cannot be used, a
           write that failed); 48 the request or the state forbids it (bad
           arguments, a tag no permit admits, no such task, a removed

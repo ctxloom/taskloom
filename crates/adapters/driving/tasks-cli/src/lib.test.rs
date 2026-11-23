@@ -313,7 +313,7 @@ fn ran(
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let catalog = catalog();
     let code = match parse::<Cli>(args, context, &catalog, &mut out, &mut err) {
-        Ok(cli) => answer(cli.command, cli.globals, &catalog, &mut out, &mut err),
+        Ok((cli, _)) => answer(cli.command, cli.globals, &catalog, &mut out, &mut err),
         Err(code) => code,
     };
     Ran {
@@ -3244,14 +3244,28 @@ fn test_a_detailed_flag_after_the_double_dash_is_no_flag() {
 }
 
 #[test]
-fn test_the_detailed_flag_is_read_into_the_globals_wherever_it_stands() {
-    for args in [
-        &["taskloom", "--detailed-exitcode", "tasks", "list"][..],
-        &["taskloom", "tasks", "list", "--detailed-exitcode"],
-    ] {
-        let (_, globals) = parsed(args);
-        assert!(globals.detailed_exitcode, "{args:?}");
-    }
-    let (_, globals) = parsed(&["taskloom", "tasks", "list"]);
-    assert!(!globals.detailed_exitcode);
+fn test_the_detailed_flag_binds_the_statuses_wherever_it_stands() {
+    let detailed = |args: &[&str]| {
+        let args = args.iter().map(OsString::from);
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let Ok((_, statuses)) =
+            parse::<Cli>(args, &Context::default(), &catalog(), &mut out, &mut err)
+        else {
+            panic!("parsed")
+        };
+        statuses.detailed()
+    };
+    assert!(detailed(&[
+        "taskloom",
+        "--detailed-exitcode",
+        "tasks",
+        "list"
+    ]));
+    assert!(detailed(&[
+        "taskloom",
+        "tasks",
+        "list",
+        "--detailed-exitcode"
+    ]));
+    assert!(!detailed(&["taskloom", "tasks", "list"]));
 }

@@ -323,7 +323,13 @@ or 16 under the global `--detailed-exitcode`; a failure (the command tried
 and something broke: a store, a write, an output) 32; a decline (a usage
 error, a removed spelling, a request the content or the state forbids: no
 such task, a permit in use) 48; a `check` that examined the store and found
-violations 49. A usage error is 48, never clap's 2; help, `--version` and a
+violations 49. A preview (`--dry-run`, or no `--yes`) that would change
+something is the success "would change" (17 under `--detailed-exitcode`,
+0 without): `manage schema declare` when the rules would change, `manage
+schema permits remove` when the permit would go, `tasks prune` when a task
+would be taken, and `manage doctor heal`, `repoint` and `orphans remove`
+when the plan holds changes; a preview that would change nothing is ok. A
+usage error is 48, never clap's 2; help, `--version` and a
 bare group's help are successes. Each error type says its class by
 implementing `ExitClass` (the core's in the application crates, with
 `exit-code`; the adapters' in the CLI crates); a new error variant is
