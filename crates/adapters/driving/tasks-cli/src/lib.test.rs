@@ -18,6 +18,7 @@ use tasks_application::{
 };
 
 use angzarr_presentation::Catalog;
+use cli_support::Exit;
 
 use super::{parse, run, run_import, Command, Context, Globals};
 
@@ -305,7 +306,7 @@ impl Line {
 fn ran(
     context: &Context,
     args: &[&str],
-    answer: impl FnOnce(Line, Globals, &Catalog, &mut dyn Write, &mut dyn Write) -> u8,
+    answer: impl FnOnce(Line, Globals, &Catalog, &mut dyn Write, &mut dyn Write) -> Exit,
 ) -> Ran {
     let args = std::iter::once("taskloom")
         .chain(args.iter().copied())
@@ -313,7 +314,13 @@ fn ran(
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let catalog = catalog();
     let code = match parse::<Cli>(args, context, &catalog, &mut out, &mut err) {
-        Ok((cli, _)) => answer(cli.command, cli.globals, &catalog, &mut out, &mut err),
+        Ok((cli, statuses)) => statuses.code(answer(
+            cli.command,
+            cli.globals,
+            &catalog,
+            &mut out,
+            &mut err,
+        )),
         Err(code) => code,
     };
     Ran {
@@ -329,7 +336,7 @@ fn run_in(context: &Context, fake: &mut Fake, args: &[&str]) -> Ran {
             panic!("not a task command: {args:?}")
         };
         run_with(fake, |use_cases| {
-            ready(run(command, globals, context, catalog, use_cases, out, err)).code(false)
+            ready(run(command, globals, context, catalog, use_cases, out, err))
         })
     })
 }
@@ -2048,9 +2055,8 @@ fn import_on(importer: &mut FakeImporter, terminal: bool, args: &[&str]) -> Ran 
                 importer,
                 out,
                 err,
-            ))
-            .code(false),
-            Err(exit) => exit.code(false),
+            )),
+            Err(exit) => exit,
         }
     })
 }
@@ -3208,7 +3214,7 @@ fn test_the_loadout_forbids_agents_every_schema_changing_command_unasked() {
     assert!(loadout.contains("Reading the rules (`taskloom manage schema"));
 }
 
-fn never_answers(_: Line, _: Globals, _: &Catalog, _: &mut dyn Write, _: &mut dyn Write) -> u8 {
+fn never_answers(_: Line, _: Globals, _: &Catalog, _: &mut dyn Write, _: &mut dyn Write) -> Exit {
     unreachable!("the parser answers these")
 }
 
@@ -3268,4 +3274,75 @@ fn test_the_detailed_flag_binds_the_statuses_wherever_it_stands() {
         "--detailed-exitcode"
     ]));
     assert!(!detailed(&["taskloom", "tasks", "list"]));
+}
+
+/// `line`, once as given and once under `--detailed-exitcode`, run against
+/// a fake `make`s: the two statuses.
+fn statuses_of(make: impl Fn() -> Fake, line: &[&str]) -> (u8, u8) {
+    let plain = run_on(&mut make(), false, line).code;
+    let mut flagged = vec!["--detailed-exitcode"];
+    flagged.extend_from_slice(line);
+    (plain, run_on(&mut make(), false, &flagged).code)
+}
+
+#[test]
+fn test_a_permit_removal_preview_is_would_change_only_when_the_permit_would_go() {
+    let fake = |changed| {
+        move || Fake {
+            permitted: permitted("area:", changed),
+            ..Fake::default()
+        }
+    };
+    let remove = ["manage", "schema", "permits", "remove", "area:"];
+    let with = |flags: &[&'static str]| -> Vec<&'static str> { [&remove[..], flags].concat() };
+    assert_eq!(statuses_of(fake(true), &remove), (0, 17));
+    assert_eq!(statuses_of(fake(false), &remove), (0, 16));
+    assert_eq!(
+        statuses_of(fake(true), &with(&["--yes", "--dry-run"])),
+        (0, 17)
+    );
+    assert_eq!(statuses_of(fake(true), &with(&["--yes"])), (0, 16));
+}
+
+#[test]
+fn test_a_declaration_preview_is_would_change_only_when_the_rules_would_change() {
+    let fake = |changed| {
+        move || Fake {
+            declared: schema_declared(&["tagma.permit:urgent"], changed),
+            ..Fake::default()
+        }
+    };
+    let declare = [
+        "manage",
+        "schema",
+        "declare",
+        "--add",
+        "tagma.permit:urgent",
+    ];
+    let with = |flags: &[&'static str]| -> Vec<&'static str> { [&declare[..], flags].concat() };
+    assert_eq!(statuses_of(fake(true), &declare), (0, 17));
+    assert_eq!(statuses_of(fake(false), &declare), (0, 16));
+    assert_eq!(
+        statuses_of(fake(true), &with(&["--yes", "--dry-run"])),
+        (0, 17)
+    );
+    assert_eq!(statuses_of(fake(true), &with(&["--yes"])), (0, 16));
+}
+
+#[test]
+fn test_a_prune_preview_is_would_change_only_when_it_would_take_a_task() {
+    let fake = |taken: &'static [&'static str]| {
+        move || Fake {
+            pruning: Some(Ok(pruning(false, taken))),
+            ..Fake::default()
+        }
+    };
+    let prune = ["tasks", "prune"];
+    assert_eq!(statuses_of(fake(&["swift-amber"]), &prune), (0, 17));
+    assert_eq!(statuses_of(fake(&[]), &prune), (0, 16));
+    let applied = || Fake {
+        pruning: Some(Ok(pruning(true, &["swift-amber"]))),
+        ..Fake::default()
+    };
+    assert_eq!(statuses_of(applied, &["tasks", "prune", "--yes"]), (0, 16));
 }

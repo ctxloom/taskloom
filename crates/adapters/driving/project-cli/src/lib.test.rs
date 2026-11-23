@@ -541,3 +541,69 @@ fn test_project_is_refused_by_every_command_but_show() {
         }
     }
 }
+
+/// The status `args` end with, under `--detailed-exitcode` or not.
+fn status(args: &[&str], detailed: bool, projects: &mut Projects<Fake, FakeCheck>) -> u8 {
+    let settings = Settings {
+        format: Format::Json,
+        project: None,
+        prog: "taskloom",
+    };
+    run(
+        parse(args),
+        &settings,
+        &catalog(),
+        projects,
+        &mut Vec::new(),
+        &mut Vec::new(),
+    )
+    .code(detailed)
+}
+
+#[test]
+fn test_a_preview_that_would_change_is_would_change_and_a_change_made_is_ok() {
+    for args in [
+        &["doctor", "heal"][..],
+        &["doctor", "repoint", "t"],
+        &["doctor", "orphans", "remove", "stray"],
+    ] {
+        let status_of = |flags: &[&str], detailed| {
+            let mut line = args.to_vec();
+            line.extend_from_slice(flags);
+            status(&line, detailed, &mut projects())
+        };
+        assert_eq!(status_of(&[], true), 17, "{args:?} previewed");
+        assert_eq!(status_of(&[], false), 0, "{args:?} previewed, no flag");
+        assert_eq!(status_of(&["--yes", "--dry-run"], true), 17, "{args:?}");
+        assert_eq!(status_of(&["--yes"], true), 16, "{args:?} made");
+        assert_eq!(status_of(&["--yes"], false), 0, "{args:?} made, no flag");
+    }
+}
+
+#[test]
+fn test_a_preview_with_nothing_to_change_is_ok() {
+    let sound = || {
+        let admin = Fake {
+            survey: Survey {
+                work_root: "/w".to_string(),
+                root: "/w".to_string(),
+                resolved: Some(("m".to_string(), IdSource::Marker)),
+                marker: Some("m".to_string()),
+                legacy_marker: None,
+                registry: vec![entry("m", "/w", true)],
+                databases: vec!["m".to_string()],
+                projects: PathBuf::from(PROJECTS),
+            },
+            pinned: Vec::new(),
+            applied: Vec::new(),
+        };
+        Projects::new(
+            admin,
+            FakeCheck {
+                found: Checked::Intact,
+            },
+        )
+    };
+    assert_eq!(status(&["doctor", "heal"], true, &mut sound()), 16);
+    assert_eq!(status(&["doctor", "heal"], false, &mut sound()), 0);
+}
