@@ -3346,3 +3346,28 @@ fn test_a_prune_preview_is_would_change_only_when_it_would_take_a_task() {
     };
     assert_eq!(statuses_of(applied, &["tasks", "prune", "--yes"]), (0, 16));
 }
+
+#[test]
+fn test_a_declaration_is_asked_as_a_dry_run_unless_it_is_applied() {
+    for (flags, dry_run) in [
+        (&[][..], true),
+        (&["--yes", "--dry-run"], true),
+        (&["--yes"], false),
+    ] {
+        let mut fake = Fake {
+            declared: schema_declared(&["tagma.permit:urgent"], true),
+            ..Fake::default()
+        };
+        let mut line = vec![
+            "manage",
+            "schema",
+            "declare",
+            "--add",
+            "tagma.permit:urgent",
+        ];
+        line.extend_from_slice(flags);
+        run_on(&mut fake, false, &line);
+        assert_eq!(fake.declares.len(), 1, "{line:?}");
+        assert_eq!(fake.declares[0].dry_run, dry_run, "{line:?}");
+    }
+}
