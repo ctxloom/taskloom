@@ -44,7 +44,7 @@ fn test_an_age_in_days_or_weeks_is_that_long_before_now() {
 }
 
 #[test]
-fn test_an_age_in_gos_duration_grammar_is_that_long_before_now() {
+fn test_an_age_in_jiffs_friendly_grammar_is_that_long_before_now() {
     assert_eq!(cut_at("720h"), Ok(at(NOW - 30 * DAY)));
     assert_eq!(cut_at("1h30m"), Ok(at(NOW - 5400)));
     assert_eq!(cut_at("1.5h"), Ok(at(NOW - 5400)));
@@ -72,8 +72,6 @@ fn test_an_age_in_gos_duration_grammar_is_that_long_before_now() {
             nanos: 999_997_997
         })
     );
-    assert_eq!(cut_at(".5h"), Ok(at(NOW - 1800)));
-    assert_eq!(cut_at("1.h"), Ok(at(NOW - 3600)), "Go takes a bare point");
     assert_eq!(cut_at("1.25m"), Ok(at(NOW - 75)));
     assert_eq!(
         cut(
@@ -92,6 +90,10 @@ fn test_an_age_in_gos_duration_grammar_is_that_long_before_now() {
     assert!(
         cut_at("9223372036854775807ns").is_ok(),
         "the longest duration Go's int64 holds"
+    );
+    assert!(
+        cut_at("99999999999999h").is_ok(),
+        "no longer capped at Go's int64 of nanoseconds"
     );
 }
 
@@ -120,7 +122,7 @@ fn test_an_age_of_nothing_is_refused() {
 
 #[test]
 fn test_an_age_of_zero_or_less_is_refused() {
-    for age in ["0d", "0", "-1h", "0s", "-3w"] {
+    for age in ["0d", "-1h", "0s", "-3w", "now", "3d ago"] {
         assert_eq!(
             cut_at(age),
             Err(PruneRefusal::AgeNotPositive {
@@ -155,13 +157,18 @@ fn test_an_age_that_is_neither_an_offset_nor_a_date_is_refused() {
         "2026/01/01",
         "20260-1-01",
         "2026-01-+1",
-        "99999999999999h",
         "9223372036854775808ns",
-        "2562048h",
         "2026-01/01",
         "2026/01-01",
         "1.5",
         "1hh",
+        "0",
+        ".5h",
+        "1.h",
+        "1.5d",
+        "2\u{3bc}s",
+        "1y",
+        "1mo",
     ] {
         assert_eq!(
             cut_at(age),

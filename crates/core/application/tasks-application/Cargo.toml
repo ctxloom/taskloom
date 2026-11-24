@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 angzarr-embedded.workspace = true
 coded-diagnostic.workspace = true
+duration-text.workspace = true
 exit-code.workspace = true
 # Each command run through the kernel, as every context runs one.
 kernel-runner.workspace = true
@@ -37,7 +38,7 @@ mutants.workspace = true
 
 [build-dependencies]
 # The build writes the catalog's source under the crate's name
-# (angzarr_diagnostic::build): no catalog spells its crate's name.
+# (coded_diagnostic::build): no catalog spells its crate's name.
 coded-diagnostic = { workspace = true, features = ["build"] }
 
 [features]

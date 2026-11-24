@@ -25,6 +25,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::future::Future;
 
+use crate::calendar::date;
 use crate::DeadLetter;
 use angzarr_embedded::v1::Cover;
 use angzarr_embedded::{Kernel, KernelError, Purge, Recovery, Registry, Store, StreamRef};
@@ -37,7 +38,6 @@ use tasks::{
     STATUS_CLASS_SIGIL,
 };
 
-use crate::calendar::date;
 use crate::lists::Lists;
 use crate::request::given;
 use crate::rules::StoreRulesExt;
@@ -60,8 +60,8 @@ pub struct PruneRequest {
     /// ([`AppError::Blank`]) or starting with `@`.
     pub statuses: Vec<String>,
     /// How long ago a qualifying task's status last changed, at the
-    /// least: an offset back from now (`30d`, `12w`, `720h`: durations
-    /// with days and weeks), or a date (`2026-01-01`, midnight UTC).
+    /// least: an offset back from now (`30d`, `12w`, `720h`: `duration-text`'s
+    /// spans, jiff's friendly grammar), or a date (`2026-01-01`, midnight UTC).
     pub older_than: String,
     /// A postfix tag query; given blank, it is refused
     /// ([`AppError::Blank`]), never read as none.
@@ -548,7 +548,6 @@ fn harp_words(text: &str) -> impl Iterator<Item = &str> {
 }
 
 const NANOS_PER_SECOND: i128 = 1_000_000_000;
-const SECONDS_PER_DAY: i64 = 86_400;
 
 /// The instant `age` bounds, read at `now`: an offset back from now, or a
 /// date's midnight, UTC.
@@ -557,7 +556,8 @@ pub fn cut(age: &str, now: Timestamp) -> Result<Timestamp, PruneRefusal> {
     if trimmed.is_empty() {
         return Err(PruneRefusal::AgeRequired);
     }
-    if let Some(nanos) = offset(trimmed) {
+    if let Ok(span) = duration_text::parse_signed(trimmed) {
+        let nanos = span.as_nanos();
         if nanos <= 0 {
             return Err(PruneRefusal::AgeNotPositive {
                 age: age.to_string(),
@@ -572,88 +572,6 @@ pub fn cut(age: &str, now: Timestamp) -> Result<Timestamp, PruneRefusal> {
     date(trimmed).ok_or_else(|| PruneRefusal::AgeUnreadable {
         age: age.to_string(),
     })
-}
-
-/// `text` as a span of time, in nanoseconds: a whole number of days (`d`)
-/// or weeks (`w`), or a duration (an optional sign, then numbers with
-/// units, `1h30m`, `1.5h`, `720h`).
-fn offset(text: &str) -> Option<i128> {
-    for (suffix, days) in [('d', 1), ('w', 7)] {
-        if let Some(count) = text.strip_suffix(suffix) {
-            if let Ok(count) = count.parse::<i64>() {
-                return Some(
-                    i128::from(count) * i128::from(days * SECONDS_PER_DAY) * NANOS_PER_SECOND,
-                );
-            }
-        }
-    }
-    duration(text)
-}
-
-/// A duration (an optional sign, then decimal numbers each with a unit of
-/// `ns`, `us`, `µs`, `ms`, `s`, `m` or `h`), in nanoseconds.
-fn duration(text: &str) -> Option<i128> {
-    let (sign, mut rest) = match text.as_bytes().first()? {
-        b'-' => (-1, &text[1..]),
-        b'+' => (1, &text[1..]),
-        _ => (1, text),
-    };
-    if rest == "0" {
-        return Some(0);
-    }
-    if rest.is_empty() {
-        return None;
-    }
-    let mut total: i128 = 0;
-    while !rest.is_empty() {
-        let whole_len = rest
-            .find(|c: char| !c.is_ascii_digit())
-            .unwrap_or(rest.len());
-        let (whole, after) = rest.split_at(whole_len);
-        let (fraction, after) = match after.strip_prefix('.') {
-            Some(after) => after.split_at(
-                after
-                    .find(|c: char| !c.is_ascii_digit())
-                    .unwrap_or(after.len()),
-            ),
-            None => ("", after),
-        };
-        if whole.is_empty() && fraction.is_empty() {
-            return None;
-        }
-        let unit_len = after
-            .find(|c: char| c.is_ascii_digit() || c == '.')
-            .unwrap_or(after.len());
-        let (unit, after) = after.split_at(unit_len);
-        let scale: i128 = match unit {
-            "ns" => 1,
-            "us" | "\u{b5}s" | "\u{3bc}s" => 1_000,
-            "ms" => 1_000_000,
-            "s" => 1_000_000_000,
-            "m" => 60_000_000_000,
-            "h" => 3_600_000_000_000,
-            _ => return None,
-        };
-        // Digits past the nanosecond are dropped.
-        let whole: i128 = if whole.is_empty() {
-            0
-        } else {
-            whole.parse().ok()?
-        };
-        let mut part = 0;
-        let mut place = scale;
-        for digit in fraction.bytes() {
-            place /= 10;
-            part += i128::from(digit - b'0') * place;
-        }
-        total = total.checked_add(whole.checked_mul(scale)?.checked_add(part)?)?;
-        // A duration its int64 of nanoseconds cannot hold is refused.
-        if total > i128::from(i64::MAX) {
-            return None;
-        }
-        rest = after;
-    }
-    Some(sign * total)
 }
 
 #[cfg(test)]

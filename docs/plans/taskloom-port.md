@@ -102,8 +102,8 @@ cutover ("What remains").
   it checked no target.
   - Prune (`PruneService`, opt-in on a `PurgingStore`) is Go's: it selects
     live tasks by status (at least one; Done by default), by their status
-    last changing strictly before a cut (Go's `agebound`: an offset in
-    Go's duration grammar plus `d` and `w`, or a `YYYY-MM-DD` date at
+    last changing strictly before a cut (Go's `agebound`: a span in
+    jiff's friendly grammar (`duration-text`: `30d`, `12w`, `1h30m`), or a `YYYY-MM-DD` date at
     midnight UTC; 7 days by default), and by an optional tag query, in the
     order added. Without `apply` it reports; with it, each task is removed
     (`TaskRemoved{PRUNED}`) in a unit of work that first reads the task
