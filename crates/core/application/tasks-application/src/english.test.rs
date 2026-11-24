@@ -3,11 +3,11 @@
 //! hold the English to Go's. A code no catalog has is its key and args, as
 //! an edge shows it.
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
-/// `d`'s en-US message, rendered as angzarr-presentation renders it.
+/// `d`'s en-US message, rendered as presentation renders it.
 pub fn english(d: &dyn Diagnostic) -> String {
-    angzarr_presentation::english::english_in(&crate::CATALOGS.map(|(_, ftl)| ftl), d)
+    presentation::english::english_in(&crate::CATALOGS.map(|(_, ftl)| ftl), d)
 }
 
 /// [`english`], as a method of every diagnostic.

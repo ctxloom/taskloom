@@ -7,9 +7,9 @@
 
 use std::io::{self, Write};
 
-use angzarr_diagnostic::Diagnostic;
-use angzarr_presentation::{Catalog, Envelope, Format, Render};
 use cli_support::Exit;
+use coded_diagnostic::Diagnostic;
+use presentation::{Catalog, Envelope, Format, Render};
 use serde::Serialize;
 use tasks_application::{ImportReport, ImportRequest, ImportService, Lost, ProjectImport};
 
@@ -52,8 +52,7 @@ fn imported(
     err: &mut dyn Write,
 ) -> Result<(), CliError> {
     dead_lettered(&report.dead_letters, err).map_err(output_failed)?;
-    angzarr_presentation::render(out, format, &Imported { report, catalog })
-        .map_err(output_failed)?;
+    presentation::render(out, format, &Imported { report, catalog }).map_err(output_failed)?;
     if report.complete() {
         return Ok(());
     }

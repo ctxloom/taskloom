@@ -4,3 +4,4 @@
 /.cargo/config.toml
 # The link to the shared dev module (rust-support's tools/dev).
 /.dev
+/.cargo/local-pins.toml

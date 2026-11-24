@@ -18,7 +18,7 @@
 //! listing's reach, hidden counts and priority notes, a write's project,
 //! a watch's changes), from the application crates, which a caller
 //! depends on directly: this crate re-exports none of them, nor
-//! angzarr-presentation's catalog types, and adds no shape of its own, and none
+//! presentation's catalog types, and adds no shape of its own, and none
 //! of any one transport's. Rendering them is each frontend's, with the
 //! catalog [`catalog`] assembles.
 
@@ -113,11 +113,11 @@ pub const DESCRIPTOR_SETS: &[&[u8]] = &[tasks_proto::FILE_DESCRIPTOR_SET];
 /// angzarr-store-sqlite's, the use cases', every driven and platform
 /// adapter's), then
 /// `frontends'`, each frontend's own (the CLI's, watch's, ...),
-/// which only the frontend knows. The types are angzarr-presentation's, which a
+/// which only the frontend knows. The types are presentation's, which a
 /// caller depends on directly.
 pub fn catalog(
-    frontends: &[angzarr_presentation::Source],
-) -> Result<angzarr_presentation::Catalog, angzarr_presentation::CatalogError> {
+    frontends: &[presentation::Source],
+) -> Result<presentation::Catalog, presentation::CatalogError> {
     let mut sources = vec![
         EN_US,
         angzarr_embedded::angzarr_proto::REASONS_EN_US,
@@ -140,7 +140,7 @@ pub fn catalog(
         tasks_config::EN_US,
     ]);
     sources.extend_from_slice(frontends);
-    angzarr_presentation::Catalog::en_us(&sources)
+    presentation::Catalog::en_us(&sources)
 }
 
 /// The wiring: what the default adapters read from the process, the
@@ -231,7 +231,7 @@ impl Taskloom {
         let files = FsPlanFiles::finding_root(Arc::clone(&self.fs), move || {
             finder
                 .work_root()
-                .map_err(|e| angzarr_diagnostic::Report::of(&e))
+                .map_err(|e| coded_diagnostic::Report::of(&e))
         });
         PlanService::new(
             files,

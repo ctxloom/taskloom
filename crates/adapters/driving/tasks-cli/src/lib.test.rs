@@ -5,9 +5,9 @@ use std::ffi::OsString;
 use std::io::Write;
 use std::path::PathBuf;
 
-angzarr_presentation::english_for!(&[crate::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1]);
 
-use angzarr_diagnostic::{code, Diagnostic, Report};
+use coded_diagnostic::{code, Diagnostic, Report};
 use tasks_application::{
     AppError, Details, Finding, Hidden, ImportReport, ImportRequest, ImportService, LintReport,
     ListQuery, Listing, NewTask, PermitChange, PermitList, PermitService, Permitted, PriorityNote,
@@ -17,8 +17,8 @@ use tasks_application::{
     Vocabulary, Written,
 };
 
-use angzarr_presentation::Catalog;
 use cli_support::Exit;
+use presentation::Catalog;
 
 use super::{parse, run, run_import, Command, Context, Globals};
 
@@ -2132,7 +2132,7 @@ fn test_import_that_left_records_behind_fails_after_saying_which() {
 #[test]
 fn test_import_that_stopped_in_a_project_fails() {
     let mut stopped = imported(0);
-    stopped.failed = Some(angzarr_diagnostic::Report::new("x-bad"));
+    stopped.failed = Some(coded_diagnostic::Report::new("x-bad"));
     let mut fake = FakeImporter {
         report: report(vec![stopped, imported(0)]),
         ..FakeImporter::default()
@@ -2275,10 +2275,10 @@ fn test_yaml_is_only_the_loadout_s() {
 }
 
 /// What a program reading the JSON sees for a format no command speaks:
-/// angzarr-presentation's code (the owner's move of presentation into
+/// presentation's code (the owner's move of presentation into
 /// angzarr core, decision 36), pinned as the user-visible output it is.
 #[test]
-fn test_a_format_no_command_speaks_is_angzarr_presentation_s_code_in_json() {
+fn test_a_format_no_command_speaks_is_presentation_s_code_in_json() {
     let ran = run_on(
         &mut Fake::default(),
         false,
@@ -2291,7 +2291,7 @@ fn test_a_format_no_command_speaks_is_angzarr_presentation_s_code_in_json() {
     assert_eq!(
         envelope,
         serde_json::json!({
-            "code": "angzarr-presentation-unknown-format",
+            "code": "presentation-unknown-format",
             "args": {"value": "yaml"},
             "message": "the format yaml is not one of text or json",
         })

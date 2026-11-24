@@ -1,5 +1,5 @@
 # Messages for the crate's errors. Each id is an error's code without the
-# crate's name, which the build prefixes (angzarr_diagnostic::build); the
+# crate's name, which the build prefixes (coded_diagnostic::build); the
 # variables are its args.
 
 gave-up = gave up after { $attempts } attempts: { $error }

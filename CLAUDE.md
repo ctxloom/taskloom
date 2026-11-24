@@ -103,11 +103,10 @@ clippy reads the nearest `clippy.toml`. A crate's own `clippy.toml` would
 replace it, so none has one. It repeats the root `clippy.toml`'s settings,
 and `just lint` refuses to run if they disagree.
 
-The libraries adapters build on are the platform crates of angzarr
-(https://github.com/angzarr-io/angzarr, pinned by commit, moved
-there from this repository by decision 36; formerly the angzarr-platform
-repository, now merged into that workspace): `os`, everything that differs
-between operating systems; the `file-system` seam over it; and
+The libraries adapters build on are the platform crates of rust-support
+(https://github.com/benjaminabbitt/rust-support, pinned by full commit; they
+were angzarr's, and before that this repository's): `os`, everything that
+differs between operating systems; the `file-system` seam over it; and
 `file-lock`'s advisory locks over both. They implement no port.
 
 All file I/O goes through the `file-system` seam: an `Arc<dyn Fs>`, the
@@ -145,7 +144,7 @@ Dependencies point inward; a review refuses a change that breaks these:
 - The core depends on nothing outside it. A domain or read model links only
   angzarr-embedded (the in-app runtime: `TaskAggregate` is its aggregate,
   the task list its projection), angzarr-embedded-macros (the aggregate's
-  markup), angzarr-diagnostic, prost, its wire crate (generated
+  markup), coded-diagnostic, prost, its wire crate (generated
   over angzarr-proto), and tagma's tagma-core (the tag grammar and query
   engine) and tagma-proto (its `Tag` message): no I/O, async runtime or
   clock in decide, apply or a projection. The ports link angzarr-ports,
@@ -153,14 +152,14 @@ Dependencies point inward; a review refuses a change that breaks these:
   links more: `task-priority` evaluates the tag schema's priority formulas with
   expr-lang (the Rust port of the language Go's taskloom evaluates them
   in), which is computation and nothing else.
-- A driven adapter may depend on a platform crate (angzarr-platform's;
+- A driven adapter may depend on a platform crate (rust-support's;
   that is not one adapter depending on another).
 - A driven adapter sees only ports (and wire types), never a use case. A
   driving adapter sees only the application layer, never a domain's
   internals. Adapters never depend on each other, with one exception:
-  driving adapters share the presentation crates, angzarr core's
-  `angzarr-presentation` (domain-free; moved there from this repository by
-  decision 36) and a domain's own, such as
+  driving adapters share the presentation crates, rust-support's
+  `presentation` (domain-free; rust-support's now: its codes are
+  `presentation-*`) and a domain's own, such as
   `tasks-presentation` (the task JSON the CLI writes).
 - A domain never depends on a read model (the write side reads no
   projection); a read model never depends on the application layer (a query
@@ -290,7 +289,7 @@ runs over SQLite.
 
 ## Co-developing angzarr or tagma
 
-angzarr (one workspace: core, angzarr-embedded, the platform crates,
+angzarr (one workspace: core, angzarr-embedded,
 angzarr-build, the markup domain layer generator, with angzarr-codegen;
 github.com/angzarr-io/angzarr) and tagma are git
 dependencies pinned by full commit in Cargo.toml, so a fresh clone builds
@@ -310,9 +309,11 @@ push order, and `just dev::pins-check` (pre-commit) and `just
 dev::pins-reachable` (pre-push) refuse a path-based commit and a pin that is
 not on its remote. This replaces the former `.cargo/local-deps.toml` copy.
 
-The angzarr pins are one commit of one repository, 71b453a of
-github.com/angzarr-io/angzarr (diagnostic, ports, yaml, presentation,
-store-transfer, embedded and its router, the platform crates, angzarr-build).
+The angzarr pins are one commit of one repository, 434ccc0 of
+github.com/angzarr-io/angzarr (ports, yaml, store-transfer, embedded and its
+router, angzarr-build). The generic substrate is rust-support's, every crate
+at one full commit, 2f7d267: `coded-diagnostic`, `presentation`, `os`,
+`file-system`, `file-lock`, `cli-support`, `exit-code` and `duration-text`.
 They move together; the lock holds one of each.
 
 ## Exit codes follow rust-support's convention
@@ -338,26 +339,26 @@ text is rust-support's `docs/exit-codes.md`.
 
 ## Errors are localizable: a code, args, and an en-US message
 
-Every error and rejection implements `angzarr_diagnostic::Diagnostic`.
+Every error and rejection implements `coded_diagnostic::Diagnostic`.
 No English crosses (angzarr decision 14.37): an error's `Display` is its
-code and args (`angzarr_diagnostic::display`: ` name=value`, a
+code and args (`coded_diagnostic::display`: ` name=value`, a
 text value quoted where it would not parse back), a third party's text
 (the OS's, a parser's, clap's, Fluent's) is the arg `ext_err_txt`, and
 presentation shows a diagnostic no catalog knows as its code and args.
 English is the catalogs' alone: a test that holds it to Go's renders it
-from them (angzarr-presentation's `english_for!`, behind its
+from them (presentation's `english_for!`, behind its
 `test-support` feature, on through a dev-dependency). No code
 spells its crate's name (the owner's ruling, 2026-11-02: names by
-reflection): a code is written `code!("suffix")` (angzarr-diagnostic's
+reflection): a code is written `code!("suffix")` (coded-diagnostic's
 macro, which prefixes `CARGO_PKG_NAME` and a dash), so a renamed crate's
 codes follow it. A new variant needs a stable code, an en-US message in
 the crate's `locales/en-US/messages.ftl` under the code's suffix alone,
 using exactly its args, and a sample in the crate's `diagnostic_samples()`.
-The crate's `build.rs` calls `angzarr_diagnostic::build::catalogs()` (a
-build-dependency on angzarr-diagnostic with its `build` feature), which
+The crate's `build.rs` calls `coded_diagnostic::build::catalogs()` (a
+build-dependency on coded-diagnostic with its `build` feature), which
 writes the catalog to `OUT_DIR` with every id under the package name. The
 crate's catalog tests check messages and samples both ways, and that every
-code is under its name (`angzarr_diagnostic::catalog::check`). A test asks
+code is under its name (`coded_diagnostic::catalog::check`). A test asks
 which error it has by its typed variant (`matches!`), or by the code of a
 typed error of another crate's (`TaskRejection::NoTask.code()`), never by
 a code spelled out.
@@ -378,7 +379,7 @@ crate's `test-support` feature when another crate's do (os's `fixture`,
 Each crate with diagnostics exports its embedded en-US catalog as `EN_US`:
 `(env!("CARGO_PKG_NAME"), include_str!(concat!(env!("OUT_DIR"),
 "/en-US.ftl")))`, its name and the generated catalog. The composition root assembles the binary's
-catalog from every crate's `EN_US` (angzarr-presentation's `Catalog`), and the
+catalog from every crate's `EN_US` (presentation's `Catalog`), and the
 driving adapters render with it: a diagnostic's catalog message in text,
 its `{code, args, message}` envelope in JSON. A new core or driven
 crate's `EN_US` (or a platform crate's) joins tasks-lib's `catalog()` (beside

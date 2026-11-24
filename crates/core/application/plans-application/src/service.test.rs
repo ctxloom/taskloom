@@ -1,6 +1,6 @@
 //! The plans use cases over in-memory plan files, tasks and rules.
 
-use angzarr_diagnostic::{code, Diagnostic};
+use coded_diagnostic::{code, Diagnostic};
 use exit_code::{Exit, ExitClass};
 
 use super::*;
@@ -597,7 +597,7 @@ fn check_of_sound_plans_finds_nothing_and_asks_the_rules_only_when_there_are_tag
 fn check_names_a_file_the_roots_found_but_could_not_read() {
     struct Unreadable(MemFiles);
     impl PlanFiles for Unreadable {
-        fn work_root(&self) -> Result<String, angzarr_diagnostic::Report> {
+        fn work_root(&self) -> Result<String, coded_diagnostic::Report> {
             self.0.work_root()
         }
         fn read(&self, path: &str) -> Option<String> {
@@ -605,10 +605,10 @@ fn check_names_a_file_the_roots_found_but_could_not_read() {
                 .then(|| self.0.read(path))
                 .flatten()
         }
-        fn replace(&self, path: &str, text: &str) -> Result<(), angzarr_diagnostic::Report> {
+        fn replace(&self, path: &str, text: &str) -> Result<(), coded_diagnostic::Report> {
             self.0.replace(path, text)
         }
-        fn create(&self, path: &str, text: &str) -> Result<bool, angzarr_diagnostic::Report> {
+        fn create(&self, path: &str, text: &str) -> Result<bool, coded_diagnostic::Report> {
             self.0.create(path, text)
         }
         fn scan(&self, root: &str) -> Vec<String> {
@@ -718,16 +718,16 @@ fn paths_are_normalized_and_placed() {
 fn a_missing_work_root_is_said_for_a_relative_path_not_an_absolute_one() {
     struct Rootless;
     impl PlanFiles for Rootless {
-        fn work_root(&self) -> Result<String, angzarr_diagnostic::Report> {
-            Err(angzarr_diagnostic::Report::new("x-no-root"))
+        fn work_root(&self) -> Result<String, coded_diagnostic::Report> {
+            Err(coded_diagnostic::Report::new("x-no-root"))
         }
         fn read(&self, _: &str) -> Option<String> {
             Some("# P\n".into())
         }
-        fn replace(&self, _: &str, _: &str) -> Result<(), angzarr_diagnostic::Report> {
+        fn replace(&self, _: &str, _: &str) -> Result<(), coded_diagnostic::Report> {
             Ok(())
         }
-        fn create(&self, _: &str, _: &str) -> Result<bool, angzarr_diagnostic::Report> {
+        fn create(&self, _: &str, _: &str) -> Result<bool, coded_diagnostic::Report> {
             Ok(true)
         }
         fn scan(&self, _: &str) -> Vec<String> {

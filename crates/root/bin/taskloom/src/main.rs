@@ -29,7 +29,7 @@ use tasks_lib::{Close, Taskloom};
 
 /// The binary's en-US catalog: every diagnostic the wiring can raise
 /// (tasks-lib's), then each frontend's own.
-fn catalog() -> Result<angzarr_presentation::Catalog, angzarr_presentation::CatalogError> {
+fn catalog() -> Result<presentation::Catalog, presentation::CatalogError> {
     tasks_lib::catalog(&[
         tasks_cli::EN_US,
         project_cli::EN_US,
@@ -188,7 +188,7 @@ fn closing(
     runtime: &tokio::runtime::Runtime,
     held: impl Close,
     exit: Exit,
-    catalog: &angzarr_presentation::Catalog,
+    catalog: &presentation::Catalog,
 ) -> Exit {
     match runtime.block_on(held.close()) {
         Ok(()) => exit,
@@ -205,8 +205,8 @@ fn import(
     runtime: &tokio::runtime::Runtime,
     taskloom: &Taskloom,
     project: Option<String>,
-    format: angzarr_presentation::Format,
-    catalog: &angzarr_presentation::Catalog,
+    format: presentation::Format,
+    catalog: &presentation::Catalog,
 ) -> Exit {
     let mut importer = taskloom.importer();
     let exit = runtime.block_on(tasks_cli::run_import(
@@ -227,7 +227,7 @@ fn watch<W: tasks_application::WatchService>(
     os: &dyn os::Os,
     service: &mut W,
     settings: &tasks_watch::Settings,
-    catalog: &angzarr_presentation::Catalog,
+    catalog: &presentation::Catalog,
 ) -> Exit {
     runtime.block_on(async {
         // SIGINT or SIGTERM (on Windows Ctrl-C, Ctrl-Break, or the
@@ -264,7 +264,7 @@ fn store_group(
     taskloom: &Taskloom,
     command: store_cli::Command,
     project: Option<String>,
-    catalog: &angzarr_presentation::Catalog,
+    catalog: &presentation::Catalog,
 ) -> Exit {
     let mut projects = taskloom.projects();
     let mut tasks = taskloom.tasks();
@@ -295,7 +295,7 @@ fn project_group(
     taskloom: &Taskloom,
     group: project_cli::Command,
     settings: &project_cli::Settings,
-    catalog: &angzarr_presentation::Catalog,
+    catalog: &presentation::Catalog,
 ) -> Exit {
     let mut projects = taskloom.projects();
     project_cli::run(
@@ -328,7 +328,7 @@ fn plans_watch<P: plans_cli::Plans>(
     os: &dyn os::Os,
     plans: &mut P,
     settings: &plans_cli::Settings,
-    catalog: &angzarr_presentation::Catalog,
+    catalog: &presentation::Catalog,
 ) -> Exit {
     runtime.block_on(async {
         let stop = match os.stop_signal() {
@@ -359,7 +359,7 @@ fn stamp_plan(
     taskloom: &Taskloom,
     project: Option<String>,
     settings: &plans_cli::Settings,
-    catalog: &angzarr_presentation::Catalog,
+    catalog: &presentation::Catalog,
 ) -> Exit {
     let mut payload = String::new();
     // A payload that cannot be read is the hook's to say, as an empty one.
@@ -383,7 +383,7 @@ fn plan_group(
     group: plans_cli::Command,
     project: Option<String>,
     settings: &plans_cli::Settings,
-    catalog: &angzarr_presentation::Catalog,
+    catalog: &presentation::Catalog,
 ) -> Exit {
     let mut plans = taskloom.plans(project);
     let exit = runtime.block_on(plans_cli::run(
@@ -485,7 +485,7 @@ fn mounted(
     routed: Mounted,
     globals: tasks_cli::Globals,
     context: &Context,
-    catalog: &angzarr_presentation::Catalog,
+    catalog: &presentation::Catalog,
 ) -> Exit {
     let format = match globals.format(context, catalog, &mut io::stderr().lock()) {
         Ok(format) => format,

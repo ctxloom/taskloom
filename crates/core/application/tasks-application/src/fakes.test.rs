@@ -5,7 +5,6 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 
-use angzarr_diagnostic::Report;
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::angzarr_ports::Cause;
 use angzarr_embedded::testing::FaultyStore;
@@ -13,6 +12,7 @@ use angzarr_embedded::v1::{CommandBook, Cover};
 use angzarr_embedded::{
     CommandBookExt, EventStore, Kernel, Purge, Sampled, Slice, StoreError, StreamRef, Watch,
 };
+use coded_diagnostic::Report;
 use ports::{
     HeldToken, Names, Project, ProjectIdentity, TaskStores, Timestamp, Uuid, WatchedStores,
 };

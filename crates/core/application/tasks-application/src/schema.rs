@@ -15,9 +15,9 @@
 
 use std::future::Future;
 
-use angzarr_diagnostic::Report;
 use angzarr_embedded::v1::{CommandBook, Cover};
 use angzarr_embedded::{CommandBookExt, CoverExt, Handled, Kernel, Registry, Store};
+use coded_diagnostic::Report;
 use ports::{Clock, CommandIds, Configuration, Delay, Jitter, ProjectIdentity, TaskStores};
 use tasks::schema::{
     Declare, SchemaAggregate, SchemaCommand, SchemaRejection, SchemaState, SCHEMA_DOMAIN,

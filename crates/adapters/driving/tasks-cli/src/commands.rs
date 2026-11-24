@@ -3,8 +3,8 @@
 
 use std::io::{self, Write};
 
-use angzarr_presentation::{Catalog, Format};
 use clap::Args;
+use presentation::{Catalog, Format};
 use tasks_application::{
     Declaration, ListQuery, Listing, NewTask, PermitChange, PermitService, PruneRequest,
     PruneService, Reach, SchemaService, Scope, ShowQuery, TagChange, TaskService, TaskSet,
@@ -243,7 +243,7 @@ pub(crate) async fn list(
                 listing: &listing,
                 compact: args.compact,
             };
-            angzarr_presentation::render(out, ctx.format, &view)
+            presentation::render(out, ctx.format, &view)
         })
         .map_err(output_failed)
 }
@@ -270,7 +270,7 @@ pub(crate) async fn show(
     let details = service.show(query).await.map_err(CliError::App)?;
     let view = Detailed { details: &details };
     read_in(&details.reach, ctx.catalog, err)
-        .and_then(|()| angzarr_presentation::render(out, ctx.format, &view))
+        .and_then(|()| presentation::render(out, ctx.format, &view))
         .map_err(output_failed)
 }
 
@@ -346,7 +346,7 @@ pub(crate) async fn permit(
         permitted: &permitted,
         revoked: false,
     };
-    angzarr_presentation::render(out, ctx.format, &view).map_err(output_failed)
+    presentation::render(out, ctx.format, &view).map_err(output_failed)
 }
 
 /// Remove `args.permit`, or report that it would be: in text, `revoked
@@ -371,7 +371,7 @@ pub(crate) async fn revoke(
         permitted: &permitted,
         revoked: true,
     };
-    angzarr_presentation::render(out, ctx.format, &Previewed(&view, !applies, ignored))
+    presentation::render(out, ctx.format, &Previewed(&view, !applies, ignored))
         .map_err(output_failed)?;
     previewed(applies, command, ctx.catalog, err)?;
     Ok(apply.exit_after(permitted.changed))
@@ -399,7 +399,7 @@ pub(crate) async fn permits(
     out: &mut dyn Write,
 ) -> Result<(), CliError> {
     let list = service.permits().await.map_err(CliError::App)?;
-    angzarr_presentation::render(out, ctx.format, &Permits(&list)).map_err(output_failed)
+    presentation::render(out, ctx.format, &Permits(&list)).map_err(output_failed)
 }
 
 /// What `manage schema` does besides its vocabulary groups.
@@ -448,7 +448,7 @@ pub(crate) async fn schema(
     match command {
         SchemaCommand::Show => {
             let schema = service.tag_schema().await.map_err(CliError::App)?;
-            angzarr_presentation::render(out, format, &Schema(&schema))
+            presentation::render(out, format, &Schema(&schema))
                 .map(|()| Exit::OK)
                 .map_err(output_failed)
         }
@@ -459,7 +459,7 @@ pub(crate) async fn schema(
                 .schema_export(ctx.project)
                 .await
                 .map_err(CliError::App)?;
-            angzarr_presentation::render(out, Format::Text, &Exported(&tags))
+            presentation::render(out, Format::Text, &Exported(&tags))
                 .map(|()| Exit::OK)
                 .map_err(output_failed)
         }
@@ -468,8 +468,7 @@ pub(crate) async fn schema(
                 .schema_check(ctx.project)
                 .await
                 .map_err(CliError::App)?;
-            angzarr_presentation::render(out, format, &Checked(&findings))
-                .map_err(output_failed)?;
+            presentation::render(out, format, &Checked(&findings)).map_err(output_failed)?;
             match findings.len() {
                 0 => Ok(Exit::OK),
                 count => Err(CliError::SchemaFindings { count }),
@@ -507,7 +506,7 @@ async fn declare_rules(
     };
     let declared = service.declare(declaration).await.map_err(CliError::App)?;
     let view = DeclaredView(&declared);
-    angzarr_presentation::render(out, ctx.format, &Previewed(&view, !applies, ignored))
+    presentation::render(out, ctx.format, &Previewed(&view, !applies, ignored))
         .map_err(output_failed)?;
     previewed(applies, command, ctx.catalog, err)?;
     Ok(apply.exit_after(declared.changed))
@@ -534,7 +533,7 @@ pub(crate) async fn import_config(
     out: &mut dyn Write,
 ) -> Result<(), CliError> {
     let declared = service.import_config().await.map_err(CliError::App)?;
-    angzarr_presentation::render(out, ctx.format, &DeclaredView(&declared)).map_err(output_failed)
+    presentation::render(out, ctx.format, &DeclaredView(&declared)).map_err(output_failed)
 }
 
 /// The scope of a read that takes no filter: the work root's project, or
@@ -554,7 +553,7 @@ pub(crate) async fn summary(
     let (format, catalog) = (ctx.format, ctx.catalog);
     let summary = service.summary(scope(ctx)).await.map_err(CliError::App)?;
     reached(&summary.reach, catalog, err)
-        .and_then(|()| angzarr_presentation::render(out, format, &Summed(&summary)))
+        .and_then(|()| presentation::render(out, format, &Summed(&summary)))
         .map_err(output_failed)
 }
 
@@ -573,7 +572,7 @@ pub(crate) async fn statuses(
         Reach::Project(_) | Reach::NoProject => Ok(()),
     };
     noticed
-        .and_then(|()| angzarr_presentation::render(out, format, &Taxonomy(&statuses)))
+        .and_then(|()| presentation::render(out, format, &Taxonomy(&statuses)))
         .map_err(output_failed)
 }
 
@@ -608,7 +607,7 @@ pub(crate) async fn tags(
     };
     let vocabulary = service.tags(query).await.map_err(CliError::App)?;
     reached(&vocabulary.reach, ctx.catalog, err)
-        .and_then(|()| angzarr_presentation::render(out, ctx.format, &Counted(&vocabulary)))
+        .and_then(|()| presentation::render(out, ctx.format, &Counted(&vocabulary)))
         .map_err(output_failed)
 }
 
@@ -627,7 +626,7 @@ pub(crate) async fn check(
         catalog,
     };
     reached(&report.reach, catalog, err)
-        .and_then(|()| angzarr_presentation::render(out, format, &view))
+        .and_then(|()| presentation::render(out, format, &view))
         .map_err(output_failed)?;
     if report.checked_targets == 0 {
         return Err(CliError::LintCheckedNothing);
@@ -695,9 +694,9 @@ pub(crate) async fn prune(
     });
     match ignored {
         Some(ignored) => {
-            angzarr_presentation::render(out, format, &Previewed(&report, true, Some(ignored)))
+            presentation::render(out, format, &Previewed(&report, true, Some(ignored)))
         }
-        None => angzarr_presentation::render(out, format, &report),
+        None => presentation::render(out, format, &report),
     }
     .map_err(output_failed)?;
     let exit = apply_args.exit_after(!pruning.pruned.is_empty());

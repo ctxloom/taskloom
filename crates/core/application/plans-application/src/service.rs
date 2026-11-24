@@ -12,7 +12,7 @@
 use std::collections::BTreeMap;
 use std::future::Future;
 
-use angzarr_diagnostic::Report;
+use coded_diagnostic::Report;
 use ports::{Configuration, Mint, PlanFiles, Tasks};
 use tag_rules::rules::StoreRules;
 use tag_rules::tags::{self, Tag, TagRefusal};

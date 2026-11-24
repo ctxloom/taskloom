@@ -4,8 +4,8 @@
 
 use crate::english::English;
 use crate::fakes::{read_from, At};
-use angzarr_diagnostic::{code, Diagnostic};
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
+use coded_diagnostic::{code, Diagnostic};
 use ports::Timestamp;
 use tasks::{RemovalReason, RemoveTask, SetStatus, TaskCommand};
 
@@ -455,7 +455,7 @@ fn test_a_prune_of_a_project_with_no_store_yet_creates_none() {
 #[test]
 fn test_a_prune_whose_project_does_not_resolve_fails_with_why() {
     let mut service = seeded();
-    service.identity.fails = Some(angzarr_diagnostic::Report::new("x-lost"));
+    service.identity.fails = Some(coded_diagnostic::Report::new("x-lost"));
     let error = prune(&mut service, request(false)).unwrap_err();
     assert_eq!(error.code(), "x-lost");
 }

@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-angzarr_presentation::english_for!(&[crate::EN_US.1, angzarr_yaml::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1, angzarr_yaml::EN_US.1]);
 
-use angzarr_diagnostic::{code, Diagnostic};
+use coded_diagnostic::{code, Diagnostic};
 use file_system::{Fs, Perms, Rooted};
 use os::Mode;
 use ports::Configuration;
@@ -261,7 +261,7 @@ fn test_a_file_that_is_not_taskloom_config_is_refused() {
             display.starts_with(&format!(
                 "{} kind=taskloom-config source={}",
                 load_failed_at(),
-                angzarr_diagnostic::quote(&shown("/tree/.taskloom/config.yaml"))
+                coded_diagnostic::quote(&shown("/tree/.taskloom/config.yaml"))
             )),
             "{text:?}: {display}"
         );
@@ -813,7 +813,7 @@ fn load_failed_at() -> String {
     let refused = crate::loader()
         .load_into::<crate::File>(Some("c.yaml"), "schema_version: 1\nhomeing: home\n")
         .expect_err("an unknown key is refused");
-    angzarr_diagnostic::Diagnostic::code(&refused).to_string()
+    coded_diagnostic::Diagnostic::code(&refused).to_string()
 }
 
 // `plan_roots`: where plan files are searched for. A YAML list in a file,

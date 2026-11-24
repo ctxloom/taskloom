@@ -2,8 +2,8 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
 use angzarr_yaml::versioned::LoadError;
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 use crate::KEYS;
 
@@ -58,7 +58,7 @@ pub enum ConfigError {
 
 impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

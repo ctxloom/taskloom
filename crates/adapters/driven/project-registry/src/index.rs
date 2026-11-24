@@ -252,7 +252,7 @@ fn from_lock(error: file_lock::LockError) -> RegistryError {
         LockError::RelativePath { path } => RegistryError::RelativePath { path },
         LockError::Io { path, detail } => RegistryError::Io { path, detail },
         other => RegistryError::LockFailed {
-            cause: angzarr_diagnostic::Report::of(&other),
+            cause: coded_diagnostic::Report::of(&other),
         },
     }
 }

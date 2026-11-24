@@ -17,10 +17,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 
-use angzarr_diagnostic::Report;
 use angzarr_embedded::v1::event_page::Body;
 use angzarr_embedded::v1::{Cover, EventPage};
 use angzarr_embedded::{Domain, PageContext, Payload, ReadStore, ReadUnit, StreamRef};
+use coded_diagnostic::Report;
 use ports::{HeldToken, Project, ProjectIdentity, WatchedStores};
 use tasks::{TaskAggregate, TaskEvent, TASK_DOMAIN};
 use uuid::Uuid;

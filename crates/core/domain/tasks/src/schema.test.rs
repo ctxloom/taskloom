@@ -1,7 +1,7 @@
 //! RED (red/self-hosted-schema): the schema stream's decide and apply.
 
-use angzarr_diagnostic::code;
 use angzarr_embedded::ids;
+use coded_diagnostic::code;
 
 use super::{
     apply_schema, declared, schema_root, Declare, SchemaRejection, SchemaRetagged, SchemaState,
@@ -83,7 +83,7 @@ fn test_a_declare_of_nothing_is_refused() {
     let refused = declared(&SchemaState::default(), &Declare::default()).unwrap_err();
     assert_eq!(refused, SchemaRejection::TagRequired);
     assert_eq!(
-        angzarr_diagnostic::Diagnostic::code(&refused),
+        coded_diagnostic::Diagnostic::code(&refused),
         code!("schema-tag-required")
     );
 }
@@ -170,13 +170,13 @@ fn test_a_removal_of_every_rule_still_leaves_the_stream_declared() {
 
 mod on_the_kernel {
 
-    use angzarr_diagnostic::{code, Diagnostic};
     use angzarr_embedded::angzarr_ports::memory::MemoryStore;
     use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
     use angzarr_embedded::{
         Domain, EventStore, Failure, Handled, Kernel, OnRetryable, Payload, Registry, Sampled,
         Stream, StreamRef, Timestamp,
     };
+    use coded_diagnostic::{code, Diagnostic};
 
     use super::{spelled, tags};
     use crate::schema::{

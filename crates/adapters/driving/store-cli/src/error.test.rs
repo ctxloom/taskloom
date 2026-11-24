@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-angzarr_presentation::english_for!(&[crate::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1]);
 
 use super::diagnostic_samples;
 
@@ -25,7 +25,7 @@ fn test_every_diagnostic_has_a_catalog_message_with_exactly_its_args() {
     let samples = diagnostic_samples();
     let codes: BTreeSet<&str> = samples.iter().map(|d| d.code()).collect();
     assert_eq!(codes.len(), samples.len());
-    assert_eq!(angzarr_diagnostic::catalog::check(name, text, &samples), []);
+    assert_eq!(coded_diagnostic::catalog::check(name, text, &samples), []);
 }
 
 #[test]

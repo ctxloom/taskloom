@@ -7,7 +7,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use angzarr_diagnostic::{code, Diagnostic};
+use coded_diagnostic::{code, Diagnostic};
 
 use super::{check, select, QueryError, QUERY_GRAMMAR};
 use crate::rules::StoreRules;

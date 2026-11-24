@@ -2,7 +2,7 @@
 //! cases: the [`Tasks`] port over a [`TaskService`] and [`SchemaService`],
 //! so the plans read the tasks only as any frontend does.
 
-use angzarr_diagnostic::Report;
+use coded_diagnostic::Report;
 use ports::Tasks;
 use tag_rules::StoreRules;
 use tasks_application::{AppError, SchemaService, ShowQuery, TaskService};

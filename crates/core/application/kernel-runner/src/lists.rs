@@ -15,8 +15,8 @@
 
 use std::collections::BTreeMap;
 
-use angzarr_diagnostic::Report;
 use angzarr_embedded::{CatchUp, Processed, ProjectorHandler, ReadStore, Registry, Store};
+use coded_diagnostic::Report;
 use ports::Project;
 
 /// Each project's list `P`, by project id, as last caught up.

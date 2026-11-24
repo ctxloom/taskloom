@@ -1,8 +1,8 @@
 //! The stamp-plan hook: the file its payload names, and that it never
 //! blocks the edit it follows.
 
-use angzarr_presentation::Format;
 use plans_application::{Plan, PlanError, Stamp};
+use presentation::Format;
 
 use super::*;
 

@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-angzarr_presentation::english_for!(&[crate::EN_US.1, angzarr_yaml::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1, angzarr_yaml::EN_US.1]);
 
 use ports::{NamespacePermit, TagPermits};
 

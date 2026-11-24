@@ -20,9 +20,9 @@ mod render;
 
 use std::io::{self, Write};
 
-use angzarr_presentation::{Catalog, Format};
 use clap::Subcommand;
 use cli_support::{Exit, ExitClass};
+use presentation::{Catalog, Format};
 use project_application::{ProjectAdmin, Projects, StoreCheck};
 
 #[cfg(any(test, feature = "test-support"))]
@@ -145,7 +145,7 @@ fn report(
     err: &mut dyn Write,
 ) -> io::Result<()> {
     match settings.format {
-        Format::Json => angzarr_presentation::write_json(err, &catalog.envelope(error)),
+        Format::Json => presentation::write_json(err, &catalog.envelope(error)),
         Format::Text => writeln!(err, "{}: {}", settings.prog, catalog.message(error)),
     }
 }
@@ -173,8 +173,7 @@ fn answer<A: ProjectAdmin, C: StoreCheck>(
             let shown = projects
                 .show(settings.project.as_deref())
                 .map_err(CliError::Project)?;
-            angzarr_presentation::render(out, settings.format, &Show(&shown, catalog))
-                .map(|()| Exit::OK)
+            presentation::render(out, settings.format, &Show(&shown, catalog)).map(|()| Exit::OK)
         }
         Command::Doctor(DoctorCommand::Heal { yes, dry_run }) => {
             let plan = projects.heal(yes && !dry_run).map_err(CliError::Project)?;
@@ -193,8 +192,7 @@ fn answer<A: ProjectAdmin, C: StoreCheck>(
         }
         Command::Doctor(DoctorCommand::Orphans { action: None }) => {
             let orphans = projects.orphans().map_err(CliError::Project)?;
-            angzarr_presentation::render(out, settings.format, &Orphans(&orphans))
-                .map(|()| Exit::OK)
+            presentation::render(out, settings.format, &Orphans(&orphans)).map(|()| Exit::OK)
         }
         Command::Doctor(DoctorCommand::Orphans {
             action:
@@ -222,8 +220,8 @@ fn planned(
     yes_ignored: bool,
 ) -> io::Result<Exit> {
     match yes_ignored {
-        true => angzarr_presentation::render(out, settings.format, &YesIgnored(plan, catalog)),
-        false => angzarr_presentation::render(out, settings.format, &Planned(plan, catalog)),
+        true => presentation::render(out, settings.format, &YesIgnored(plan, catalog)),
+        false => presentation::render(out, settings.format, &Planned(plan, catalog)),
     }
     .map(|()| after(plan))
 }

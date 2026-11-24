@@ -754,11 +754,11 @@ fn test_a_relative_path_is_never_resolved_against_the_top_when_the_cwd_is_gone()
         added
             .stderr
             .contains("taskloom-relative-home/.ctxloom/projects/jolly-mute-magma")
-            && added.stderr.contains(angzarr_diagnostic::Diagnostic::code(
-                &file_system::CwdError {
+            && added
+                .stderr
+                .contains(coded_diagnostic::Diagnostic::code(&file_system::CwdError {
                     reason: String::new()
-                }
-            )),
+                })),
         "{}",
         added.stderr
     );
@@ -871,7 +871,7 @@ fn test_a_checkout_above_a_tests_directory_is_not_its_project() {
 #[test]
 fn test_every_diagnostic_of_every_crate_renders_from_the_binarys_catalog() {
     let catalog = super::catalog().expect("every catalog loads, no message twice");
-    let samples: Vec<Box<dyn angzarr_diagnostic::Diagnostic>> = [
+    let samples: Vec<Box<dyn coded_diagnostic::Diagnostic>> = [
         angzarr_embedded::diagnostic_samples(),
         tasks::diagnostic_samples(),
         tasks_application::diagnostic_samples(),
@@ -885,7 +885,7 @@ fn test_every_diagnostic_of_every_crate_renders_from_the_binarys_catalog() {
         project_cli::diagnostic_samples(),
         jsonl_task_log::diagnostic_samples(),
         tasks_config::diagnostic_samples(),
-        angzarr_presentation::diagnostic_samples(),
+        presentation::diagnostic_samples(),
         file_lock::diagnostic_samples(),
         tasks_watch::diagnostic_samples(),
         plans_application::diagnostic_samples(),
@@ -907,12 +907,12 @@ fn test_every_diagnostic_of_every_crate_renders_from_the_binarys_catalog() {
     }
 }
 
-// The diagnostics are angzarr-diagnostic's, and annals has left the
+// The diagnostics are coded-diagnostic's, and annals has left the
 // workspace (step 4 of taskloom-on-angzarr-embedded.plan.md).
 
 /// Every crate of this workspace's diagnostic samples (not the runtime's,
 /// angzarr-embedded's, which are its own).
-fn ours() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
+fn ours() -> Vec<Box<dyn coded_diagnostic::Diagnostic>> {
     [
         tasks::diagnostic_samples(),
         tasks_application::diagnostic_samples(),
@@ -926,7 +926,7 @@ fn ours() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
         project_cli::diagnostic_samples(),
         jsonl_task_log::diagnostic_samples(),
         tasks_config::diagnostic_samples(),
-        angzarr_presentation::diagnostic_samples(),
+        presentation::diagnostic_samples(),
         file_lock::diagnostic_samples(),
         tasks_watch::diagnostic_samples(),
         plans_application::diagnostic_samples(),
@@ -940,12 +940,12 @@ fn ours() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
 }
 
 /// The names of `d`'s args, and of every nested cause's, as `code.name`.
-fn arg_names(d: &dyn angzarr_diagnostic::Diagnostic) -> Vec<String> {
+fn arg_names(d: &dyn coded_diagnostic::Diagnostic) -> Vec<String> {
     d.args()
         .into_iter()
         .flat_map(|(name, arg)| {
             let mut names = vec![format!("{}.{name}", d.code())];
-            if let angzarr_diagnostic::Arg::Nested(cause) = arg {
+            if let coded_diagnostic::Arg::Nested(cause) = arg {
                 names.extend(arg_names(&*cause));
             }
             names

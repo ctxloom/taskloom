@@ -8,10 +8,10 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use angzarr_diagnostic::Report;
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::testing::FaultyStore;
 use angzarr_embedded::StoreError;
+use coded_diagnostic::Report;
 use ports::{Configuration, Mint, PlanFiles, Project, ProjectIdentity, TaskStores, Tasks};
 
 /// Run a future whose every await is ready at once: the test support's.

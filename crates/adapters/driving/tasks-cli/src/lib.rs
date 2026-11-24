@@ -29,12 +29,12 @@ mod render;
 use std::ffi::OsString;
 use std::io::{self, Write};
 
-use angzarr_diagnostic::Diagnostic;
-use angzarr_presentation::{Catalog, CatalogError, Format, Render, Source, UnknownFormat};
 use clap::{Args, Parser, Subcommand};
 use cli_support::{
     detailed_exitcode_arg, exit_statuses, usage_exit, Exit, ExitClass, ExitStatuses,
 };
+use coded_diagnostic::Diagnostic;
+use presentation::{Catalog, CatalogError, Format, Render, Source, UnknownFormat};
 use tasks_application::{
     dead_letter_line, DeadLetter, PermitService, PruneService, RuleWarning, SchemaService,
     TaskService, Written,
@@ -535,7 +535,7 @@ fn report(
     err: &mut dyn Write,
 ) -> io::Result<()> {
     match (format, error) {
-        (Format::Json, _) => angzarr_presentation::write_json(err, &catalog.envelope(error)),
+        (Format::Json, _) => presentation::write_json(err, &catalog.envelope(error)),
         (Format::Text, CliError::Usage { .. }) => write!(err, "{}", catalog.message(error)),
         (Format::Text, _) => writeln!(err, "{PROG}: {}", catalog.message(error)),
     }
@@ -586,9 +586,9 @@ pub(crate) fn wrote(
                     doc: view.json(),
                     warnings: tasks_presentation::FindingJson::all(written.warnings()),
                 };
-                angzarr_presentation::write_json(out, &doc)
+                presentation::write_json(out, &doc)
             }
-            _ => angzarr_presentation::render(out, format, view),
+            _ => presentation::render(out, format, view),
         })
         .map_err(output_failed)
 }
@@ -608,7 +608,7 @@ fn version(context: &Context, format: Format, out: &mut dyn Write) -> Result<(),
         version: &context.version,
         lock_protocol: context.lock_protocol,
     };
-    angzarr_presentation::render(out, format, &version).map_err(output_failed)
+    presentation::render(out, format, &version).map_err(output_failed)
 }
 
 pub(crate) fn output_failed(error: io::Error) -> CliError {

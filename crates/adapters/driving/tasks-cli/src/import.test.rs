@@ -1,12 +1,12 @@
 //! The import report, as a person and as a program reads it.
 
-use angzarr_diagnostic::{Diagnostic, Report};
+use coded_diagnostic::{Diagnostic, Report};
 use serde_json::{json, Value};
 use tasks_application::{AppError, ImportReport, Lost, ProjectImport, Why};
 
 use super::{text, ImportJson};
 
-fn catalog() -> angzarr_presentation::Catalog {
+fn catalog() -> presentation::Catalog {
     crate::catalog(&[]).expect("the catalog loads")
 }
 

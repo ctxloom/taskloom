@@ -22,7 +22,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::Arc;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 pub use tagma_core::{Code, Finding, Origin};
 
@@ -291,7 +291,7 @@ pub struct RulesRefusal {
 
 impl fmt::Display for RulesRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 
@@ -311,7 +311,7 @@ pub struct RuleWarning(pub Finding);
 
 impl fmt::Display for RuleWarning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

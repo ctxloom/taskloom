@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-angzarr_presentation::english_for!(&[crate::EN_US.1, file_lock::EN_US.1, angzarr_yaml::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1, file_lock::EN_US.1, angzarr_yaml::EN_US.1]);
 
 use file_system::{Fs, Open, Perms, Rooted};
 
@@ -75,7 +75,7 @@ fn refused(text: &str) -> String {
         shown.starts_with(&format!(
             "{}-load-failed-at kind=project-registry source={}",
             angzarr_yaml::EN_US.0,
-            angzarr_diagnostic::quote(&file.display().to_string())
+            coded_diagnostic::quote(&file.display().to_string())
         )),
         "{shown}"
     );
@@ -423,7 +423,7 @@ fn test_a_lock_file_that_is_not_a_file_is_the_locks_failure_naming_it() {
     assert_eq!(
         refused,
         Err(RegistryError::LockFailed {
-            cause: angzarr_diagnostic::Report::of(&file_lock::LockError::NotRegular {
+            cause: coded_diagnostic::Report::of(&file_lock::LockError::NotRegular {
                 path: lock_path.display().to_string(),
             }),
         })

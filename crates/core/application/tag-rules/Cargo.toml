@@ -8,21 +8,21 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 tagma-core.workspace = true
 tasks.workspace = true
 
 [dev-dependencies]
 # Rendering catalogs' English (`english_for!`), for the tests that hold it
 # to Go's.
-angzarr-presentation = { workspace = true, features = ["test-support"] }
+presentation = { workspace = true, features = ["test-support"] }
 fluent-syntax.workspace = true
 mutants.workspace = true
 
 [build-dependencies]
 # The build writes the catalog's source under the crate's name
-# (angzarr_diagnostic::build): no catalog spells its crate's name.
-angzarr-diagnostic = { workspace = true, features = ["build"] }
+# (coded_diagnostic::build): no catalog spells its crate's name.
+coded-diagnostic = { workspace = true, features = ["build"] }
 
 [features]
 # `diagnostic_samples` and `StoreRules::parsed`, for other crates' tests:

@@ -77,11 +77,11 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use angzarr_diagnostic::Report;
 use angzarr_embedded::angzarr_store_sqlite::{Integrity, SqlError, SqliteStore};
 use angzarr_ports::angzarr_proto::v1::EventPage;
 use angzarr_ports::{StoreError, Watch};
 use angzarr_store_transfer::{check_ledger, descriptor_pool};
+use coded_diagnostic::Report;
 use file_system::Fs;
 use os::Mode;
 use ports::{
@@ -478,7 +478,7 @@ fn report(error: &StoreError) -> Report {
     ported(&angzarr_ports::Cause::new(error.code(), error.args()))
 }
 
-/// angzarr-ports' cause as angzarr-diagnostic's report.
+/// angzarr-ports' cause as coded-diagnostic's report.
 fn ported(cause: &angzarr_ports::Cause) -> Report {
     cause
         .args
@@ -487,7 +487,7 @@ fn ported(cause: &angzarr_ports::Cause) -> Report {
             angzarr_ports::Arg::Uint(n) => report.arg(*name, *n),
             angzarr_ports::Arg::Str(s) => report.arg(*name, s.as_str()),
             angzarr_ports::Arg::Cause(c) => {
-                report.arg(*name, angzarr_diagnostic::Arg::Nested(Box::new(ported(c))))
+                report.arg(*name, coded_diagnostic::Arg::Nested(Box::new(ported(c))))
             }
         })
 }

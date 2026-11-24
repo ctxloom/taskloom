@@ -3,12 +3,12 @@
 //! write left, and whether a command's events are on it; and
 //! [`Written`], what a write answers with.
 
-use angzarr_diagnostic::Report;
 use angzarr_embedded::v1::event_meta::Causation;
 use angzarr_embedded::v1::{Cover, Uuid};
 use angzarr_embedded::{
     CoverExt, DeadLetter, Handled, Kernel, ReadStore, ReadUnit, Registry, Store, StreamRef,
 };
+use coded_diagnostic::Report;
 use ports::Project;
 use tasks::{TaskAggregate, TASK_DOMAIN};
 

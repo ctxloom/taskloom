@@ -9,7 +9,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use angzarr_diagnostic::Report;
+use coded_diagnostic::Report;
 use ports::{Clock, Configuration, ProjectIdentity, TaskStores};
 
 use crate::lint::{self, LintReport};

@@ -8,13 +8,13 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
 use angzarr_embedded::angzarr_store_sqlite::{SqlError, SqliteStore};
 use angzarr_ports::angzarr_proto::v1::event_meta::Causation;
 use angzarr_ports::angzarr_proto::v1::{event_page, CommandCause, EventMeta, EventPage, Uuid};
 use angzarr_ports::{
     Cause, EventStore, PositionKey, PositionStore, Purge, StoreError, StreamRef, Watch, Write,
 };
+use coded_diagnostic::{code, Arg, Diagnostic};
 use file_system::{Fs, Os, Perms, Rooted};
 use os::Mode;
 use ports::{Checked, Project, StoreCheck, TaskStores, WatchedStores};
@@ -609,7 +609,10 @@ fn test_an_export_writes_the_database_whole_and_leaves_it_as_it_was() {
     let header = &lines[0]["header"];
     assert_eq!(header["generation"], angzarr_store_transfer::GENERATION);
     assert_eq!(header["store"], "angzarr-store-sqlite");
-    assert_eq!(header["ledger"], serde_json::json!([1, 2, 3, 4, 5, 6, 7]));
+    assert_eq!(
+        header["ledger"],
+        serde_json::json!([1, 2, 3, 4, 5, 6, 7, 8])
+    );
     let payload = &lines[1]["page"]["page"]["event"];
     assert_eq!(payload["@type"], "/ctxloom.tasks.v1.TaskAdded");
     assert_eq!(payload["harpId"], "dire-shore", "expanded by name");
@@ -1291,7 +1294,7 @@ fn test_reading_a_store_with_a_migration_pending_migrates_it_and_reads_its_tasks
     assert!(!stores.held.as_ref().unwrap().writable, "held read-only");
     assert_eq!(
         ledger(&home, &path),
-        [1, 2, 3, 4, 5, 6, 7],
+        [1, 2, 3, 4, 5, 6, 7, 8],
         "every migration applied"
     );
 }
@@ -1374,7 +1377,7 @@ fn test_a_store_newer_than_the_build_is_refused_and_left_as_it_was() {
     let mut stores = home.stores();
     let refusal = StoreError::NewerThanBuild {
         applied: 99,
-        build: 7,
+        build: 8,
     };
     let read = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
         .map(|found| found.is_some());
@@ -1489,7 +1492,7 @@ fn test_an_earlier_builds_migration_is_over_before_its_archive_is_looked_at() {
         Vec::<&str>::new(),
         "the earlier build's close is over when the setup returns"
     );
-    assert_eq!(ledger(&home, &path), [1, 2, 3, 4, 5, 6, 7], "migrated");
+    assert_eq!(ledger(&home, &path), [1, 2, 3, 4, 5, 6, 7, 8], "migrated");
 }
 
 #[test]
@@ -1500,7 +1503,7 @@ fn test_an_older_generation_store_already_migrated_by_an_earlier_build_is_refuse
     let home = Home::new();
     let (path, project) = archive(&home, OLD_BEFORE_0005, &[]);
     migrated_by_an_earlier_build(&home, &path);
-    assert_eq!(ledger(&home, &path), [1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(ledger(&home, &path), [1, 2, 3, 4, 5, 6, 7, 8]);
     let dir = path.parent().unwrap();
     let before = tree(&home, dir);
     let mut stores = home.stores();

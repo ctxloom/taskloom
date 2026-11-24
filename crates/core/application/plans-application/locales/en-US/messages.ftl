@@ -1,5 +1,5 @@
 # Messages for the crate's errors. Each id is an error's code without the
-# crate's name, which the build prefixes (angzarr_diagnostic::build); the
+# crate's name, which the build prefixes (coded_diagnostic::build); the
 # variables are its args.
 
 unknown-status = { $status } is not a plan status: draft, active, done or abandoned

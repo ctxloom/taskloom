@@ -8,7 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 # Their catalogs, in the wiring's (`catalog`).
 angzarr-embedded = { workspace = true, features = ["sqlite"] }
 angzarr-yaml.workspace = true
@@ -23,7 +23,7 @@ plan-files.workspace = true
 plans-application.workspace = true
 # The app's descriptor sets (`DESCRIPTOR_SETS`).
 tasks-proto.workspace = true
-angzarr-presentation.workspace = true
+presentation.workspace = true
 project-application.workspace = true
 project-registry.workspace = true
 system.workspace = true
@@ -34,7 +34,7 @@ tasks-config.workspace = true
 [dev-dependencies]
 # Rendering catalogs' English (`english_for!`), for the tests that hold it
 # to Go's.
-angzarr-presentation = { workspace = true, features = ["test-support"] }
+presentation = { workspace = true, features = ["test-support"] }
 # The runtime's and its store's keys, for the catalog's test.
 angzarr-ports.workspace = true
 fluent-syntax.workspace = true
@@ -57,8 +57,8 @@ plan-files = { workspace = true, features = ["test-support"] }
 
 [build-dependencies]
 # The build writes the catalog's source under the crate's name
-# (angzarr_diagnostic::build): no catalog spells its crate's name.
-angzarr-diagnostic = { workspace = true, features = ["build"] }
+# (coded_diagnostic::build): no catalog spells its crate's name.
+coded-diagnostic = { workspace = true, features = ["build"] }
 
 [features]
 # `diagnostic_samples`, for other crates' catalog tests: their

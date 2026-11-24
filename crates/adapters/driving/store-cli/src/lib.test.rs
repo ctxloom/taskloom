@@ -5,9 +5,9 @@ use std::future::Future;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use angzarr_diagnostic::{Diagnostic, Report};
-use angzarr_presentation::Catalog;
 use clap::Parser;
+use coded_diagnostic::{Diagnostic, Report};
+use presentation::Catalog;
 use project_application::{Change, Exported, ProjectAdmin, Projects, StoreExport, Survey};
 use prost::Message;
 use tasks_application::{AppError, DigestService, Folded};

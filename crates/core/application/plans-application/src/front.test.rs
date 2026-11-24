@@ -249,7 +249,7 @@ fn a_fresh_file_is_the_entries_then_the_body() {
 
 #[test]
 fn every_frontmatter_error_is_a_diagnostic_with_its_args() {
-    use angzarr_diagnostic::Diagnostic;
+    use coded_diagnostic::Diagnostic;
     let errors = [
         FrontError::Unclosed,
         FrontError::Yaml { detail: "x".into() },

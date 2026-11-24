@@ -316,19 +316,19 @@ mod ticked {
     struct Here(Project);
 
     impl ProjectIdentity for Here {
-        fn for_write(&mut self, _: Option<&str>) -> Result<Project, angzarr_diagnostic::Report> {
+        fn for_write(&mut self, _: Option<&str>) -> Result<Project, coded_diagnostic::Report> {
             Ok(self.0.clone())
         }
         fn for_read(
             &mut self,
             _: Option<&str>,
-        ) -> Result<Option<Project>, angzarr_diagnostic::Report> {
+        ) -> Result<Option<Project>, coded_diagnostic::Report> {
             Ok(Some(self.0.clone()))
         }
-        fn every_project(&mut self) -> Result<Vec<Project>, angzarr_diagnostic::Report> {
+        fn every_project(&mut self) -> Result<Vec<Project>, coded_diagnostic::Report> {
             Ok(vec![self.0.clone()])
         }
-        fn rootless_directory(&mut self) -> Result<Option<String>, angzarr_diagnostic::Report> {
+        fn rootless_directory(&mut self) -> Result<Option<String>, coded_diagnostic::Report> {
             Ok(None)
         }
     }
@@ -528,7 +528,7 @@ mod ticked {
                 }
             });
             let settings = Settings {
-                format: angzarr_presentation::Format::Json,
+                format: presentation::Format::Json,
                 project: None,
                 since: None,
                 heartbeat: None,

@@ -1,8 +1,8 @@
 //! The errors' English and the catalog.
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
-angzarr_presentation::english_for!(&[crate::EN_US.1, file_lock::EN_US.1, angzarr_yaml::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1, file_lock::EN_US.1, angzarr_yaml::EN_US.1]);
 
 use super::{diagnostic_samples, RegistryError};
 
@@ -139,7 +139,7 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
         // Display is the key and args, never English (decision 14.37).
         assert_eq!(
             sample.to_string(),
-            angzarr_diagnostic::Report::of(&*sample).to_string(),
+            coded_diagnostic::Report::of(&*sample).to_string(),
             "{}",
             sample.code()
         );
@@ -180,5 +180,5 @@ fn test_every_code_is_under_the_crates_name_with_its_message() {
         .into_iter()
         .filter(|d| d.code().starts_with(code!("")))
         .collect();
-    assert_eq!(angzarr_diagnostic::catalog::check(name, text, &ours), []);
+    assert_eq!(coded_diagnostic::catalog::check(name, text, &ours), []);
 }

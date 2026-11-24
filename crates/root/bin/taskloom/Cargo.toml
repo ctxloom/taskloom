@@ -13,7 +13,7 @@ cli-support.workspace = true
 file-lock.workspace = true
 os.workspace = true
 plans-cli.workspace = true
-angzarr-presentation.workspace = true
+presentation.workspace = true
 project-cli.workspace = true
 store-cli.workspace = true
 tasks-application.workspace = true
@@ -27,7 +27,7 @@ tokio.workspace = true
 [dev-dependencies]
 angzarr-embedded = { workspace = true, features = ["sqlite", "test-support"] }
 angzarr-ports.workspace = true
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 file-system = { workspace = true, features = ["test-support"] }
 fs4.workspace = true
 harp-names.workspace = true
@@ -53,7 +53,7 @@ tasks-watch = { workspace = true, features = ["test-support"] }
 tasks-cli = { workspace = true, features = ["test-support"] }
 file-lock = { workspace = true, features = ["test-support"] }
 os = { workspace = true, features = ["test-support"] }
-angzarr-presentation = { workspace = true, features = ["test-support"] }
+presentation = { workspace = true, features = ["test-support"] }
 tasks-application = { workspace = true, features = ["test-support"] }
 tag-rules = { workspace = true, features = ["test-support"] }
 plans-application = { workspace = true, features = ["test-support"] }

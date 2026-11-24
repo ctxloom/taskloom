@@ -1,6 +1,6 @@
 //! The catalog.
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 fn arg_names(d: &dyn Diagnostic) -> Vec<&str> {
     d.args().into_iter().map(|(name, _)| name).collect()
@@ -29,7 +29,7 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
         // Display is the key and args, never English (decision 14.37).
         assert_eq!(
             sample.to_string(),
-            angzarr_diagnostic::Report::of(&*sample).to_string(),
+            coded_diagnostic::Report::of(&*sample).to_string(),
             "{}",
             sample.code()
         );
@@ -84,7 +84,7 @@ fn test_every_code_is_under_the_crates_name_with_its_message() {
     let (name, text) = crate::EN_US;
     assert_eq!(name, env!("CARGO_PKG_NAME"));
     assert_eq!(
-        angzarr_diagnostic::catalog::check(name, text, &crate::diagnostic_samples()),
+        coded_diagnostic::catalog::check(name, text, &crate::diagnostic_samples()),
         []
     );
 }

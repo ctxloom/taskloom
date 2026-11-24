@@ -9,9 +9,9 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
 use angzarr_yaml::edit::Document;
 use angzarr_yaml::Value;
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 /// `flow_depth` for a value written in block style all the way down.
 const BLOCK: usize = usize::MAX;
@@ -109,7 +109,7 @@ pub enum FrontError {
 
 impl fmt::Display for FrontError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

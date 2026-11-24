@@ -16,12 +16,12 @@ mod error;
 
 use std::io::Write;
 
-use angzarr_diagnostic::Diagnostic;
-use angzarr_presentation::Catalog;
 use angzarr_store_transfer::angzarr_ports::angzarr_proto::v1::Cover;
 use angzarr_store_transfer::{descriptor_pool, write_digest, Digested};
 use clap::Subcommand;
 use cli_support::{Exit, ExitClass};
+use coded_diagnostic::Diagnostic;
+use presentation::Catalog;
 use project_application::{ProjectAdmin, Projects, StoreExport};
 use tasks_application::{DigestService, Folded};
 

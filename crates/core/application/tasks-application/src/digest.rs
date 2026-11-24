@@ -7,8 +7,8 @@
 
 use std::future::Future;
 
-use angzarr_diagnostic::Report;
 use angzarr_embedded::{Kernel, Registry};
+use coded_diagnostic::Report;
 use ports::{ProjectIdentity, TaskStores};
 use tasks::schema::SchemaAggregate;
 use tasks::TaskAggregate;

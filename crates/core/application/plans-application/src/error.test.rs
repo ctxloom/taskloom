@@ -1,7 +1,7 @@
 //! The catalog: every rejection has an en-US message using exactly its
 //! args, and every message a sample.
 
-use angzarr_diagnostic::code;
+use coded_diagnostic::code;
 use fluent_syntax::ast::{Entry, Expression, InlineExpression, PatternElement};
 
 #[test]
@@ -23,7 +23,7 @@ fn every_rejection_has_a_catalog_message_with_exactly_its_args() {
     for sample in samples {
         assert_eq!(
             sample.to_string(),
-            angzarr_diagnostic::Report::of(&*sample).to_string(),
+            coded_diagnostic::Report::of(&*sample).to_string(),
             "{}",
             sample.code()
         );
@@ -64,7 +64,7 @@ fn every_code_is_prefixed_with_the_crates_name() {
 
 #[test]
 fn a_wrapper_is_its_causes_diagnostic() {
-    use angzarr_diagnostic::Diagnostic;
+    use coded_diagnostic::Diagnostic;
     use tag_rules::{RulesRefusal, TagRefusal};
 
     use crate::PlanError;
@@ -78,7 +78,7 @@ fn a_wrapper_is_its_causes_diagnostic() {
         PlanError::Rules(rules.clone()).to_string(),
         rules.to_string()
     );
-    let report = angzarr_diagnostic::Report::new("x-busy");
+    let report = coded_diagnostic::Report::new("x-busy");
     for wrapper in [
         PlanError::Config(report.clone()),
         PlanError::NoWorkRoot(report.clone()),
@@ -94,7 +94,7 @@ fn a_request_the_state_or_its_content_forbids_is_declined_and_what_broke_is_a_fa
     use crate::PlanError;
     use exit_code::{Exit, ExitClass};
 
-    let report = angzarr_diagnostic::Report::new("x-busy");
+    let report = coded_diagnostic::Report::new("x-busy");
     for invalid in [
         PlanError::UnknownStatus { status: "x".into() },
         PlanError::HandSuperseded,
@@ -159,7 +159,7 @@ fn test_every_code_is_under_the_crates_name_with_its_message() {
     let (name, text) = crate::EN_US;
     assert_eq!(name, env!("CARGO_PKG_NAME"));
     assert_eq!(
-        angzarr_diagnostic::catalog::check(name, text, &crate::diagnostic_samples()),
+        coded_diagnostic::catalog::check(name, text, &crate::diagnostic_samples()),
         []
     );
 }

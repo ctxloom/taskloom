@@ -1,9 +1,9 @@
 //! The errors' English, the wrapper's delegation, and the catalog.
 
-use angzarr_diagnostic::{Arg, Diagnostic};
+use coded_diagnostic::{Arg, Diagnostic};
 use project_application::ProjectError;
 
-angzarr_presentation::english_for!(&[crate::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1]);
 
 use super::{diagnostic_samples, CliError};
 
@@ -64,7 +64,7 @@ fn test_every_error_has_a_catalog_message_with_exactly_its_args() {
 
 #[test]
 fn test_each_diagnostic_renders_its_catalog_message_and_displays_as_its_key() {
-    let catalog = angzarr_presentation::Catalog::en_us(&[project_application::EN_US, crate::EN_US])
+    let catalog = presentation::Catalog::en_us(&[project_application::EN_US, crate::EN_US])
         .expect("the catalog loads");
     let samples = diagnostic_samples()
         .into_iter()
@@ -73,7 +73,7 @@ fn test_each_diagnostic_renders_its_catalog_message_and_displays_as_its_key() {
         // Display is the key and args, never English (decision 14.37).
         assert_eq!(
             sample.to_string(),
-            angzarr_diagnostic::Report::of(&*sample).to_string(),
+            coded_diagnostic::Report::of(&*sample).to_string(),
             "{}",
             sample.code()
         );
@@ -93,7 +93,7 @@ fn test_every_code_is_under_the_crates_name_with_its_message() {
     let (name, text) = crate::EN_US;
     assert_eq!(name, env!("CARGO_PKG_NAME"));
     assert_eq!(
-        angzarr_diagnostic::catalog::check(name, text, &crate::diagnostic_samples()),
+        coded_diagnostic::catalog::check(name, text, &crate::diagnostic_samples()),
         []
     );
 }
@@ -116,7 +116,7 @@ fn test_a_pin_the_command_does_not_take_is_declined_and_a_closed_output_is_a_fai
     );
     assert_eq!(
         status(CliError::Project(ProjectError::Port(
-            angzarr_diagnostic::Report::new("x-io")
+            coded_diagnostic::Report::new("x-io")
         ))),
         32
     );

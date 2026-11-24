@@ -10,8 +10,8 @@ use std::rc::Rc;
 use std::task::Poll;
 use std::time::{Duration, Instant};
 
-use angzarr_diagnostic::{code, Diagnostic, Report};
-use angzarr_presentation::{Catalog, Format};
+use coded_diagnostic::{code, Diagnostic, Report};
+use presentation::{Catalog, Format};
 use serde_json::{json, Value};
 use tasks_application::{
     AppError, Found, Positions, Project, Seen, StreamKey, Watch, WatchRequest, WatchService,

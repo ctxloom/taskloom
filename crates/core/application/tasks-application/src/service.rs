@@ -6,8 +6,8 @@
 
 use std::future::Future;
 
-use angzarr_diagnostic::Report;
 use angzarr_embedded::{OnRetryable, Registry};
+use coded_diagnostic::Report;
 use kernel_runner::{Runner, KERNEL_RETRY};
 use ports::{
     Clock, CommandIds, Configuration, ConfigurationWriter, Delay, Jitter, Names, ProjectIdentity,

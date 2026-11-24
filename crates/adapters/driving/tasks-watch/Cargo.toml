@@ -9,13 +9,13 @@ publish.workspace = true
 
 [dependencies]
 cli-support.workspace = true
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 base64.workspace = true
 clap.workspace = true
 # Flavor: what the help says stops the watch (Ctrl-C and SIGTERM, or on
 # Windows Ctrl-C, Ctrl-Break and the console's close, logoff or shutdown).
 os.workspace = true
-angzarr-presentation.workspace = true
+presentation.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tasks-application.workspace = true
@@ -27,13 +27,13 @@ uuid.workspace = true
 angzarr-embedded = { workspace = true, features = ["test-support"] }
 # Rendering catalogs' English (`english_for!`), for the tests that hold it
 # to Go's.
-angzarr-presentation = { workspace = true, features = ["test-support"] }
+presentation = { workspace = true, features = ["test-support"] }
 fluent-syntax.workspace = true
 
 [build-dependencies]
 # The build writes the catalog's source under the crate's name
-# (angzarr_diagnostic::build): no catalog spells its crate's name.
-angzarr-diagnostic = { workspace = true, features = ["build"] }
+# (coded_diagnostic::build): no catalog spells its crate's name.
+coded-diagnostic = { workspace = true, features = ["build"] }
 
 [features]
 # `diagnostic_samples`, for other crates' catalog tests: their

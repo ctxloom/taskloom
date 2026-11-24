@@ -6,8 +6,8 @@ use crate::fakes::{failing, read_from};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 use angzarr_embedded::Stream;
+use coded_diagnostic::{code, Arg, Diagnostic, Report};
 use ports::Timestamp;
 use ports::{JsonlOp, JsonlRecord, JsonlTaskLogs};
 use tasks::{TaskAggregate, TaskState};

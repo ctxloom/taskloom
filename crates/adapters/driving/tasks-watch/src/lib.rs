@@ -45,8 +45,8 @@ use std::pin::pin;
 use std::task::Poll;
 use std::time::Duration;
 
-use angzarr_presentation::{Catalog, Format};
 use clap::Subcommand;
+use presentation::{Catalog, Format};
 use serde::Serialize;
 use tasks_application::{Found, Positions, WatchRequest, WatchService};
 
@@ -223,7 +223,7 @@ struct Lines<'a> {
 impl Lines<'_> {
     fn write(&mut self, line: &Line<'_>, text: &str) -> Result<(), WatchError> {
         let written = match self.format {
-            Format::Json => angzarr_presentation::write_json_line(self.out, line),
+            Format::Json => presentation::write_json_line(self.out, line),
             Format::Text => writeln!(self.out, "{text}").and_then(|()| self.out.flush()),
         };
         written.map_err(|e| WatchError::Output {
@@ -277,7 +277,7 @@ impl Lines<'_> {
                         "changed {} [{}]{removed} {} ({stream} #{sequence})",
                         task.harp_id,
                         task.status,
-                        angzarr_presentation::text::headline(&task.text, 80),
+                        presentation::text::headline(&task.text, 80),
                     );
                     self.write(&line, &text)?;
                 }
@@ -400,7 +400,7 @@ fn report(
     err: &mut dyn Write,
 ) -> io::Result<()> {
     match settings.format {
-        Format::Json => angzarr_presentation::write_json(err, &catalog.envelope(error)),
+        Format::Json => presentation::write_json(err, &catalog.envelope(error)),
         Format::Text => writeln!(err, "{}: {}", settings.prog, catalog.message(error)),
     }
 }

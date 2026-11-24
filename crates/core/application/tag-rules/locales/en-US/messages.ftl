@@ -1,5 +1,5 @@
 # Messages for the crate's refusals. Each id is a diagnostic's code without the
-# crate's name, which the build prefixes (angzarr_diagnostic::build); the
+# crate's name, which the build prefixes (coded_diagnostic::build); the
 # variables are its args.
 
 tag-blank = a tag was given blank: give one, or leave it out

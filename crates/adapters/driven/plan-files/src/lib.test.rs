@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use angzarr_diagnostic::{code, Diagnostic, Report};
+use coded_diagnostic::{code, Diagnostic, Report};
 use file_system::{Fs, Perms, Rooted};
 use os::Mode;
 use ports::PlanFiles;
@@ -191,7 +191,7 @@ fn test_every_code_is_under_the_crates_name_with_its_message() {
     let (name, text) = crate::EN_US;
     assert_eq!(name, env!("CARGO_PKG_NAME"));
     assert_eq!(
-        angzarr_diagnostic::catalog::check(name, text, &crate::diagnostic_samples()),
+        coded_diagnostic::catalog::check(name, text, &crate::diagnostic_samples()),
         []
     );
 }

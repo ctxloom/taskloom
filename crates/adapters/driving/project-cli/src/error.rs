@@ -2,8 +2,8 @@
 
 use std::fmt;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
 use cli_support::{Exit, ExitClass};
+use coded_diagnostic::{code, Arg, Diagnostic};
 use project_application::ProjectError;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -32,7 +32,7 @@ impl ExitClass for CliError {
 
 impl fmt::Display for CliError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

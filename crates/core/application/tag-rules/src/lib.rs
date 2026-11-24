@@ -26,10 +26,10 @@ pub const EN_US: (&str, &str) = (
 
 /// One value of every diagnostic this crate defines, for the catalog test.
 #[cfg(any(test, feature = "test-support"))]
-pub fn diagnostic_samples() -> Vec<Box<dyn angzarr_diagnostic::Diagnostic>> {
-    let mut samples: Vec<Box<dyn angzarr_diagnostic::Diagnostic>> = tags::samples()
+pub fn diagnostic_samples() -> Vec<Box<dyn coded_diagnostic::Diagnostic>> {
+    let mut samples: Vec<Box<dyn coded_diagnostic::Diagnostic>> = tags::samples()
         .into_iter()
-        .map(|t| Box::new(t) as Box<dyn angzarr_diagnostic::Diagnostic>)
+        .map(|t| Box::new(t) as Box<dyn coded_diagnostic::Diagnostic>)
         .collect();
     samples.extend(rules::samples());
     samples

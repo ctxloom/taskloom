@@ -7,7 +7,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
+use coded_diagnostic::{code, Arg, Diagnostic, Report};
 use file_system::{Fs, Kind, Open, Perms};
 use os::Mode;
 use ports::PlanFiles;
@@ -40,7 +40,7 @@ pub enum PlanFilesError {
 
 impl fmt::Display for PlanFilesError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

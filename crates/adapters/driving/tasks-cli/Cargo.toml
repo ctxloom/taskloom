@@ -9,9 +9,9 @@ publish.workspace = true
 
 [dependencies]
 cli-support.workspace = true
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 clap.workspace = true
-angzarr-presentation.workspace = true
+presentation.workspace = true
 serde.workspace = true
 tasks-application.workspace = true
 tasks-presentation.workspace = true
@@ -21,7 +21,7 @@ tasks-presentation.workspace = true
 angzarr-embedded = { workspace = true, features = ["test-support"] }
 # Rendering catalogs' English (`english_for!`), for the tests that hold it
 # to Go's.
-angzarr-presentation = { workspace = true, features = ["test-support"] }
+presentation = { workspace = true, features = ["test-support"] }
 fluent-syntax.workspace = true
 serde_json.workspace = true
 # Its `dead_letter_sample`, a letter for the tests to say.
@@ -29,8 +29,8 @@ tasks-application = { workspace = true, features = ["test-support"] }
 
 [build-dependencies]
 # The build writes the catalog's source under the crate's name
-# (angzarr_diagnostic::build): no catalog spells its crate's name.
-angzarr-diagnostic = { workspace = true, features = ["build"] }
+# (coded_diagnostic::build): no catalog spells its crate's name.
+coded-diagnostic = { workspace = true, features = ["build"] }
 
 [features]
 # `diagnostic_samples`, for other crates' catalog tests: their

@@ -9,7 +9,7 @@
 
 use std::future::Future;
 
-use angzarr_diagnostic::Report;
+use coded_diagnostic::Report;
 
 /// The plan files, as the file-system seam reaches them. Every path is
 /// absolute and `/`-separated; the use cases place a relative root against

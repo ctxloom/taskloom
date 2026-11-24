@@ -30,10 +30,10 @@ mod watch;
 
 use std::io::{self, Write};
 
-use angzarr_presentation::{Catalog, Format, Render};
 use clap::{Args, Subcommand};
 use cli_support::{Exit, ExitClass};
 use plans_application::{Link, NewPlan, PlanQuery, SetPlan};
+use presentation::{Catalog, Format, Render};
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
@@ -222,13 +222,13 @@ fn report(
     err: &mut dyn Write,
 ) -> io::Result<()> {
     match settings.format {
-        Format::Json => angzarr_presentation::write_json(err, &catalog.envelope(error)),
+        Format::Json => presentation::write_json(err, &catalog.envelope(error)),
         Format::Text => writeln!(err, "{}: {}", settings.prog, catalog.message(error)),
     }
 }
 
 fn rendered(out: &mut dyn Write, format: Format, view: &impl Render) -> Result<(), CliError> {
-    angzarr_presentation::render(out, format, view).map_err(|e| CliError::Output {
+    presentation::render(out, format, view).map_err(|e| CliError::Output {
         detail: e.to_string(),
     })
 }

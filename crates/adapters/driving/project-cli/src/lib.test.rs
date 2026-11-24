@@ -4,9 +4,9 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use angzarr_diagnostic::{code, Diagnostic, Report};
-use angzarr_presentation::{Catalog, Format};
 use clap::Parser;
+use coded_diagnostic::{code, Diagnostic, Report};
+use presentation::{Catalog, Format};
 use project_application::{
     Change, Checked, IdSource, ProjectAdmin, Projects, Registered, StoreCheck, Survey,
 };

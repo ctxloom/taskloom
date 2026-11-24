@@ -42,7 +42,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use angzarr_diagnostic::Report;
+use coded_diagnostic::Report;
 use file_system::Fs;
 use ports::{IdSource, Names, Project, ProjectIdentity};
 

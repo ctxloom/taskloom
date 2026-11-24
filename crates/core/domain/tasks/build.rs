@@ -4,7 +4,7 @@
 //! And the crate's catalogs, written to OUT_DIR under its package name.
 
 fn main() -> Result<(), angzarr_build::BuildError> {
-    angzarr_diagnostic::build::catalogs();
+    coded_diagnostic::build::catalogs();
     angzarr_build::markup_domain_with(
         &[
             "ctxloom/tasks/v1/tasks.proto",

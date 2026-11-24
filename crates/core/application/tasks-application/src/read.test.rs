@@ -5,7 +5,7 @@ use crate::english::English;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 
 use crate::fakes::{ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores, Flaky};
 use crate::{
@@ -577,7 +577,7 @@ fn test_a_project_found_is_read_alone_rootless_or_not() {
 #[test]
 fn test_a_read_whose_projects_cannot_be_named_fails_with_why() {
     let mut service = service(&[]);
-    service.identity.fails = Some(angzarr_diagnostic::Report::new("x-registry"));
+    service.identity.fails = Some(coded_diagnostic::Report::new("x-registry"));
     assert_eq!(
         ready(service.list(ListQuery::default()))
             .unwrap_err()

@@ -3,7 +3,7 @@
 //! (the owner's ruling, 2026-11-02: names by reflection). A field a code
 //! does not depend on is left empty.
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 use tasks::schema::SchemaRejection;
 use tasks::TaskRejection;
 use tasks_application::{

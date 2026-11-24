@@ -3,10 +3,10 @@
 //! the task streams from the positions it is handed, one event at a time
 //! with the task as the event left it, and says which stream is gone.
 
-use angzarr_diagnostic::Diagnostic;
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::v1::CommandBook;
 use angzarr_embedded::CommandBookExt;
+use coded_diagnostic::Diagnostic;
 use tasks::{AddTask, RemovalReason, RemoveTask, TaskCommand};
 
 use super::{Found, Positions, Seen, StreamKey, Watch, WatchRequest, WatchService};
@@ -139,7 +139,7 @@ fn test_a_pinned_project_is_watched_and_a_store_that_fails_is_an_error() {
 #[test]
 fn test_a_watch_whose_project_does_not_resolve_says_why() {
     let mut service = service(&[]);
-    let why = angzarr_diagnostic::Report::of(&AppError::NoProject);
+    let why = coded_diagnostic::Report::of(&AppError::NoProject);
     service.identity.fails = Some(why);
     let failed = ready(service.watch(WatchRequest::default()))
         .err()

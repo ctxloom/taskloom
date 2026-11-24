@@ -14,7 +14,6 @@
 
 use std::collections::BTreeMap;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic};
 use angzarr_embedded::angzarr_proto::v1::AngzarrReason;
 use angzarr_embedded::markup::{
     Context, Emit, Failed, PageContext, Snapshots, TypedRefusal, Unrefusable,
@@ -26,6 +25,7 @@ use angzarr_embedded::{
     OnRetryable, Payload, Recovery, Registry, Rejected, Sampled, Timestamp,
 };
 use angzarr_embedded_macros::{aggregate, applies, handles_cmd};
+use coded_diagnostic::{code, Arg, Diagnostic};
 
 use crate::{
     check, AddTask, EditText, RemovalReason, RemoveTask, Retag, Retagged, SetStatus, StatusChanged,

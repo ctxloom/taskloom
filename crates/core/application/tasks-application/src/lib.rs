@@ -51,8 +51,8 @@ mod view;
 mod watch;
 mod write;
 
-use angzarr_diagnostic::{Diagnostic, Report};
 use angzarr_embedded::{KernelError, StoreError};
+use coded_diagnostic::{Diagnostic, Report};
 
 /// A dead letter, as the kernel answers it and the store keeps it: angzarr's
 /// `AngzarrDeadLetter` whole, keyed by the stream it is about. A use case
@@ -87,9 +87,7 @@ pub fn dead_letter_sample(component: &str) -> DeadLetter {
 /// domain.
 #[cfg(any(test, feature = "test-support"))]
 pub fn no_task_sample() -> AppError {
-    AppError::Rejected(angzarr_diagnostic::Report::of(
-        &tasks::TaskRejection::NoTask,
-    ))
+    AppError::Rejected(coded_diagnostic::Report::of(&tasks::TaskRejection::NoTask))
 }
 
 pub use add::{NewTask, KEYED_PROBES};

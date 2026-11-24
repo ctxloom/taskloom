@@ -49,8 +49,8 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use angzarr_diagnostic::Report;
 use angzarr_yaml::versioned::{LoadProblem, Loader, Migrations};
+use coded_diagnostic::Report;
 use file_system::{Fs, Perms};
 use os::Mode;
 use ports::{Configuration, ConfigurationWriter, TagPermits};

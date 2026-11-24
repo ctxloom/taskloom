@@ -6,7 +6,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use angzarr_diagnostic::Report;
+use coded_diagnostic::Report;
 
 /// Where a resolved project id came from, in the order resolution tries
 /// them.

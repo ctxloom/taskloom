@@ -3,14 +3,14 @@
 
 use std::future::Future;
 
-use angzarr_diagnostic::Diagnostic;
 use angzarr_embedded::testing::block_on_ready as ready;
-use angzarr_presentation::{Catalog, Format};
 use clap::Parser;
+use coded_diagnostic::Diagnostic;
 use plans_application::{
     CheckReport, Finding, FrontError, Link, NewPlan, Plan, PlanError, PlanQuery, PlanText, SetPlan,
     Snapshot, Stamp,
 };
+use presentation::{Catalog, Format};
 use serde_json::{json, Value};
 
 use super::*;

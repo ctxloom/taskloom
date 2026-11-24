@@ -20,7 +20,7 @@ mod error;
 
 use std::path::PathBuf;
 
-use angzarr_diagnostic::Report;
+use coded_diagnostic::Report;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;

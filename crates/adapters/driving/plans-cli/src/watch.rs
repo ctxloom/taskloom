@@ -31,9 +31,9 @@ use std::io::Write;
 use std::pin::pin;
 use std::task::Poll;
 
-use angzarr_presentation::Catalog;
 use cli_support::{Exit, ExitClass};
 use plans_application::{changes, Change, Delta, Event, Plans, Snapshot};
+use presentation::Catalog;
 use serde_json::{json, Map, Value};
 
 use crate::{report, CliError, Settings};
@@ -96,7 +96,7 @@ enum Woken {
 }
 
 fn emit(out: &mut dyn Write, line: &Value) -> Result<(), CliError> {
-    angzarr_presentation::write_json_line(out, line).map_err(|e| CliError::Output {
+    presentation::write_json_line(out, line).map_err(|e| CliError::Output {
         detail: e.to_string(),
     })
 }

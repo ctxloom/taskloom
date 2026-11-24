@@ -9,7 +9,7 @@ publish.workspace = true
 
 [dependencies]
 angzarr-ports.workspace = true
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 prost-types.workspace = true
 
 [features]

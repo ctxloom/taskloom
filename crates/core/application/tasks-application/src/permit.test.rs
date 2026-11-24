@@ -13,7 +13,7 @@
 //! targets and the core vocabulary: there is no open world, no first
 //! permit, and a permit is a presence.
 
-use angzarr_diagnostic::{code, Diagnostic, Report};
+use coded_diagnostic::{code, Diagnostic, Report};
 use exit_code::ExitClass;
 
 use crate::fakes::{ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores};

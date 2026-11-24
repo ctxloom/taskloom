@@ -6,8 +6,8 @@
 
 use std::io::{self, Write};
 
-use angzarr_presentation::{Catalog, Render};
 use plans_application::{CheckReport, Plan, PlanText};
+use presentation::{Catalog, Render};
 use serde::Serialize;
 
 /// A plan as JSON.
@@ -116,7 +116,7 @@ impl Render for Shown<'_> {
 #[derive(Serialize)]
 struct CheckJson {
     ok: bool,
-    findings: Vec<angzarr_presentation::Envelope>,
+    findings: Vec<presentation::Envelope>,
 }
 
 /// `plans check`'s answer: each finding as a diagnostic, its catalog

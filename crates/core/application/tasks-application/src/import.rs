@@ -44,9 +44,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::future::Future;
 
-use angzarr_diagnostic::{code, Arg, Diagnostic, Report};
 use angzarr_embedded::v1::{CommandBook, Uuid};
 use angzarr_embedded::{ids, CommandBookExt, EventStore, Registry, StreamRef};
+use coded_diagnostic::{code, Arg, Diagnostic, Report};
 use ports::{
     Clock, Delay, Jitter, JsonlOp, JsonlRecord, JsonlTaskLogs, ProjectIdentity, TaskStores,
     Timestamp,
@@ -155,7 +155,7 @@ pub enum Why {
 
 impl fmt::Display for Why {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 
@@ -188,7 +188,7 @@ pub struct NoJsonlLog {
 
 impl fmt::Display for NoJsonlLog {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        angzarr_diagnostic::display(self, f)
+        coded_diagnostic::display(self, f)
     }
 }
 

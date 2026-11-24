@@ -33,19 +33,11 @@ crate = "angzarr-bus"
 allow = ["AGPL-3.0-only WITH AdditionRef-angzarr-runtime-exception"]
 
 [[licenses.exceptions]]
-crate = "angzarr-diagnostic"
-allow = ["AGPL-3.0-only WITH AdditionRef-angzarr-runtime-exception"]
-
-[[licenses.exceptions]]
 crate = "angzarr-embedded"
 allow = ["AGPL-3.0-only WITH AdditionRef-angzarr-runtime-exception"]
 
 [[licenses.exceptions]]
 crate = "angzarr-ports"
-allow = ["AGPL-3.0-only WITH AdditionRef-angzarr-runtime-exception"]
-
-[[licenses.exceptions]]
-crate = "angzarr-presentation"
 allow = ["AGPL-3.0-only WITH AdditionRef-angzarr-runtime-exception"]
 
 [[licenses.exceptions]]
@@ -72,15 +64,15 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
-  # angzarr: one workspace (core, the platform crates os, file-system and
-  # file-lock, angzarr-build and angzarr-codegen, angzarr-embedded and the
-  # router it runs handlers through).
+  # angzarr: one workspace (core, angzarr-build and angzarr-codegen,
+  # angzarr-embedded and the router it runs handlers through).
   "https://github.com/angzarr-io/angzarr",
   # tagma: the tag grammar and query engine, and its Tag message.
   "https://github.com/benjaminabbitt/tagma",
   # harp-core: the word lists task and project ids are minted from.
   "https://github.com/benjaminabbitt/harp",
-  # rust-support: cli-support (what every driving CLI adapter shares) and the
-  # exit-code convention it re-exports.
+  # rust-support: the generic substrate (coded-diagnostic, presentation, os,
+  # file-system, file-lock, duration-text, cli-support and the exit-code
+  # convention it re-exports).
   "https://github.com/benjaminabbitt/rust-support",
 ]

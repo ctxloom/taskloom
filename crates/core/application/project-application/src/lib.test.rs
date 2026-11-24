@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use angzarr_diagnostic::Report;
+use coded_diagnostic::Report;
 
 use super::{
     Change, Checked, Exported, IdSource, Plan, Problem, ProjectAdmin, ProjectError, Projects,

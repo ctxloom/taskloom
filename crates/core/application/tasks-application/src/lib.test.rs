@@ -3,11 +3,11 @@
 
 use crate::english::English;
 use crate::fakes::{read_from, At};
-use angzarr_diagnostic::{code, Diagnostic, Report};
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::v1::event_meta::Causation;
 use angzarr_embedded::v1::CommandBook;
 use angzarr_embedded::{CommandBookExt, Payload};
+use coded_diagnostic::{code, Diagnostic, Report};
 
 use crate::fakes::{
     project, ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores, Fault,

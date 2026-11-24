@@ -9,7 +9,7 @@ publish.workspace = true
 
 [dependencies]
 angzarr-embedded.workspace = true
-angzarr-diagnostic.workspace = true
+coded-diagnostic.workspace = true
 ports.workspace = true
 
 [dev-dependencies]

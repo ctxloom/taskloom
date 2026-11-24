@@ -10,9 +10,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-angzarr_presentation::english_for!(&[crate::EN_US.1]);
+presentation::english_for!(&[crate::EN_US.1]);
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 use file_system::{CwdError, Entry, Meta, Open, Perms, Rooted};
 use os::Mode;
 use tasks_application::{
@@ -658,19 +658,19 @@ fn test_the_catalog_renders_every_diagnostic_the_wiring_can_raise() {
 // renders: the store's causes nested in angzarr-ports' errors, and its
 // damage report.
 
-/// angzarr-ports' args as angzarr-diagnostic's report holds them.
+/// angzarr-ports' args as coded-diagnostic's report holds them.
 fn ported(
     code: &'static str,
     args: Vec<(&'static str, angzarr_ports::Arg)>,
-) -> angzarr_diagnostic::Report {
+) -> coded_diagnostic::Report {
     args.into_iter().fold(
-        angzarr_diagnostic::Report::new(code),
+        coded_diagnostic::Report::new(code),
         |report, (name, arg)| match arg {
             angzarr_ports::Arg::Uint(n) => report.arg(name, n),
             angzarr_ports::Arg::Str(s) => report.arg(name, s),
             angzarr_ports::Arg::Cause(cause) => report.arg(
                 name,
-                angzarr_diagnostic::Arg::nested(&ported(cause.code, cause.args)),
+                coded_diagnostic::Arg::nested(&ported(cause.code, cause.args)),
             ),
         },
     )
@@ -687,7 +687,7 @@ fn test_the_catalog_renders_every_key_angzarr_embedded_and_its_store_raise() {
     let damage = ported(damage.code(), damage.args());
     let mut unrendered: Vec<String> = runtime
         .iter()
-        .map(|d| angzarr_diagnostic::Report::of(&**d))
+        .map(|d| coded_diagnostic::Report::of(&**d))
         .chain(store.chain([damage]))
         .filter_map(|d| {
             catalog

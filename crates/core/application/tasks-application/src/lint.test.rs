@@ -3,7 +3,7 @@
 use crate::english::English;
 use std::path::PathBuf;
 
-use angzarr_diagnostic::Diagnostic;
+use coded_diagnostic::Diagnostic;
 use ports::Timestamp;
 
 use super::{lint, Finding, Violation, SCHEMA_SUBJECT};

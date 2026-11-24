@@ -4,8 +4,8 @@
 
 use std::io::{self, Write};
 
-use angzarr_diagnostic::Diagnostic;
-use angzarr_presentation::{text, Catalog, Envelope, Render};
+use coded_diagnostic::Diagnostic;
+use presentation::{text, Catalog, Envelope, Render};
 use serde::Serialize;
 use tasks_application::{
     Declared, Details, LintReport, Listing, PermitList, Permitted, Reach, Row, RuleFinding,

@@ -6,7 +6,7 @@
 use std::io::{self, Write};
 use std::path::Path;
 
-use angzarr_presentation::{Catalog, Envelope, Render};
+use presentation::{Catalog, Envelope, Render};
 use project_application::{Change, Plan, Problem, Registered, Shown};
 use serde::Serialize;
 
