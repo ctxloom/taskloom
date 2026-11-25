@@ -337,6 +337,23 @@ implementing `ExitClass` (the core's in the application crates, with
 classified in its `exit()`, which every match must name. The convention's
 text is rust-support's `docs/exit-codes.md`.
 
+## A new store's tag rules are the general default
+
+A store's schema stream is seeded at its first write with `GENERAL_SCHEMA`
+(`tag-rules`' `template.rs`, also exported as `SEEDED_SCHEMA`): the small,
+project-neutral tag set, `area:` open. The ctxloom project's set is the
+named template `CTXLOOM_SCHEMA`, and `taskloom manage schema init
+[--template general|ctxloom] [--area <key>]... [--yes]` (a person's
+command, a preview unless `--yes`) declares one on a store, adding only
+what it lacks; `--area` closes `area:` to those keys. It records the same
+`SchemaRetagged` event as `schema declare`. A store with a schema stream
+is read as it holds it, so changing a template never changes an existing
+store; the pre-F6 migration (`StoreRules::allowlisted`) is pinned to
+`CTXLOOM_SCHEMA`'s permits, the set every store was then seeded with. A
+test that needs the ctxloom vocabulary (`triage:exposed`, `landed:`,
+`sig:`, `repo:`) declares `CTXLOOM_SCHEMA` on its store
+(`FakeStores::permitting_every_tag` does).
+
 ## Errors are localizable: a code, args, and an en-US message
 
 Every error and rejection implements `coded_diagnostic::Diagnostic`.

@@ -31,7 +31,7 @@ use crate::write::Writes;
 use crate::{
     AppError, DeadLetter, Declaration, Declared, Details, Found, LintReport, ListQuery, Listing,
     NewTask, PermitChange, PermitList, PermitService, Permitted, Positions, PruneRequest,
-    PruneService, Pruning, RuleFinding, SchemaService, SchemaSummary, Scope, ShowQuery,
+    PruneService, Pruning, RuleFinding, SchemaInit, SchemaService, SchemaSummary, Scope, ShowQuery,
     StatusChange, Statuses, Summary, TagChange, TextEdit, Vocabulary, Watch, WatchRequest,
     WatchService, Written,
 };
@@ -367,6 +367,10 @@ where
 
     async fn declare(&mut self, declaration: Declaration) -> Result<Declared, AppError> {
         self.permitting().declare(declaration).await
+    }
+
+    async fn schema_init(&mut self, init: SchemaInit) -> Result<Declared, AppError> {
+        self.permitting().schema_init(init).await
     }
 
     async fn import_config(&mut self) -> Result<Declared, AppError> {

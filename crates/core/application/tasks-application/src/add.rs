@@ -158,7 +158,9 @@ where
             .await
             .map_err(failed)?;
         // The store's rules now it is open and seeded: they judge the add.
-        let rules = crate::schema::seed_in(&mut self.writes.runner, store).await?;
+        let rules =
+            crate::schema::seed_in(&mut self.writes.runner, store, crate::Template::default())
+                .await?;
         let (tags, warnings) = admitted.judged(&rules)?;
         let template = AddTask {
             tags,

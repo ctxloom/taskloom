@@ -100,13 +100,16 @@ fn test_schema_show_keeps_its_json_shape_reading_the_store() {
 fn test_schema_check_reports_tagmas_findings_and_fails_on_any() {
     let env = Env::new("calm-otter-fox");
     env.seed("Ship it");
-    for permit in ["area:cli", "repo:tagma"] {
-        assert!(
-            env.run(&["manage", "schema", "permits", "add", permit, "--format", "json"])
-                .ok,
-            "{permit}"
-        );
-    }
+    let permitted = env.run(&[
+        "manage",
+        "schema",
+        "permits",
+        "add",
+        "repo:tagma",
+        "--format",
+        "json",
+    ]);
+    assert!(permitted.ok, "{}", permitted.stderr);
     let clean = env.run(&["manage", "schema", "check", "--format", "json"]);
     assert!(clean.ok, "{}", clean.stderr);
     assert_eq!(clean.json(), json!([]));
@@ -410,4 +413,179 @@ fn test_permit_and_revoke_edit_the_stores_schema_and_never_a_file() {
     ]);
     assert_eq!(code(&ran.stderr), super::codes::permit_in_use());
     assert!(ran.stderr.contains(&harp), "names the task: {}", ran.stderr);
+}
+
+// ------------------------------------- the general default, `schema init`
+
+/// What `manage schema export` prints of a new project: the general
+/// default tag set, as a snapshot.
+const GENERAL_EXPORT: &str = r#"tagma.arity:"review:illuminated"=scalar
+tagma.arity:"triage:blocks-release"=scalar
+tagma.arity:"triage:effort"=scalar
+tagma.arity:"triage:kind"=scalar
+tagma.arity:"triage:level"=scalar
+tagma.arity:"triage:verdict"=scalar
+tagma.enum:"triage:kind"=capability
+tagma.enum:"triage:kind"=chore
+tagma.enum:"triage:kind"=defect
+tagma.enum:"triage:verdict"=holds
+tagma.enum:"triage:verdict"=obsolete
+tagma.enum:"triage:verdict"=partial
+tagma.enum:"triage:verdict"=phantom
+tagma.enum:"triage:verdict"=unclear
+tagma.keys-per-item:area=1
+tagma.permit:"area:*"
+tagma.permit:"human:action"
+tagma.permit:"human:authority"
+tagma.permit:"human:decision"
+tagma.permit:"human:prerequisite"
+tagma.permit:"human:verify"
+tagma.permit:"human:voice"
+tagma.permit:"queue:*"
+tagma.permit:"relates:*"
+tagma.permit:"review:*"
+tagma.permit:"touches:*"
+tagma.permit:"triage:blocks-release"
+tagma.permit:"triage:crashes"
+tagma.permit:"triage:data-loss"
+tagma.permit:"triage:effort"
+tagma.permit:"triage:flaky"
+tagma.permit:"triage:kind"
+tagma.permit:"triage:level"
+tagma.permit:"triage:no-workaround"
+tagma.permit:"triage:regression"
+tagma.permit:"triage:security"
+tagma.permit:"triage:silent-no-op"
+tagma.permit:"triage:verdict"
+tagma.permit:icebox
+tagma.permit:someday-maybe
+tagma.range:"review:illuminated"=202501010000..209912312359
+tagma.range:"triage:effort"=0..5
+tagma.range:"triage:level"=1..5
+tagma.type:"triage:blocks-release"=semver
+taskloom.priority_fn:"triage:kind"="({{triage:level}} > 0 ? 2 ** (3 - {{triage:level}}) : 0.1) * (1 + {{age_days}}/({{age_days}}+90)) / (1 + {{triage:effort}}/2)"
+"#;
+
+#[test]
+fn test_a_new_projects_export_is_the_general_default_and_checks_clean() {
+    let env = Env::new("calm-otter-fox");
+    let export = env.run(&["manage", "schema", "export"]);
+    assert!(export.ok, "{}", export.stderr);
+    assert_eq!(export.stdout, GENERAL_EXPORT);
+    let check = env.run(&["manage", "schema", "check", "--format", "json"]);
+    assert!(check.ok, "{}", check.stderr);
+    assert_eq!(check.json(), json!([]));
+}
+
+#[test]
+fn test_a_new_project_accepts_an_area_as_its_first_write_and_refuses_a_repo() {
+    let env = Env::new("calm-otter-fox");
+    let added = env.run(&[
+        "tasks", "add", "Ship it", "--tag", "area:cli", "--format", "json",
+    ]);
+    assert!(added.ok, "{}", added.stderr);
+    assert_eq!(added.json()["tags"], json!(["area:cli"]));
+    let repo = env.run(&["tasks", "add", "Ship it", "--tag", "repo:tagma"]);
+    assert_eq!(repo.code, 48, "{}", repo.stderr);
+    assert!(
+        repo.stderr.contains("not-permitted repo:tagma"),
+        "{}",
+        repo.stderr
+    );
+}
+
+#[test]
+fn test_schema_init_previews_without_writing_then_yes_declares_the_areas() {
+    let env = Env::new("calm-otter-fox");
+    let args = [
+        "manage", "schema", "init", "--area", "cli", "--area", "docs",
+    ];
+    let preview = env.run(&[&args[..], &["--format", "json"]].concat());
+    assert!(preview.ok, "{}", preview.stderr);
+    assert_eq!(preview.json()["changed"], true);
+    let tags = preview.json()["tags"].clone();
+    assert!(tags
+        .as_array()
+        .unwrap()
+        .contains(&json!(r#"tagma.permit:"area:cli""#)));
+    assert!(!tags
+        .as_array()
+        .unwrap()
+        .contains(&json!(r#"tagma.permit:"area:*""#)));
+    assert!(
+        preview.stderr.contains(
+            "taskloom manage schema init --template general --area cli --area docs --yes"
+        ),
+        "{}",
+        preview.stderr
+    );
+    // Nothing was written: the store has no schema history, so the area
+    // customization still lands, which it would not on a seeded one.
+    let applied = env.run(&[&args[..], &["--yes", "--format", "json"]].concat());
+    assert!(applied.ok, "{}", applied.stderr);
+    assert_eq!(applied.json()["changed"], true);
+    assert_eq!(applied.json()["tags"], tags);
+    assert!(env.run(&["tasks", "add", "A", "--tag", "area:docs"]).ok);
+    let refused = env.run(&["tasks", "add", "B", "--tag", "area:other"]);
+    assert_eq!(refused.code, 48, "{}", refused.stderr);
+    // Idempotent: a second run declares nothing.
+    let again = env.run(&[&args[..], &["--yes", "--format", "json"]].concat());
+    assert!(again.ok, "{}", again.stderr);
+    assert_eq!(again.json()["changed"], false);
+}
+
+#[test]
+fn test_schema_init_without_areas_leaves_area_open_and_is_a_no_op_on_a_default_store() {
+    let env = Env::new("calm-otter-fox");
+    env.seed("Ship it");
+    let ran = env.run(&["manage", "schema", "init", "--yes", "--format", "json"]);
+    assert!(ran.ok, "{}", ran.stderr);
+    assert_eq!(ran.json()["changed"], false);
+    assert_eq!(exported(&env).join("\n") + "\n", GENERAL_EXPORT);
+}
+
+#[test]
+fn test_schema_init_areas_on_a_store_with_area_open_is_refused_with_48() {
+    let env = Env::new("calm-otter-fox");
+    env.seed("Ship it");
+    let ran = env.run(&["manage", "schema", "init", "--area", "cli", "--yes"]);
+    assert_eq!(ran.code, 48, "{}", ran.stderr);
+    assert_eq!(code(&ran.stderr), super::codes::schema_init_conflict());
+    assert_eq!(exported(&env).join("\n") + "\n", GENERAL_EXPORT);
+}
+
+#[test]
+fn test_schema_init_ctxloom_declares_the_ctxloom_template() {
+    let env = Env::new("calm-otter-fox");
+    let ran = env.run(&["manage", "schema", "init", "--template", "ctxloom", "--yes"]);
+    assert!(ran.ok, "{}", ran.stderr);
+    let lines = exported(&env);
+    assert_eq!(lines.len(), 67);
+    assert!(lines.iter().any(|l| l.starts_with("taskloom.decay_fn:")));
+    assert!(
+        env.run(&[
+            "tasks",
+            "add",
+            "A",
+            "--tag",
+            "landed:x",
+            "--tag",
+            "platform:linux"
+        ])
+        .ok
+    );
+    let area = env.run(&["tasks", "add", "B", "--tag", "area:cli"]);
+    assert_eq!(area.code, 48, "{}", area.stderr);
+    let check = env.run(&["manage", "schema", "check", "--format", "json"]);
+    assert!(!check.ok, "area and repo are unpermitted until permitted");
+    let unknown = env.run(&["manage", "schema", "init", "--template", "nope"]);
+    assert_eq!(unknown.code, 48, "{}", unknown.stderr);
+}
+
+#[test]
+fn test_schema_init_is_refused_for_a_blank_area() {
+    let env = Env::new("calm-otter-fox");
+    let ran = env.run(&["manage", "schema", "init", "--area", " ", "--yes"]);
+    assert_eq!(ran.code, 48, "{}", ran.stderr);
+    assert_eq!(code(&ran.stderr), super::codes::blank());
 }

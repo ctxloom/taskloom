@@ -39,7 +39,7 @@ fn world() -> Env {
 }
 
 /// A project whose store exists with only its seeded permits (so
-/// `human:decision` is admitted and `area:cli` is not).
+/// `human:decision` is admitted and `repo:tagma` is not).
 fn seeded_world() -> Env {
     let env = Env::new(SESSION);
     env.seed("Seed");
@@ -808,10 +808,10 @@ fn test_a_tag_no_permit_admits_is_exit_48_and_the_file_is_untouched() {
 
     let refused = exits(
         &env,
-        &["plans", "tag", "add", "quiet-amber-falcon", "area:cli"],
+        &["plans", "tag", "add", "quiet-amber-falcon", "repo:tagma"],
         48,
     );
-    assert!(refused.stderr.contains("area:cli"), "{}", refused.stderr);
+    assert!(refused.stderr.contains("repo:tagma"), "{}", refused.stderr);
     assert_eq!(read(&file), before);
 }
 
@@ -1251,7 +1251,7 @@ fn test_check_finds_a_tag_the_stores_rules_do_not_admit() {
     let bad = write_plan(
         &env,
         "docs/bad.plan.md",
-        &plan_text("brisk-cedar-otter", "tags: [area:cli]\n", "# b\n"),
+        &plan_text("brisk-cedar-otter", "tags: [repo:tagma]\n", "# b\n"),
     );
     check_names(&env, &[&bad], &[&good]);
 }

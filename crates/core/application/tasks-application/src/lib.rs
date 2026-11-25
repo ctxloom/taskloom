@@ -118,9 +118,9 @@ pub use read::{
 pub use request::{request_command_id, REQUEST_NAMESPACE};
 pub use rules::{
     Code as RuleCode, Finding as RuleFinding, Origin, RuleWarning, RulesRefusal, SchemaSummary,
-    TargetSummary, SEEDED_SCHEMA, TASKLOOM_NAMESPACE,
+    TargetSummary, Template, CTXLOOM_SCHEMA, GENERAL_SCHEMA, SEEDED_SCHEMA, TASKLOOM_NAMESPACE,
 };
-pub use schema::{Declaration, Declared, SchemaService};
+pub use schema::{Declaration, Declared, SchemaInit, SchemaService};
 pub use service::{registry, NotConfigured, Service, TaskService};
 pub use set::{set as set_task, TaskSet};
 /// SemVer 2.0.0, as a `type=semver` target orders by: tagma's.

@@ -7,8 +7,8 @@ use clap::Args;
 use presentation::{Catalog, Format};
 use tasks_application::{
     Declaration, ListQuery, Listing, NewTask, PermitChange, PermitService, PruneRequest,
-    PruneService, Reach, SchemaService, Scope, ShowQuery, TagChange, TaskService, TaskSet,
-    DEFAULT_OLDER_THAN, DEFAULT_PRUNE_STATUSES,
+    PruneService, Reach, SchemaInit, SchemaService, Scope, ShowQuery, TagChange, TaskService,
+    TaskSet, Template, DEFAULT_OLDER_THAN, DEFAULT_PRUNE_STATUSES,
 };
 
 use cli_support::Exit;
@@ -443,6 +443,44 @@ pub enum SchemaCommand {
         after_help = "Examples:\n  taskloom manage schema declare --add 'tagma.permit:\"area:*\"' --yes"
     )]
     Declare(DeclareArgs),
+    /// Declare a named tag set on the store (a person's command)
+    #[command(
+        after_help = "Examples:\n  taskloom manage schema init --area cli --area docs\n  taskloom manage schema init --template ctxloom --yes"
+    )]
+    Init(InitArgs),
+}
+
+/// The tag sets `manage schema init --template` names.
+#[derive(clap::ValueEnum, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum TemplateArg {
+    /// The small, project-neutral default
+    #[default]
+    General,
+    /// The ctxloom project's own set
+    Ctxloom,
+}
+
+impl TemplateArg {
+    fn template(self) -> Template {
+        match self {
+            TemplateArg::General => Template::General,
+            TemplateArg::Ctxloom => Template::Ctxloom,
+        }
+    }
+}
+
+#[derive(Args, Debug)]
+pub struct InitArgs {
+    /// The tag set to declare.
+    #[arg(long, value_enum, default_value_t = TemplateArg::General)]
+    template: TemplateArg,
+    /// An area (a component of this project) the `area:` tag may take
+    /// (repeatable). Given any, `area:` is closed to exactly these keys;
+    /// given none, any key is allowed.
+    #[arg(long = "area")]
+    areas: Vec<String>,
+    #[command(flatten)]
+    apply: ApplyArgs,
 }
 
 #[derive(Args, Debug)]
@@ -499,6 +537,7 @@ pub(crate) async fn schema(
             }
         }
         SchemaCommand::Declare(declare) => declare_rules(declare, ctx, service, out, err).await,
+        SchemaCommand::Init(init) => init_schema(init, ctx, service, out, err).await,
     }
 }
 
@@ -534,6 +573,57 @@ async fn declare_rules(
         .map_err(output_failed)?;
     previewed(applies, command, ctx.catalog, err)?;
     Ok(apply.exit_after(declared.changed))
+}
+
+/// `manage schema init`: a template declared into the store, or what it
+/// would do; a preview that would change the rules is "would change".
+async fn init_schema(
+    init: InitArgs,
+    ctx: Ctx<'_>,
+    service: &mut impl PermitService,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<Exit, CliError> {
+    let apply = init.apply;
+    let applies = apply.applies();
+    let ignored = apply.ignored(|| vec![init_would(&init)]);
+    let command = init_command(&init);
+    let request = SchemaInit {
+        template: init.template.template(),
+        areas: init.areas,
+        dry_run: !applies,
+    };
+    let declared = service.schema_init(request).await.map_err(CliError::App)?;
+    let view = DeclaredView(&declared);
+    presentation::render(out, ctx.format, &Previewed(&view, !applies, ignored))
+        .map_err(output_failed)?;
+    previewed(applies, command, ctx.catalog, err)?;
+    Ok(apply.exit_after(declared.changed))
+}
+
+/// What `schema init` given `init` would do, in words.
+fn init_would(init: &InitArgs) -> String {
+    let template = init.template.template().name();
+    match init.areas.is_empty() {
+        true => format!("declare the {template} tag set, area: open"),
+        false => format!(
+            "declare the {template} tag set, area: closed to {}",
+            init.areas.join(", ")
+        ),
+    }
+}
+
+/// The command that applies exactly the init given.
+fn init_command(init: &InitArgs) -> String {
+    let mut words = vec![PROG.to_string(), "manage schema init".to_string()];
+    words.push("--template".to_string());
+    words.push(init.template.template().name().to_string());
+    for area in &init.areas {
+        words.push("--area".to_string());
+        words.push(crate::prune::shell_word(area));
+    }
+    words.push("--yes".to_string());
+    words.join(" ")
 }
 
 /// The command that applies exactly the declaration given.

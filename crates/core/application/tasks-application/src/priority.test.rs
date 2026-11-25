@@ -1,4 +1,5 @@
-//! What the shipped formulas rank, read from the seeded schema itself
+//! What the shipped formulas (the ctxloom template's, and the general
+//! default's) rank, read from the schema itself
 //! (a copy here would go on proving things of formulas no longer shipped),
 //! and the warnings a ranking that means little earns.
 
@@ -52,9 +53,19 @@ fn row(p: &str, harp_id: &str, status: &str, tags: &[&str], days: i64) -> Row {
     }
 }
 
-/// `rows` ranked by the default schema's formulas.
+/// `rows` ranked by the ctxloom template's formulas.
 fn shipped(rows: &[Row]) -> Ranking {
-    let formulas = formulas(&StoreRules::default()).unwrap();
+    ranked_by(&crate::CTXLOOM_SCHEMA, rows)
+}
+
+/// `rows` ranked by the general default's formulas.
+fn general(rows: &[Row]) -> Ranking {
+    ranked_by(&crate::GENERAL_SCHEMA, rows)
+}
+
+fn ranked_by(schema: &[&str], rows: &[Row]) -> Ranking {
+    let rules = StoreRules::parsed(schema);
+    let formulas = formulas(&rules).unwrap();
     let candidates: Vec<_> = rows.iter().map(candidate).collect();
     task_priority::rank(&candidates, &formulas, NOW).unwrap()
 }
@@ -355,4 +366,43 @@ fn test_each_warning_renders_go_s_english() {
     assert_eq!(bare.code(), code!("priority-all-tied"));
     assert_eq!(bare.english(), bare.warning.english());
     assert_eq!(bare.args().len(), 2);
+}
+
+// ------------------------------------------------- the general default
+
+#[test]
+fn test_the_general_default_ranks_by_level_effort_and_age_with_no_decay() {
+    let rules = StoreRules::parsed(&crate::GENERAL_SCHEMA);
+    let (priority, decay) = crate::rules::StoreRulesExt::formulas(&rules);
+    assert_eq!(priority.len(), 1);
+    assert!(decay.is_empty(), "the general default ships no decay_fn");
+    let rows = [
+        todo("l1", &["triage:level=1"]),
+        todo("l2", &["triage:level=2"]),
+        todo("costly", &["triage:level=2", "triage:effort=2"]),
+        todo("untriaged", &[]),
+        // Level 1, a year old: age raises it by 1 + 365/455 and no more.
+        row("p", "old", "To Do", &["triage:level=1"], 365),
+    ];
+    let raws = raws(&general(&rows));
+    assert_eq!(raws[..4], [4.0, 2.0, 1.0, 0.1]);
+    assert!(
+        (raws[4] - 4.0 * (1.0 + 365.0 / 455.0)).abs() < 1e-9,
+        "{raws:?}"
+    );
+}
+
+#[test]
+fn test_the_general_default_ignores_what_it_does_not_name() {
+    // No blocks-release term and no kind term: a release blocker and a
+    // capability score as the plain level does.
+    let rows = [
+        todo("plain", &["triage:level=2"]),
+        todo(
+            "blocker",
+            &["triage:level=2", "triage:blocks-release=1.0.0"],
+        ),
+        todo("capability", &["triage:level=2", "triage:kind=capability"]),
+    ];
+    assert_eq!(raws(&general(&rows)), [2.0, 2.0, 2.0]);
 }

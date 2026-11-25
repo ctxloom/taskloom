@@ -226,6 +226,7 @@ const RULED_COMMANDS: &[&[&str]] = &[
     &["manage", "schema", "show"],
     &["manage", "schema", "export"],
     &["manage", "schema", "declare"],
+    &["manage", "schema", "init"],
     &["manage", "schema", "check"],
     &["manage", "schema", "permits", "list"],
     &["manage", "schema", "permits", "add"],
@@ -275,7 +276,9 @@ fn test_each_group_has_exactly_its_ruled_verbs() {
     );
     assert_eq!(
         children(&["manage", "schema"]),
-        set(&["show", "export", "declare", "check", "permits", "tags", "statuses", "virtual"])
+        set(&[
+            "show", "export", "declare", "init", "check", "permits", "tags", "statuses", "virtual",
+        ])
     );
     assert_eq!(
         children(&["manage", "schema", "permits"]),
@@ -807,9 +810,7 @@ fn test_a_check_that_finds_a_violation_exits_49_naming_it() {
 fn test_schema_check_exits_0_when_clean_and_1_on_a_finding() {
     let env = Env::new(SESSION);
     add_task(&env, "Seed");
-    for permit in ["area:cli", "repo:tagma"] {
-        ok(&env, &["manage", "schema", "permits", "add", permit]);
-    }
+    ok(&env, &["manage", "schema", "permits", "add", "repo:tagma"]);
     assert_eq!(ok(&env, &["manage", "schema", "check"]), json!([]));
     ok(
         &env,
@@ -831,15 +832,15 @@ fn test_the_store_refusing_a_write_exits_48() {
     // Revoking a permit a task's tag still needs: the arguments are fine,
     // the store refuses.
     let env = Env::new(SESSION);
-    ok(&env, &["manage", "schema", "permits", "add", "area:cli"]);
+    ok(&env, &["manage", "schema", "permits", "add", "repo:cli"]);
     let harp = add_task(&env, "Holds the tag");
-    ok(&env, &["tasks", "tag", "add", &harp, "area:cli"]);
+    ok(&env, &["tasks", "tag", "add", &harp, "repo:cli"]);
     refused(
         &env,
         &["manage", "schema", "permits", "remove", "area:cli", "--yes"],
         48,
     );
-    assert_eq!(permitted_keys(&env, "area"), ["cli"], "still permitted");
+    assert_eq!(permitted_keys(&env, "repo"), ["cli"], "still permitted");
 }
 
 #[test]
@@ -855,17 +856,17 @@ fn test_help_and_success_exit_0() {
 #[test]
 fn test_permits_add_list_remove_under_manage_schema() {
     let env = Env::new(SESSION);
-    let added = ok(&env, &["manage", "schema", "permits", "add", "area:cli"]);
-    assert_eq!(added, json!({"permit": "area:cli", "changed": true}));
-    let again = ok(&env, &["manage", "schema", "permits", "add", "area:cli"]);
+    let added = ok(&env, &["manage", "schema", "permits", "add", "repo:cli"]);
+    assert_eq!(added, json!({"permit": "repo:cli", "changed": true}));
+    let again = ok(&env, &["manage", "schema", "permits", "add", "repo:cli"]);
     assert_eq!(again["changed"], false);
-    assert_eq!(permitted_keys(&env, "area"), ["cli"]);
+    assert_eq!(permitted_keys(&env, "repo"), ["cli"]);
     let removed = ok(
         &env,
-        &["manage", "schema", "permits", "remove", "area:cli", "--yes"],
+        &["manage", "schema", "permits", "remove", "repo:cli", "--yes"],
     );
     assert_eq!(removed["changed"], true);
-    assert!(permitted_keys(&env, "area").is_empty());
+    assert!(permitted_keys(&env, "repo").is_empty());
 }
 
 #[test]
@@ -1022,25 +1023,25 @@ fn test_schema_declare_previews_by_default_dry_run_applies_nothing_and_yes_appli
 #[test]
 fn test_permits_remove_previews_by_default_dry_run_removes_nothing_and_yes_removes() {
     let env = Env::new(SESSION);
-    ok(&env, &["manage", "schema", "permits", "add", "area:cli"]);
+    ok(&env, &["manage", "schema", "permits", "add", "repo:cli"]);
     for flags in [&[][..], &["--dry-run"]] {
         let args = [
-            &["manage", "schema", "permits", "remove", "area:cli"][..],
+            &["manage", "schema", "permits", "remove", "repo:cli"][..],
             flags,
         ]
         .concat();
         refused(&env, &args, 0);
         assert_eq!(
-            permitted_keys(&env, "area"),
+            permitted_keys(&env, "repo"),
             ["cli"],
             "{flags:?} removed nothing"
         );
     }
     ok(
         &env,
-        &["manage", "schema", "permits", "remove", "area:cli", "--yes"],
+        &["manage", "schema", "permits", "remove", "repo:cli", "--yes"],
     );
-    assert!(permitted_keys(&env, "area").is_empty());
+    assert!(permitted_keys(&env, "repo").is_empty());
 }
 
 #[test]
@@ -1414,7 +1415,7 @@ fn test_dry_run_together_with_yes_is_absolute_applies_nothing_and_says_so() {
         .as_str()
         .unwrap()
         .to_string();
-    ok(&env, &["manage", "schema", "permits", "add", "area:cli"]);
+    ok(&env, &["manage", "schema", "permits", "add", "repo:cli"]);
     let prune = says_yes_was_ignored(
         &env,
         &[
@@ -1449,11 +1450,11 @@ fn test_dry_run_together_with_yes_is_absolute_applies_nothing_and_says_so() {
             "schema",
             "permits",
             "remove",
-            "area:cli",
+            "repo:cli",
             "--dry-run",
             "--yes",
         ],
-        "area:cli",
+        "repo:cli",
     );
     let marker = env.project.path().join(".project-id");
     disk::remove_file(&marker).unwrap();
@@ -1464,7 +1465,7 @@ fn test_dry_run_together_with_yes_is_absolute_applies_nothing_and_says_so() {
     );
     assert_eq!(heal["applied"], false);
     assert!(!disk::exists(&marker), "nothing was written");
-    assert_eq!(permitted_keys(&env, "area"), ["cli"], "nothing was applied");
+    assert_eq!(permitted_keys(&env, "repo"), ["cli"], "nothing was applied");
     assert!(
         permitted_keys(&env, "zz").is_empty(),
         "nothing was declared"

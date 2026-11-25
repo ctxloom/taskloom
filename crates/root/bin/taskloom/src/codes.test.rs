@@ -54,6 +54,13 @@ pub fn schema_not_config() -> String {
 
 // ------------------------------------------------------------ tasks-application
 
+pub fn schema_init_conflict() -> String {
+    of(&AppError::SchemaInitConflict {
+        template: none(),
+        held: none(),
+    })
+}
+
 pub fn blank() -> String {
     of(&AppError::Blank { field: "" })
 }

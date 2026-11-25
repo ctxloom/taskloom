@@ -521,6 +521,7 @@ fn with_two_projects() -> Fake {
             .stores
             .others
             .insert(id.to_string(), Flaky::default());
+        crate::fakes::declared(service.stores.others[id].inner(), &crate::CTXLOOM_SCHEMA);
     }
     service.identity.bound = Some(named("zulu-proj"));
     add(&mut service, "in zulu", "To Do");

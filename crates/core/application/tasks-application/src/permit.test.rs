@@ -57,9 +57,23 @@ const HARPS: [&str; 6] = [
     "dim-fern",
 ];
 
-/// A service with `permits` permitted in order (each made on the store
-/// the first one binds and makes): none, the seeded permits alone.
+/// A service over a ctxloom project's store (the vocabulary these tests
+/// are written in) with `permits` permitted in order (each made on the
+/// store the first one binds and makes): none, the template's permits
+/// alone.
 fn under(permits: &[&str]) -> Permits {
+    let mut service = under_default(&[]);
+    service.identity = FakeIdentity::bound();
+    crate::fakes::declared(service.stores.store.inner(), &crate::CTXLOOM_SCHEMA);
+    for spelled in permits {
+        permit(&mut service, spelled).unwrap();
+    }
+    service
+}
+
+/// A service over a store made as a new project's is, seeded with the
+/// general default, with `permits` permitted in order.
+fn under_default(permits: &[&str]) -> Permits {
     let mut service = Service::new(
         FakeIdentity::default(),
         FakeStores::default(),
@@ -99,6 +113,16 @@ const SEEDED_TARGETS: [&str; 9] = [
     "triage:blocks-release",
     "triage:effort",
     "triage:exposed",
+    "triage:kind",
+    "triage:level",
+    "triage:verdict",
+];
+
+/// The exact targets the general default constrains, sorted.
+const GENERAL_TARGETS: [&str; 6] = [
+    "review:illuminated",
+    "triage:blocks-release",
+    "triage:effort",
     "triage:kind",
     "triage:level",
     "triage:verdict",
@@ -525,10 +549,11 @@ fn test_the_permits_are_listed_with_the_targets_the_rules_constrain() {
     );
 }
 
-// F6, as the list says it: a new store's permits are the seed's.
+// F6, as the list says it: a new store's permits are the seed's, the
+// general default's.
 #[test]
 fn test_a_new_store_lists_its_seeded_permits() {
-    let mut service = under(&[]);
+    let mut service = under_default(&[]);
     let listed = ready(service.permits()).unwrap();
     let mut seeded: Vec<String> = crate::SEEDED_SCHEMA
         .iter()
@@ -538,7 +563,7 @@ fn test_a_new_store_lists_its_seeded_permits() {
         .collect();
     seeded.sort();
     assert_eq!(listed.patterns, seeded);
-    assert_eq!(listed.schema_targets, SEEDED_TARGETS);
+    assert_eq!(listed.schema_targets, GENERAL_TARGETS);
 }
 
 // ------------------------------------------------------------ permit
@@ -965,7 +990,9 @@ fn test_the_import_moves_the_old_declarations_into_tagmas_facets() {
             imported.tags
         );
     }
-    let seeded: Vec<String> = crate::SEEDED_SCHEMA.iter().map(|s| canonical(s)).collect();
+    // The import begins a new store from the ctxloom template, as the file
+    // was written against it.
+    let seeded: Vec<String> = crate::CTXLOOM_SCHEMA.iter().map(|s| canonical(s)).collect();
     let permits: Vec<&String> = imported
         .tags
         .iter()
@@ -990,7 +1017,7 @@ fn test_the_import_moves_the_old_declarations_into_tagmas_facets() {
 fn test_the_import_moves_the_old_permits_and_permits_the_declared_targets() {
     let mut permits = ports::TagPermits::default();
     permits.namespaces.insert(
-        "area".to_string(),
+        "zone".to_string(),
         ports::NamespacePermit::Closed(["cli".to_string()].into()),
     );
     permits
@@ -1012,7 +1039,7 @@ fn test_the_import_moves_the_old_permits_and_permits_the_declared_targets() {
         imported.tags
     );
     for tag in [
-        r#"tagma.permit:"area:cli""#,
+        r#"tagma.permit:"zone:cli""#,
         r#"tagma.permit:"relates:*""#,
         "tagma.permit:urgent",
         r#"tagma.permit:"lang:x""#,
@@ -1024,9 +1051,9 @@ fn test_the_import_moves_the_old_permits_and_permits_the_declared_targets() {
             imported.tags
         );
     }
-    assert!(add_to(&mut service, &["lang:x=en", "area:cli", "urgent"]).is_ok());
-    let error = add_to(&mut service, &["area:mcp"]).unwrap_err();
-    assert!(not_permitted(&error, "area:mcp"), "{error}");
+    assert!(add_to(&mut service, &["lang:x=en", "zone:cli", "urgent"]).is_ok());
+    let error = add_to(&mut service, &["zone:mcp"]).unwrap_err();
+    assert!(not_permitted(&error, "zone:mcp"), "{error}");
 }
 
 // A declaration that is no tag at all is refused, and nothing is declared

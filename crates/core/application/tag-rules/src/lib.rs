@@ -9,13 +9,18 @@
 //!   from a [`tasks::schema::SchemaState`] its caller reads from the
 //!   store, and the findings tagma judges a write by ([`judged`]).
 //!
+//! - [`template`]: the named tag sets a store is made with (the general
+//!   default, the ctxloom project's) and `schema init`'s pure step.
+//!
 //! Pure: what a store holds is read elsewhere and handed in.
 
 pub mod rules;
 pub mod tags;
+pub mod template;
 
 pub use rules::{judged, RuleWarning, RulesRefusal, StoreRules};
 pub use tags::{Tag, TagRefusal};
+pub use template::{Conflict, Template, CTXLOOM_SCHEMA, GENERAL_SCHEMA};
 
 /// This crate's en-US messages, its name first: what an edge's catalog
 /// embeds to render its diagnostics.

@@ -208,21 +208,27 @@ pub struct FakeStores {
 
 impl FakeStores {
     /// Stores whose store was made permitting every tag: its schema stream
-    /// holds the seed's rules and, for its permits, `tagma.permit:"*:*"`,
-    /// so a test of anything but the permits writes whatever tags it names
-    /// (every store is an allowlist, F6). With [`FakeIdentity::bound`],
-    /// whose project it is.
+    /// holds the ctxloom template's rules (a ctxloom project's store, the
+    /// vocabulary most tests here are written in) and, for its permits,
+    /// `tagma.permit:"*:*"`, so a test of anything but the permits writes
+    /// whatever tags it names (every store is an allowlist, F6). With
+    /// [`FakeIdentity::bound`], whose project it is.
     pub fn permitting_every_tag() -> FakeStores {
         let stores = FakeStores::default();
-        let mut tags: Vec<&str> = crate::SEEDED_SCHEMA
-            .iter()
-            .copied()
-            .filter(|spelled| !spelled.starts_with("tagma.permit:"))
-            .collect();
+        let mut tags: Vec<&str> = ctxloom_rules();
         tags.push(r#"tagma.permit:"*:*""#);
         declared(stores.store.inner(), &tags);
         stores
     }
+}
+
+/// The ctxloom template's rules alone, no permit.
+pub fn ctxloom_rules() -> Vec<&'static str> {
+    crate::CTXLOOM_SCHEMA
+        .iter()
+        .copied()
+        .filter(|spelled| !spelled.starts_with("tagma.permit:"))
+        .collect()
 }
 
 impl WatchedStores for FakeStores {

@@ -2,7 +2,7 @@
 # emitted by `taskloom loadout --format yaml` as a loadout DOCUMENT: `run:` is the bundles.Bundle a session consumes
 # every time; a typed `init:` section (setup_guidance, tooling,
 # legacy_context, questions) is consumed once at setup — taskloom declares
-# none today. ctxloom discovers this binary on PATH, execs the loadout
+# setup_guidance and one question (the project's areas). ctxloom discovers this binary on PATH, execs the loadout
 # command, and seeds the RUN bundle under the ctxloom:companion@taskloom
 # source ref — same shape a remote bundle takes. This file is the single
 # source of truth
@@ -354,7 +354,8 @@ run:
         a near-twin that happens to pass.
 
         Agents must not run `taskloom manage schema declare`, `taskloom manage
-        schema permits add|remove` or `taskloom manage migrate schema` without
+        schema init`, `taskloom manage schema permits add|remove` or `taskloom
+        manage migrate schema` without
         explicit permission from the human for that specific change — they
         change the store's tag rules, agents can widen them and frequently
         will; ask first. Reading the rules (`taskloom manage schema
@@ -381,3 +382,19 @@ run:
         database. A plan is that file: its frontmatter holds its id, title,
         status, tags and the tasks it governs (`taskloom plans list
         --governs <harp>` finds a task's plans).
+
+init:
+  setup_guidance: |
+    A new project starts with taskloom's small general tag set (`taskloom
+    manage schema show`), its `area:` open to any key. Put the
+    `schema-areas` question to the person. If they name areas, run
+    `taskloom manage schema init --area <key>` once for each (repeat the
+    flag) and show them the preview; apply it with `--yes` only once they
+    agree: `area:` is then closed to exactly those keys. If they keep it
+    open, run nothing. Once a task is written `area:` is open and `init
+    --area` is refused: the person changes it with `taskloom manage schema
+    permits add|remove` instead. `--template ctxloom` is ctxloom's own
+    project's set, for that project alone.
+  questions:
+    - id: schema-areas
+      prompt: Do you want to customize this project's areas (components)? Give them, or keep area open.

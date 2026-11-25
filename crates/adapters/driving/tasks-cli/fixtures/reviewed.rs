@@ -18,14 +18,20 @@ pub fn loadout() -> String {
         &applied(
             &applied(
                 &applied(
-                    &applied(include_str!("go/loadout.yaml"), LOADOUT),
-                    CONSOLIDATION,
+                    &applied(
+                        &applied(
+                            &applied(include_str!("go/loadout.yaml"), LOADOUT),
+                            CONSOLIDATION,
+                        ),
+                        PLANS_AS_FILES,
+                    ),
+                    PARKING_FLAGS,
                 ),
-                PLANS_AS_FILES,
+                REVIEW_TAG,
             ),
-            PARKING_FLAGS,
+            SCHEMA_INIT,
         ),
-        REVIEW_TAG,
+        &[],
     )
 }
 
@@ -90,6 +96,51 @@ pub const REVIEW_TAG: &[(&str, &str)] = &[(
         "          declare`.\n",
     ),
 )];
+
+/// `taskloom manage schema init` and the area question (the general
+/// default tag set; PENDING the owner's review of the prose), applied
+/// after the changes above: the loadout names the command as a person's,
+/// and carries an `init:` section: the one question ctxloom's init puts
+/// to the human for taskloom (`questions` takes an id and a prompt, no
+/// command), and the `setup_guidance` that maps the answer to `manage
+/// schema init --area`. Each `old` is the text above's result.
+pub const SCHEMA_INIT: &[(&str, &str)] = &[
+    (
+        "taskloom declares\n# none today.",
+        "taskloom declares\n# setup_guidance and one question (the project's areas).",
+    ),
+    (
+        r##"        Agents must not run `taskloom manage schema declare`, `taskloom manage
+        schema permits add|remove` or `taskloom manage migrate schema` without
+"##,
+        r##"        Agents must not run `taskloom manage schema declare`, `taskloom manage
+        schema init`, `taskloom manage schema permits add|remove` or `taskloom
+        manage migrate schema` without
+"##,
+    ),
+    (
+        "        --governs <harp>` finds a task's plans).\n",
+        concat!(
+            "        --governs <harp>` finds a task's plans).\n",
+            "\n",
+            "init:\n",
+            "  setup_guidance: |\n",
+            "    A new project starts with taskloom's small general tag set (`taskloom\n",
+            "    manage schema show`), its `area:` open to any key. Put the\n",
+            "    `schema-areas` question to the person. If they name areas, run\n",
+            "    `taskloom manage schema init --area <key>` once for each (repeat the\n",
+            "    flag) and show them the preview; apply it with `--yes` only once they\n",
+            "    agree: `area:` is then closed to exactly those keys. If they keep it\n",
+            "    open, run nothing. Once a task is written `area:` is open and `init\n",
+            "    --area` is refused: the person changes it with `taskloom manage schema\n",
+            "    permits add|remove` instead. `--template ctxloom` is ctxloom's own\n",
+            "    project's set, for that project alone.\n",
+            "  questions:\n",
+            "    - id: schema-areas\n",
+            "      prompt: Do you want to customize this project's areas (components)? Give them, or keep area open.\n",
+        ),
+    ),
+];
 
 /// Plans become files (slice C, owner-ruled 2026-11-03), applied after the
 /// changes above: the post-file-edit hook is `taskloom manage hook

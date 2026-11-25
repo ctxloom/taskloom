@@ -22,8 +22,8 @@ use ports::{Clock, CommandIds, Configuration, ConfigurationWriter, ProjectIdenti
 use tasks::schema::Declare;
 
 use crate::lists::Lists;
-use crate::rules::{permit_tag, StoreRules, StoreRulesExt};
-use crate::schema::{self, Declared};
+use crate::rules::{permit_tag, StoreRules, StoreRulesExt, Template};
+use crate::schema::{self, Declared, SchemaInit};
 use crate::write::Writes;
 use crate::{tags, AppError, Declaration, Tag};
 
@@ -84,6 +84,17 @@ pub trait PermitService {
     fn declare(
         &mut self,
         declaration: Declaration,
+    ) -> impl Future<Output = Result<Declared, AppError>> + Send;
+
+    /// `taskloom manage schema init`: a template's tags declared on the
+    /// work root's project's store, adding only what it lacks (a second
+    /// run adds nothing), its `area:` keys closed to `init.areas` when
+    /// given. Refused, naming what is in the way, where it would take
+    /// something from the store or give a target a second rule. Records
+    /// the same `SchemaRetagged` event a declare does. A person's.
+    fn schema_init(
+        &mut self,
+        init: SchemaInit,
     ) -> impl Future<Output = Result<Declared, AppError>> + Send;
 
     /// `taskloom manage migrate schema`: the work root's config file's
@@ -172,6 +183,49 @@ where
         })
     }
 
+    /// [`PermitService::schema_init`].
+    pub(crate) async fn schema_init(&mut self, init: SchemaInit) -> Result<Declared, AppError> {
+        self.writes.projects.refuse_moved()?;
+        let mut areas: Vec<String> = Vec::new();
+        for key in &init.areas {
+            let key = key.trim();
+            if key.is_empty() {
+                return Err(AppError::Blank { field: "area" });
+            }
+            let spelled = format!("area:{key}");
+            if key.contains(':') {
+                return Err(AppError::PermitMalformed { permit: spelled });
+            }
+            let pattern = Permit::parse(&spelled)?.pattern;
+            if !areas.contains(&pattern) {
+                areas.push(pattern);
+            }
+        }
+        let wanted = tag_rules::template::wanted(init.template, &areas);
+        let project = self
+            .writes
+            .projects
+            .identity
+            .for_write(None)
+            .map_err(AppError::Identity)?;
+        let projects = &mut self.writes.projects;
+        match init.dry_run {
+            true => {
+                let store = projects.stores.open_existing(&project).await;
+                let store = store.map_err(crate::failed)?;
+                schema::init_preview(store, projects.registry, init.template, &wanted).await
+            }
+            false => {
+                let store = projects
+                    .stores
+                    .open(&project)
+                    .await
+                    .map_err(crate::failed)?;
+                schema::init_in(&mut self.writes.runner, store, init.template, &wanted).await
+            }
+        }
+    }
+
     /// [`PermitService::declare`]: a person's [`Declaration`], parsed, on
     /// the work root's project's store.
     pub(crate) async fn declare(&mut self, declaration: Declaration) -> Result<Declared, AppError> {
@@ -225,7 +279,10 @@ where
             .identity
             .for_write(None)
             .map_err(AppError::Identity)?;
-        let rules = self.writes.seeded(&project).await?;
+        // A config file's rules were written against what every store was
+        // seeded with before the general default: its project begins from
+        // the ctxloom template, so its closed vocabulary stays closed.
+        let rules = self.writes.seeded_as(&project, Template::Ctxloom).await?;
         let declared = match add.is_empty() {
             true => Declared {
                 tags: rules.export(),

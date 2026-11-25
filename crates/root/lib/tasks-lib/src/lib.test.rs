@@ -783,7 +783,7 @@ fn test_a_projects_permits_refuse_a_tag_until_it_is_permitted() {
     let dirs = Dirs::new();
     let taskloom = dirs.taskloom();
     let task = || NewTask {
-        tags: vec!["area:cli".to_string()],
+        tags: vec!["repo:cli".to_string()],
         ..new_task("Ship it")
     };
     let permit = |permit: &str| {
@@ -797,7 +797,7 @@ fn test_a_projects_permits_refuse_a_tag_until_it_is_permitted() {
     let error = block_on(taskloom.tasks().add(task())).unwrap_err();
     assert_eq!(error.code(), tag_rules());
     assert!(error.to_string().contains("not-permitted"), "{error}");
-    assert!(permit("area:cli").changed);
+    assert!(permit("repo:cli").changed);
     assert!(
         dirs.owner
             .read_to_string(&os::fixture("/project/.taskloom/config.yaml"))

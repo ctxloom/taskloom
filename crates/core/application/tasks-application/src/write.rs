@@ -13,7 +13,7 @@ use tasks::schema::Declare;
 use tasks::{TaskAggregate, TaskCommand, TaskRejection};
 
 use crate::project::Projects;
-use crate::rules::{Finding, StoreRules, StoreRulesExt};
+use crate::rules::{Finding, StoreRules, StoreRulesExt, Template};
 use crate::schema::{self, Declared};
 use crate::task::{task_after, task_cover};
 use crate::{failed, request_command_id, AppError, Tag, Task, Written};
@@ -34,8 +34,19 @@ where
     /// `project`'s store's rules after seeding its schema stream, where it
     /// has no history ([`schema::seed_in`]).
     pub(crate) async fn seeded(&mut self, project: &Project) -> Result<StoreRules, AppError> {
+        self.seeded_as(project, Template::default()).await
+    }
+
+    /// [`Writes::seeded`], a store with no history seeded with `base`
+    /// rather than the default: what a project whose rules were written
+    /// against the ctxloom template (its old config file) begins from.
+    pub(crate) async fn seeded_as(
+        &mut self,
+        project: &Project,
+        base: Template,
+    ) -> Result<StoreRules, AppError> {
         let store = self.projects.stores.open(project).await.map_err(failed)?;
-        schema::seed_in(&mut self.runner, store).await
+        schema::seed_in(&mut self.runner, store, base).await
     }
 
     /// `declare` on `project`'s store's schema stream, seeded first: the

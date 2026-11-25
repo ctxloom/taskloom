@@ -531,7 +531,7 @@ fn check_finds_each_fault_and_names_the_file() {
         ("/tree/bare.plan.md", "# bare\n"),
         ("/tree/dup1.plan.md", &text("ee-ff", "")),
         ("/tree/dup2.plan.md", &text("ee-ff", "")),
-        ("/tree/tag.plan.md", &text("gg-hh", "tags: [area:nope]\n")),
+        ("/tree/tag.plan.md", &text("gg-hh", "tags: [lang:nope]\n")),
         (
             "/tree/gov.plan.md",
             &text("ii-jj", "governs: [ghost-task]\n"),

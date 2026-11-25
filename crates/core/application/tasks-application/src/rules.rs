@@ -10,6 +10,7 @@ pub use tag_rules::rules::{
     judged, permit_tag, spelled_args, Code, Finding, Origin, RuleWarning, RulesRefusal, StoreRules,
     PERMIT, SEEDED_SCHEMA, TASKLOOM_NAMESPACE,
 };
+pub use tag_rules::template::{Template, CTXLOOM_SCHEMA, GENERAL_SCHEMA};
 
 use crate::{Shown, Tag};
 

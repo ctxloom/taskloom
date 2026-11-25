@@ -77,6 +77,10 @@ pub enum AppError {
         permit: String,
         harp_ids: Vec<String>,
     },
+    /// A `schema init` that would take something from the store, or
+    /// declare a second rule for a target it already rules on: `held` are
+    /// the tags in the way, `; `-separated, in tagma's grammar.
+    SchemaInitConflict { template: String, held: String },
     /// `error`, from a write whose kernel calls answered `dead_letters`
     /// (never none): `error`'s diagnostic, its code, args and English,
     /// with the letters beside it for the driving adapter to say.
@@ -140,6 +144,7 @@ impl ExitClass for AppError {
             | AppError::Ambiguous { .. }
             | AppError::PermitNotDeclared { .. }
             | AppError::PermitInUse { .. }
+            | AppError::SchemaInitConflict { .. }
             | AppError::Priority(_) => Exit::REFUSED,
             AppError::Failed(_)
             | AppError::Identity(_)
@@ -234,6 +239,7 @@ impl Diagnostic for AppError {
             AppError::PermitMalformed { .. } => code!("permit-malformed"),
             AppError::PermitNotDeclared { .. } => code!("permit-not-declared"),
             AppError::PermitInUse { .. } => code!("permit-in-use"),
+            AppError::SchemaInitConflict { .. } => code!("schema-init-conflict"),
         }
     }
 
@@ -275,6 +281,10 @@ impl Diagnostic for AppError {
             AppError::PermitMalformed { permit } | AppError::PermitNotDeclared { permit } => {
                 vec![("permit", permit.as_str().into())]
             }
+            AppError::SchemaInitConflict { template, held } => vec![
+                ("template", template.as_str().into()),
+                ("held", held.as_str().into()),
+            ],
             AppError::PermitInUse { permit, harp_ids } => vec![
                 ("permit", permit.as_str().into()),
                 ("harp_ids", quoted(harp_ids).into()),
@@ -350,6 +360,10 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(AppError::PermitInUse {
             permit: "area:cli".to_string(),
             harp_ids: vec!["swift-amber".to_string(), "calm-otter".to_string()],
+        }),
+        Box::new(AppError::SchemaInitConflict {
+            template: "general".to_string(),
+            held: r#"tagma.permit:"area:*""#.to_string(),
         }),
         Box::new(crate::Why::Displaced),
         Box::new(crate::Why::HarpTaken),

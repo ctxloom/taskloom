@@ -31,6 +31,7 @@ permit-in-use = { $permit } cannot be revoked: { $count ->
     [one] this task still carries it
    *[other] these tasks still carry it
 }: { $harp_ids } (retag them first)
+schema-init-conflict = the { $template } template cannot be added to this store without changing what it holds: { $held } (remove what is in the way with `taskloom manage schema declare --remove`, or `permits remove`, then run init again)
 import-displaced = another task holds this harp in Go's log: run Go's `taskloom repair`, then import again
 import-harp-taken = a task not imported from this record already holds this harp
 import-task-not-imported = its task was not imported

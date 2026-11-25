@@ -9,13 +9,15 @@
 //! tagma's does; no file layer is read for them.
 
 use coded_diagnostic::{code, Diagnostic, Report};
+use exit_code::ExitClass;
 use ports::TagPermits;
 
 use crate::fakes::{ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores};
 use crate::rules::StoreRulesExt;
 use crate::{
-    AppError, Declaration, ListQuery, NewTask, Origin, PermitChange, PermitService, SchemaService,
-    Scope, Service, TagChange, TaskService, Written, SEEDED_SCHEMA,
+    AppError, Declaration, ListQuery, NewTask, Origin, PermitChange, PermitService, SchemaInit,
+    SchemaService, Scope, Service, TagChange, TaskService, Template, Written, CTXLOOM_SCHEMA,
+    GENERAL_SCHEMA, SEEDED_SCHEMA,
 };
 
 /// Configuration that would narrow every rule, were it read: it records
@@ -75,10 +77,10 @@ fn fresh() -> Store {
     over(FakeIdentity::default(), FakeStores::default())
 }
 
-/// The seed as it was before every store was an allowlist (F6): its rules
-/// alone, no permit.
+/// The seed as it was before every store was an allowlist (F6), the
+/// ctxloom template's rules alone, no permit.
 fn seed_without_permits() -> Vec<&'static str> {
-    SEEDED_SCHEMA
+    CTXLOOM_SCHEMA
         .iter()
         .copied()
         .filter(|spelled| !spelled.starts_with("tagma.permit:"))
@@ -286,10 +288,16 @@ fn test_a_store_closed_before_permits_were_presences_is_seeded_as_an_allowlist()
     let listed = ready(service.list(ListQuery::default())).unwrap();
     assert_eq!(listed.tasks().count(), 1);
     assert_eq!(held(&service), before, "a read writes nothing");
-    let mut expected: Vec<&str> = SEEDED_SCHEMA.to_vec();
+    // Pinned to the permits every store was seeded with then (the ctxloom
+    // template's), not the default of now.
+    let mut expected: Vec<&str> = CTXLOOM_SCHEMA.to_vec();
     expected.extend([r#"tagma.permit:"area:cli""#, r#"tagma.permit:"lang:*""#]);
     assert_eq!(export(&mut service), sorted(&expected));
     assert_eq!(held(&service), sorted(&expected), "seeded on its open");
+    assert!(
+        !held(&service).contains(&canonical(r#"tagma.permit:"area:*""#)),
+        "the general default's permits are not added to an old store"
+    );
     assert!(add(&mut service, &["area:cli", "lang:en"]).is_ok());
     let error = add(&mut service, &["wibble"]).unwrap_err();
     assert!(error.to_string().contains("not-permitted"), "{error}");
@@ -306,7 +314,15 @@ fn test_a_store_open_before_every_store_was_an_allowlist_is_seeded_with_its_perm
     crate::fakes::declared(service.stores.store.inner(), &seed_without_permits());
     old_task(&service, "calm-otter", &["wibble"]);
     assert!(add(&mut service, &["triage:kind=defect", "relates:calm-otter"]).is_ok());
-    assert_eq!(held(&service), sorted(&SEEDED_SCHEMA), "seeded on its open");
+    assert_eq!(
+        held(&service),
+        sorted(&CTXLOOM_SCHEMA),
+        "seeded on its open"
+    );
+    assert!(
+        !held(&service).contains(&canonical(r#"tagma.permit:"area:*""#)),
+        "pinned to the old permits, not the default of now"
+    );
     let error = add(&mut service, &["wibble"]).unwrap_err();
     assert!(error.to_string().contains("not-permitted"), "{error}");
 }
@@ -318,19 +334,21 @@ fn test_a_store_holding_its_permits_as_presences_is_read_as_it_holds_them() {
     let mut service = fresh();
     add(&mut service, &[]).unwrap();
     ready(service.revoke(PermitChange {
-        permit: "landed:".to_string(),
+        permit: "queue:".to_string(),
         ..Default::default()
     }))
     .unwrap();
     let revoked = export(&mut service);
-    assert!(!revoked.contains(&canonical(r#"tagma.permit:"landed:*""#)));
+    assert!(!revoked.contains(&canonical(r#"tagma.permit:"queue:*""#)));
     assert_eq!(held(&service), revoked);
     assert_eq!(export(&mut service), revoked, "not seeded again");
 }
 
 // A store left with no permit (each one revoked or removed) is read with
-// the seed's, as a store with no schema stream is read with the seed:
-// there is no store permitting nothing.
+// the permits stores were seeded with before F6 (the ctxloom template's:
+// a store holding no presence is read as an old one), as a store with no
+// schema stream is read with the seed: there is no store permitting
+// nothing.
 #[test]
 fn test_a_store_left_with_no_permit_is_read_with_the_seeds_permits() {
     let mut service = fresh();
@@ -341,7 +359,17 @@ fn test_a_store_left_with_no_permit_is_read_with_the_seeds_permits() {
         .filter(|spelled| spelled.starts_with("tagma.permit:"))
         .collect();
     declare(&mut service, &[], &permits);
-    assert_eq!(export(&mut service), sorted(&SEEDED_SCHEMA));
+    let mut expected: Vec<&str> = SEEDED_SCHEMA
+        .iter()
+        .copied()
+        .filter(|spelled| !spelled.starts_with("tagma.permit:"))
+        .collect();
+    expected.extend(
+        CTXLOOM_SCHEMA
+            .iter()
+            .filter(|spelled| spelled.starts_with("tagma.permit:")),
+    );
+    assert_eq!(export(&mut service), sorted(&expected));
 }
 
 #[test]
@@ -504,21 +532,36 @@ fn test_a_task_may_carry_no_tag_in_the_taskloom_namespace() {
 
 // The formulas are taskloom's (ranking, not a constraint), so tagma's
 // check never sees them as one of its facets, and the old
-// `tagma.priority_fn` spelling is tagma's `unknown-facet`. A new store
-// permits no `area:` or `repo:` key (a project's own, it permits them
-// itself), so tagma says its one-a-task limits constrain nothing yet;
-// once the project permits one of each, the seeded store checks clean.
+// `tagma.priority_fn` spelling is tagma's `unknown-facet`. The general
+// default permits `area:` itself, so a new store checks clean at once; the
+// ctxloom template leaves a project's `area:` and `repo:` keys to it, so
+// tagma says its one-a-task limits constrain nothing yet, until the
+// project permits one of each.
 #[test]
-fn test_check_is_tagmas_and_a_seeded_store_permitting_its_areas_checks_clean() {
+fn test_check_is_tagmas_and_a_new_store_checks_clean() {
     let mut service = fresh();
     add(&mut service, &[]).unwrap();
-    let codes = |service: &mut Store| -> Vec<(&'static str, String)> {
-        let found = ready(service.schema_check(None)).unwrap();
-        found
-            .iter()
-            .map(|f| (f.code.as_str(), f.tag.to_string()))
-            .collect()
-    };
+    assert_eq!(codes(&mut service), []);
+    declare(&mut service, &[r#"tagma.priority_fn:"x:y"="1""#], &[]);
+    assert_eq!(
+        codes(&mut service),
+        [("unknown-facet", canonical(r#"tagma.priority_fn:"x:y"="1""#))]
+    );
+}
+
+fn codes(service: &mut Store) -> Vec<(&'static str, String)> {
+    let found = ready(service.schema_check(None)).unwrap();
+    found
+        .iter()
+        .map(|f| (f.code.as_str(), f.tag.to_string()))
+        .collect()
+}
+
+// The rule-on-unpermitted expectation, as the ctxloom template has it:
+// `area` and `repo` until the project permits one of each.
+#[test]
+fn test_a_ctxloom_store_reports_area_and_repo_unpermitted_until_permitted() {
+    let mut service = ctxloom();
     assert_eq!(
         codes(&mut service),
         [
@@ -540,11 +583,15 @@ fn test_check_is_tagmas_and_a_seeded_store_permitting_its_areas_checks_clean() {
         .unwrap();
     }
     assert_eq!(codes(&mut service), []);
-    declare(&mut service, &[r#"tagma.priority_fn:"x:y"="1""#], &[]);
-    assert_eq!(
-        codes(&mut service),
-        [("unknown-facet", canonical(r#"tagma.priority_fn:"x:y"="1""#))]
-    );
+}
+
+/// A service whose store holds the ctxloom template, as every store did
+/// before the general default.
+fn ctxloom() -> Store {
+    let mut service = over(FakeIdentity::bound(), FakeStores::default());
+    crate::fakes::declared(service.stores.store.inner(), &CTXLOOM_SCHEMA);
+    add(&mut service, &[]).unwrap();
+    service
 }
 
 #[test]
@@ -572,22 +619,22 @@ fn test_a_declare_of_a_tasks_tag_is_refused() {
 fn test_a_permit_declares_its_pattern_and_nothing_else() {
     let mut service = fresh();
     add(&mut service, &[]).unwrap();
-    let error = add(&mut service, &["area:cli"]).unwrap_err();
+    let error = add(&mut service, &["lang:en"]).unwrap_err();
     assert!(error.to_string().contains("not-permitted"), "{error}");
     ready(service.permit(PermitChange {
-        permit: "area:".to_string(),
+        permit: "lang:".to_string(),
         ..Default::default()
     }))
     .unwrap();
     let mut expected: Vec<&str> = SEEDED_SCHEMA.to_vec();
-    expected.push(r#"tagma.permit:"area:*""#);
+    expected.push(r#"tagma.permit:"lang:*""#);
     assert_eq!(export(&mut service), sorted(&expected));
-    assert!(add(&mut service, &["area:cli"]).is_ok());
+    assert!(add(&mut service, &["lang:en"]).is_ok());
     assert!(
         add(&mut service, &["triage:kind=defect"]).is_ok(),
         "a target the seed constrains, the seed permits"
     );
-    let error = add(&mut service, &["lang:en"]).unwrap_err();
+    let error = add(&mut service, &["repo:tagma"]).unwrap_err();
     assert!(error.to_string().contains("not-permitted"), "{error}");
 }
 
@@ -656,4 +703,302 @@ fn test_a_revoke_no_task_needs_removes_its_permit_from_the_schema() {
     let exported = export(&mut service);
     assert!(!exported.contains(&canonical(r#"tagma.permit:"lang:*""#)));
     assert!(exported.contains(&canonical(r#"tagma.permit:"area:*""#)));
+}
+
+// ------------------------------------------- the default and `schema init`
+
+fn init(
+    service: &mut Store,
+    template: Template,
+    areas: &[&str],
+    dry_run: bool,
+) -> Result<crate::Declared, AppError> {
+    ready(service.schema_init(SchemaInit {
+        template,
+        areas: areas.iter().map(|a| a.to_string()).collect(),
+        dry_run,
+    }))
+}
+
+fn init_yes(service: &mut Store, template: Template, areas: &[&str]) -> crate::Declared {
+    init(service, template, areas, false).unwrap()
+}
+
+/// A service over a store no one has written to: no project, no store.
+fn untouched() -> Store {
+    over(FakeIdentity::default(), FakeStores::default())
+}
+
+#[test]
+fn test_a_fresh_store_accepts_an_area_as_its_first_write() {
+    let mut service = fresh();
+    let written = add(&mut service, &["area:cli"]).unwrap();
+    assert_eq!(written.task.tags.len(), 1);
+    assert_eq!(held(&service), sorted(&GENERAL_SCHEMA));
+}
+
+#[test]
+fn test_the_general_default_keeps_repo_unpermitted_and_one_area_a_task() {
+    let mut service = fresh();
+    let error = add(&mut service, &["repo:tagma"]).unwrap_err();
+    assert!(not_permitted(&error, "repo:tagma"), "{error}");
+    let error = add(&mut service, &["area:cli", "area:core"]).unwrap_err();
+    assert!(error.to_string().contains("too-many-keys"), "{error}");
+    for out_of_the_default in [
+        "triage:exposed=cli",
+        "triage:blind-gate=ci",
+        "triage:audited=20260101",
+        "landed:x",
+        "platform:linux",
+        "sig:os.Mode",
+    ] {
+        let error = add(&mut service, &[out_of_the_default]).unwrap_err();
+        assert!(
+            not_permitted(&error, out_of_the_default.split('=').next().unwrap()),
+            "{out_of_the_default}: {error}"
+        );
+    }
+}
+
+fn not_permitted(error: &AppError, tag: &str) -> bool {
+    let shown = error.to_string();
+    error.code() == crate::fakes::tag_code("tag-rules")
+        && shown.contains("not-permitted")
+        && shown.contains(tag)
+}
+
+// A store declared with the old seed is exactly as it was: the new default
+// is read only where a stream has no history.
+#[test]
+fn test_a_store_declared_with_the_old_seed_is_unchanged_by_the_new_default() {
+    let mut service = over(FakeIdentity::bound(), FakeStores::default());
+    crate::fakes::declared(service.stores.store.inner(), &CTXLOOM_SCHEMA);
+    let before = held(&service);
+    assert_eq!(before, sorted(&CTXLOOM_SCHEMA));
+    let error = add(&mut service, &["area:cli"]).unwrap_err();
+    assert!(not_permitted(&error, "area:cli"), "{error}");
+    assert!(add(&mut service, &["landed:x", "platform:linux", "sig:a.B"]).is_ok());
+    assert_eq!(export(&mut service), before);
+    assert_eq!(held(&service), before, "nothing was written to its schema");
+}
+
+// ------------------------------------------------------------- init
+
+#[test]
+fn test_init_previews_on_a_store_nothing_exists_for_and_writes_nothing() {
+    let mut service = untouched();
+    let preview = init(&mut service, Template::General, &[], true).unwrap();
+    assert!(preview.changed);
+    assert_eq!(preview.tags, sorted(&GENERAL_SCHEMA));
+    assert_eq!(
+        service.stores.opened.len(),
+        0,
+        "no store made for a preview"
+    );
+    assert!(
+        held(&service).is_empty(),
+        "the schema stream has no history"
+    );
+}
+
+#[test]
+fn test_init_yes_declares_the_template_on_a_store_with_no_history() {
+    let mut service = untouched();
+    let declared = init_yes(&mut service, Template::General, &[]);
+    assert!(declared.changed);
+    assert_eq!(declared.tags, sorted(&GENERAL_SCHEMA));
+    assert_eq!(held(&service), sorted(&GENERAL_SCHEMA));
+    assert!(add(&mut service, &["area:cli"]).is_ok());
+}
+
+#[test]
+fn test_init_is_idempotent_and_a_second_run_changes_nothing() {
+    let mut service = untouched();
+    init_yes(&mut service, Template::General, &["cli", "docs"]);
+    let first = held(&service);
+    let again = init_yes(&mut service, Template::General, &["cli", "docs"]);
+    assert!(!again.changed);
+    assert_eq!(again.tags, first);
+    assert_eq!(held(&service), first);
+    let preview = init(&mut service, Template::General, &["cli", "docs"], true).unwrap();
+    assert!(!preview.changed);
+    assert_eq!(preview.tags, first);
+}
+
+#[test]
+fn test_init_on_a_seeded_store_adds_nothing() {
+    let mut service = fresh();
+    add(&mut service, &[]).unwrap();
+    let before = held(&service);
+    let declared = init_yes(&mut service, Template::General, &[]);
+    assert!(!declared.changed);
+    assert_eq!(held(&service), before);
+}
+
+#[test]
+fn test_init_areas_close_area_to_exactly_those_keys() {
+    let mut service = untouched();
+    let preview = init(&mut service, Template::General, &["cli", "docs"], true).unwrap();
+    assert!(!preview
+        .tags
+        .contains(&canonical(r#"tagma.permit:"area:*""#)));
+    assert!(preview
+        .tags
+        .contains(&canonical(r#"tagma.permit:"area:cli""#)));
+    assert!(held(&service).is_empty());
+    init_yes(&mut service, Template::General, &["cli", "docs", "cli"]);
+    let held = held(&service);
+    assert!(!held.contains(&canonical(r#"tagma.permit:"area:*""#)));
+    assert_eq!(held.len(), GENERAL_SCHEMA.len() - 1 + 2, "a repeat is one");
+    assert!(add(&mut service, &["area:docs"]).is_ok());
+    let error = add(&mut service, &["area:other"]).unwrap_err();
+    assert!(not_permitted(&error, "area:other"), "{error}");
+}
+
+#[test]
+fn test_init_adds_more_areas_to_a_closed_set_and_never_opens_it() {
+    let mut service = untouched();
+    init_yes(&mut service, Template::General, &["cli"]);
+    let more = init_yes(&mut service, Template::General, &["cli", "docs"]);
+    assert!(more.changed);
+    assert!(more
+        .tags
+        .contains(&canonical(r#"tagma.permit:"area:docs""#)));
+    let plain = init_yes(&mut service, Template::General, &[]);
+    assert!(!plain.changed, "no --area does not open a closed area");
+    assert!(!plain.tags.contains(&canonical(r#"tagma.permit:"area:*""#)));
+}
+
+#[test]
+fn test_init_areas_on_an_open_area_is_refused_naming_the_permit() {
+    let mut service = fresh();
+    add(&mut service, &[]).unwrap();
+    let error = init(&mut service, Template::General, &["cli"], false).unwrap_err();
+    assert_eq!(
+        error,
+        AppError::SchemaInitConflict {
+            template: "general".to_string(),
+            held: canonical(r#"tagma.permit:"area:*""#),
+        }
+    );
+    assert_eq!(error.exit().code(false), 48);
+    assert_eq!(
+        init(&mut service, Template::General, &["cli"], true).unwrap_err(),
+        error,
+        "a preview refuses as the apply does"
+    );
+    assert_eq!(held(&service), sorted(&GENERAL_SCHEMA), "nothing changed");
+}
+
+#[test]
+fn test_init_ctxloom_declares_the_old_seed() {
+    let mut service = untouched();
+    let declared = init_yes(&mut service, Template::Ctxloom, &[]);
+    assert_eq!(declared.tags, sorted(&CTXLOOM_SCHEMA));
+    assert_eq!(held(&service), sorted(&CTXLOOM_SCHEMA));
+    let error = add(&mut service, &["area:cli"]).unwrap_err();
+    assert!(not_permitted(&error, "area:cli"), "{error}");
+    let mut with_areas = untouched();
+    let declared = init_yes(&mut with_areas, Template::Ctxloom, &["cli"]);
+    assert_eq!(declared.tags.len(), CTXLOOM_SCHEMA.len() + 1);
+    assert!(add(&mut with_areas, &["area:cli"]).is_ok());
+}
+
+#[test]
+fn test_init_refuses_a_template_that_would_change_a_rule_the_store_holds() {
+    // The old seed's formula is not the general default's: adding the
+    // general set would be a second rule for the target.
+    let mut service = over(FakeIdentity::bound(), FakeStores::default());
+    crate::fakes::declared(service.stores.store.inner(), &CTXLOOM_SCHEMA);
+    let error = init(&mut service, Template::General, &[], false).unwrap_err();
+    let AppError::SchemaInitConflict { template, held } = &error else {
+        panic!("{error:?}");
+    };
+    assert_eq!(template, "general");
+    assert!(held.starts_with("taskloom.priority_fn"), "{held}");
+    assert_eq!(held_tags(&service), sorted(&CTXLOOM_SCHEMA), "unchanged");
+}
+
+fn held_tags(service: &Store) -> Vec<String> {
+    held(service)
+}
+
+#[test]
+fn test_init_adds_only_what_a_store_with_its_own_rules_lacks() {
+    let mut service = over(FakeIdentity::bound(), FakeStores::default());
+    crate::fakes::declared(
+        service.stores.store.inner(),
+        &[
+            r#"tagma.permit:"lang:*""#,
+            r#"tagma.range:"triage:level"=1..5"#,
+        ],
+    );
+    let declared = init(&mut service, Template::General, &[], false).unwrap();
+    assert!(declared.changed);
+    let mut expected: Vec<&str> = GENERAL_SCHEMA.to_vec();
+    expected.push(r#"tagma.permit:"lang:*""#);
+    assert_eq!(held(&service), sorted(&expected));
+}
+
+#[test]
+fn test_init_migrates_a_store_from_before_f6_with_its_old_permits() {
+    let mut service = over(FakeIdentity::bound(), FakeStores::default());
+    crate::fakes::declared(service.stores.store.inner(), &seed_without_permits());
+    let preview = init(&mut service, Template::Ctxloom, &[], true).unwrap();
+    // Read as it is read everywhere, the store already holds the old
+    // permits: there is nothing to add, and a preview writes nothing.
+    assert!(!preview.changed);
+    assert_eq!(preview.tags, sorted(&CTXLOOM_SCHEMA));
+    assert_eq!(held(&service), sorted(&seed_without_permits()));
+    let declared = init_yes(&mut service, Template::Ctxloom, &[]);
+    assert!(!declared.changed);
+    assert_eq!(declared.tags, sorted(&CTXLOOM_SCHEMA));
+    assert_eq!(held(&service), sorted(&CTXLOOM_SCHEMA));
+}
+
+#[test]
+fn test_init_refuses_a_blank_or_malformed_area_before_it_reads_anything() {
+    let mut service = untouched();
+    assert_eq!(
+        init(&mut service, Template::General, &[" "], false).unwrap_err(),
+        AppError::Blank { field: "area" }
+    );
+    for bad in ["a:b", "x=1", "a b"] {
+        let error = init(&mut service, Template::General, &[bad], false).unwrap_err();
+        assert!(
+            matches!(&error, AppError::PermitMalformed { permit } if permit == &format!("area:{bad}")),
+            "{bad}: {error:?}"
+        );
+    }
+    assert_eq!(service.stores.opened.len(), 0);
+    assert!(held(&service).is_empty());
+}
+
+#[test]
+fn test_init_is_refused_where_a_layer_still_sets_a_moved_key() {
+    struct Moved;
+    impl ports::Configuration for Moved {
+        fn tag_schema(&mut self) -> Result<Vec<String>, Report> {
+            panic!("only the import reads the moved keys")
+        }
+
+        fn moved(&mut self) -> Result<(), Report> {
+            Err(Report::new("a-key-moved"))
+        }
+    }
+    impl ports::ConfigurationWriter for Moved {
+        fn write_tag_permits(&mut self, _: &TagPermits) -> Result<(), Report> {
+            Ok(())
+        }
+    }
+    let mut service = Service::new(
+        FakeIdentity::default(),
+        FakeStores::default(),
+        FakeNames::of(&HARPS),
+        FakeClock::default(),
+        FakeDelay::default(),
+    )
+    .with_configuration(Moved);
+    let error = ready(service.schema_init(SchemaInit::default())).unwrap_err();
+    assert!(matches!(error, AppError::Configuration(_)), "{error:?}");
 }

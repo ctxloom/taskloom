@@ -31,6 +31,8 @@ use tasks::Tag;
 
 use tagma_core::semver::{Semver, SEMVER};
 
+use crate::template::{Template, CTXLOOM_SCHEMA, GENERAL_SCHEMA};
+
 /// The namespace taskloom's own schema tags are in: ranking formulas,
 /// which tagma's `check` would otherwise call an unknown facet. A task may
 /// carry no tag in it, as none in `tagma`.
@@ -43,93 +45,11 @@ pub(crate) const TAGMA_NAMESPACE: &str = "tagma";
 pub const PERMIT: &str = "tagma.permit";
 
 /// What a store's schema stream is seeded with when the store is made: the
-/// `triage:*` baseline that was `DEFAULT_TAG_SCHEMA`, in tagma's facets
-/// (one tag per enum value, `lo..hi` ranges), the formulas in
-/// `taskloom.*`, and one `area` and one `repo` a task
-/// (`tagma.keys-per-item`, which was lint's `ONE_KEY`); and its permits,
-/// for every store is an allowlist from when it is made (the owner's
-/// ruling F6, 2026-11-02): each target the seed constrains, and the core
-/// vocabulary copied into every project (tag-vocabulary.proposal.md
-/// section 2; rulings 13 and 14): the factual flags, `human:`'s keys,
-/// `relates:`, `touches:`, `sig:`, `queue:` and `landed:` open,
-/// `platform:`'s keys (not `ctxloom:plan`, which plans retired), and the
-/// two parking flags, `icebox` and `someday-maybe` (the owner's request,
-/// 2026-11-12: flat tags, each beside a Deferred status and its trigger),
-/// and `review:` open, its `review:illuminated` a scalar held to
-/// `YYYYMMDDHHMM` in UTC (the owner's request, 2026-11-12: a finding the
-/// illuminated code review files, tagged with the review's start). tagma
-/// has no date type, so the stamp is a numeral held to its range, as
-/// `triage:audited`'s date is: a calendar-invalid one (month 13) inside the
-/// range is not refused. A project's own (its `area:` and `repo:` keys) it permits itself.
-pub const SEEDED_SCHEMA: [&str; 67] = [
-    r#"tagma.arity:"triage:level"=scalar"#,
-    r#"tagma.arity:"triage:verdict"=scalar"#,
-    r#"tagma.arity:"triage:audited"=scalar"#,
-    r#"tagma.arity:"triage:kind"=scalar"#,
-    r#"tagma.arity:"triage:effort"=scalar"#,
-    r#"tagma.arity:"triage:blocks-release"=scalar"#,
-    r#"tagma.arity:"review:illuminated"=scalar"#,
-    r#"tagma.type:"triage:blocks-release"=semver"#,
-    r#"tagma.enum:"triage:kind"=defect"#,
-    r#"tagma.enum:"triage:kind"=capability"#,
-    r#"tagma.enum:"triage:kind"=chore"#,
-    r#"tagma.enum:"triage:exposed"=wire"#,
-    r#"tagma.enum:"triage:exposed"=cli"#,
-    r#"tagma.enum:"triage:exposed"=config"#,
-    r#"tagma.enum:"triage:exposed"=on-disk"#,
-    r#"tagma.enum:"triage:exposed"=api"#,
-    r#"tagma.enum:"triage:verdict"=holds"#,
-    r#"tagma.enum:"triage:verdict"=phantom"#,
-    r#"tagma.enum:"triage:verdict"=obsolete"#,
-    r#"tagma.enum:"triage:verdict"=partial"#,
-    r#"tagma.enum:"triage:verdict"=unclear"#,
-    r#"tagma.enum:"triage:blind-gate"=unit"#,
-    r#"tagma.enum:"triage:blind-gate"=integration"#,
-    r#"tagma.enum:"triage:blind-gate"=acceptance"#,
-    r#"tagma.enum:"triage:blind-gate"=mutation"#,
-    r#"tagma.enum:"triage:blind-gate"=lint"#,
-    r#"tagma.enum:"triage:blind-gate"=ci"#,
-    r#"tagma.range:"triage:level"=1..5"#,
-    r#"tagma.range:"triage:audited"=20250101..20991231"#,
-    r#"tagma.range:"triage:effort"=0..5"#,
-    r#"tagma.range:"review:illuminated"=202501010000..209912312359"#,
-    r#"tagma.keys-per-item:area=1"#,
-    r#"tagma.keys-per-item:repo=1"#,
-    r#"taskloom.decay_fn:"triage:kind"="{{triage:exposed=*}} > 0 ? 1 + {{age_days}}/({{age_days}}+90) : {{triage:blind-gate=*}} > 0 ? 1 + {{age_days}}/({{age_days}}+30) : {{triage:kind=capability}} > 0 ? 0.4 + 0.6 * 0.5 ** ({{age_days}}/120) : {{triage:kind=chore}} > 0 ? 0.5 + 0.5 * 0.5 ** ({{age_days}}/180) : 1""#,
-    r#"taskloom.priority_fn:"triage:kind"="({{triage:level}} > 0 ? 2 ** (3 - {{triage:level}}) : 0.1) * {{age_factor}} * (1 + {{triage:blocks-release=*}}) / (1 + {{triage:effort}}/2)""#,
-    r#"tagma.permit:"triage:audited""#,
-    r#"tagma.permit:"triage:blind-gate""#,
-    r#"tagma.permit:"triage:blocks-release""#,
-    r#"tagma.permit:"triage:effort""#,
-    r#"tagma.permit:"triage:exposed""#,
-    r#"tagma.permit:"triage:kind""#,
-    r#"tagma.permit:"triage:level""#,
-    r#"tagma.permit:"triage:verdict""#,
-    r#"tagma.permit:"triage:security""#,
-    r#"tagma.permit:"triage:data-loss""#,
-    r#"tagma.permit:"triage:crashes""#,
-    r#"tagma.permit:"triage:no-workaround""#,
-    r#"tagma.permit:"triage:regression""#,
-    r#"tagma.permit:"triage:silent-no-op""#,
-    r#"tagma.permit:"triage:flaky""#,
-    r#"tagma.permit:"human:decision""#,
-    r#"tagma.permit:"human:voice""#,
-    r#"tagma.permit:"human:authority""#,
-    r#"tagma.permit:"human:verify""#,
-    r#"tagma.permit:"human:prerequisite""#,
-    r#"tagma.permit:"human:action""#,
-    r#"tagma.permit:icebox"#,
-    r#"tagma.permit:someday-maybe"#,
-    r#"tagma.permit:"relates:*""#,
-    r#"tagma.permit:"touches:*""#,
-    r#"tagma.permit:"sig:*""#,
-    r#"tagma.permit:"queue:*""#,
-    r#"tagma.permit:"landed:*""#,
-    r#"tagma.permit:"review:*""#,
-    r#"tagma.permit:"platform:linux""#,
-    r#"tagma.permit:"platform:macos""#,
-    r#"tagma.permit:"platform:windows""#,
-];
+/// GENERAL default set ([`crate::template::GENERAL_SCHEMA`]), small and
+/// project-neutral. The ctxloom project's own set is the named template
+/// [`crate::template::CTXLOOM_SCHEMA`]. Every store is an allowlist from
+/// when it is made (the owner's ruling F6, 2026-11-02).
+pub const SEEDED_SCHEMA: [&str; GENERAL_SCHEMA.len()] = GENERAL_SCHEMA;
 
 /// A store's rules, as read: its schema tags (the seed, where its stream
 /// has none), in tagma's type, sorted by their canonical spelling.
@@ -141,13 +61,21 @@ pub struct StoreRules {
 impl Default for StoreRules {
     /// The seeded rules: what a store with no schema stream is read as.
     fn default() -> Self {
-        StoreRules::of_tags(SEEDED_SCHEMA.iter().map(|spelled| {
-            tagma_core::Tag::parse(spelled).expect("the seeded schema is tagma's grammar")
-        }))
+        StoreRules::of_template(Template::default())
     }
 }
 
 impl StoreRules {
+    /// The rules `template` declares, as they are before any is changed.
+    pub fn of_template(template: Template) -> StoreRules {
+        StoreRules::of_tags(
+            template
+                .schema()
+                .iter()
+                .map(|spelled| crate::template::parsed(spelled)),
+        )
+    }
+
     /// The rules `state` folds to, as every store is read: the seed where
     /// the stream has no history; else its tags, a store's from before
     /// every store was an allowlist read as one ([`StoreRules::allowlisted`]).
@@ -168,8 +96,9 @@ impl StoreRules {
     /// declared as a presence; else, from before permits were presences,
     /// each `tagma.permit` carrying a value dropped, its `=true` patterns
     /// kept as presences (its `"*:*"=false` closed the store; every store
-    /// is closed now), and the seed's permits declared, as a store made
-    /// now is.
+    /// is closed now), and the permits every store was seeded with then
+    /// declared: the ctxloom template's ([`CTXLOOM_SCHEMA`]), pinned, not
+    /// the default of now.
     fn allowlisted(self) -> StoreRules {
         if self.facet(PERMIT).any(|tag| tag.value.is_none()) {
             return self;
@@ -182,9 +111,13 @@ impl StoreRules {
             .into_iter()
             .filter(|tag| tag.value.as_deref() == Some("true"))
             .map(|tag| permit_tag(&tag.key));
-        let seeded = StoreRules::default()
-            .facet(PERMIT)
-            .cloned()
+        // The permits of the set every store was seeded with then (the
+        // ctxloom template), not the default of now: a store from before
+        // F6 keeps the vocabulary it was made with.
+        let seeded = CTXLOOM_SCHEMA
+            .iter()
+            .map(|spelled| crate::template::parsed(spelled))
+            .filter(|tag| tag.namespace.as_deref() == Some(PERMIT))
             .collect::<Vec<_>>();
         StoreRules::of_tags(rules.into_iter().chain(kept).chain(seeded))
     }

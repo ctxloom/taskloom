@@ -65,6 +65,8 @@ struct Fake {
     declared: Option<Result<tasks_application::Declared, AppError>>,
     /// Every import asked for (its answer is `declared`'s).
     imports_of_config: usize,
+    /// Every `schema init` sent (its answer is `declared`'s).
+    inits: Vec<tasks_application::SchemaInit>,
     /// The store's schema tags `schema export` answers, and the projects asked.
     exported: Option<Result<Vec<String>, AppError>>,
     /// tagma's findings `schema check` answers, and the projects asked.
@@ -204,6 +206,14 @@ impl PermitService for Fake {
     ) -> Result<tasks_application::Declared, AppError> {
         self.declares.push(declaration);
         self.declared.clone().expect("a declare answer scripted")
+    }
+
+    async fn schema_init(
+        &mut self,
+        init: tasks_application::SchemaInit,
+    ) -> Result<tasks_application::Declared, AppError> {
+        self.inits.push(init);
+        self.declared.clone().expect("an init answer scripted")
     }
 
     async fn import_config(&mut self) -> Result<tasks_application::Declared, AppError> {
@@ -3227,14 +3237,130 @@ fn test_schema_declare_sends_its_adds_and_removes_as_one_declaration() {
 }
 
 #[test]
+fn test_schema_init_previews_by_default_and_names_the_command_that_applies_it() {
+    let mut fake = Fake {
+        declared: schema_declared(&["tagma.permit:\"area:*\""], true),
+        ..Fake::default()
+    };
+    let ran = run_on(
+        &mut fake,
+        false,
+        &[
+            "manage", "schema", "init", "--area", "cli", "--area", "my docs",
+        ],
+    );
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(
+        fake.inits,
+        [tasks_application::SchemaInit {
+            template: tasks_application::Template::General,
+            areas: vec!["cli".to_string(), "my docs".to_string()],
+            dry_run: true,
+        }]
+    );
+    assert!(
+        ran.err.contains(
+            "taskloom manage schema init --template general --area cli --area 'my docs' --yes"
+        ),
+        "{}",
+        ran.err
+    );
+}
+
+#[test]
+fn test_schema_init_yes_applies_the_template_asked_for() {
+    let mut fake = Fake {
+        declared: schema_declared(&["tagma.keys-per-item:area=1"], true),
+        ..Fake::default()
+    };
+    let ran = run_on(
+        &mut fake,
+        false,
+        &["manage", "schema", "init", "--template", "ctxloom", "--yes"],
+    );
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert_eq!(
+        fake.inits,
+        [tasks_application::SchemaInit {
+            template: tasks_application::Template::Ctxloom,
+            areas: Vec::new(),
+            dry_run: false,
+        }]
+    );
+    let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({"tags": ["tagma.keys-per-item:area=1"], "changed": true})
+    );
+    assert_eq!(ran.err, "", "an applied init says nothing more");
+}
+
+#[test]
+fn test_schema_init_dry_run_wins_over_yes_and_says_what_it_would_do() {
+    let mut fake = Fake {
+        declared: schema_declared(&[], false),
+        ..Fake::default()
+    };
+    let ran = run_on(
+        &mut fake,
+        false,
+        &[
+            "manage",
+            "schema",
+            "init",
+            "--area",
+            "cli",
+            "--yes",
+            "--dry-run",
+        ],
+    );
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert!(fake.inits[0].dry_run);
+    let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
+    assert_eq!(json["yes_ignored_by_dry_run"], true);
+    assert_eq!(
+        json["would_apply"],
+        serde_json::json!(["declare the general tag set, area: closed to cli"])
+    );
+    let mut open = Fake {
+        declared: schema_declared(&[], false),
+        ..Fake::default()
+    };
+    let ran = run_on(
+        &mut open,
+        false,
+        &["manage", "schema", "init", "--yes", "--dry-run"],
+    );
+    let json: serde_json::Value = serde_json::from_str(&ran.out).unwrap();
+    assert_eq!(
+        json["would_apply"],
+        serde_json::json!(["declare the general tag set, area: open"])
+    );
+}
+
+#[test]
+fn test_schema_init_refuses_an_unknown_template_as_a_usage_error() {
+    let mut fake = Fake::default();
+    let ran = run_on(
+        &mut fake,
+        false,
+        &["manage", "schema", "init", "--template", "nope"],
+    );
+    assert_eq!(ran.code, 48, "{}", ran.err);
+    assert!(fake.inits.is_empty());
+}
+
+#[test]
 fn test_the_loadout_forbids_agents_every_schema_changing_command_unasked() {
     let loadout = crate::companion::LOADOUT;
+    let flowed = loadout.split_whitespace().collect::<Vec<_>>().join(" ");
     for command in [
         "`taskloom manage schema declare`",
-        "`taskloom manage\n        schema permits add|remove`",
+        "`taskloom manage schema init`",
+        "`taskloom manage schema permits add|remove`",
         "`taskloom manage migrate schema`",
     ] {
-        assert!(loadout.contains(command), "{command} not named");
+        assert!(flowed.contains(command), "{command} not named");
     }
     assert!(
         !loadout.contains("future schema-declaring command"),
@@ -3399,4 +3525,27 @@ fn test_a_declaration_is_asked_as_a_dry_run_unless_it_is_applied() {
         assert_eq!(fake.declares.len(), 1, "{line:?}");
         assert_eq!(fake.declares[0].dry_run, dry_run, "{line:?}");
     }
+}
+
+// The init interview hook: ctxloom's init reads `init.questions` (an id and
+// a prompt, nothing else) and splices `setup_guidance` into its prompt; the
+// area question is one, and the guidance maps its answer to the command.
+#[test]
+fn test_the_loadout_carries_the_area_question_for_the_init_interview() {
+    let loadout = crate::companion::LOADOUT;
+    let init = loadout.split("\ninit:\n").nth(1).expect("an init section");
+    assert!(init.contains("  questions:\n    - id: schema-areas\n"));
+    assert!(init.contains(
+        "prompt: Do you want to customize this project's areas (components)? Give them, or keep area open."
+    ));
+    let guidance = init.split("questions:").next().unwrap();
+    assert!(guidance.contains("taskloom manage schema init --area <key>"));
+    assert!(guidance.contains("`schema-areas`"));
+    // Only the fields ctxloom's InitLoadout models are used.
+    let keys: Vec<&str> = init
+        .lines()
+        .filter(|l| l.starts_with("  ") && !l.starts_with("   "))
+        .map(|l| l.trim().split(':').next().unwrap())
+        .collect();
+    assert_eq!(keys, ["setup_guidance", "questions"]);
 }

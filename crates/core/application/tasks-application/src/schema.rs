@@ -24,10 +24,11 @@ use tasks::schema::{
     SCHEMA_STREAM,
 };
 
-use crate::rules::{Finding, StoreRules};
+use crate::rules::{Finding, StoreRules, Template};
 use crate::write::Writes;
 use crate::{failed, rejected, AppError, Tag};
 use kernel_runner::Runner;
+use tag_rules::template::{self, Conflict};
 
 /// Schema tags to add and remove, in tagma's grammar: `taskloom schema
 /// declare --add/--remove`. Each must be in `tagma.*` or `taskloom.*`.
@@ -35,6 +36,18 @@ use kernel_runner::Runner;
 pub struct Declaration {
     pub add: Vec<String>,
     pub remove: Vec<String>,
+    /// Check everything and answer what it would do, writing nothing.
+    pub dry_run: bool,
+}
+
+/// `taskloom manage schema init`: a named template, its areas
+/// customized, to declare on a store, adding only what the store lacks.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct SchemaInit {
+    pub template: Template,
+    /// The `area:` keys the project has, when it has said: `area:` is then
+    /// CLOSED to exactly these; none given, the template's own (open).
+    pub areas: Vec<String>,
     /// Check everything and answer what it would do, writing nothing.
     pub dry_run: bool,
 }
@@ -111,14 +124,16 @@ async fn rules_after<St: Store>(
 
 /// `store`'s rules after seeding its schema stream: where it has no
 /// history, with [`crate::SEEDED_SCHEMA`]; where it holds permits from
-/// before every store was an allowlist, with the seed's permits, its old
-/// ones made presences ([`seeding`]). A stream that holds what it is read
+/// before every store was an allowlist, with the permits of the ctxloom
+/// template (pinned: what stores were then seeded with), its old ones made
+/// presences ([`seeding`]). A stream that holds what it is read
 /// as is loaded and nothing is shaped or sent. The seeding is sent at the
 /// head loaded, so two writers seeding at once land it once, the second,
 /// shaping again, finding it there.
 pub(crate) async fn seed_in<St, C, D>(
     runner: &mut Runner<'_, C, D>,
     store: &St,
+    base: Template,
 ) -> Result<StoreRules, AppError>
 where
     St: Store,
@@ -126,12 +141,12 @@ where
     D: Delay + Jitter + Send,
 {
     let held = schema_now(store, runner.registry).await?;
-    if seeding(&held).is_none() {
+    if seeding(&held, base).is_none() {
         return Ok(StoreRules::of(&held));
     }
     let unseeded = |schema: &SchemaAggregate| {
         let held = schema.state().clone();
-        let send = seeding(&held).map(SchemaCommand::from);
+        let send = seeding(&held, base).map(SchemaCommand::from);
         (send, held)
     };
     let command_id = runner.clock.command_id();
@@ -154,8 +169,11 @@ where
 /// holding its permits from before every store was an allowlist, those
 /// permits as presences and the seed's beside them; `None` where it holds
 /// them already.
-fn seeding(held: &SchemaState) -> Option<Declare> {
-    let read = StoreRules::of(held);
+fn seeding(held: &SchemaState, base: Template) -> Option<Declare> {
+    let read = match held.declared {
+        true => StoreRules::of(held),
+        false => StoreRules::of_template(base),
+    };
     let holds = StoreRules::held(held);
     let missing = |from: &StoreRules, of: &StoreRules| -> Vec<Tag> {
         from.tags()
@@ -170,6 +188,104 @@ fn seeding(held: &SchemaState) -> Option<Declare> {
         remove: missing(&holds, &read),
     };
     (!declare.add.is_empty() || !declare.remove.is_empty()).then_some(declare)
+}
+
+/// The rules `schema init` is held against: the store's as read, where its
+/// stream has history; none where it has none (a store with no history is
+/// not read as the default seed, because init declares its set itself).
+fn init_held(state: &SchemaState) -> StoreRules {
+    match state.declared {
+        true => StoreRules::of(state),
+        false => StoreRules::of_tags(std::iter::empty()),
+    }
+}
+
+/// `conflict` as the refusal of `template`.
+pub(crate) fn conflicting(template: Template, conflict: Conflict) -> AppError {
+    AppError::SchemaInitConflict {
+        template: template.name().to_string(),
+        held: conflict.held.join("; "),
+    }
+}
+
+/// What `wanted` (a template's tags) would leave on `store`'s schema
+/// stream, sent nowhere: the rules after it, and whether they change.
+pub(crate) async fn init_preview<St: Store>(
+    store: Option<&St>,
+    registry: &Registry,
+    template: Template,
+    wanted: &[tagma_core::Tag],
+) -> Result<Declared, AppError> {
+    let held = match store {
+        Some(store) => init_held(&schema_now(store, registry).await?),
+        None => init_held(&SchemaState::default()),
+    };
+    let missing = template::missing(&held, wanted).map_err(|c| conflicting(template, c))?;
+    let changed = !missing.is_empty();
+    let after = StoreRules::of_tags(held.tags().iter().cloned().chain(missing));
+    Ok(Declared {
+        changed,
+        tags: after.export(),
+    })
+}
+
+/// `wanted` (a template's tags) declared on `store`'s schema stream, only
+/// the tags it lacks: its rules after, and whether they changed. A store
+/// from before every store was an allowlist is migrated first ([`seed_in`]);
+/// one with no history is not seeded, since this declares its set. Sent at
+/// the head shaped from, so two writers land it once.
+pub(crate) async fn init_in<St, C, D>(
+    runner: &mut Runner<'_, C, D>,
+    store: &St,
+    template: Template,
+    wanted: &[tagma_core::Tag],
+) -> Result<Declared, AppError>
+where
+    St: Store,
+    C: Clock + CommandIds,
+    D: Delay + Jitter + Send,
+{
+    if schema_now(store, runner.registry).await?.declared {
+        seed_in(runner, store, Template::default()).await?;
+    }
+    let missing = |schema: &SchemaAggregate| {
+        let held = init_held(schema.state());
+        match template::missing(&held, wanted) {
+            Ok(missing) => {
+                let add: Vec<Tag> = missing.into_iter().map(Tag::from).collect();
+                let declare = Declare {
+                    add,
+                    remove: Vec::new(),
+                };
+                let send = (!declare.add.is_empty()).then(|| SchemaCommand::from(declare));
+                (send, Ok(held))
+            }
+            Err(conflict) => (None, Err(conflict)),
+        }
+    };
+    let command_id = runner.clock.command_id();
+    let (handled, held) = runner
+        .shaped::<SchemaAggregate, SchemaRejection, _, _, _>(
+            store,
+            &schema_stream(),
+            &command_id,
+            missing,
+        )
+        .await??;
+    let held = held.map_err(|c| conflicting(template, c))?;
+    match handled {
+        Some(handled) => {
+            let after = rules_after(store, runner.registry, &handled).await?;
+            Ok(Declared {
+                changed: after != held,
+                tags: after.export(),
+            })
+        }
+        None => Ok(Declared {
+            changed: false,
+            tags: held.export(),
+        }),
+    }
 }
 
 /// Each of `spelled` parsed as a schema tag: refused at the first that is

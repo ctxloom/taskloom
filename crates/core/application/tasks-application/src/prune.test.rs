@@ -573,7 +573,7 @@ fn test_a_survivor_naming_a_pruned_task_is_reported_and_left_as_written() {
         &mut service,
         "Follows old-task, and old-task again; not old-task-two",
         None,
-        &["relates:old-task", "sig:plain"],
+        &["relates:old-task", "touches:plain"],
     );
     let waiting = NewTask {
         text: "Waiting".to_string(),
@@ -604,7 +604,7 @@ fn test_a_survivor_naming_a_pruned_task_is_reported_and_left_as_written() {
     };
     let listing = ready(service.list(all)).unwrap();
     assert_eq!(listing.rows[0].task.tags[0].to_string(), "relates:old-task");
-    assert_eq!(listing.rows[0].task.tags[1].to_string(), "sig:plain");
+    assert_eq!(listing.rows[0].task.tags[1].to_string(), "touches:plain");
 }
 
 #[test]

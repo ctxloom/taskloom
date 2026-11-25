@@ -30,29 +30,69 @@ An `Introduced` finding refuses the write (`tag-rules-tag-rules`,
 naming tagma's code). `Existing` findings come back as
 `Written::warnings()`, on stderr or in the JSON `warnings`.
 
-**Seed.** `SEEDED_SCHEMA` is the old 16 rewritten: one tag per enum value,
-`lo..hi` ranges, `tagma.keys-per-item:area=1`/`repo=1` (which replace
-`ONE_KEY`), and `taskloom.priority_fn`/`decay_fn`; and its permits, for
-every store is an allowlist from when it is made (the owner's ruling F6,
-2026-11-02): one for each target the seed constrains, and the core
-vocabulary every project copies (the factual flags, `human:`'s keys,
-`relates:`, `touches:`, `sig:`, `queue:`, `landed:`, `platform:`'s keys,
-and the parking flags `icebox` and `someday-maybe`, flat tags, the owner's
-request of 2026-11-12; the loadout's tag axes say what each means; and
-`review:` open, its `review:illuminated` a scalar `YYYYMMDDHHMM` in UTC
-held to 202501010000..209912312359, the illuminated code review's start,
-the owner's request of the same day).
-A project's own `area:` and `repo:` keys it permits itself. A seed grown
-later reaches no store already declared: such a store is read as it holds
-its rules, so a person adds a new default with `manage schema permits add`. The seed is
-written when a store is made, and on first open of a store with no schema
-stream; a store holding no permit as a presence (one from before F6, open
-or closed by `"*:*"=false`) has the seed's permits written on its first
-open, its `=true` permits kept as presences, its other valued ones dropped.
+**Seed.** The default is the GENERAL tag set (owner-ruled 2026-11-05),
+small and project-neutral, written as one `SchemaRetagged` event when a
+store is made and on first open of a store with no schema stream
+(`GENERAL_SCHEMA`, also exported as `SEEDED_SCHEMA`; every store is an
+allowlist from when it is made, the owner's ruling F6, 2026-11-02):
+
+- constrained targets: `triage:level` (scalar 1..5), `kind` (scalar:
+  defect, capability, chore), `effort` (scalar 0..5), `blocks-release`
+  (scalar semver) and `verdict` (scalar: holds, obsolete, partial,
+  phantom, unclear), each permitted; `tagma.keys-per-item:area=1`;
+- `area:` OPEN (`tagma.permit:"area:*"`), and `relates:`, `touches:` and
+  `queue:` open;
+- CLOSED: `human:`'s six keys and the factual flags `triage:{security,
+  data-loss, crashes, no-workaround, regression, silent-no-op, flaky}`;
+- the parking flags `icebox` and `someday-maybe`, flat tags (the owner's
+  request of 2026-11-12, kept in the default by the ruling of 2026-11-24),
+  and `review:` open with its `review:illuminated` a scalar `YYYYMMDDHHMM`
+  in UTC held to 202501010000..209912312359 (the illuminated code
+  review's start);
+- `taskloom.priority_fn` (level, age, effort: `age_days`, bounded, not a
+  decay) and NO `decay_fn`.
+
+Out of the default: `triage:exposed`, `blind-gate` and `audited`,
+`landed:`, `repo:`, `platform:`, `sig:` and the ctxloom decay formula. A
+fresh store therefore accepts `--tag area:cli` as its first write and
+checks clean; `repo:` stays unpermitted.
+
+The ctxloom project's set is the named TEMPLATE `ctxloom`
+(`CTXLOOM_SCHEMA`): exactly the 67 tags every store was seeded with before
+the general default (the seed as it stood on 2026-11-24: one tag per enum value, `lo..hi` ranges,
+`tagma.keys-per-item:area=1`/`repo=1`, `taskloom.priority_fn`/`decay_fn`,
+and the permits of each target it constrains and the core vocabulary:
+the factual flags, `human:`'s keys, `relates:`, `touches:`, `sig:`,
+`queue:`, `landed:` open, `platform:`'s keys, the parking flags and
+`review:`). Its `area:` and
+`repo:` keys the project permits itself, so a store holding it reports
+`rule-on-unpermitted` for `area` and `repo` until it does.
+
+A store that has a schema stream is read as it holds it
+(`StoreRules::of`), so no existing store changes with the default. The
+one place the seed is consulted for a store with history is the pre-F6
+migration: a store holding no permit as a presence (one from before F6,
+open or closed by `"*:*"=false`) has the PRE-F6 permits written on its
+first open (pinned to `CTXLOOM_SCHEMA`'s, not the default of now), its
+`=true` permits kept as presences, its other valued ones dropped. (A
+modern store whose every permit was removed is read the same way: with
+those permits.)
 
 **CLI.** `manage schema show` (same JSON shape as now), `manage schema
 export`, `manage schema check` (exits 49 on findings), `manage schema
 declare --add/--remove` (a preview unless `--yes`), `manage migrate schema`.
+`manage schema init [--template general|ctxloom] [--area <key>]... [--yes]`
+declares a template on the store (a person's command; a preview unless
+`--yes`): it adds only the tags the store lacks, so a second run changes
+nothing, and `--area` (repeatable) CLOSES `area:` to exactly those keys,
+replacing the template's open `area:*` by one `area:<key>` permit each.
+It is refused (`tasks-application-schema-init-conflict`, exit 1) when it
+would have to take something away (`--area` over an open `area:*`) or give
+a target a second rule (another range, arity, type, `keys-per-item` or
+formula than the store holds); and it never opens a closed `area:`.
+On a store with no schema history it declares the template itself, not
+the default first. Persisted format: the SAME `SchemaRetagged` event, the
+whole tag set after, as a declare records; there is no new event.
 `manage schema permits add X` adds
 `tagma.permit:"X"`, a presence (`area:` becomes `"area:*"`), and nothing
 else. `permits remove` is refused while any task carries a tag it admits, and the
@@ -91,10 +131,19 @@ and `Finding::ManyKeys`; `Configuration::{tag_schema, tag_permits}`,
   A read never writes: a store with no schema stream reads as seeded; the
   first write (and `schema export`) records the seed.
 - **No first permit** (F6): the seed permits every exact target (`arity`,
-  `type`, `enum`, `range`) it constrains; a `keys-per-item` namespace is
-  not opened by it, so a new store's `schema check` reports
+  `type`, `enum`, `range`) it constrains. The general default also opens
+  `area:`, so its `schema check` is clean; the `ctxloom` template does
+  not open a `keys-per-item` namespace, so a store holding it reports
   `rule-on-unpermitted` for `area` and `repo` until the project permits
-  one of each. The import permits each target the file declared rules for,
+  one of each.
+- **Closing `area:`** is `schema init --area`, once, before the first
+  write; after it the person uses `permits remove area:` (refused while
+  tasks carry an area) and `permits add area:<key>`. A key permit beside
+  an open `area:*` is `shadowed-permit` in `schema check`.
+- **The init interview**: the loadout's `init:` section carries the
+  question `schema-areas` (an id and a prompt: all ctxloom's `InitQuestion`
+  models) and a `setup_guidance` mapping its answer to `manage schema init
+  --area`. The import permits each target the file declared rules for,
   as the file admitted a declared target without a permit.
 - **`schema export`** prints tagma syntax in every format, as `loadout`
   prints yaml.
