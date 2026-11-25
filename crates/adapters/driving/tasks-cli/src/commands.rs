@@ -16,7 +16,7 @@ use cli_support::Exit;
 use crate::prune::{apply_command, PruneReport};
 use crate::render::{
     Added, Changed, Checked, Counted, DeclaredView, Detailed, Exported, Linted, Listed, Permits,
-    Previewed, Schema, Summed, Tagged, Taxonomy, YesIgnored,
+    Previewed, Schema, Summed, Tagged, Taxonomy, Virtuals, YesIgnored,
 };
 use crate::{dead_lettered, notify, output_failed, wrote, CliError, Notice, PROG};
 
@@ -215,11 +215,24 @@ pub struct ListArgs {
     /// operator after (human:decision/area:cli/and, human:decision/not).
     /// Operators: and, or, not; atoms [ns:]key[op value]
     /// with op one of = != > >= < <= ~, and * (any) or + (present) for a
-    /// namespace, key or value. Every Deferred task also carries the
-    /// derived tag taskloom.internal:deferred-hours, the whole hours since
-    /// it was deferred: deferred-hours=+ is every deferral, >=336 those
-    /// deferred two weeks or more (name --status Deferred or --all, which
-    /// the default view hides).
+    /// namespace, key or value. A task's metadata is also read as virtual
+    /// tags in the reserved taskloom namespace, derived when the query
+    /// names them and never stored: the durations taskloom:deferred,
+    /// in-status and age (time since deferred, since the status last
+    /// changed, since created), and status (the name), has-trigger,
+    /// checked, origin and priority; `taskloom manage schema virtual list`
+    /// has each one's type and meaning. The one rule for a duration tag:
+    /// the operators `>`, `>=`, `<` and `<=` compare the elapsed whole
+    /// seconds exactly with the literal (taskloom:age>=2d is at least
+    /// 172800 s). A literal is units w (7 days), d (24 hours), h, m, s
+    /// chained longest first and each once (1h30m), fractions allowed
+    /// (1.5h, rounded to the nearest second), or a date (2026-01-01,
+    /// since its midnight UTC); 0d is zero. A bare number and the
+    /// operators `=`, `!=` and `~` are refused (ask a window with a pair:
+    /// taskloom:age>=1d/taskloom:age<2d/and). A task without the tag
+    /// (never deferred) matches neither `>=` nor `<`, and a future
+    /// instant is 0 s. taskloom:deferred alone is every deferral (name
+    /// --status Deferred or --all, which the default view hides).
     #[arg(long = "tag-query")]
     tag_query: Option<String>,
 }
@@ -404,6 +417,13 @@ pub(crate) async fn permits(
 ) -> Result<(), CliError> {
     let list = service.permits().await.map_err(CliError::App)?;
     presentation::render(out, ctx.format, &Permits(&list)).map_err(output_failed)
+}
+
+/// List the virtual tags: in text a line each (`taskloom:<name>`, its
+/// type, its meaning); in JSON an array of `{tag, name, type, meaning}`.
+/// They are the same in every project, so no store is read.
+pub(crate) fn virtual_tags(ctx: Ctx<'_>, out: &mut dyn Write) -> Result<(), CliError> {
+    presentation::render(out, ctx.format, &Virtuals).map_err(output_failed)
 }
 
 /// What `manage schema` does besides its vocabulary groups.
@@ -645,7 +665,8 @@ pub(crate) async fn check(
 #[derive(Args, Debug)]
 pub struct PruneArgs {
     /// Only tasks whose last status change is older than this age (30d,
-    /// 12w, 720h) or date (2026-01-01).
+    /// 12w, 1h30m, 1.5h: units w d h m s, longest first, each once; 0d is
+    /// now) or date (2026-01-01, midnight UTC).
     #[arg(long = "older-than", default_value = DEFAULT_OLDER_THAN)]
     older_than: String,
     /// The statuses that qualify a task (repeatable, or comma-separated).

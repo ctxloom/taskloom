@@ -49,6 +49,7 @@ fn test_a_task_carries_its_state_and_the_values_derived_from_it() {
             origin_session: "calm-otter-fox".to_string(),
             tags: vec![tag("a"), tag("b")],
             created_at: at,
+            status_set_at: Timestamp::default(),
             deferred_since: None,
         }
     );

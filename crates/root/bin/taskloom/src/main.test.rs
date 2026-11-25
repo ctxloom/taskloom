@@ -886,6 +886,7 @@ fn test_every_diagnostic_of_every_crate_renders_from_the_binarys_catalog() {
         jsonl_task_log::diagnostic_samples(),
         tasks_config::diagnostic_samples(),
         presentation::diagnostic_samples(),
+        duration_text::diagnostic_samples(),
         file_lock::diagnostic_samples(),
         tasks_watch::diagnostic_samples(),
         plans_application::diagnostic_samples(),
@@ -927,6 +928,7 @@ fn ours() -> Vec<Box<dyn coded_diagnostic::Diagnostic>> {
         jsonl_task_log::diagnostic_samples(),
         tasks_config::diagnostic_samples(),
         presentation::diagnostic_samples(),
+        duration_text::diagnostic_samples(),
         file_lock::diagnostic_samples(),
         tasks_watch::diagnostic_samples(),
         plans_application::diagnostic_samples(),
@@ -1183,9 +1185,32 @@ fn test_list_selects_deferrals_by_the_hours_deferred_and_text_says_how_long() {
         ];
         jq.ok(&args).as_array().expect("array").len()
     };
-    assert_eq!(listed("taskloom.internal:deferred-hours=+"), 1);
-    assert_eq!(listed("taskloom.internal:deferred-hours<1"), 1, "just now");
-    assert_eq!(listed("taskloom.internal:deferred-hours>=1"), 0);
+    assert_eq!(listed("taskloom:deferred"), 1);
+    assert_eq!(listed("taskloom:deferred<1h"), 1, "just now");
+    assert_eq!(listed("taskloom:deferred>=1h"), 0);
+    assert_eq!(
+        listed("taskloom:status=Deferred/taskloom:has-trigger/and"),
+        1
+    );
+    assert_eq!(listed("taskloom:in-status<1h/taskloom:checked/not/and"), 1);
+    assert_eq!(listed("taskloom:checked"), 0);
+    let virtuals = jq.ok(&["manage", "schema", "virtual", "list", "--format", "json"]);
+    assert_eq!(virtuals.as_array().expect("array").len(), 8);
+    let refused = jq.env.run(&[
+        "tasks",
+        "tag",
+        "add",
+        harp,
+        "taskloom:status=Done",
+        "--format",
+        "json",
+    ]);
+    assert!(!refused.ok, "{}", refused.stdout);
+    assert!(
+        refused.stderr.contains("tag-reserved-namespace"),
+        "{}",
+        refused.stderr
+    );
     let text = jq
         .env
         .run(&["tasks", "list", "--status", "Deferred", "--format", "text"]);

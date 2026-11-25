@@ -51,6 +51,7 @@ time.workspace = true
 project-cli = { workspace = true, features = ["test-support"] }
 tasks-watch = { workspace = true, features = ["test-support"] }
 tasks-cli = { workspace = true, features = ["test-support"] }
+duration-text = { workspace = true, features = ["test-support"] }
 file-lock = { workspace = true, features = ["test-support"] }
 os = { workspace = true, features = ["test-support"] }
 presentation = { workspace = true, features = ["test-support"] }

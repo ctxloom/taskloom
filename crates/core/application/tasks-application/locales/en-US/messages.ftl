@@ -35,6 +35,14 @@ import-displaced = another task holds this harp in Go's log: run Go's `taskloom 
 import-harp-taken = a task not imported from this record already holds this harp
 import-task-not-imported = its task was not imported
 tag-query = the tag query { $query } is malformed ({ $postfix }): { $grammar }
+tag-query-duration = { $scope ->
+    [atom] the atom { $atom }
+   *[query] the tag query { $query } has the atom { $atom }
+}, which a duration tag cannot be compared by ({ $why }): use > >= < <= with a duration or a date ({ $units }), never = != ~ (ask a window with a pair: >=1d/<2d/and) and never a bare number (0 too: write 0d)
+tag-query-unknown-virtual = { $scope ->
+    [atom] the atom { $atom } is
+   *[query] the tag query { $query } has the atom { $atom }, which is
+} not a virtual tag: { $name } is not one of the names the taskloom namespace holds ({ $valid })
 lint-rule = { $tags }: { $rule } ({ $args })
 lint-formula-enum = { $facet } on { $target } references the placeholder { $placeholder }, but { $value } is not one of { $reference }'s declared enum values: { $members }
 prune-no-status = a prune needs at least one status to select by: an empty status set is never read as every status

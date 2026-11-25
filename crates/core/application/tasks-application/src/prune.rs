@@ -21,7 +21,7 @@
 //! prune finishes one, whatever it selects by: it is reported, and purged
 //! when applied.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::future::Future;
 
@@ -42,6 +42,7 @@ use crate::lists::Lists;
 use crate::request::given;
 use crate::rules::StoreRulesExt;
 use crate::task::task_cover;
+use crate::virtual_tags::{self, Facts};
 use crate::write::Writes;
 use crate::{failed, query, rejected, AppError, Project, Shown, Task, DONE};
 use kernel_runner::{Refusal, Runner};
@@ -271,12 +272,18 @@ where
         let registry = projects.registry;
         let listed = self.lists.tasks(&project, store, registry, live_tasks);
         let (tasks, unpurged) = listed.await?;
+        // Ranked only when the query names `taskloom:priority`.
+        let priorities = match virtual_tags::mentioned(tag_query).has(virtual_tags::PRIORITY) {
+            true => crate::priority::scores(&tasks, &rules, now)?,
+            false => BTreeMap::new(),
+        };
         let selection = Selection {
             statuses: &pruning.statuses,
             before,
             now,
             tag_query,
             rules: &rules,
+            priorities: &priorities,
         };
         let runner = &mut self.writes.runner;
         for task in selection.select(&tasks, &unpurged)? {
@@ -440,6 +447,9 @@ struct Selection<'a> {
     now: Timestamp,
     tag_query: Option<&'a str>,
     rules: &'a crate::rules::StoreRules,
+    /// Each live task's priority, by harp id; empty unless the query names
+    /// `taskloom:priority`.
+    priorities: &'a BTreeMap<String, f64>,
 }
 
 impl Selection<'_> {
@@ -454,9 +464,7 @@ impl Selection<'_> {
     ) -> Result<Vec<&'t TaskState>, AppError> {
         let matched = query::select(
             self.tag_query,
-            tasks
-                .iter()
-                .map(|t| (t.harp_id.as_str(), t.tags.as_slice(), deferred(t))),
+            tasks.iter().map(|t| self.facts(t)),
             self.now,
             self.rules,
         )
@@ -473,28 +481,25 @@ impl Selection<'_> {
     /// Whether `task` is live, in one of the statuses, and last changed
     /// status before the cut.
     fn dated(&self, task: &TaskState) -> bool {
-        let at = task.status_set_at;
         !task.removed
             && self.statuses.contains(&task.status)
-            && (at.seconds, at.nanos) < (self.before.seconds, self.before.nanos)
+            && virtual_tags::changed_before(Facts::of_state(task).status_set_at, self.before)
+    }
+
+    /// What `task`'s virtual tags are derived from, with its priority.
+    fn facts<'t>(&self, task: &'t TaskState) -> Facts<'t> {
+        Facts {
+            priority: self.priorities.get(&task.harp_id).copied(),
+            ..Facts::of_state(task)
+        }
     }
 
     /// Whether `task` qualifies whole: dated, and matching the tag query.
     fn holds(&self, task: &TaskState) -> bool {
         self.dated(task)
-            && query::select(
-                self.tag_query,
-                [(task.harp_id.as_str(), task.tags.as_slice(), deferred(task))],
-                self.now,
-                self.rules,
-            )
-            .is_ok_and(|matched| matched.contains(&task.harp_id))
+            && query::select(self.tag_query, [self.facts(task)], self.now, self.rules)
+                .is_ok_and(|matched| matched.contains(&task.harp_id))
     }
-}
-
-/// When `task` was deferred, while it is Deferred (as a read shows it).
-fn deferred(task: &TaskState) -> Option<Timestamp> {
-    task.deferred_since.filter(|_| !task.trigger.is_empty())
 }
 
 /// The statuses asked for, trimmed and empties dropped: at least one, and

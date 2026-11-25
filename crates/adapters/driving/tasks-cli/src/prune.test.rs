@@ -20,6 +20,7 @@ fn task(harp: &str, status: &str, text: &str) -> Task {
             .unwrap()
             .unwrap()],
         created_at: Timestamp::default(),
+        status_set_at: Timestamp::default(),
         deferred_since: None,
     }
 }

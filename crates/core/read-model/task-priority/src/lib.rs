@@ -257,9 +257,19 @@ fn age_days(candidate: &Candidate<'_>, now: Timestamp) -> Result<f64, PriorityEr
             harp_id: candidate.harp_id.to_string(),
         });
     }
-    let seconds = (now.seconds - created.seconds) as f64
-        + f64::from(now.nanos - created.nanos) / 1_000_000_000.0;
-    Ok((seconds / 86_400.0).max(0.0))
+    Ok(seconds_since(created, now) / SECONDS_PER_DAY)
+}
+
+const SECONDS_PER_DAY: f64 = 86_400.0;
+
+/// The seconds from `then` to `now`, 0 if `then` is after it: the one
+/// elapsed time a task's age is measured by, whether in the `{{age_days}}`
+/// the formulas read or in the whole seconds the `taskloom:age` tag
+/// carries.
+pub fn seconds_since(then: Timestamp, now: Timestamp) -> f64 {
+    let seconds =
+        (now.seconds - then.seconds) as f64 + f64::from(now.nanos - then.nanos) / 1_000_000_000.0;
+    seconds.max(0.0)
 }
 
 /// `formula`'s result for `candidate`.

@@ -28,6 +28,7 @@ fn task(harp: &str, status: &str) -> Task {
             seconds: 1_781_058_920,
             nanos: 837_009_562,
         },
+        status_set_at: Timestamp::default(),
         deferred_since: None,
     }
 }
@@ -266,6 +267,7 @@ fn test_the_permits_are_each_namespace_open_or_closed_the_flat_tags_and_the_targ
             ],
             "tags": ["blocked", "urgent", "*:secret"],
             "schema_targets": ["triage:kind"],
+            "derived_namespaces": ["taskloom"],
         })
     );
     let nothing = PermitList {
@@ -274,7 +276,12 @@ fn test_the_permits_are_each_namespace_open_or_closed_the_flat_tags_and_the_targ
     };
     assert_eq!(
         serde_json::to_value(PermitsJson::of(&nothing)).unwrap(),
-        json!({"namespaces": [], "tags": [], "schema_targets": ["triage:kind"]})
+        json!({
+            "namespaces": [],
+            "tags": [],
+            "schema_targets": ["triage:kind"],
+            "derived_namespaces": ["taskloom"],
+        })
     );
 }
 

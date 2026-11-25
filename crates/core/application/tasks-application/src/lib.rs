@@ -48,6 +48,7 @@ mod set;
 mod tags;
 mod task;
 mod view;
+mod virtual_tags;
 mod watch;
 mod write;
 
@@ -93,6 +94,7 @@ pub fn no_task_sample() -> AppError {
 pub use add::{NewTask, KEYED_PROBES};
 pub use change::{StatusChange, TagChange, TextEdit};
 pub use digest::{DigestService, Folded};
+pub use duration_text::DurationError;
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{AppError, CATALOGS, EN_US};
@@ -108,7 +110,7 @@ pub use prune::{
     Dangling, PruneRefusal, PruneRequest, PruneService, Pruned, Pruning, Via, DEFAULT_OLDER_THAN,
     DEFAULT_PRUNE_STATUSES,
 };
-pub use query::QueryError;
+pub use query::{QueryError, QueryRefusal};
 pub use read::{
     Details, Hidden, ListQuery, Listing, Reach, Scope, ShowQuery, Statuses, Summary, TagCount,
     Vocabulary,
@@ -131,6 +133,9 @@ pub use tags::{
 };
 pub use task::Written;
 pub use view::{text_hash, Row, Shown, StatusInfo, Task};
+pub use virtual_tags::{
+    DurationRefusal, UnknownVirtualTag, VirtualTag, DURATION_UNITS, VIRTUAL_TAGS,
+};
 pub use watch::{Found, Positions, Seen, StreamKey, Watch, WatchRequest, WatchService};
 
 // Used across the crate's modules by these paths; nothing outside uses them.

@@ -542,7 +542,10 @@ fn test_a_logged_tag_in_tagmas_namespace_is_reported_and_left_out() {
         .iter()
         .map(|h| (*h, state(&mut service, h).unwrap().tags))
         .collect();
-    let candidates = || held.iter().map(|(h, t)| (*h, t.as_slice(), None));
+    let candidates = || {
+        held.iter()
+            .map(|(h, t)| crate::virtual_tags::Facts::bare(h, t))
+    };
     let schema = crate::rules::StoreRules::parsed(&[]);
     let select = |query| {
         crate::query::select(Some(query), candidates(), Default::default(), &schema).unwrap()
@@ -583,6 +586,31 @@ fn test_a_logged_operator_word_tag_is_reported_and_left_out() {
         spelled(&state(&mut service, HARP).unwrap().tags),
         ["ok", "or=1", "x:not", "y"]
     );
+}
+
+// A logged tag in the `taskloom` namespace, which is the virtual tags,
+// is refused as a write refuses it, reported and left out; the rest imports.
+#[test]
+fn test_a_logged_taskloom_namespace_tag_is_reported_and_left_out() {
+    let mut service = service(numbered(vec![JsonlRecord {
+        tags: strings(&["taskloom:status=Done", "ok", "taskloom:checked"]),
+        ..add(HARP, "Ship it", 1)
+    }]));
+    let report = import(&mut service);
+    let project = only(&report);
+    let lost: Vec<(u32, &str)> = project
+        .lost
+        .iter()
+        .map(|l| (l.line, l.why.code()))
+        .collect();
+    assert_eq!(
+        lost,
+        [
+            (1, crate::fakes::tag_code("tag-reserved-namespace")),
+            (1, crate::fakes::tag_code("tag-reserved-namespace")),
+        ]
+    );
+    assert_eq!(spelled(&state(&mut service, HARP).unwrap().tags), ["ok"]);
 }
 
 // The log keeps tags as strings, so it can hold one tag twice, spelled two

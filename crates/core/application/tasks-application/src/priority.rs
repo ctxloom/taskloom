@@ -120,6 +120,31 @@ pub(crate) fn rank_rows(
     Ok(ranked)
 }
 
+/// Every live task of one project, ranked at `now` by `rules`' formulas:
+/// each one's priority by harp id.
+pub(crate) fn scores(
+    tasks: &[tasks::TaskState],
+    rules: &StoreRules,
+    now: Timestamp,
+) -> Result<BTreeMap<String, f64>, AppError> {
+    let candidates: Vec<Candidate<'_>> = tasks
+        .iter()
+        .map(|task| Candidate {
+            harp_id: &task.harp_id,
+            status: &task.status,
+            terminal: is_terminal(&task.status),
+            tags: &task.tags,
+            created_at: task.created_at,
+        })
+        .collect();
+    let ranking = task_priority::rank(&candidates, &formulas(rules)?, now).map_err(refused)?;
+    Ok(tasks
+        .iter()
+        .zip(&ranking.scores)
+        .map(|(task, score)| (task.harp_id.clone(), score.priority))
+        .collect())
+}
+
 fn refused(error: task_priority::PriorityError) -> AppError {
     AppError::Priority(Report::of(&error))
 }

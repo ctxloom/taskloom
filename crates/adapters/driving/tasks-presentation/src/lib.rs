@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 use tasks_application::{
     Origin, PermitList, Project, RuleFinding, SchemaSummary, Summary, Tag, TagCount, Task,
-    Timestamp,
+    Timestamp, TASKLOOM_NAMESPACE,
 };
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -193,18 +193,23 @@ impl TagCountJson {
 /// {"namespaces": [{"namespace": "area", "open": false, "keys": ["cli", "mcp"]},
 ///                 {"namespace": "relates", "open": true, "keys": []}],
 ///  "tags": ["urgent"],
-///  "schema_targets": ["triage:audited", "triage:blind-gate", "..."]}
+///  "schema_targets": ["triage:audited", "triage:blind-gate", "..."],
+///  "derived_namespaces": ["taskloom"]}
 /// ```
 ///
 /// Every store is an allowlist (F6): a tag no namespace or tag here admits
 /// is refused, so both empty is a project permitting nothing.
 /// Namespaces and keys are sorted; `schema_targets` are the targets the
 /// store's rules constrain, permitted as any other tag is.
+/// `derived_namespaces` are the namespaces no task holds a tag in and no
+/// permit admits, because a query reads them as virtual tags derived from
+/// the task (`taskloom:in-status`; see `manage schema virtual list`).
 #[derive(Serialize, Default)]
 pub struct PermitsJson {
     pub namespaces: Vec<NamespaceJson>,
     pub tags: Vec<String>,
     pub schema_targets: Vec<String>,
+    pub derived_namespaces: Vec<String>,
 }
 
 /// One permitted namespace: open (any key; `keys` empty) or closed to its
@@ -252,6 +257,7 @@ impl PermitsJson {
             namespaces: namespaces.into_values().collect(),
             tags,
             schema_targets,
+            derived_namespaces: vec![TASKLOOM_NAMESPACE.to_string()],
         }
     }
 }

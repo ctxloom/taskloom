@@ -629,6 +629,7 @@ fn wired_samples() -> Vec<Box<dyn Diagnostic>> {
         task_store_sqlite::diagnostic_samples(),
         jsonl_task_log::diagnostic_samples(),
         tasks_config::diagnostic_samples(),
+        duration_text::diagnostic_samples(),
         file_lock::diagnostic_samples(),
         file_system::diagnostic_samples(),
         plans_application::diagnostic_samples(),

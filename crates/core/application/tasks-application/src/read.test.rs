@@ -6,6 +6,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use coded_diagnostic::Diagnostic;
+use exit_code::ExitClass;
 
 use crate::fakes::{ready, FakeClock, FakeDelay, FakeIdentity, FakeNames, FakeStores, Flaky};
 use crate::{
@@ -1065,7 +1066,7 @@ fn test_a_tag_query_lists_the_deferrals_deferred_at_least_that_many_hours() {
         now_is(service, now);
         ids(service, queried(query))
     };
-    let at_least_a_day = "taskloom.internal:deferred-hours>=24";
+    let at_least_a_day = "taskloom:deferred>=1d";
     assert_eq!(
         hours(&mut service, old + 86_400, at_least_a_day),
         ["old"],
@@ -1076,11 +1077,7 @@ fn test_a_tag_query_lists_the_deferrals_deferred_at_least_that_many_hours() {
         Vec::<String>::new()
     );
     assert_eq!(
-        hours(
-            &mut service,
-            new + 3600,
-            "taskloom.internal:deferred-hours=+"
-        ),
+        hours(&mut service, new + 3600, "taskloom:deferred"),
         ["old", "new"],
         "every deferral, never the To Do or Done task"
     );
@@ -1088,7 +1085,7 @@ fn test_a_tag_query_lists_the_deferrals_deferred_at_least_that_many_hours() {
         hours(
             &mut service,
             new + 3600,
-            "taskloom.internal:deferred-hours>=1/area:cli/and"
+            "taskloom:deferred>=1h/area:cli/and"
         ),
         ["new"],
         "composed with a tag"
@@ -1101,7 +1098,7 @@ fn test_the_default_view_still_hides_the_deferrals_a_query_matched() {
     now_is(&mut service, old + 86_400);
     let query = ListQuery {
         statuses: Vec::new(),
-        ..queried("taskloom.internal:deferred-hours>=24")
+        ..queried("taskloom:deferred>=1d")
     };
     let listing = ready(service.list(query)).unwrap();
     assert_eq!(listing.rows.len(), 0);
@@ -1110,7 +1107,7 @@ fn test_the_default_view_still_hides_the_deferrals_a_query_matched() {
     let query = ListQuery {
         statuses: Vec::new(),
         all: true,
-        ..queried("taskloom.internal:deferred-hours>=24")
+        ..queried("taskloom:deferred>=1d")
     };
     assert_eq!(ids(&mut service, query), ["old"], "--all shows them");
 }
@@ -1119,10 +1116,7 @@ fn test_the_default_view_still_hides_the_deferrals_a_query_matched() {
 fn test_a_deferral_query_is_counted_and_tagged_like_any_other() {
     let (mut service, _, new) = with_deferrals();
     now_is(&mut service, new + 86_400);
-    let found = counted(
-        &mut service,
-        queried("taskloom.internal:deferred-hours>=24"),
-    );
+    let found = counted(&mut service, queried("taskloom:deferred>=1d"));
     assert_eq!(found, [count("area:cli", 0, 1)]);
 }
 
@@ -1132,4 +1126,178 @@ fn test_a_listing_says_when_it_was_read() {
     now_is(&mut service, old + 90);
     let listing = ready(service.list(ListQuery::default())).unwrap();
     assert_eq!(listing.now.seconds, old + 90);
+}
+
+// ------------------------------------------------------------ virtual tags
+
+#[test]
+fn test_taskloom_status_selects_as_the_status_filter_does() {
+    let mut service = with_every_status();
+    let by_filter = ids(
+        &mut service,
+        ListQuery {
+            all: true,
+            ..statuses(&["Deferred"])
+        },
+    );
+    let by_tag = ids(
+        &mut service,
+        ListQuery {
+            all: true,
+            tag_query: Some("taskloom:status=Deferred".to_string()),
+            ..ListQuery::default()
+        },
+    );
+    assert_eq!(by_tag, by_filter);
+    assert!(!by_tag.is_empty());
+    let spaced = ListQuery {
+        all: true,
+        tag_query: Some(r#"taskloom:status="In Progress""#.to_string()),
+        ..ListQuery::default()
+    };
+    assert_eq!(
+        ids(&mut service, spaced),
+        ids(
+            &mut service,
+            ListQuery {
+                all: true,
+                ..statuses(&["In Progress"])
+            }
+        )
+    );
+}
+
+#[test]
+fn test_a_query_filters_on_checked_and_the_trigger() {
+    let (mut service, _, _) = with_deferrals();
+    let service = &mut service;
+    let all = |q: &str| ListQuery {
+        all: true,
+        tag_query: Some(q.to_string()),
+        ..ListQuery::default()
+    };
+    assert_eq!(ids(service, all("taskloom:checked")), ["done"]);
+    assert_eq!(ids(service, all("taskloom:has-trigger")), ["old", "new"]);
+    assert_eq!(
+        ids(
+            service,
+            all("taskloom:has-trigger/not/taskloom:checked/not/and")
+        ),
+        ["todo"]
+    );
+}
+
+#[test]
+fn test_a_query_filters_on_the_hours_since_the_status_changed_and_the_age() {
+    let (mut service, old, _) = with_deferrals();
+    now_is(&mut service, old + 3 * 86_400);
+    let all = |q: &str| ListQuery {
+        all: true,
+        tag_query: Some(q.to_string()),
+        ..ListQuery::default()
+    };
+    // Everything was added within the first hour of the clock's day: the
+    // to-do task at second 0 is 3 days and 1000s old, Old 3 days.
+    assert_eq!(ids(&mut service, all("taskloom:age>=3d")), ["todo", "old"]);
+    now_is(&mut service, old + 3 * 86_400);
+    assert_eq!(
+        ids(&mut service, all("taskloom:in-status>=3d")),
+        ["todo", "old"]
+    );
+}
+
+// The priority tag ranks the project only when a query names it, and
+// then selects by the number the sort shows.
+#[test]
+fn test_a_query_filters_on_the_priority_without_sorting_by_it() {
+    let mut service = with_levels();
+    let all = ListQuery {
+        tag_query: Some(format!("taskloom:priority>={MAX}")),
+        ..ListQuery::default()
+    };
+    let listing = ready(service.list(all)).unwrap();
+    assert_eq!(
+        listing
+            .tasks()
+            .map(|t| t.harp_id.as_str())
+            .collect::<Vec<_>>(),
+        ["high"]
+    );
+    assert!(
+        listing.ranked().all(|(_, priority)| priority.is_none()),
+        "no sort, no priority shown"
+    );
+    assert!(listing.priority_notes.is_empty());
+}
+
+#[test]
+fn test_only_a_query_naming_priority_ranks_the_listing() {
+    let mut service = with_levels();
+    declare(
+        &mut service,
+        &[r#"taskloom.priority_fn:"triage:kind"="1 +""#],
+        &[seeded_priority_fn()],
+    );
+    let named = |q: &str| ListQuery {
+        tag_query: Some(q.to_string()),
+        ..ListQuery::default()
+    };
+    assert!(ready(service.list(named("taskloom:checked/not"))).is_ok());
+    assert!(ready(service.tags(named("taskloom:checked/not"))).is_ok());
+    for result in [
+        ready(service.list(named("taskloom:priority>0"))).map(|_| ()),
+        ready(service.tags(named("taskloom:priority>0"))).map(|_| ()),
+    ] {
+        assert!(matches!(result.unwrap_err(), AppError::Priority(_)));
+    }
+}
+
+#[test]
+fn test_a_bare_number_for_a_duration_tag_is_refused_by_every_reader() {
+    let mut service = with_levels();
+    let named = |q: &str| ListQuery {
+        tag_query: Some(q.to_string()),
+        ..ListQuery::default()
+    };
+    for query in [
+        "taskloom:age>=30",
+        "taskloom:deferred<0",
+        "taskloom:in-status>=5",
+    ] {
+        for error in [
+            ready(service.list(named(query))).map(|_| ()).unwrap_err(),
+            ready(service.tags(named(query))).map(|_| ()).unwrap_err(),
+        ] {
+            assert_eq!(
+                error.code(),
+                coded_diagnostic::code!("tag-query-duration"),
+                "{query}"
+            );
+        }
+    }
+    assert!(ready(service.list(named("taskloom:age>=30d"))).is_ok());
+}
+
+#[test]
+fn test_an_unknown_virtual_name_is_refused_by_every_reader_with_exit_2() {
+    let mut service = with_levels();
+    let named = |q: &str| ListQuery {
+        tag_query: Some(q.to_string()),
+        ..ListQuery::default()
+    };
+    for query in ["taskloom:deferd", "taskloom:foo>=1d/area:cli/and"] {
+        for error in [
+            ready(service.list(named(query))).map(|_| ()).unwrap_err(),
+            ready(service.tags(named(query))).map(|_| ()).unwrap_err(),
+        ] {
+            assert!(matches!(error, AppError::TagQuery(_)), "{query}");
+            assert_eq!(
+                error.code(),
+                coded_diagnostic::code!("tag-query-unknown-virtual"),
+                "{query}"
+            );
+            assert_eq!(error.exit().code(false), 48, "{query}");
+        }
+    }
+    assert!(ready(service.list(named("taskloom:*"))).is_ok());
 }

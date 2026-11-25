@@ -22,6 +22,7 @@ fn task(harp: &str, status: &str) -> Task {
             seconds: 1_781_058_920,
             nanos: 837_009_562,
         },
+        status_set_at: Timestamp::default(),
         deferred_since: None,
     }
 }

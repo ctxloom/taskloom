@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 angzarr-embedded.workspace = true
 coded-diagnostic.workspace = true
+# `prune --older-than` and a tag query's duration literals.
 duration-text.workspace = true
 exit-code.workspace = true
 # Each command run through the kernel, as every context runs one.

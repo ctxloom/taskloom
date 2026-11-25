@@ -102,7 +102,7 @@ pub enum Tasks {
     Add(commands::AddArgs),
     /// List active tasks; --all adds the finished and Deferred
     #[command(
-        after_help = "Examples:\n  taskloom tasks list --all --tag-query human:decision\n  taskloom tasks list --status Deferred --tag-query taskloom.internal:deferred-hours>=336/area:cli/and\n\nTasks keep no plan link. To find the plans governing a task, run `taskloom plans\nlist --governs <harp>`; to find the tasks a plan governs, `taskloom plans show\n<plan>` lists its `governs:` harps, then `taskloom tasks show <harp>...`."
+        after_help = "Examples:\n  taskloom tasks list --all --tag-query human:decision\n  taskloom tasks list --status Deferred --tag-query taskloom:deferred>=336/area:cli/and\n\nTasks keep no plan link. To find the plans governing a task, run `taskloom plans\nlist --governs <harp>`; to find the tasks a plan governs, `taskloom plans show\n<plan>` lists its `governs:` harps, then `taskloom tasks show <harp>...`."
     )]
     List(commands::ListArgs),
     /// Show tasks whole
@@ -152,6 +152,17 @@ pub enum Vocabulary {
     /// The statuses
     #[command(subcommand)]
     Statuses(StatusesCommand),
+    /// The virtual tags: task metadata a tag query reads in the taskloom namespace
+    #[command(subcommand)]
+    Virtual(VirtualCommand),
+}
+
+/// The verbs of `manage schema virtual`.
+#[derive(Subcommand, Debug)]
+pub enum VirtualCommand {
+    /// List the virtual tags: derived when a query names them, never stored
+    #[command(after_help = "Examples:\n  taskloom manage schema virtual list")]
+    List,
 }
 
 /// The verbs of `manage schema permits`.
@@ -480,6 +491,7 @@ where
             Vocabulary::Statuses(StatusesCommand::List) => {
                 done(commands::statuses(ctx, service, out, err).await)
             }
+            Vocabulary::Virtual(VirtualCommand::List) => done(commands::virtual_tags(ctx, out)),
         },
         Command::ImportConfig => done(commands::import_config(ctx, service, out).await),
         Command::Version => done(version(context, format, out)),

@@ -379,7 +379,7 @@ fn test_a_tag_query_narrows_the_selection() {
 }
 
 #[test]
-fn test_a_prune_tag_query_reads_the_hours_a_task_has_been_deferred() {
+fn test_a_prune_tag_query_reads_the_time_a_task_has_been_deferred() {
     let mut service = service(&["stale", "recent"]);
     let defer = |service: &mut Fake, text: &str| {
         let task = NewTask {
@@ -398,7 +398,7 @@ fn test_a_prune_tag_query_reads_the_hours_a_task_has_been_deferred() {
     let mut stale = request(false);
     stale.statuses = vec!["Deferred".to_string()];
     stale.older_than = "1h".to_string();
-    stale.tag_query = Some("taskloom.internal:deferred-hours>=24".to_string());
+    stale.tag_query = Some("taskloom:deferred>=1d".to_string());
     let pruning = prune(&mut service, stale).unwrap();
     assert_eq!(harps(&pruning), ["stale"]);
 }

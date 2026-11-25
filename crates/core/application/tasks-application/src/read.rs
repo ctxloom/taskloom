@@ -22,6 +22,7 @@ use crate::view::{
     is_active, is_terminal, Row, StatusInfo, Task, DEFAULT_STATUSES, IN_PROGRESS, OPEN,
     STATUS_CLASSES, TERMINAL,
 };
+use crate::virtual_tags::{self, Facts};
 use crate::{failed, query, AppError, Project, Shown, Tag};
 
 /// The tasks to show, by id, every one of which must be found: in the
@@ -302,6 +303,7 @@ pub(crate) fn matching(
     tag_query: Option<&str>,
     now: Timestamp,
     rules: &StoreRules,
+    ranked: Option<&priority::Ranked>,
 ) -> Result<Vec<Row>, AppError> {
     let candidates: Vec<Row> = rows
         .into_iter()
@@ -311,12 +313,9 @@ pub(crate) fn matching(
     let ids: Vec<String> = (0..candidates.len()).map(|i| i.to_string()).collect();
     let selected = query::select(
         tag_query,
-        candidates.iter().zip(&ids).map(|(row, id)| {
-            (
-                id.as_str(),
-                row.task.tags.as_slice(),
-                row.task.deferred_since,
-            )
+        candidates.iter().zip(&ids).map(|(row, id)| Facts {
+            priority: ranked.map(|ranked| ranked.priority(row)),
+            ..Facts::of_task(&row.task, id)
         }),
         now,
         rules,
@@ -470,7 +469,16 @@ where
         let scan = self.scan(query.project.as_deref()).await?;
         let rules = scan.rules();
         let now = self.clock.now();
-        let rows = matching(scan.rows, &filter, term, tag_query, now, &rules)?;
+        let ranked = ranked_if_named(&scan, tag_query, now)?;
+        let rows = matching(
+            scan.rows,
+            &filter,
+            term,
+            tag_query,
+            now,
+            &rules,
+            ranked.as_ref(),
+        )?;
         let shown = rules.shown();
         let mut counts: BTreeMap<String, TagCount> = BTreeMap::new();
         for row in &rows {
@@ -554,16 +562,22 @@ where
         let now = self.clock.now();
         // Each project's whole population is ranked, not the page the
         // filters leave, by its own store's formulas.
-        let ranked = match by_priority {
-            true => Some(priority::rank_rows(
-                &scan.rows,
-                |project| priority::formulas(&scan.rules_of(project)),
-                now,
-                scan.reach.is_every(),
-            )?),
+        // A query naming `taskloom:priority` ranks them too, and no other
+        // does.
+        let named = virtual_tags::mentioned(tag_query).has(virtual_tags::PRIORITY);
+        let ranked = match by_priority || named {
+            true => Some(rank(&scan, now)?),
             false => None,
         };
-        let matched = matching(scan.rows, &filter, term, tag_query, now, &rules)?;
+        let matched = matching(
+            scan.rows,
+            &filter,
+            term,
+            tag_query,
+            now,
+            &rules,
+            ranked.as_ref().filter(|_| named),
+        )?;
         let mut hidden = Hidden::default();
         let mut rows: Vec<Row> = if query.all || filter.is_explicit() {
             matched
@@ -584,6 +598,7 @@ where
                 })
                 .collect()
         };
+        let ranked = ranked.filter(|_| by_priority);
         if let Some(ranked) = &ranked {
             // Stable: ties keep the listing's order. The limit is applied
             // after, so it keeps the highest priorities.
@@ -613,6 +628,30 @@ where
             priority_notes: ranked.map(|ranked| ranked.notes).unwrap_or_default(),
             rows,
         })
+    }
+}
+
+/// Every project's rows of `scan` ranked among themselves at `now`, by
+/// its own store's formulas.
+fn rank(scan: &Scan, now: Timestamp) -> Result<priority::Ranked, AppError> {
+    priority::rank_rows(
+        &scan.rows,
+        |project| priority::formulas(&scan.rules_of(project)),
+        now,
+        scan.reach.is_every(),
+    )
+}
+
+/// `scan`'s rows ranked, when `tag_query` names `taskloom:priority`: a
+/// ranking is read for no query that does not.
+fn ranked_if_named(
+    scan: &Scan,
+    tag_query: Option<&str>,
+    now: Timestamp,
+) -> Result<Option<priority::Ranked>, AppError> {
+    match virtual_tags::mentioned(tag_query).has(virtual_tags::PRIORITY) {
+        true => rank(scan, now).map(Some),
+        false => Ok(None),
     }
 }
 

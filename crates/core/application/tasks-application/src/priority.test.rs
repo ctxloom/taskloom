@@ -46,6 +46,7 @@ fn row(p: &str, harp_id: &str, status: &str, tags: &[&str], days: i64) -> Row {
                 seconds: NOW.seconds - days * 86_400,
                 nanos: 0,
             },
+            status_set_at: Timestamp::default(),
             deferred_since: None,
         },
     }

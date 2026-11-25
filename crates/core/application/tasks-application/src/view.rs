@@ -91,6 +91,8 @@ pub struct Task {
     /// `Display`).
     pub tags: Vec<Tag>,
     pub created_at: Timestamp,
+    /// When the status last changed (the add counts).
+    pub status_set_at: Timestamp,
     /// When the task last entered Deferred, while it is Deferred: none for
     /// a task that is not (the state remembers the instant after a revive;
     /// a task revived is not deferred since then).
@@ -117,6 +119,7 @@ impl Task {
             origin_session: state.origin_session.clone(),
             tags: state.tags.clone(),
             created_at: state.created_at,
+            status_set_at: state.status_set_at,
             deferred_since: state.deferred_since.filter(|_| !state.trigger.is_empty()),
         }
     }

@@ -12,8 +12,8 @@ use prost_types::Timestamp;
 use tasks::{Tag, DEFERRED, TO_DO};
 
 use super::{
-    placeholders, rank, rank_normalize, tag_values, Candidate, Facet, Formula, Formulas,
-    PriorityError, Ranking, TargetCoverage, AGE_DAYS, AGE_FACTOR, EXPLOITED_IN_WILD, MAX,
+    placeholders, rank, rank_normalize, seconds_since, tag_values, Candidate, Facet, Formula,
+    Formulas, PriorityError, Ranking, TargetCoverage, AGE_DAYS, AGE_FACTOR, EXPLOITED_IN_WILD, MAX,
 };
 
 /// 2026-07-20T12:00:00Z: every age here is measured from it.
@@ -823,4 +823,13 @@ fn test_every_code_is_under_the_crates_name_with_its_message() {
         coded_diagnostic::catalog::check(name, text, &crate::diagnostic_samples()),
         []
     );
+}
+
+#[test]
+fn test_seconds_since_counts_nanoseconds_and_is_never_negative() {
+    let at = |seconds, nanos| Timestamp { seconds, nanos };
+    assert_eq!(seconds_since(at(10, 0), at(70, 0)), 60.0);
+    assert_eq!(seconds_since(at(10, 500_000_000), at(70, 0)), 59.5);
+    assert_eq!(seconds_since(at(10, 0), at(70, 250_000_000)), 60.25);
+    assert_eq!(seconds_since(at(70, 0), at(10, 0)), 0.0, "after now");
 }

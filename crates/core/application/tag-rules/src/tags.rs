@@ -21,7 +21,8 @@ pub const OPERATOR_WORDS: [&str; 3] = ["and", "or", "not"];
 
 /// The namespaces no task's tag may be in, each with its dot-descendants:
 /// tagma's, where tagma reads a tag as its own config whatever item
-/// carries it, and taskloom's, the store's formulas.
+/// carries it, and taskloom's, the store's formulas and the virtual tags a
+/// query reads (`taskloom:in-status`), which no task holds.
 pub const RESERVED_NAMESPACES: [&str; 2] = [TAGMA_NAMESPACE, TASKLOOM_NAMESPACE];
 
 /// The task tag retired: `ctxloom:plan="<path>"`, whose work plans and
@@ -45,7 +46,8 @@ pub enum TagRefusal {
     Unparseable { tag: String, detail: String },
     /// `and`, `or` or `not`, which a query always reads as an operator.
     OperatorWord { tag: String },
-    /// In `tagma` or `taskloom` (or under one), which are the schema's.
+    /// In `tagma` or `taskloom` (or under one), which are the schema's and,
+    /// for `taskloom:`, the virtual tags derived from a task.
     ReservedNamespace { tag: String, namespace: String },
     /// A tag whose target is retired: plans' `ctxloom:plan`, whose work
     /// plans and their governs links now do.

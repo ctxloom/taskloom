@@ -292,9 +292,15 @@ pub const EN_US: (&str, &str) = (
 );
 
 /// The en-US catalogs of every diagnostic a use case returns but its
-/// adapters': the domain's rejections and this crate's errors.
-pub const CATALOGS: [(&str, &str); 4] =
-    [tasks::EN_US, task_priority::EN_US, tag_rules::EN_US, EN_US];
+/// adapters': the domain's rejections, the span and date grammar's refusals
+/// (a duration refusal wraps one) and this crate's errors.
+pub const CATALOGS: [(&str, &str); 5] = [
+    tasks::EN_US,
+    task_priority::EN_US,
+    tag_rules::EN_US,
+    duration_text::EN_US,
+    EN_US,
+];
 
 /// One value of every error this crate defines, and of every reason an
 /// import gives for leaving a record behind (not the wrappers, whose codes
@@ -364,6 +370,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             .into_iter()
             .map(|n| Box::new(n) as Box<dyn Diagnostic>),
     );
+    samples.extend(crate::virtual_tags::samples());
     samples.push(Box::new(crate::query::QueryError {
         query: "and".to_string(),
         postfix: "x".to_string(),

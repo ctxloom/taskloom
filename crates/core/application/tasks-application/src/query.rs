@@ -11,6 +11,10 @@
 //! still takes part (`urgent/not` holds it). A target the schema declares
 //! `type=<name>` is ordered by the comparator registered under that name:
 //! SemVer precedence for `semver`, the one taskloom registers.
+//!
+//! A task's metadata is read as virtual tags in the reserved `taskloom`
+//! namespace (`taskloom:in-status>=48`), derived when the query names
+//! them and never stored ([`crate::virtual_tags`]).
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -20,7 +24,8 @@ use coded_diagnostic::{code, Arg, Diagnostic};
 use ports::Timestamp;
 use tagma_core::Index;
 
-use crate::rules::StoreRules;
+use crate::rules::{StoreRules, TASKLOOM_NAMESPACE};
+use crate::virtual_tags::{self, DurationRefusal, Facts, UnknownVirtualTag};
 use crate::Tag;
 use tagma_core::semver::{Semver, SEMVER};
 
@@ -29,19 +34,46 @@ use tagma_core::semver::{Semver, SEMVER};
 /// every candidate already.
 const PRESENCE_NAMESPACE: &str = "taskloom.internal";
 
-/// The key of the derived tag a Deferred task carries, in
-/// [`PRESENCE_NAMESPACE`]: the whole hours since it was deferred, never
-/// stored. `taskloom.internal:deferred-hours=+` selects the Deferred tasks
-/// (with a trigger), `taskloom.internal:deferred-hours>=336` those deferred
-/// at least 14 days, and it composes with every other atom.
-pub const DEFERRED_HOURS: &str = "deferred-hours";
-
 /// The item the schema's type declarations are indexed under: no harp id,
 /// since a harp has no colon.
 const TYPE_CONFIG_ITEM: &str = "taskloom.internal:type-config";
 
 /// How to write a query, said with every malformed one.
 pub const QUERY_GRAMMAR: &str = "queries are postfix, tags first and the operator after (human:decision/area:cli/and, human:decision/not), and an and/or/not needs enough operands before it";
+
+/// A query that is refused: malformed, or with a duration virtual tag's
+/// atom it cannot order, or an atom in the `taskloom` namespace that names
+/// no virtual tag.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum QueryRefusal {
+    Malformed(QueryError),
+    Duration(DurationRefusal),
+    UnknownVirtual(UnknownVirtualTag),
+}
+
+impl fmt::Display for QueryRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        coded_diagnostic::display(self, f)
+    }
+}
+
+impl Diagnostic for QueryRefusal {
+    fn code(&self) -> &str {
+        match self {
+            QueryRefusal::Malformed(e) => e.code(),
+            QueryRefusal::Duration(e) => e.code(),
+            QueryRefusal::UnknownVirtual(e) => e.code(),
+        }
+    }
+
+    fn args(&self) -> Vec<(&str, Arg)> {
+        match self {
+            QueryRefusal::Malformed(e) => e.args(),
+            QueryRefusal::Duration(e) => e.args(),
+            QueryRefusal::UnknownVirtual(e) => e.args(),
+        }
+    }
+}
 
 /// A malformed query.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -71,63 +103,69 @@ impl Diagnostic for QueryError {
     }
 }
 
-/// The ids of `candidates` (`(harp id, tags, deferred since)`) that `query`
-/// selects, read at `now` (what a derived tag measures to), under
-/// the store's `rules` (its `tagma.type` declarations), or why the query is malformed. No query selects every
+/// The ids of `candidates` that `query` selects, read at `now` (what the
+/// virtual tags measure to), under the store's `rules` (its `tagma.type`
+/// declarations), or why the query is malformed. No query selects every
 /// candidate; a blank one is refused before it gets here
 /// ([`crate::AppError::Blank`]), and tagma judges one that reaches it.
+///
+/// Each candidate is indexed with its stored tags, less any it holds in
+/// the `taskloom` namespace (an old store's: the namespace is the virtual
+/// tags', and a write may not fill it), and the virtual tags the query
+/// names ([`crate::virtual_tags`]), and no others.
 pub fn select<'a>(
     query: Option<&str>,
-    candidates: impl IntoIterator<Item = (&'a str, &'a [Tag], Option<Timestamp>)>,
+    candidates: impl IntoIterator<Item = Facts<'a>>,
     now: Timestamp,
     rules: &StoreRules,
-) -> Result<BTreeSet<String>, QueryError> {
+) -> Result<BTreeSet<String>, QueryRefusal> {
     let mut index = Index::new();
     index.register_type(SEMVER, Arc::new(Semver));
     // Only the types: an index reads the other facets too (arity collapses
     // a candidate's values, hide narrows what a query sees), and a query
     // is over the tags as stored.
+    if let Some(query) = query {
+        virtual_tags::check_names(query).map_err(QueryRefusal::UnknownVirtual)?;
+    }
+    let named = virtual_tags::mentioned(query);
+    // A duration literal is resolved to the seconds it asks of the tag.
+    let resolved = query
+        .map(|query| virtual_tags::resolve_durations(query, now))
+        .transpose()
+        .map_err(QueryRefusal::Duration)?;
     let types = rules.types();
     if !types.is_empty() {
         index.add_item(TYPE_CONFIG_ITEM, types);
     }
     let mut ids = BTreeSet::new();
-    for (id, tags, deferred_since) in candidates {
-        let mut tags: Vec<tagma_core::Tag> = tags.iter().map(Tag::to_core).collect();
+    for facts in candidates {
+        let mut tags: Vec<tagma_core::Tag> = facts
+            .tags
+            .iter()
+            .map(Tag::to_core)
+            .filter(|tag| tag.namespace.as_deref() != Some(TASKLOOM_NAMESPACE))
+            .collect();
         tags.push(presence());
-        tags.extend(deferred_hours(deferred_since, now));
-        index.add_item(id, tags);
-        ids.insert(id.to_string());
+        tags.extend(virtual_tags::derive(&facts, &named, now));
+        index.add_item(facts.id, tags);
+        ids.insert(facts.id.to_string());
     }
-    let Some(query) = query else {
+    let (Some(query), Some(resolved)) = (query, resolved) else {
         return Ok(ids);
     };
-    let matched = index.query_postfix(query).map_err(|postfix| QueryError {
-        query: query.to_string(),
-        postfix,
+    let matched = index.query_postfix(&resolved).map_err(|postfix| {
+        QueryRefusal::Malformed(QueryError {
+            query: query.to_string(),
+            postfix,
+        })
     })?;
     Ok(matched.into_iter().filter(|id| ids.contains(id)).collect())
 }
 
 /// Refuse `query` if it is malformed, whatever it would be run over.
-pub fn check(query: Option<&str>) -> Result<(), QueryError> {
+pub fn check(query: Option<&str>) -> Result<(), QueryRefusal> {
     select(query, [], Timestamp::default(), &StoreRules::default()).map(|_| ())
 }
-
-/// The derived tag of a task deferred at `since`, read at `now`: whole
-/// hours, none when it is not deferred, and none for a task deferred
-/// after `now`.
-fn deferred_hours(since: Option<Timestamp>, now: Timestamp) -> Option<tagma_core::Tag> {
-    let since = since?;
-    let hours = (now.seconds - since.seconds).max(0) / SECONDS_PER_HOUR;
-    Some(tagma_core::Tag {
-        namespace: Some(PRESENCE_NAMESPACE.to_string()),
-        key: DEFERRED_HOURS.to_string(),
-        value: Some(hours.to_string()),
-    })
-}
-
-const SECONDS_PER_HOUR: i64 = 3600;
 
 /// The tag every candidate carries, so that it takes part in the query.
 fn presence() -> tagma_core::Tag {

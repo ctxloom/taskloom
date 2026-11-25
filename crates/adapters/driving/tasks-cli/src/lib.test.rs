@@ -36,6 +36,7 @@ mod shapes {
             origin_session: String::new(),
             tags: Vec::new(),
             created_at: Timestamp::default(),
+            status_set_at: Timestamp::default(),
             deferred_since: None,
         }
     }
@@ -1232,6 +1233,31 @@ fn test_statuses_read_across_projects_for_want_of_one_say_so() {
     fake.statuses = statuses(Reach::Project(project()), &["To Do"]);
     let ran = run_on(&mut fake, true, &["manage", "schema", "statuses", "list"]);
     assert_eq!(ran.err, "");
+}
+
+// The virtual tags are the same in every project: listed with no store read.
+#[test]
+fn test_the_virtual_tags_are_listed_with_their_types_and_meanings() {
+    let mut fake = Fake::default();
+    let ran = run_on(&mut fake, true, &["manage", "schema", "virtual", "list"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    let lines: Vec<Vec<&str>> = ran.out.lines().map(|l| l.split('\t').collect()).collect();
+    assert_eq!(lines.len(), tasks_application::VIRTUAL_TAGS.len());
+    assert_eq!(lines[0][..2], ["taskloom:deferred", "duration"]);
+    assert!(lines[0][2].starts_with("time since the task was deferred"));
+    assert!(lines
+        .iter()
+        .any(|l| l[..2] == ["taskloom:has-trigger", "flag"]));
+    assert!(lines.iter().any(|l| l[..2] == ["taskloom:status", "text"]));
+    let ran = run_on(&mut fake, false, &["manage", "schema", "virtual", "list"]);
+    let json: Vec<serde_json::Value> = serde_json::from_str(&ran.out).unwrap();
+    assert_eq!(json.len(), lines.len());
+    assert_eq!(json[3]["tag"], "taskloom:status");
+    assert_eq!(json[3]["name"], "status");
+    assert_eq!(json[3]["type"], "text");
+    assert!(json[3]["meaning"].as_str().unwrap().contains("status name"));
+    let keys: Vec<&String> = json[0].as_object().unwrap().keys().collect();
+    assert_eq!(keys, ["meaning", "name", "tag", "type"]);
 }
 
 // ------------------------------------------------------------ tags
@@ -2704,7 +2730,7 @@ fn test_permits_lists_the_namespaces_flat_tags_and_schema_targets() {
     assert_eq!(fake.permit_lists, 1);
     assert_eq!(
         ran.out,
-        "Namespaces:\n  area:     cli, mcp\n  relates:  (open: any key)\nFlat tags: urgent\nConstrained by the store's rules: triage:kind, triage:level\n"
+        "Namespaces:\n  area:     cli, mcp\n  relates:  (open: any key)\nFlat tags: urgent\nConstrained by the store's rules: triage:kind, triage:level\nDerived, never stored or permitted: taskloom: (see `taskloom manage schema virtual list`)\n"
     );
     let mut fake = Fake {
         permit_list: Some(Ok(PermitList {
@@ -2716,7 +2742,7 @@ fn test_permits_lists_the_namespaces_flat_tags_and_schema_targets() {
     let ran = run_on(&mut fake, true, &["manage", "schema", "permits", "list"]);
     assert_eq!(
         ran.out,
-        "Namespaces: (none)\nFlat tags: (none)\nConstrained by the store's rules: triage:kind\n"
+        "Namespaces: (none)\nFlat tags: (none)\nConstrained by the store's rules: triage:kind\nDerived, never stored or permitted: taskloom: (see `taskloom manage schema virtual list`)\n"
     );
 }
 
@@ -2739,6 +2765,7 @@ fn test_permits_in_json_is_the_permits_document() {
             ],
             "tags": ["urgent"],
             "schema_targets": ["triage:kind", "triage:level"],
+            "derived_namespaces": ["taskloom"],
         })
     );
 }

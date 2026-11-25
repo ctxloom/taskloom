@@ -342,20 +342,85 @@ cutover ("What remains").
     answered by Go's own `filterTasks` (`scripts/compare-go-tag-queries.sh`,
     writing `go.tsv`) and tagma-core alike, and no tagma-core change was
     needed.
-    An addition to Go's: each Deferred candidate (one with a
-    `deferred_since`) carries one more derived tag beside the presence
-    tag, `taskloom.internal:deferred-hours=<n>`, the whole hours from
-    `deferred_since` to the instant the read was taken (the clock seam;
-    0 for a future one), never stored. So `deferred-hours=+` selects every
-    deferral and `deferred-hours>=336` those deferred two weeks or more,
-    composing with every other atom, with `--status`, `--term`, `--limit`,
-    and wherever a tag query is taken (`tags list`, `prune`, whose
-    `--status Deferred` then selects by it). The default view still hides
-    Deferred, so a deferrals query names `--status Deferred` (or `--all`).
-    A date is not expressible (hours only; prune's age parser is not
-    reused: a tag query's atoms hold no `30d`). The text table says how
-    long each Deferred task has been deferred beside its trigger
-    (`(trigger: later, deferred 3d)`, the largest whole unit).
+    An addition to Go's: **virtual tags**, a task's metadata read as tags
+    in the reserved `taskloom` namespace (owner request, 2026-11-04), never
+    stored. `query::select` is the one place they are derived, for `tasks
+    list`, `tags list` and `prune` alike, at the read's clock instant, and
+    only the ones the parsed query names (`virtual_tags::mentioned`: each
+    `taskloom:<name>` atom, every one for `taskloom:*`; a wildcard
+    namespace such as `*:status` names none), so a read that uses none pays
+    for none:
+
+    | tag | type | meaning |
+    |---|---|---|
+    | `taskloom:deferred` | duration | time since the task was deferred (`deferred_since`); absent unless Deferred |
+    | `taskloom:in-status` | duration | time since the status last changed (`status_set_at`, the add counts): the span `prune --older-than` cuts |
+    | `taskloom:age` | duration | time since `created_at`, by the elapsed time `{{age_days}}` is made from (`task_priority::seconds_since`) |
+    | `taskloom:status` | text | the status name (`taskloom:status=Deferred`; quote one with a space, `taskloom:status="In Progress"`); `--status` holds the same set, and `--status` alone takes the classes `@open` and `@terminal` (`taskloom:status=@terminal` is refused as a malformed token) |
+    | `taskloom:has-trigger` | flag | present while the revive trigger is non-empty |
+    | `taskloom:checked` | flag | present while the checkbox is set (status Done or Archived) |
+    | `taskloom:origin` | text | `origin_session`, when non-empty |
+    | `taskloom:priority` | number | the derived priority the store's formulas rank the task at; absent when the store declares no `priority_fn`; computed (the project ranked, as `--sort priority` does) only when the query names it, so a formula that does not compile refuses that query alone |
+
+    A duration tag's stored value is the whole seconds since (never
+    negative: a future instant is 0), and a query compares it with a
+    **duration literal** (owner rulings 2026-11-04). The one rule: `>`,
+    `>=`, `<` and `<=` compare the elapsed whole seconds *exactly* with
+    the literal's seconds (`taskloom:age>=2d` is at least 172800 s, so
+    47h59m is not 2d; no rounding, `now` read once per query). A literal
+    is a chain of numbers with units `w` (7 days), `d` (24 hours), `h`,
+    `m`, `s`, longest first and each once (`1h30m`), fractions allowed
+    (`1.5h`, rounded to the nearest second, a half up), or a date
+    (`2026-01-01`, the time since its midnight UTC). `0d` is valid. A bare
+    number (`0` too), an unknown unit (`ms`), a misordered or repeated
+    unit, an empty literal and a value too large are refused, and so are
+    `=`, `!=` and `~` on a duration tag, all as
+    `tasks-application-tag-query-duration` naming the atom and the units
+    (a window is a pair: `taskloom:age>=1d/taskloom:age<2d/and`). A task
+    without the tag (never deferred) matches neither `>=` nor `<`;
+    `taskloom:deferred` alone is the presence test. A refusal gives the
+    cause's own en-US message (the `duration-text` catalog's: a bare `30`
+    says to write `30d`), and names a lone atom once ("the atom X ..."
+    where the tag query is only the atom). An atom in the `taskloom`
+    namespace whose key is no virtual tag (`taskloom:deferd`) is refused
+    as `tasks-application-tag-query-unknown-virtual`, listing the valid
+    names (exit 2); `taskloom:*`, `taskloom.internal:` and a stored tag an
+    old store still holds in the namespace are unaffected. Literals are read
+    by the same `duration-text` crate as `prune --older-than`
+    (`calendar::durations`, bound to the read's one instant);
+    `query::select` resolves each atom to
+    seconds before tagma evaluates the query
+    (`virtual_tags::resolve_durations`; `taskloom:deferred>=2d` is
+    `taskloom:deferred>=172800`, `<=2d` is `<172801`).
+    The names carry no unit (`deferred`, `in-status`, `age`), the owner's
+    ruling replacing `-hours`. They compose with every other atom, with
+    `--status`, `--term`, `--limit`, and wherever a tag query is taken
+    (`tags list`, `prune`, whose `--status Deferred` then selects by
+    it). The default view still hides Deferred, so a deferrals query names
+    `--status Deferred` (or `--all`). `prune --older-than` cuts at an
+    instant (strictly before it, to the nanosecond) and `in-status>=N`
+    compares whole seconds, so they agree but at the exact second; both
+    read the one `status_set_at` through
+    `virtual_tags::changed_before`/`Facts`. The text table says how long
+    each Deferred task has been deferred beside its trigger (`(trigger:
+    later, deferred 3d)`, the largest whole unit).
+    The namespace is reserved: a write (`tasks add --tag`, `tasks tag`) or
+    an import with a `taskloom:` tag is refused (`tag-rules-tag-reserved-
+    namespace`, as for `tagma:`), no permit can name it, and a tag an old
+    store somehow holds there is ignored by a query (the derived tag
+    stands, never the stored). `manage schema permits list` prints
+    `Derived, never stored or permitted: taskloom:` (JSON
+    `derived_namespaces`), and `manage schema virtual list` the table above
+    (text a tab-separated line each; JSON `{tag, name, type, meaning}`).
+    `manage schema tags list` counts stored tags only, so no virtual tag is
+    in it. The `taskloom.internal` namespace is not a virtual tag: its
+    `candidate` presence tag lets a tagless task take part in `not`, and its
+    `type-config` item carries the schema's `tagma.type` declarations into
+    the index; both are query plumbing, indexed whatever the query.
+    Not done: `taskloom:governs` (a task a plan governs) crosses into
+    plans-application, which is downstream of the tasks, and `trigger` as a
+    value (a trigger is free text: a postfix query splits on `/`, which
+    triggers hold, and `has-trigger` answers the question asked of it).
   - Display hiding: tagma's `HideConfig` from the schema's hide facts,
     `tagma:*` hidden by default, in text; JSON keeps every tag, as Go's.
   - The importer converts at its boundary: a Go tag that does not parse is

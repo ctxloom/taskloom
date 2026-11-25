@@ -1972,3 +1972,34 @@ fn store_unavailable() -> String {
         .code()
         .to_string()
 }
+
+// ------------------------------------------------------------ the taskloom namespace
+
+// `taskloom:` is where a task's metadata is read as virtual tags
+// (`taskloom:in-status`): no write may put a tag there, so a stored tag
+// could never stand in for the fact.
+#[test]
+fn test_a_write_may_not_put_a_tag_in_the_taskloom_namespace() {
+    let mut service = service(&["swift-amber"]);
+    add(&mut service, new_task("Ship it")).unwrap();
+    for tag in [
+        "taskloom:status=Done",
+        "taskloom:has-trigger",
+        "taskloom:priority=9",
+        "taskloom:in-status=0",
+        "taskloom:made-up",
+    ] {
+        let refused = [
+            add(&mut service, tagged(&[tag])).unwrap_err(),
+            ready(service.tag(change("swift-amber", &[tag], &[]))).unwrap_err(),
+        ];
+        for error in refused {
+            assert_eq!(
+                error.code(),
+                crate::fakes::tag_code("tag-reserved-namespace"),
+                "{tag}"
+            );
+            assert!(error.to_string().contains("namespace=taskloom"), "{error}");
+        }
+    }
+}

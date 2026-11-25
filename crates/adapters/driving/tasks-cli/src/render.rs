@@ -10,6 +10,7 @@ use serde::Serialize;
 use tasks_application::{
     Declared, Details, LintReport, Listing, PermitList, Permitted, Reach, Row, RuleFinding,
     SchemaSummary, Shown, StatusInfo, Statuses, Summary, Tag, Task, Timestamp, Vocabulary,
+    TASKLOOM_NAMESPACE, VIRTUAL_TAGS,
 };
 pub(crate) use tasks_presentation::{headline, project_label, CompactJson, RowJson};
 use tasks_presentation::{
@@ -324,6 +325,43 @@ impl Render for Taxonomy<'_> {
     }
 }
 
+/// The virtual tags: JSON an array of `{tag, name, type, meaning}`; text a
+/// tab-separated line each, the tag, its type and its meaning.
+pub struct Virtuals;
+
+#[derive(Serialize)]
+struct VirtualJson {
+    tag: String,
+    name: &'static str,
+    r#type: &'static str,
+    meaning: &'static str,
+}
+
+impl Render for Virtuals {
+    fn json(&self) -> impl Serialize + '_ {
+        VIRTUAL_TAGS
+            .iter()
+            .map(|v| VirtualJson {
+                tag: format!("{TASKLOOM_NAMESPACE}:{}", v.name),
+                name: v.name,
+                r#type: v.kind,
+                meaning: v.meaning,
+            })
+            .collect::<Vec<_>>()
+    }
+
+    fn text(&self, out: &mut dyn Write) -> io::Result<()> {
+        for v in &VIRTUAL_TAGS {
+            writeln!(
+                out,
+                "{TASKLOOM_NAMESPACE}:{}\t{}\t{}",
+                v.name, v.kind, v.meaning
+            )?;
+        }
+        Ok(())
+    }
+}
+
 /// The tags in use: JSON an array of tag counts; text the project, then a
 /// line per tag, its counts aligned.
 pub struct Counted<'a>(pub &'a Vocabulary);
@@ -511,6 +549,17 @@ impl Render for Permits<'_> {
             out,
             "Constrained by the store's rules: {}",
             listed(doc.schema_targets.iter())
+        )?;
+        let derived: Vec<String> = doc
+            .derived_namespaces
+            .iter()
+            .map(|n| format!("{n}:"))
+            .collect();
+        writeln!(
+            out,
+            "Derived, never stored or permitted: {} (see `{} manage schema virtual list`)",
+            derived.join(", "),
+            crate::PROG
         )
     }
 }

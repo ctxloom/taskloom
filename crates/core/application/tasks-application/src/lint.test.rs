@@ -39,6 +39,7 @@ fn row(project_id: &str, harp: &str, tags: &[&str]) -> Row {
                 .map(|t| crate::parse_tag(t).unwrap().unwrap())
                 .collect(),
             created_at: Timestamp::default(),
+            status_set_at: Timestamp::default(),
             deferred_since: None,
         },
     }

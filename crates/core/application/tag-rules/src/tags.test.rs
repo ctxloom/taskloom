@@ -202,3 +202,15 @@ fn test_only_the_plan_tag_is_retired() {
     assert!(!is_retired("ctxloom:session"));
     assert!(!is_retired("plan"));
 }
+
+#[test]
+fn test_the_reserved_namespace_refusal_reads_as_a_sentence() {
+    let refusal = TagRefusal::ReservedNamespace {
+        tag: "taskloom:x".to_string(),
+        namespace: "taskloom".to_string(),
+    };
+    assert_eq!(
+        refusal.english(),
+        "the tag taskloom:x is in the namespace taskloom; tagma's and taskloom's namespaces are reserved: tagma's for the store's tag rules, taskloom's for them and for the task metadata a query reads as virtual tags (taskloom:in-status), which no task holds"
+    );
+}

@@ -232,6 +232,9 @@ const RULED_COMMANDS: &[&[&str]] = &[
     &["manage", "schema", "permits", "remove"],
     &["manage", "schema", "tags", "list"],
     &["manage", "schema", "statuses", "list"],
+    // The virtual tags (owner request 2026-11-04: exposed in the taskloom
+    // namespace); the same in every project, so it takes no project.
+    &["manage", "schema", "virtual", "list"],
     &["manage", "migrate"],
     // owner-accepted 2026-11-03: the doctor spelling.
     &["manage", "doctor", "heal"],
@@ -272,7 +275,7 @@ fn test_each_group_has_exactly_its_ruled_verbs() {
     );
     assert_eq!(
         children(&["manage", "schema"]),
-        set(&["show", "export", "declare", "check", "permits", "tags", "statuses"])
+        set(&["show", "export", "declare", "check", "permits", "tags", "statuses", "virtual"])
     );
     assert_eq!(
         children(&["manage", "schema", "permits"]),
@@ -280,6 +283,7 @@ fn test_each_group_has_exactly_its_ruled_verbs() {
     );
     assert_eq!(children(&["manage", "schema", "tags"]), set(&["list"]));
     assert_eq!(children(&["manage", "schema", "statuses"]), set(&["list"]));
+    assert_eq!(children(&["manage", "schema", "virtual"]), set(&["list"]));
     assert_eq!(children(&["manage", "project"]), set(&["show"]));
     assert_eq!(children(&["manage", "hook"]), set(&["stamp-plan"]));
     assert_eq!(
@@ -418,6 +422,7 @@ bare_groups! {
     test_bare_manage_schema_permits_prints_help: ["manage", "schema", "permits"];
     test_bare_manage_schema_tags_prints_help: ["manage", "schema", "tags"];
     test_bare_manage_schema_statuses_prints_help: ["manage", "schema", "statuses"];
+    test_bare_manage_schema_virtual_prints_help: ["manage", "schema", "virtual"];
     test_bare_tasks_tag_prints_help: ["tasks", "tag"];
     test_bare_manage_project_prints_help_and_does_not_show: ["manage", "project"];
     test_bare_manage_hook_prints_help: ["manage", "hook"];
