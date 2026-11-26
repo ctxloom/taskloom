@@ -915,9 +915,9 @@ fn test_lint_sweeps_every_task_the_read_reaches_under_the_schema_now() {
 }
 
 /// A service keeps each project's task list caught up across its reads:
-/// a read after another reads only each stream's first event (what tells
-/// a stream written again from the one seen) and what was written since,
-/// never the whole store again, and lists the same.
+/// a read after another reads only what was written since (a purge is told
+/// by its tombstone, an event like another), never the whole store again,
+/// and lists the same.
 #[test]
 fn a_second_read_reads_only_what_was_written_since() {
     let mut service = service(&["first", "second", "third"]);
@@ -956,8 +956,8 @@ fn a_second_read_reads_only_what_was_written_since() {
     let second = pages(&service);
     assert_eq!(
         second - first,
-        2 + SCHEMA,
-        "each stream's first event, once"
+        SCHEMA,
+        "nothing again: a purge is told by its tombstone, not by a first event"
     );
 
     add(&mut service, "three", "To Do");
@@ -965,8 +965,8 @@ fn a_second_read_reads_only_what_was_written_since() {
     assert_eq!(listing(&mut service), ["one", "two", "three"]);
     assert_eq!(
         pages(&service) - before,
-        2 + 1 + SCHEMA,
-        "the two first events seen, and the new stream's one event"
+        1 + SCHEMA,
+        "only the new stream's one event"
     );
 }
 

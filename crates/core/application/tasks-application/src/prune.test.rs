@@ -3,7 +3,7 @@
 //! when the store changes under it.
 
 use crate::english::English;
-use crate::fakes::{read_from, At};
+use crate::fakes::{destroyed, read_from, At};
 use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use coded_diagnostic::{code, Diagnostic};
 use ports::Timestamp;
@@ -514,8 +514,11 @@ fn test_an_applied_prune_removes_and_purges_each_selected_task() {
     assert_eq!(pruning.tasks_remaining, 2);
     assert_eq!(listed(&mut service), ["archived-one", "to-do-one"]);
     for harp in ["done-one", "done-two"] {
-        let held = ready(read_from(&service.stores.store, &task_cover(harp), 0)).unwrap();
-        assert_eq!(held, None, "{harp}'s stream is purged");
+        let stream = task_cover(harp);
+        assert!(
+            ready(destroyed(&service.stores.store, &stream)),
+            "{harp}'s stream is purged"
+        );
     }
     assert_eq!(
         service.stores.store.attempts(),
@@ -551,9 +554,7 @@ fn test_a_removed_tasks_harp_stays_reserved_and_it_is_never_pruned() {
     assert!(pruning.pruned.is_empty());
     assert_eq!(pruning.tasks_remaining, 0);
     assert!(
-        ready(read_from(&service.stores.store, &task_cover(&harp), 0))
-            .unwrap()
-            .is_some(),
+        !ready(destroyed(&service.stores.store, &task_cover(&harp))),
         "its stream is kept"
     );
     assert_eq!(
@@ -689,9 +690,7 @@ fn test_a_task_removed_by_another_since_the_selection_is_skipped_and_kept() {
     let pruning = prune(&mut service, request(true)).unwrap();
     assert_eq!(harps(&pruning), ["done-two"]);
     assert!(
-        ready(read_from(&service.stores.store, &task_cover("done-one"), 0))
-            .unwrap()
-            .is_some(),
+        !ready(destroyed(&service.stores.store, &task_cover("done-one"))),
         "not this prune's to purge"
     );
 }
@@ -717,10 +716,10 @@ fn test_a_removal_whose_answer_was_lost_is_purged_after_its_retry() {
     service.stores.store.fail([Fault::LandsThenFails]);
     let pruning = prune(&mut service, request(true)).unwrap();
     assert_eq!(harps(&pruning), ["done-one", "done-two"]);
-    assert_eq!(
-        ready(read_from(&service.stores.store, &task_cover("done-one"), 0)).unwrap(),
-        None
-    );
+    assert!(ready(destroyed(
+        &service.stores.store,
+        &task_cover("done-one")
+    )));
 }
 
 #[test]
@@ -735,10 +734,10 @@ fn test_a_purge_is_retried_through_store_failures() {
     assert_eq!(harps(&pruning), ["done-one", "done-two"]);
     assert_eq!(pruning.events_removed, 4);
     assert_eq!(service.delay.slept.len(), 2, "two waits, one per failure");
-    assert_eq!(
-        ready(read_from(&service.stores.store, &task_cover("done-one"), 0)).unwrap(),
-        None
-    );
+    assert!(ready(destroyed(
+        &service.stores.store,
+        &task_cover("done-one")
+    )));
 }
 
 #[test]
@@ -776,9 +775,7 @@ fn half_pruned() -> Fake {
         .fail([Fault::Sound, Fault::Discontinuous]);
     prune(&mut service, request(true)).unwrap_err();
     assert!(
-        ready(read_from(&service.stores.store, &task_cover("done-one"), 0))
-            .unwrap()
-            .is_some(),
+        !ready(destroyed(&service.stores.store, &task_cover("done-one"))),
         "removed, not purged"
     );
     service
@@ -801,11 +798,10 @@ fn test_a_report_names_a_task_a_prune_left_removed_but_not_purged() {
         begun,
         "a report writes nothing"
     );
-    assert!(
-        ready(read_from(&service.stores.store, &task_cover("done-one"), 0))
-            .unwrap()
-            .is_some()
-    );
+    assert!(!ready(destroyed(
+        &service.stores.store,
+        &task_cover("done-one")
+    )));
 }
 
 #[test]
@@ -814,9 +810,8 @@ fn test_an_applied_prune_finishes_a_task_left_removed_but_not_purged() {
     let pruning = prune(&mut service, request(true)).unwrap();
     assert_eq!(harps(&pruning), ["done-one", "done-two"]);
     assert_eq!(pruning.events_removed, 4, "as the store reports");
-    assert_eq!(
-        ready(read_from(&service.stores.store, &task_cover("done-one"), 0)).unwrap(),
-        None,
+    assert!(
+        ready(destroyed(&service.stores.store, &task_cover("done-one"))),
         "its purge finished"
     );
     service.names = FakeNames::of(&["done-one"]);
@@ -837,10 +832,10 @@ fn test_a_half_done_prune_is_finished_whatever_this_prune_selects_by() {
     let pruning = prune(&mut service, archived).unwrap();
     assert_eq!(harps(&pruning), ["done-one"]);
     assert_eq!(pruning.events_removed, 2);
-    assert_eq!(
-        ready(read_from(&service.stores.store, &task_cover("done-one"), 0)).unwrap(),
-        None
-    );
+    assert!(ready(destroyed(
+        &service.stores.store,
+        &task_cover("done-one")
+    )));
 }
 
 #[test]
@@ -930,9 +925,8 @@ fn test_a_prune_records_the_removal_then_purges_through_purge_and_frees_the_harp
     let pruning = prune(&mut service, request(true)).unwrap();
     assert_eq!(harps(&pruning), ["done-one"]);
     assert_eq!(pruning.events_removed, 2, "the add and the removal");
-    assert_eq!(
-        ready(read_from(&service.stores.store, &task_cover("done-one"), 0)).unwrap(),
-        None,
+    assert!(
+        ready(destroyed(&service.stores.store, &task_cover("done-one"))),
         "purged"
     );
     let again = add(&mut service, "Again", None, &[]);
@@ -1032,7 +1026,11 @@ fn removed<'a>(
 fn events(store: &crate::fakes::Flaky) -> usize {
     ready(read_from(store, &task_cover("swift-amber"), 0))
         .unwrap()
-        .map_or(0, |slice| slice.pages.len())
+        .map_or(0, |slice| {
+            let live = slice.pages.iter().rev();
+            live.take_while(|page| !angzarr_embedded::angzarr_ports::tombstone::is(page))
+                .count()
+        })
 }
 
 #[test]

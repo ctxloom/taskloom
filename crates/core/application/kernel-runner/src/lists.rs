@@ -8,10 +8,10 @@
 //! (the lists are not persisted, so there is nothing to resume from), and
 //! every later read in the same process only what was written since (a
 //! long-lived service's: a watch's, or ctxloom's). A catch-up's step reads
-//! one moment of the store, its read unit, purges included: a stream
-//! purged, or purged and written again, is told by the catch-up from the
-//! covers that same read listed, so a purge landing mid-step is the next
-//! step's, as every other write landing then is.
+//! one moment of the store, its read unit, purges included: a purge keeps
+//! its stream and leaves a tombstone, which the catch-up hands the list as
+//! an event like another, so a purge landing mid-step is the next step's,
+//! as every other write landing then is.
 
 use std::collections::BTreeMap;
 

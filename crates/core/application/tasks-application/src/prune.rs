@@ -27,6 +27,7 @@ use std::future::Future;
 
 use crate::calendar::date;
 use crate::DeadLetter;
+use angzarr_embedded::angzarr_ports::tombstone;
 use angzarr_embedded::v1::Cover;
 use angzarr_embedded::{Kernel, KernelError, Purge, Recovery, Registry, Store, StreamRef};
 use coded_diagnostic::{code, Arg, Diagnostic, Report};
@@ -357,10 +358,12 @@ async fn take<S: Store + Purge, C: Clock + CommandIds, D: Delay + Jitter + Send>
     if !apply {
         let at = StreamRef::try_from(&stream).map_err(failed)?;
         let held = store.read(at, 0, None).await.map_err(failed)?;
-        // Its events, and the removal a prune records before it purges,
-        // unless it holds that already.
+        // Its events since its last tombstone (a purge deletes no more),
+        // and the removal a prune records before it purges, unless it
+        // holds that already.
+        let live = held.pages.iter().rev().take_while(|p| !tombstone::is(p));
         let removal = u64::from(!task.removed);
-        return Ok(Some(held.pages.len() as u64 + removal));
+        return Ok(Some(live.count() as u64 + removal));
     }
     if task.removed {
         let deleted = purge(runner, store, &stream).await?;

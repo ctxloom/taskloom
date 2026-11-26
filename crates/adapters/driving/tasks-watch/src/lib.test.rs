@@ -344,12 +344,13 @@ fn test_an_event_line_in_text_names_the_task_status_text_and_position() {
 }
 
 #[test]
-fn test_an_expired_stream_is_a_line_and_leaves_the_cursor() {
+fn test_an_expired_stream_is_a_line_and_the_cursor_resumes_after_its_tombstone() {
     let mut service = Scripted::of(vec![true]).scanning(vec![vec![
         Found::Expired {
             stream: stream_of(A),
+            resumed_at: 3,
         },
-        event(A, 0, "swift-amber", "Again", &[]),
+        event(A, 3, "swift-amber", "Again", &[]),
     ]]);
     service.heads = [(stream_of(A), 5), (stream_of(B), 2)].into();
     let streamed = stream(&mut service, &json_settings(), 1);
@@ -359,14 +360,15 @@ fn test_an_expired_stream_is_a_line_and_leaves_the_cursor() {
         format!(
             r#"{{"v":1,"event":"expired","project":"jolly-mute-magma","stream":"{}","cursor":"{}"}}"#,
             name(&stream_of(A)),
-            cursor(&[(B, 2)])
+            cursor(&[(A, 3), (B, 2)])
         )
     );
-    // Started again from 0: the cursor holds it afresh.
-    assert_eq!(lines[2]["cursor"], cursor(&[(A, 1), (B, 2)]));
+    // Continued after the tombstone: the cursor holds the new event.
+    assert_eq!(lines[2]["cursor"], cursor(&[(A, 4), (B, 2)]));
 
     let mut service = Scripted::of(vec![true]).scanning(vec![vec![Found::Expired {
         stream: stream_of(A),
+        resumed_at: 3,
     }]]);
     let streamed = stream(&mut service, &settings(Format::Text), 1);
     assert_eq!(

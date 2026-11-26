@@ -604,21 +604,20 @@ mod ticked {
     }
 
     #[test]
-    fn test_a_prune_and_a_mint_on_its_harp_as_long_as_before_is_not_seen_by_the_cursor() {
-        // Owner-authorised with slice D approval 2026-11-03. The harp freed
-        // and minted again unseen: the stream restarted. The cursor is a
-        // next sequence per stream, so a stream that is shorter than the
-        // watch last read is expired (watch_cursor.test.rs), but one that
-        // is as long again (here one event, as before) is told from the
-        // old only by its events, which a sequence cannot do. A known limit
-        // of the owner's cursor; the mint needs the same random harp again.
+    fn test_a_prune_and_a_mint_on_its_harp_as_long_as_before_is_seen_by_the_cursor() {
+        // The harp freed and minted again unseen: the purge's tombstone is
+        // an event the cursor's stream holds past its position, so the
+        // stream is told expired and the new task is its next change, even
+        // when the new stream is as long as the old (the limit of a
+        // next-sequence cursor on a restarting stream is gone: sequences
+        // never restart).
         let (lines, tasks) = watched(|harp| {
             vec![
                 Step::Reminted(harp.to_string(), "Again".to_string()),
                 Step::Quiet,
             ]
         });
-        assert_eq!(lines, 1, "only the priming line");
+        assert_eq!(lines, 3, "the priming line, the expiry, the new task");
         let mut tasks = tasks;
         tasks.sort();
         assert_eq!(tasks, ["Again", "Kept"]);

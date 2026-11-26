@@ -268,10 +268,10 @@ fn test_an_append_seen_at_a_catch_up_is_no_restart() {
 // ------------------------------------------------------------ pruning
 
 #[test]
-fn test_a_task_minted_on_a_pruned_harp_is_listed_though_its_stream_restarted() {
-    // Prune records the removal, then purges the stream; a new task minted
-    // on the freed harp starts the stream again from its first sequence,
-    // which the list must not skip as already projected.
+fn test_a_task_minted_on_a_pruned_harp_is_listed_after_the_tombstone() {
+    // Prune records the removal, then purges the stream, which keeps a
+    // tombstone; a new task minted on the freed harp continues after it,
+    // and the list resets at the tombstone.
     let mut project = Project::new();
     let mut list = every_task();
     project.run(&mut list, FIRST, add(FIRST, "First"));
@@ -301,7 +301,7 @@ fn test_a_list_caught_up_after_a_prune_holds_the_task_minted_since() {
 fn test_a_task_pruned_and_purged_unseen_leaves_the_list_at_the_next_catch_up() {
     // A long-lived list (a watch's) catching up after a prune landed whole
     // between two of its reads: it never saw the removal, and the stream
-    // is gone, so only the stream's absence says the task went.
+    // is closed, so only its tombstone says the task went.
     let mut project = Project::new();
     let mut list = every_task();
     project.run(&mut list, FIRST, add(FIRST, "First"));
@@ -312,18 +312,19 @@ fn test_a_task_pruned_and_purged_unseen_leaves_the_list_at_the_next_catch_up() {
 
     project.catch_up(&mut list);
     assert_eq!(harps(&list), [SECOND]);
-    assert!(unpurged(&list).is_empty(), "its stream is gone");
+    assert!(unpurged(&list).is_empty(), "its stream is closed");
     project.catch_up(&mut list);
-    assert_eq!(harps(&list), [SECOND], "gone once");
+    assert_eq!(harps(&list), [SECOND], "closed once");
 
-    // The freed harp minted again: its stream starts over, and is seen.
+    // The freed harp minted again: its stream continues after the
+    // tombstone, and is seen.
     project.run(&mut elsewhere, FIRST, add(FIRST, "Again"));
     project.catch_up(&mut list);
     assert_eq!(texts(&list), ["Second", "Again"], "by harp");
 }
 
 #[test]
-fn test_a_task_the_list_does_not_hold_leaves_no_entry_when_its_stream_goes() {
+fn test_a_task_the_list_does_not_hold_leaves_no_entry_when_its_stream_is_closed() {
     let mut project = Project::new();
     let mut list = every_task();
     project.run(&mut list, FIRST, add(FIRST, "First"));
@@ -331,7 +332,7 @@ fn test_a_task_the_list_does_not_hold_leaves_no_entry_when_its_stream_goes() {
     project.purge(FIRST);
     project.catch_up(&mut list);
     assert!(entries(&list).is_empty(), "nothing listed left");
-    assert!(unpurged(&list).is_empty(), "its stream forgotten");
+    assert!(unpurged(&list).is_empty(), "its stream closed");
 }
 
 #[test]
@@ -398,7 +399,7 @@ fn test_a_stream_that_replays_to_no_events_is_never_a_blank_task() {
     assert!(unpurged(&list).is_empty(), "no stream seen");
 }
 
-// ------------------------------------------------------------ restarted streams
+// ------------------------------------------------------------ closed and minted again
 
 /// A prune's removal, its purge and a task minted again on the freed harp,
 /// all by another hand, in the store: what a long-lived list (a watch's)
@@ -411,15 +412,15 @@ fn prune_purge_and_mint_again(project: &mut Project, harp: &str, text: &str) {
 }
 
 #[test]
-fn test_a_stream_pruned_purged_and_minted_again_between_catch_ups_lists_the_new_task() {
+fn test_a_stream_pruned_purged_and_minted_again_between_catch_ups_resets_at_its_tombstone() {
     let mut project = Project::new();
     let mut list = every_task();
     project.run(&mut list, FIRST, add(FIRST, "First"));
     project.run(&mut list, FIRST, status("Done", ""));
     project.catch_up(&mut list);
 
-    // The new stream is shorter than the old: its first event's sequence
-    // is one the list has already passed.
+    // The tombstone is past the list's position: it resets there, and the
+    // new task follows it.
     prune_purge_and_mint_again(&mut project, FIRST, "Again");
     project.catch_up(&mut list);
     assert_eq!(texts(&list), ["Again"], "the new task, not the pruned one");
@@ -433,9 +434,9 @@ fn test_a_stream_pruned_purged_and_minted_again_between_catch_ups_lists_the_new_
 }
 
 #[test]
-fn test_a_restart_unseen_beside_another_streams_change_lists_both_as_they_are() {
-    // The old stream and the new are each seen at sequence 0, so the
-    // sequence alone cannot tell them apart: the first event does.
+fn test_a_purge_unseen_beside_another_streams_change_lists_both_as_they_are() {
+    // The list's position on the closed stream is below its tombstone,
+    // which the catch-up hands in order with the other stream's change.
     let mut project = Project::new();
     let mut list = every_task();
     project.run(&mut list, FIRST, add(FIRST, "First"));
@@ -460,7 +461,7 @@ fn test_a_restart_unseen_beside_another_streams_change_lists_both_as_they_are() 
 }
 
 #[test]
-fn test_a_restarted_stream_read_by_another_process_is_the_new_task() {
+fn test_a_stream_closed_and_written_again_read_by_another_process_is_the_new_task() {
     let mut project = Project::new();
     let mut list = every_task();
     project.run(&mut list, FIRST, add(FIRST, "First"));

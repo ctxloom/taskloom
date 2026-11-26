@@ -408,7 +408,7 @@ fn test_a_stream_the_positions_lack_is_read_from_its_start() {
 }
 
 #[test]
-fn test_a_stream_shorter_than_its_position_is_expired_and_read_again_from_its_start() {
+fn test_a_position_beyond_a_streams_head_is_expired_and_read_again_from_its_start() {
     let mut service = permitting(&["swift-amber"]);
     add(&mut service, "Alpha");
     let watch = start(&mut service, WatchRequest::default());
@@ -417,7 +417,8 @@ fn test_a_stream_shorter_than_its_position_is_expired_and_read_again_from_its_st
         after(&mut service, &watch, &from),
         [
             Found::Expired {
-                stream: key_of("swift-amber")
+                stream: key_of("swift-amber"),
+                resumed_at: 0
             },
             event("swift-amber", 0, "Alpha", "To Do", &[]),
         ]
@@ -425,7 +426,7 @@ fn test_a_stream_shorter_than_its_position_is_expired_and_read_again_from_its_st
 }
 
 #[test]
-fn test_a_stream_that_is_gone_is_expired_but_one_at_its_start_is_not_missed() {
+fn test_a_stream_purged_past_the_position_is_expired_once_and_resumes_after_its_tombstone() {
     let mut service = permitting(&["swift-amber", "quiet-heron"]);
     add(&mut service, "Pruned");
     add(&mut service, "Kept");
@@ -433,16 +434,37 @@ fn test_a_stream_that_is_gone_is_expired_but_one_at_its_start_is_not_missed() {
     let head = heads(&mut service, &watch);
     remove_for(&mut service, "swift-amber", RemovalReason::Pruned);
     crate::fakes::purge(service.stores.store.inner(), "swift-amber");
+    // The removal (1) was deleted with the add; the tombstone is at 2.
+    let expired = Found::Expired {
+        stream: key_of("swift-amber"),
+        resumed_at: 3,
+    };
+    assert_eq!(after(&mut service, &watch, &head), [expired]);
+    // A watcher past the tombstone is told nothing, and the stream stays
+    // listed: the tombstone is no task event.
+    let resumed: Positions = [(key_of("swift-amber"), 3), (key_of("quiet-heron"), 1)].into();
+    assert_eq!(after(&mut service, &watch, &resumed), []);
+}
+
+#[test]
+fn test_a_harp_minted_again_after_its_purge_is_expired_then_read_from_the_tombstone() {
+    let mut service = permitting(&["swift-amber", "swift-amber"]);
+    add(&mut service, "Old");
+    let watch = start(&mut service, WatchRequest::default());
+    let head = heads(&mut service, &watch);
+    remove_for(&mut service, "swift-amber", RemovalReason::Pruned);
+    crate::fakes::purge(service.stores.store.inner(), "swift-amber");
+    add(&mut service, "New");
     assert_eq!(
         after(&mut service, &watch, &head),
-        [Found::Expired {
-            stream: key_of("swift-amber")
-        }]
+        [
+            Found::Expired {
+                stream: key_of("swift-amber"),
+                resumed_at: 3
+            },
+            event("swift-amber", 3, "New", "To Do", &[]),
+        ]
     );
-    // A position of 0 holds nothing to lose: a stream absent from the
-    // store at 0 is not expired.
-    let nothing: Positions = [(key_of("far-heron"), 0)].into();
-    assert_eq!(after(&mut service, &watch, &nothing).len(), 1, "Kept's add");
 }
 
 #[test]
@@ -473,7 +495,7 @@ fn test_a_scan_reads_in_one_moment_and_the_streams_in_the_stores_order() {
     let streams: Vec<&StreamKey> = found
         .iter()
         .map(|f| match f {
-            Found::Event { stream, .. } | Found::Expired { stream } => stream,
+            Found::Event { stream, .. } | Found::Expired { stream, .. } => stream,
         })
         .collect();
     let mut sorted = streams.clone();

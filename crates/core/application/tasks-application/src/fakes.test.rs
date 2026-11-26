@@ -183,6 +183,17 @@ pub async fn read_from(
     Ok((slice.next_sequence > 0).then_some(slice))
 }
 
+/// Whether the stream `cover` names is destroyed: its last event is a
+/// purge's tombstone.
+pub async fn destroyed(store: &Flaky, cover: &Cover) -> bool {
+    let stream = StreamRef::try_from(cover).unwrap();
+    let slice = store.inner().read(stream, 0, None).await.unwrap();
+    slice
+        .pages
+        .last()
+        .is_some_and(angzarr_embedded::angzarr_ports::tombstone::is)
+}
+
 fn unavailable() -> StoreError {
     StoreError::Unavailable(Cause::new("fake-busy", []))
 }

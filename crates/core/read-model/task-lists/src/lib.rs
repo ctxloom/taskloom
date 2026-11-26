@@ -13,10 +13,10 @@
 //!   run the command does.
 //! - A list holds every live task (none removed), and the tasks a prune
 //!   removed whose streams are not yet purged ([`TaskList::unpurged`]). A
-//!   stream purged and minted again on its freed harp is a new stream: the
-//!   catch-up tells it from the old by its first event and hands it from
-//!   its start, and a stream purged and not minted again is handed as
-//!   gone.
+//!   purge keeps the stream and appends a tombstone, which the catch-up
+//!   hands like any event: the list resets the stream at it, so a stream
+//!   purged and minted again on its freed harp continues from there, and
+//!   one purged and not minted again holds no task.
 //! - A list keeps no cursor across streams: the catch-up keeps where it is
 //!   on each stream, by that stream's own sequence, and a watch asks the
 //!   store's change token, never a list (the owner's ruling on D7,
@@ -27,6 +27,7 @@ pub mod schema;
 use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use angzarr_embedded::angzarr_ports::tombstone;
 use angzarr_embedded::angzarr_router::error::CodedError;
 use angzarr_embedded::angzarr_router::hpb::{ProjectRequest, ProjectResponse};
 use angzarr_embedded::v1::event_page::Body;
@@ -68,35 +69,34 @@ impl TaskList {
 
     /// The tasks a prune removed whose streams were still held when last
     /// read, by harp id: a prune left half done, its purge failed after its
-    /// removal landed, for a prune to finish. A purge records no event, so
-    /// a list kept across one still names the task until it next catches
-    /// up and finds the stream gone: whoever purges checks the stream
-    /// first.
+    /// removal landed, for a prune to finish. A list kept across a purge
+    /// still names the task until it next catches up and reads the
+    /// tombstone: whoever purges checks the stream first.
     pub fn unpurged(&self) -> Vec<&TaskState> {
         self.unpurged.values().collect()
     }
 
     /// Fold `book`, one task stream's events after the last projected of
-    /// it, as the projector port hands it: a book from sequence 0 starts
-    /// the stream afresh (a task minted on a harp whose stream was pruned:
-    /// its first state replaces the old task's); a book with no event at 0
-    /// says the stream is gone (pruned whole), and its task leaves the
-    /// list. An event the tasks domain cannot read folds nothing and is the
-    /// fold's error.
+    /// it, as the projector port hands it. A tombstone (a purge's
+    /// `StreamClosed`) resets the stream: its task, whatever it was,
+    /// leaves the list and the unpurged, and the stream is the default
+    /// again for what follows (a task minted on the freed harp). An event
+    /// the tasks domain cannot read folds nothing and is the fold's error.
     pub fn project(&mut self, book: &EventBook) -> Result<(), PayloadError> {
         let root = root(book.cover.as_ref());
-        let Some(first) = book.pages.first() else {
-            if book.next_sequence == 0 {
-                self.forget(&root);
-            }
+        if book.pages.is_empty() {
             return Ok(());
-        };
-        let mut task = match first.sequence {
-            0 => TaskAggregate::default(),
-            _ => self.streams.remove(&root).unwrap_or_default(),
-        };
+        }
+        let mut task = self.streams.remove(&root).unwrap_or_default();
         let mut pruned = false;
+        let mut closed = false;
         for page in &book.pages {
+            if tombstone::is(page) {
+                self.unlist(&task);
+                task = TaskAggregate::default();
+                (pruned, closed) = (false, true);
+                continue;
+            }
             let Some(Body::Event(event)) = page.body.clone() else {
                 continue;
             };
@@ -106,9 +106,11 @@ impl TaskList {
                 meta: page.meta.as_ref(),
             };
             TaskAggregate::apply(&mut task, &TaskEvent::from_any(&event)?, &at);
-            pruned = is_pruned(&event);
+            (pruned, closed) = (is_pruned(&event), false);
         }
-        self.list(&task, pruned);
+        if !closed {
+            self.list(&task, pruned);
+        }
         self.streams.insert(root, task);
         Ok(())
     }
@@ -128,14 +130,11 @@ impl TaskList {
         };
     }
 
-    /// Forget the task stream rooted at `root`, which the store no longer
-    /// holds: its task leaves the list.
-    fn forget(&mut self, root: &[u8]) {
-        if let Some(task) = self.streams.remove(root) {
-            let harp = &task.state().harp_id;
-            self.entries.remove(harp);
-            self.unpurged.remove(harp);
-        }
+    /// Take `task` out of the list: a purge closed its stream.
+    fn unlist(&mut self, task: &TaskAggregate) {
+        let harp = &task.state().harp_id;
+        self.entries.remove(harp);
+        self.unpurged.remove(harp);
     }
 }
 

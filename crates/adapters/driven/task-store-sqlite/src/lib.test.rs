@@ -11,6 +11,7 @@ use std::sync::Arc;
 use angzarr_embedded::angzarr_store_sqlite::{SqlError, SqliteStore};
 use angzarr_ports::angzarr_proto::v1::event_meta::Causation;
 use angzarr_ports::angzarr_proto::v1::{event_page, CommandCause, EventMeta, EventPage, Uuid};
+use angzarr_ports::tombstone;
 use angzarr_ports::{
     Cause, EventStore, PositionKey, PositionStore, Purge, StoreError, StreamRef, Watch, Write,
 };
@@ -763,11 +764,13 @@ fn test_every_store_copy_exports_every_page() {
 
 // ------------------------------------------------------------ purging
 
-/// A purge never touches a position on the stream (angzarr decision 14.68):
-/// the positions are a driver's record of what its handler processed, which
-/// finds the stream gone by its listing and forgets it itself.
+/// A purge keeps the stream and never touches a position on it: it deletes
+/// the events and appends one tombstone at the next sequence, so sequences
+/// do not restart, the stream stays listed and a later write continues after
+/// the tombstone. A repeat purge with nothing after the tombstone changes
+/// nothing.
 #[test]
-fn test_purge_removes_a_stream_but_no_position_on_it_and_it_starts_again_at_0() {
+fn test_purge_leaves_a_tombstone_keeps_the_stream_listed_and_no_position_on_it() {
     let home = Home::new();
     let project = project("p", store_in(home.path(), "p"));
     let mut stores = home.stores();
@@ -792,18 +795,32 @@ fn test_purge_removes_a_stream_but_no_position_on_it_and_it_starts_again_at_0() 
             "events deleted"
         );
         let slice = store.read(stream(1), 0, None).await.unwrap();
-        assert_eq!((slice.next_sequence, slice.pages), (0, Vec::new()));
+        assert_eq!(slice.next_sequence, 3, "sequences do not restart");
+        assert!(
+            matches!(slice.pages.as_slice(), [page] if page.sequence == 2 && tombstone::is(page)),
+            "only the tombstone is left: {:?}",
+            slice.pages
+        );
         assert_eq!(store.position(list).await.unwrap(), 2, "its positions kept");
         assert_eq!(pages(store, stream(2)).await, [event(0, 3)], "only it");
+        assert_eq!(
+            store.purge(stream(1), 3).await.unwrap(),
+            0,
+            "nothing after the tombstone: a repeat purge changes nothing"
+        );
         let again = store
-            .write(Write::append(stream(1), 0, &[event(0, 4)]))
+            .write(Write::append(stream(1), 3, &[event(3, 4)]))
             .await
             .unwrap();
-        assert_eq!(again.next_sequence, Some(1), "from expected 0");
+        assert_eq!(
+            again.next_sequence,
+            Some(4),
+            "continues after the tombstone"
+        );
         assert_eq!(
             store.covers("tasks").await.unwrap().len(),
             2,
-            "listed again"
+            "listed throughout"
         );
     });
 }

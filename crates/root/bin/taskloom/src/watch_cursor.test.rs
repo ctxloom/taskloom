@@ -937,9 +937,10 @@ fn test_heartbeats_appear_in_text_mode_as_one_line() {
 #[test]
 fn test_a_stream_below_the_cursor_is_expired_and_the_new_one_starts_at_0() {
     // Orchestrator decision, pending owner review: a stream whose head is
-    // below the cursor's next sequence was pruned (and maybe re-minted).
-    // Black box cannot re-mint a harp, so the cursor is forged ahead of an
-    // existing stream (PROPOSAL encoding).
+    // below the cursor's next sequence is no purge's doing (sequences do not
+    // restart): the cursor is another store's, and the stream is read from
+    // its start. A purge's tombstone is the prune tests'. The cursor is
+    // forged ahead of an existing stream (PROPOSAL encoding).
     let env = world();
     let project = project_id(&env);
     let w = watch(&env, &[]);

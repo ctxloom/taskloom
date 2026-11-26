@@ -8,15 +8,17 @@
 //! scan is worth making. The scan ([`WatchService::after`]) reads each
 //! task stream from where a cursor says the watcher is on it and answers
 //! what is new: an event, with the task as the event leaves it, or the
-//! word that a stream is gone ([`Found::Expired`]). The cursor is the
+//! word that a purge closed the stream past the watcher's position
+//! ([`Found::Expired`]). The cursor is the
 //! owner's ruling of 2026-11-03, which reverses D7's cut (2026-10-30: no
 //! cursor): one position PER STREAM, since nothing numbers across
 //! streams ([`Positions`]); the watch keeps none itself, the caller
 //! holds them and hands them back.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::future::Future;
 
+use angzarr_embedded::angzarr_ports::tombstone;
 use angzarr_embedded::v1::event_page::Body;
 use angzarr_embedded::v1::{Cover, EventPage};
 use angzarr_embedded::{Domain, PageContext, Payload, ReadStore, ReadUnit, StreamRef};
@@ -84,10 +86,13 @@ pub enum Found {
         sequence: u64,
         task: Seen,
     },
-    /// The watcher was past the end of `stream`, or the stream is gone:
-    /// pruned (and maybe minted again). The watcher is back at its start,
-    /// and what follows for it in the scan is read from there.
-    Expired { stream: StreamKey },
+    /// A purge closed `stream` at or past the watcher's position: the
+    /// events it had not seen below the tombstone are deleted. The watcher
+    /// continues at `resumed_at`, the sequence after the tombstone, and
+    /// what follows for it in the scan is what was written after it. (A
+    /// position beyond the stream's head, never a purge's doing, is told
+    /// the same with `resumed_at` 0: the stream is read from its start.)
+    Expired { stream: StreamKey, resumed_at: u64 },
 }
 
 impl Watch {
@@ -226,46 +231,55 @@ impl<I, S: WatchedStores> Watching<'_, I, S> {
         };
         let mut reads = store.begin_read().await.map_err(failed)?;
         let mut found = Vec::new();
-        let mut listed = BTreeSet::new();
         for cover in reads.covers(TASK_DOMAIN).await.map_err(failed)? {
             let stream = StreamRef::try_from(&cover).map_err(failed)?;
             let key = StreamKey::of(&stream);
-            listed.insert(key.clone());
             let mut from = positions.get(&key).copied().unwrap_or(0);
             let mut slice = reads.read(stream, from, None).await.map_err(failed)?;
+            let mut expired = false;
             if slice.next_sequence < from {
-                // Shorter than the watcher had seen: a stream pruned and
-                // minted again. The new one is read from its start.
+                // A position beyond the head, which a purge never causes
+                // (sequences do not restart): a cursor of another store.
+                // The stream is read from its start.
                 found.push(Found::Expired {
                     stream: key.clone(),
+                    resumed_at: 0,
                 });
-                from = 0;
+                (from, expired) = (0, true);
                 slice = reads.read(stream, 0, None).await.map_err(failed)?;
             }
-            if slice.pages.is_empty() {
+            // The stream restarts at its last tombstone: what the watcher
+            // had not seen below it is gone, and the task is the default
+            // again there.
+            let closed = slice.pages.iter().rposition(tombstone::is);
+            let (mut task, new, from) = match closed {
+                Some(at) => {
+                    if !expired {
+                        found.push(Found::Expired {
+                            stream: key.clone(),
+                            resumed_at: slice.pages[at].sequence + 1,
+                        });
+                    }
+                    (TaskAggregate::default(), &slice.pages[at + 1..], 0)
+                }
+                None => (TaskAggregate::default(), &slice.pages[..], from),
+            };
+            if new.is_empty() {
                 continue;
             }
             // The task as it stood before the first new event.
-            let mut task = TaskAggregate::default();
             if from > 0 {
                 let before = reads.read(stream, 0, Some(from)).await.map_err(failed)?;
                 for page in &before.pages {
                     fold(&mut task, &cover, page)?;
                 }
             }
-            for page in &slice.pages {
+            for page in new {
                 fold(&mut task, &cover, page)?;
                 found.push(Found::Event {
                     stream: key.clone(),
                     sequence: page.sequence,
                     task: seen(&task),
-                });
-            }
-        }
-        for (key, next) in positions {
-            if *next > 0 && !listed.contains(key) {
-                found.push(Found::Expired {
-                    stream: key.clone(),
                 });
             }
         }
@@ -275,6 +289,10 @@ impl<I, S: WatchedStores> Watching<'_, I, S> {
 
 /// `page` folded into `task`.
 fn fold(task: &mut TaskAggregate, cover: &Cover, page: &EventPage) -> Result<(), AppError> {
+    if tombstone::is(page) {
+        *task = TaskAggregate::default();
+        return Ok(());
+    }
     let Some(Body::Event(payload)) = page.body.clone() else {
         return Ok(());
     };

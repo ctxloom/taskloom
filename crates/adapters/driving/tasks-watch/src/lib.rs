@@ -9,8 +9,9 @@
 //!   "harp_id":H,"task":{"text","status","tags","removed"},"cursor":C}`
 //!   for each event of a task stream, the task as that event leaves it;
 //! - `{"v":1,"event":"expired","project":P,"stream":S,"cursor":C}` where a
-//!   stream the cursor had was pruned (or minted again, shorter): it is
-//!   reported once and read from its start;
+//!   purge (a prune's) closed a stream at or past the cursor's position on
+//!   it: the events it had not seen are deleted. It is reported once, and
+//!   the cursor continues after the purge's tombstone;
 //! - `{"v":1,"event":"heartbeat","project":P,"cursor":C}` after
 //!   `--heartbeat` quiet seconds (default 15, 0: none).
 //!
@@ -248,8 +249,8 @@ impl Lines<'_> {
         let lines = found.len();
         for one in found {
             match one {
-                Found::Expired { stream } => {
-                    positions.remove(&stream);
+                Found::Expired { stream, resumed_at } => {
+                    positions.insert(stream.clone(), resumed_at);
                     let (cursor, stream) = (encode(self.project, positions), name(&stream));
                     let mut line = Line::new("expired", self.project, &cursor);
                     line.stream = Some(&stream);
