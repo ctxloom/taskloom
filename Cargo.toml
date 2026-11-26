@@ -119,7 +119,7 @@ tagma-proto = { git = "https://github.com/benjaminabbitt/tagma", rev = "021e8b00
 duration-text = { git = "https://github.com/benjaminabbitt/rust-support", rev = "e92609d8de072c2947438a0cc395548fba51aedf" }
 
 # Task and project ids: harp's word lists, as Go's harp ports them.
-harp-core = { git = "https://github.com/benjaminabbitt/harp", rev = "45d05e96313fb6f702c9ac83dd2ff4a5becebcc5" }
+harp-core = { git = "https://github.com/benjaminabbitt/harp", rev = "8144ec982a66ade96000501fbc9643b945ae10f2" }
 
 # Third-party, for the adapters and the composition root.
 # The watch cursor's text: base64url of JSON (already in the graph).
