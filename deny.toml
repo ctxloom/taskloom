@@ -67,6 +67,8 @@ allow-git = [
   # angzarr: one workspace (core, angzarr-build and angzarr-codegen,
   # angzarr-embedded and the router it runs handlers through).
   "https://github.com/angzarr-io/angzarr",
+  # angzarr-project: the spec package angzarr-store depends on.
+  "https://github.com/angzarr-io/angzarr-project",
   # tagma: the tag grammar and query engine, and its Tag message.
   "https://github.com/benjaminabbitt/tagma",
   # harp-core: the word lists task and project ids are minted from.

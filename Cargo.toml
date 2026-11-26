@@ -23,7 +23,7 @@ prost-types = "0.14"
 # tagma" in CLAUDE.md. Every angzarr crate below is at the same commit, so the
 # graph holds one angzarr-proto and one coded-diagnostic even counting build
 # dependencies.
-angzarr-build = { git = "https://github.com/angzarr-io/angzarr", rev = "8dc7da9a7b74fcac6d3a1c2c6ee973943946399d" }
+angzarr-build = { git = "https://github.com/angzarr-io/angzarr", rev = "329a8b21035739c6df7d186dbed9672df1b40666" }
 
 # angzarr-embedded, angzarr's in-app runtime, taskloom's
 # (taskloom-on-angzarr-embedded.plan.md). Pinned by rev on angzarr's main
@@ -38,8 +38,8 @@ angzarr-build = { git = "https://github.com/angzarr-io/angzarr", rev = "8dc7da9a
 # (`angzarr_embedded::testing`). angzarr-proto and angzarr-store-sqlite are
 # reached through those re-exports (`angzarr_embedded::angzarr_proto`,
 # `angzarr_embedded::angzarr_store_sqlite`) and not pinned here.
-angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr", rev = "8dc7da9a7b74fcac6d3a1c2c6ee973943946399d" }
-angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr", rev = "8dc7da9a7b74fcac6d3a1c2c6ee973943946399d" }
+angzarr-embedded = { git = "https://github.com/angzarr-io/angzarr", rev = "329a8b21035739c6df7d186dbed9672df1b40666" }
+angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr", rev = "329a8b21035739c6df7d186dbed9672df1b40666" }
 # angzarr core's shared crates, at the commit angzarr-embedded is at, so the graph holds one of each. coded-diagnostic, the coded
 # error trait every error here implements, is pinned directly rather than
 # through angzarr-embedded's re-export so the crates that have no use for
@@ -48,34 +48,34 @@ angzarr-embedded-macros = { git = "https://github.com/angzarr-io/angzarr", rev =
 # angzarr-ports, angzarr's storage contract, is pinned directly for its
 # `memory` feature (the in-memory store the tests run on), which the
 # re-export cannot turn on.
-coded-diagnostic = { git = "https://github.com/benjaminabbitt/rust-support", rev = "dcb930d198706371d8e7496ec5ec35efb067b92f" }
-angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "8dc7da9a7b74fcac6d3a1c2c6ee973943946399d" }
+coded-diagnostic = { git = "https://github.com/benjaminabbitt/rust-support", rev = "e92609d8de072c2947438a0cc395548fba51aedf" }
+angzarr-ports = { git = "https://github.com/angzarr-io/angzarr", rev = "329a8b21035739c6df7d186dbed9672df1b40666" }
 # angzarr-yaml, the one reader for every Rust config (owner ruling,
 # 2026-10-31): versioned documents (`schema_version`, migrated on read,
 # a newer one refused), a strict serde decode with key paths, and edits in
 # place that keep comments. tasks-config and project-registry read through
 # it. Its only dependencies are coded-diagnostic and serde.
-angzarr-yaml = { git = "https://github.com/angzarr-io/angzarr", rev = "8dc7da9a7b74fcac6d3a1c2c6ee973943946399d" }
+angzarr-yaml = { git = "https://github.com/angzarr-io/angzarr", rev = "329a8b21035739c6df7d186dbed9672df1b40666" }
 # presentation, presentation at the driving edge for any domain
 # (JSON or UTF-8 text, diagnostics rendered from the crates' catalogs,
 # display-width text helpers), moved from this repository into angzarr core
 # (decision 36, 2026-11-02); its codes are `presentation-*`. Its
 # `test-support` feature renders a diagnostic's English from catalogs
 # (`english_for!`), for the tests that hold it to an expected text.
-presentation = { git = "https://github.com/benjaminabbitt/rust-support", rev = "dcb930d198706371d8e7496ec5ec35efb067b92f" }
+presentation = { git = "https://github.com/benjaminabbitt/rust-support", rev = "e92609d8de072c2947438a0cc395548fba51aedf" }
 # angzarr-store-transfer, a store carried across a proto generation
 # (store-export-import.plan.md): every row of a store written as JSONL in
 # proto3's JSON mapping, its payloads expanded through the app's
 # descriptors, and the re-fold digest's lines; `taskloom manage store
 # export` and `fold-digest` write them. At the core rev of the crates above.
-angzarr-store-transfer = { git = "https://github.com/angzarr-io/angzarr", rev = "8dc7da9a7b74fcac6d3a1c2c6ee973943946399d" }
+angzarr-store-transfer = { git = "https://github.com/angzarr-io/angzarr", rev = "329a8b21035739c6df7d186dbed9672df1b40666" }
 # The platform crates, moved from this repository into the angzarr workspace
 # (decision 36): `os` (everything that differs between operating systems),
 # `file-system` (the seam all file I/O goes through) and `file-lock`
 # (advisory locks over both). At the same angzarr commit as the crates above.
-os = { git = "https://github.com/benjaminabbitt/rust-support", rev = "dcb930d198706371d8e7496ec5ec35efb067b92f" }
-file-system = { git = "https://github.com/benjaminabbitt/rust-support", rev = "dcb930d198706371d8e7496ec5ec35efb067b92f" }
-file-lock = { git = "https://github.com/benjaminabbitt/rust-support", rev = "dcb930d198706371d8e7496ec5ec35efb067b92f" }
+os = { git = "https://github.com/benjaminabbitt/rust-support", rev = "e92609d8de072c2947438a0cc395548fba51aedf" }
+file-system = { git = "https://github.com/benjaminabbitt/rust-support", rev = "e92609d8de072c2947438a0cc395548fba51aedf" }
+file-lock = { git = "https://github.com/benjaminabbitt/rust-support", rev = "e92609d8de072c2947438a0cc395548fba51aedf" }
 tasks-proto = { path = "crates/core/wire/tasks-proto" }
 tasks = { path = "crates/core/domain/tasks" }
 task-lists = { path = "crates/core/read-model/task-lists" }
@@ -106,8 +106,8 @@ store-cli = { path = "crates/adapters/driving/store-cli" }
 # `exit-code` (the exit-code convention as a pure type, `ExitClass`, which
 # the core's errors implement). Pinned by full commit, at the angzarr core
 # the crates above are at; bumps are deliberate commits.
-cli-support = { git = "https://github.com/benjaminabbitt/rust-support", rev = "dcb930d198706371d8e7496ec5ec35efb067b92f" }
-exit-code = { git = "https://github.com/benjaminabbitt/rust-support", rev = "dcb930d198706371d8e7496ec5ec35efb067b92f" }
+cli-support = { git = "https://github.com/benjaminabbitt/rust-support", rev = "e92609d8de072c2947438a0cc395548fba51aedf" }
+exit-code = { git = "https://github.com/benjaminabbitt/rust-support", rev = "e92609d8de072c2947438a0cc395548fba51aedf" }
 
 # tagma: the tag grammar and query engine (tagma-core), with the SemVer
 # 2.0.0 comparator a `type=semver` target orders by (`tagma_core::semver`),
@@ -116,7 +116,7 @@ exit-code = { git = "https://github.com/benjaminabbitt/rust-support", rev = "dcb
 tagma-core = { git = "https://github.com/benjaminabbitt/tagma", rev = "021e8b00f6343e188fa579ee70c9cd4a5ffce4bc" }
 tagma-proto = { git = "https://github.com/benjaminabbitt/tagma", rev = "021e8b00f6343e188fa579ee70c9cd4a5ffce4bc" }
 
-duration-text = { git = "https://github.com/benjaminabbitt/rust-support", rev = "dcb930d198706371d8e7496ec5ec35efb067b92f" }
+duration-text = { git = "https://github.com/benjaminabbitt/rust-support", rev = "e92609d8de072c2947438a0cc395548fba51aedf" }
 
 # Task and project ids: harp's word lists, as Go's harp ports them.
 harp-core = { git = "https://github.com/benjaminabbitt/harp", rev = "45d05e96313fb6f702c9ac83dd2ff4a5becebcc5" }
