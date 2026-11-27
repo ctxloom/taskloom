@@ -50,6 +50,64 @@ mutation_thresholds := "crates/core/domain=90 crates/core/read-model=90 crates/c
 # workspace.
 workspace_wide := "Cargo.toml Cargo.lock rust-toolchain.toml proto/* .cargo/config.toml .cargo/config"
 
+# Mutation-test the purge flavour: `tasks prune` and every Purge call, the code
+# that deletes task history, which no other mutation recipe reaches (a mutation
+# run is of the plain flavour: gates.just refuses a feature rule, and that stays).
+# Its own recipe by the owner's ruling (2026-11-27): not a step of `check`, CI or
+# the close-out. `cargo mutants --features purge --in-diff` over BASE..HEAD,
+# limited to the files `scripts/purge-files.sh` names (the non-test files with
+# cfg(feature = "purge") and the modules they gate), so only crates that have the
+# feature are built with it (the hollow pass the refusal guards against needs a
+# crate without it). `extra` goes to cargo-mutants: `just mutants-purge BASE
+# --list` lists the mutants and judges nothing. Judged by `_mutants-verdict` and
+# `mutation_thresholds`, as every other recipe; its mutants.out is kept in
+# target/logs/mutants-purge/. Mutates a copy of the tree (no --in-place), so
+# commit first: it refuses a tree with uncommitted Rust changes.
+[positional-arguments]
+[no-exit-message]
+mutants-purge base *extra:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base=$1
+    shift
+    root='{{TOP}}'
+    cd "$root"
+    just --justfile "$root/justfile" _require-mutants mutants-purge
+    git rev-parse --verify --quiet "$base^{commit}" >/dev/null \
+        || { echo "FAIL mutants-purge: no commit $base" >&2; exit 1; }
+    if ! git diff --quiet HEAD -- '*.rs'; then
+        echo "FAIL mutants-purge: uncommitted Rust changes; the run mutates the tree and judges BASE..HEAD" >&2
+        exit 1
+    fi
+    mapfile -t files < <(scripts/purge-files.sh)
+    work=$(mktemp -d)
+    session="$work/session"
+    reap() {
+        local sid
+        sid=$(cat "$session" 2>/dev/null) || return 0
+        [ -n "$sid" ] && pkill -KILL -s "$sid" 2>/dev/null || true
+    }
+    trap 'reap; rm -rf "$work"' EXIT
+    trap 'exit 130' INT TERM HUP
+    git diff --no-color --no-ext-diff --no-renames --src-prefix=a/ --dst-prefix=b/ "$base..HEAD" -- "${files[@]}" > "$work/purge.patch"
+    if [ ! -s "$work/purge.patch" ]; then
+        echo "mutants-purge: no change to the purge-gated sources in $base..HEAD; nothing to mutate."
+        exit 0
+    fi
+    out=${GATE_LOG_DIR:-$root/target/logs}/mutants-purge
+    rm -rf "$out"
+    mkdir -p "$out"
+    rc=0
+    setsid --wait bash -c 'echo $$ > "$1"; shift; exec "$@"' mutants-session "$session" \
+        cargo mutants --dir "$root" --workspace --features purge --in-diff "$work/purge.patch" \
+        --output "$out" --colors never "$@" 9>&- &
+    wait "$!" || rc=$?
+    reap
+    if [ "${1:-}" = "--list" ] || [ "${1:-}" = "--list-files" ]; then
+        exit "$rc"
+    fi
+    just --justfile "$root/justfile" _mutants-verdict mutants-purge "$out" "$rc"
+
 # Build every crate. Needs protoc on PATH and access to github.com (angzarr-proto).
 [no-exit-message]
 build:
