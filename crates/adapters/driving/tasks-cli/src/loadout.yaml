@@ -186,7 +186,8 @@ run:
         the task down to what REMAINS: record only what is still to do. A
         task carrying its own finished half reads as work never started.
 
-        `taskloom tasks prune` removes old finished tasks from the log for good (by
+        `taskloom tasks prune` (only in the taskloom-purge build) removes old finished
+        tasks from the log for good (by
         default Done tasks whose last status change is over 7 days old); without
         `--yes` it only reports. It is the human's housekeeping call: never run
         `taskloom tasks prune --yes` unless asked, and never in place of closing or

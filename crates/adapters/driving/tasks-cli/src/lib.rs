@@ -130,7 +130,7 @@ pub enum Tasks {
     /// Count the tasks in each status
     #[command(after_help = "Examples:\n  taskloom tasks summary")]
     Summary,
-    /// Remove old finished tasks (a preview unless --yes)
+    /// Remove old finished tasks (a preview unless --yes); only in the taskloom-purge build
     #[cfg(feature = "purge")]
     #[command(
         after_help = "Examples:\n  taskloom tasks prune --older-than 30d\n  taskloom tasks prune --older-than 30d --yes"
