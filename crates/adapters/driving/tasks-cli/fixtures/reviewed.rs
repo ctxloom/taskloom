@@ -20,8 +20,11 @@ pub fn loadout() -> String {
                 &applied(
                     &applied(
                         &applied(
-                            &applied(include_str!("go/loadout.yaml"), LOADOUT),
-                            CONSOLIDATION,
+                            &applied(
+                                &applied(include_str!("go/loadout.yaml"), LOADOUT),
+                                CONSOLIDATION,
+                            ),
+                            PURGE_BUILD_ONLY,
                         ),
                         PLANS_AS_FILES,
                     ),
@@ -34,6 +37,19 @@ pub fn loadout() -> String {
         &[],
     )
 }
+
+/// The owner's ruling of 2026-11-27 ("we should describe, in the
+/// deletion/destructive features, that they're only available in the
+/// appropriate build"): the one loadout text, shared by both builds, says
+/// `tasks prune` exists only in the `taskloom-purge` build. Applied after
+/// `LOADOUT`, whose result is each `old`.
+pub const PURGE_BUILD_ONLY: &[(&str, &str)] = &[(
+    "        `taskloom tasks prune` removes old finished tasks from the log for good (by\n",
+    concat!(
+        "        `taskloom tasks prune` (only in the taskloom-purge build) removes old finished\n",
+        "        tasks from the log for good (by\n",
+    ),
+)];
 
 /// The parking flags (the owner's request, 2026-11-12, "add icebox,
 /// someday-maybe to the vocabulary, default schema, and document in
