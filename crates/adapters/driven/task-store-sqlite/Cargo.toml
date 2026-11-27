@@ -19,6 +19,7 @@ sqlx.workspace = true
 # The export's JSONL (store-export-import.plan.md): Export's rows checked
 # and written in proto3's JSON mapping.
 angzarr-store-transfer.workspace = true
+file-lock.workspace = true
 file-system.workspace = true
 os.workspace = true
 ports.workspace = true

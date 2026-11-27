@@ -2588,6 +2588,7 @@ dependencies = [
  "angzarr-ports",
  "angzarr-store-transfer",
  "coded-diagnostic",
+ "file-lock",
  "file-system",
  "fluent-syntax",
  "os",

@@ -1918,3 +1918,85 @@ fn test_a_read_open_of_a_store_that_cannot_be_made_its_owners_fails_naming_what(
         assert!(stores.held.is_none(), "{refused:?}: nothing held");
     }
 }
+
+// The store's lock (`state.db.lock`): shared by an ordinary open, exclusive
+// for a migration, none for a read-only open.
+
+use super::{lock, ExclusiveLock};
+
+/// The key a store held by another process is refused with.
+const HELD: &str = code!("held");
+
+#[test]
+fn test_a_write_open_holds_the_shared_lock_until_the_store_closes() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    let mut stores = home.stores();
+    block_on(stores.open(&project("jolly-mute-magma", path.clone()))).expect("opens");
+    let refused = ExclusiveLock::take(&*home.rooted, &path).expect_err("held while open");
+    assert_eq!(refused.code(), HELD);
+    block_on(stores.close()).unwrap();
+    ExclusiveLock::take(&*home.rooted, &path).expect("free once closed");
+}
+
+#[test]
+fn test_a_write_open_is_refused_held_after_the_window_while_a_migration_holds_the_lock() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    let _migration = ExclusiveLock::take(&*home.rooted, &path).unwrap();
+    let mut stores = home.stores().with_lock_wait(std::time::Duration::ZERO);
+    let refused = block_on(stores.open(&project("jolly-mute-magma", path.clone())))
+        .map(drop)
+        .expect_err("refused");
+    assert!(
+        matches!(&refused, StoreError::Unavailable(cause) if cause.code == HELD),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn test_a_read_open_takes_no_lock_and_makes_no_lock_file() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    written(&home, &path);
+    let mut stores = home.stores();
+    let found = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
+        .expect("opens")
+        .is_some();
+    assert!(found);
+    assert!(!home.exists(&lock::lock_file(&path)), "no lock file");
+    ExclusiveLock::take(&*home.rooted, &path).expect("a reader holds no lock");
+    block_on(stores.close()).unwrap();
+}
+
+#[test]
+fn test_a_read_open_of_no_store_makes_no_lock_file() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    let found = block_on(
+        home.stores()
+            .open_existing(&project("jolly-mute-magma", path.clone())),
+    )
+    .expect("no error")
+    .is_some();
+    assert!(!found);
+    assert!(!home.exists(&lock::lock_file(&path)));
+}
+
+#[test]
+fn test_a_process_holding_the_exclusive_lock_opens_the_store_through_it() {
+    let home = Home::new();
+    let path = store_in(home.path(), "jolly-mute-magma");
+    home.mkdir(path.parent().unwrap());
+    let migration = ExclusiveLock::take(&*home.rooted, &path).unwrap();
+    // Taking the lock again in this process would conflict with its own
+    // guard (flock conflicts between open file descriptions): the open
+    // goes through the guard.
+    let mut stores = home.stores().with_lock_wait(std::time::Duration::ZERO);
+    block_on(stores.open_through(&migration)).expect("opens through the guard");
+    block_on(stores.close()).unwrap();
+    drop(migration);
+    ExclusiveLock::take(&*home.rooted, &path).expect("free once both are gone");
+}

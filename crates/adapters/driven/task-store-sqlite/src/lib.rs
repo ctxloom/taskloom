@@ -72,6 +72,7 @@
 //!   travel in it as a cause, its code and args.
 
 mod error;
+mod lock;
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -94,6 +95,7 @@ use sqlx::{ConnectOptions, Connection};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{StoreOpenError, EN_US};
+pub use lock::ExclusiveLock;
 
 /// A directory only its owner may enter: a store's, and each one its open
 /// makes.
@@ -129,6 +131,21 @@ impl SqliteStores {
             held: None,
             opened: 0,
         }
+    }
+
+    /// How long an ordinary open waits for the store's lock.
+    pub fn with_lock_wait(self, _wait: std::time::Duration) -> SqliteStores {
+        self
+    }
+
+    /// The store `lock` holds exclusive, opened to write through it.
+    pub async fn open_through(&mut self, lock: &ExclusiveLock) -> Result<&SqliteStore, StoreError> {
+        let project = Project {
+            id: String::new(),
+            root: None,
+            store: lock.store().to_path_buf(),
+        };
+        self.open(&project).await
     }
 
     /// `store`, just opened, held for `path` under a handle of its own.
