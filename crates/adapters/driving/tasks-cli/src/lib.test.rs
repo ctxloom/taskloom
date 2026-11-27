@@ -964,6 +964,18 @@ fn test_global_is_a_removed_flag_refused_with_48() {
     }
 }
 
+// The old `prune` verb is refused whole, naming `tasks prune`: in the purge
+// flavour only (the plain one has no prune to point at).
+#[cfg(feature = "purge")]
+#[test]
+fn test_the_removed_prune_verb_is_refused_naming_tasks_prune() {
+    let mut fake = Fake::default();
+    let ran = run_on(&mut fake, true, &["prune"]);
+    assert_eq!(ran.code, 48, "{}", ran.err);
+    assert_eq!(ran.out, "");
+    assert!(ran.err.contains("removed: use tasks prune"), "{}", ran.err);
+}
+
 // ------------------------------------------------------------ show
 
 fn details(reach: Reach, tasks: Vec<Task>) -> Option<Result<Details, AppError>> {
@@ -3275,6 +3287,35 @@ fn test_schema_init_previews_by_default_and_names_the_command_that_applies_it() 
     assert!(
         ran.err.contains(
             "taskloom manage schema init --template general --area cli --area 'my docs' --yes"
+        ),
+        "{}",
+        ran.err
+    );
+}
+
+#[test]
+fn test_a_schema_declare_preview_prints_the_command_that_applies_it() {
+    let mut fake = Fake {
+        declared: schema_declared(&["tagma.keys-per-item:lang=1"], true),
+        ..Fake::default()
+    };
+    let ran = run_on(
+        &mut fake,
+        false,
+        &[
+            "manage",
+            "schema",
+            "declare",
+            "--add",
+            "tagma.keys-per-item:lang=1",
+            "--remove",
+            "my rule",
+        ],
+    );
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert!(
+        ran.err.contains(
+            "taskloom manage schema declare --add tagma.keys-per-item:lang=1 --remove 'my rule' --yes"
         ),
         "{}",
         ran.err
