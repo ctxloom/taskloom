@@ -526,3 +526,9 @@ weaken a gate to get through.
    `just mutants-staged` runs the same judgement over the staged diff, by
    hand, before committing, and `just mutants-all` over the whole workspace
    at HEAD (the full pass; weekly in CI, `.github/workflows/mutation.yml`).
+   `just mutants-purge BASE` is the purge flavour's own mutation run (owner's
+   ruling, 2026-11-27: not a step of any gate, CI or the close-out): `cargo
+   mutants --features purge --in-diff` over BASE..HEAD, limited to the files
+   `scripts/purge-files.sh` lists (non-test files with `cfg(feature =
+   "purge")` and the modules they gate), judged by `_mutants-verdict` as the
+   rest; `just mutants-purge BASE --list` lists the mutants only.
