@@ -309,7 +309,7 @@ push order, and `just dev::pins-check` (pre-commit) and `just
 dev::pins-reachable` (pre-push) refuse a path-based commit and a pin that is
 not on its remote. This replaces the former `.cargo/local-deps.toml` copy.
 
-The angzarr pins are one commit of one repository, 8dc7da9 of
+The angzarr pins are one commit of one repository, ed19b7e of
 github.com/angzarr-io/angzarr (ports, yaml, store-transfer, embedded and its
 router, angzarr-build). The generic substrate is rust-support's, every crate
 at one full commit, dcb930d: `coded-diagnostic`, `presentation`, `os`,
