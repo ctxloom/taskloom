@@ -17,9 +17,7 @@
 //!   key (`code!(...)`, under the crate's name) and its args, never English,
 //!   which the application reads back from the refusal's type. A stream with
 //!   history refuses an add ([`crate::TaskRejection::TaskExists`]), by the
-//!   state it folds to, never the router's `had_prior_events`: a purge's
-//!   tombstone leaves a stream with an event and no task, whose harp is
-//!   free;
+//!   router's `had_prior_events`;
 //! - one `#[applies]` per event, assigning what the event carries, an add's
 //!   and a status change's instant, and when it deferred the task, its
 //!   page's `recorded_at` (or an old event's `at` and `deferred_since`): at
@@ -81,8 +79,7 @@ impl TaskAggregate {
         cmd: AddTask,
         ctx: &Context,
     ) -> Result<TaskAdded, Failed<Refuses<Self, AddTask>>> {
-        let _ = ctx;
-        let taken = !self.task.harp_id.is_empty();
+        let taken = ctx.command.had_prior_events;
         task_added(&self.task, taken, &cmd).map_err(|rejection| {
             refuse!(
                 TaskRejection,
