@@ -31,7 +31,23 @@ pub enum StoreOpenError {
     /// The store's directory, file, log or shared memory at `path` could not
     /// be made its owner's alone (0700, 0600), so it is not opened.
     Restrict { path: String, detail: String },
+    /// Another process holds the store's lock (`state.db.lock`) in a way
+    /// that conflicts with this open, and did not give it up in the time
+    /// this open waits (an ordinary open waits; a migration never does).
+    /// `holder` is what the holder recorded of itself, if it recorded one.
+    Held {
+        lock: String,
+        holder: Option<String>,
+    },
+    /// The store's lock could not be taken for a reason other than another
+    /// holding it (a directory that cannot be written, a lock path that is
+    /// no file).
+    Lock { path: String, detail: String },
 }
+
+/// The arg `holder` of [`StoreOpenError::Held`] where the holder left no
+/// record: a key, not prose.
+pub const HOLDER_UNKNOWN: &str = "unknown";
 
 /// Its key, then each arg as ` name=value`, a value quoted where it would
 /// not parse back: never English (angzarr decision 14.37), as
@@ -53,6 +69,8 @@ impl StoreOpenError {
             StoreOpenError::OlderGeneration { .. } => code!("older-generation"),
             StoreOpenError::NoOutput { .. } => code!("no-output"),
             StoreOpenError::Restrict { .. } => code!("restrict"),
+            StoreOpenError::Held { .. } => code!("held"),
+            StoreOpenError::Lock { .. } => code!("lock"),
         }
     }
 
@@ -61,7 +79,8 @@ impl StoreOpenError {
         match self {
             StoreOpenError::CreateDir { path, detail }
             | StoreOpenError::Unplaced { path, detail }
-            | StoreOpenError::Restrict { path, detail } => vec![
+            | StoreOpenError::Restrict { path, detail }
+            | StoreOpenError::Lock { path, detail } => vec![
                 ("path", path.as_str().into()),
                 ("ext_err_txt", detail.as_str().into()),
             ],
@@ -75,6 +94,10 @@ impl StoreOpenError {
             StoreOpenError::OlderGeneration { path, archive } => vec![
                 ("path", path.as_str().into()),
                 ("archive", archive.as_str().into()),
+            ],
+            StoreOpenError::Held { lock, holder } => vec![
+                ("lock", lock.as_str().into()),
+                ("holder", holder.as_deref().unwrap_or(HOLDER_UNKNOWN).into()),
             ],
         }
     }
@@ -142,6 +165,14 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
         Box::new(StoreOpenError::Restrict {
             path: format!("{}/state.db-wal", path()),
             detail: "operation not permitted".to_string(),
+        }),
+        Box::new(StoreOpenError::Held {
+            lock: format!("{}/state.db.lock", path()),
+            holder: Some("4242 taskloom manage store migrate".to_string()),
+        }),
+        Box::new(StoreOpenError::Lock {
+            path: format!("{}/state.db.lock", path()),
+            detail: "permission denied".to_string(),
         }),
     ]
 }

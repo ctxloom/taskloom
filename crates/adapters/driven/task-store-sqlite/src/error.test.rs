@@ -45,6 +45,14 @@ fn test_each_error_displays_its_code_and_args_never_english() {
                 code!("restrict"),
                 r#" path=/home/u/.ctxloom/projects/jolly-mute-magma/state.db-wal ext_err_txt="operation not permitted""#
             ),
+            concat!(
+                code!("held"),
+                r#" lock=/home/u/.ctxloom/projects/jolly-mute-magma/state.db.lock holder="4242 taskloom manage store migrate""#
+            ),
+            concat!(
+                code!("lock"),
+                r#" path=/home/u/.ctxloom/projects/jolly-mute-magma/state.db.lock ext_err_txt="permission denied""#
+            ),
         ]
     );
 }
@@ -210,5 +218,17 @@ fn test_every_code_is_under_the_crates_name_with_its_message() {
     assert_eq!(
         coded_diagnostic::catalog::check(name, text, &crate::diagnostic_samples()),
         []
+    );
+}
+
+#[test]
+fn test_a_held_store_with_no_holder_record_names_the_holder_unknown() {
+    let held = StoreOpenError::Held {
+        lock: "/s/state.db.lock".to_string(),
+        holder: None,
+    };
+    assert_eq!(
+        held.to_string(),
+        concat!(code!("held"), " lock=/s/state.db.lock holder=unknown")
     );
 }
