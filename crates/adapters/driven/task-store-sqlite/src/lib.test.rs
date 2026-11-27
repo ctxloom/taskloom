@@ -1933,10 +1933,10 @@ fn test_a_write_open_holds_the_shared_lock_until_the_store_closes() {
     let path = store_in(home.path(), "jolly-mute-magma");
     let mut stores = home.stores();
     block_on(stores.open(&project("jolly-mute-magma", path.clone()))).expect("opens");
-    let refused = ExclusiveLock::take(&*home.rooted, &path).expect_err("held while open");
+    let refused = ExclusiveLock::take(home.rooted.clone(), &path).expect_err("held while open");
     assert_eq!(refused.code(), HELD);
     block_on(stores.close()).unwrap();
-    ExclusiveLock::take(&*home.rooted, &path).expect("free once closed");
+    ExclusiveLock::take(home.rooted.clone(), &path).expect("free once closed");
 }
 
 #[test]
@@ -1944,7 +1944,7 @@ fn test_a_write_open_is_refused_held_after_the_window_while_a_migration_holds_th
     let home = Home::new();
     let path = store_in(home.path(), "jolly-mute-magma");
     home.mkdir(path.parent().unwrap());
-    let _migration = ExclusiveLock::take(&*home.rooted, &path).unwrap();
+    let _migration = ExclusiveLock::take(home.rooted.clone(), &path).unwrap();
     let mut stores = home.stores().with_lock_wait(std::time::Duration::ZERO);
     let refused = block_on(stores.open(&project("jolly-mute-magma", path.clone())))
         .map(drop)
@@ -1966,7 +1966,7 @@ fn test_a_read_open_takes_no_lock_and_makes_no_lock_file() {
         .is_some();
     assert!(found);
     assert!(!home.exists(&lock::lock_file(&path)), "no lock file");
-    ExclusiveLock::take(&*home.rooted, &path).expect("a reader holds no lock");
+    ExclusiveLock::take(home.rooted.clone(), &path).expect("a reader holds no lock");
     block_on(stores.close()).unwrap();
 }
 
@@ -1990,7 +1990,7 @@ fn test_a_process_holding_the_exclusive_lock_opens_the_store_through_it() {
     let home = Home::new();
     let path = store_in(home.path(), "jolly-mute-magma");
     home.mkdir(path.parent().unwrap());
-    let migration = ExclusiveLock::take(&*home.rooted, &path).unwrap();
+    let migration = ExclusiveLock::take(home.rooted.clone(), &path).unwrap();
     // Taking the lock again in this process would conflict with its own
     // guard (flock conflicts between open file descriptions): the open
     // goes through the guard.
@@ -1998,5 +1998,5 @@ fn test_a_process_holding_the_exclusive_lock_opens_the_store_through_it() {
     block_on(stores.open_through(&migration)).expect("opens through the guard");
     block_on(stores.close()).unwrap();
     drop(migration);
-    ExclusiveLock::take(&*home.rooted, &path).expect("free once both are gone");
+    ExclusiveLock::take(home.rooted.clone(), &path).expect("free once both are gone");
 }
