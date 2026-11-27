@@ -63,5 +63,10 @@ plans-cli = { workspace = true, features = ["test-support"] }
 store-cli = { workspace = true, features = ["test-support"] }
 angzarr-store-transfer.workspace = true
 
+[features]
+# The flavour that prunes: the `tasks prune` verb and the stores that purge a
+# stream. Off by default; the default build has no prune verb and no Purge API.
+purge = ["tasks-cli/purge", "tasks-lib/purge", "tasks-application/purge"]
+
 [lints]
 workspace = true

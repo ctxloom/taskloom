@@ -11,10 +11,11 @@ use std::sync::Arc;
 use angzarr_embedded::angzarr_store_sqlite::{SqlError, SqliteStore};
 use angzarr_ports::angzarr_proto::v1::event_meta::Causation;
 use angzarr_ports::angzarr_proto::v1::{event_page, CommandCause, EventMeta, EventPage, Uuid};
+#[cfg(feature = "purge")]
 use angzarr_ports::tombstone;
-use angzarr_ports::{
-    Cause, EventStore, PositionKey, PositionStore, Purge, StoreError, StreamRef, Watch, Write,
-};
+use angzarr_ports::{Cause, EventStore, StoreError, StreamRef, Watch, Write};
+#[cfg(feature = "purge")]
+use angzarr_ports::{PositionKey, PositionStore, Purge};
 use coded_diagnostic::{code, Arg, Diagnostic};
 use file_system::{Fs, Os, Perms, Rooted};
 use os::Mode;
@@ -764,6 +765,7 @@ fn test_every_store_copy_exports_every_page() {
 
 // ------------------------------------------------------------ purging
 
+#[cfg(feature = "purge")]
 /// A purge keeps the stream and never touches a position on it: it deletes
 /// the events and appends one tombstone at the next sequence, so sequences
 /// do not restart, the stream stays listed and a later write continues after

@@ -22,8 +22,17 @@ mod? dev '.dev'
 # sibling checkouts instead of the commit's pinned dependencies.
 staged_tree := "../.{name}.staged"
 
-# No feature is turned on by what a commit changes.
-feature_rules := ""
+# The two flavours the product is built and tested in (and installed in): `plain` (the
+# default: no prune verb and no Purge API compiled in) and `purge` (the cargo
+# feature of that name, on every crate that has it). `TASKLOOM_FLAVOUR=purge
+# just <build|lint|test|...>` runs a gate in the purge flavour; CI runs every
+# gate in both.
+flavour := env("TASKLOOM_FLAVOUR", "plain")
+flavour_features := if flavour == "purge" { "--features purge" } else if flavour == "plain" { "" } else { error("TASKLOOM_FLAVOUR must be plain or purge, not " + flavour) }
+
+# The flavour's feature, turned on for the tests (and refused for a mutation
+# run by gates.just: a mutation run is of the plain flavour).
+feature_rules := if flavour == "purge" { "taskloom=purge" } else { "" }
 features_prepare := ""
 
 # Mutation kill-rate thresholds, percent, by crate path: the one place they
@@ -49,7 +58,7 @@ build:
     terse=(-q --message-format=short)
     [ "${VERBOSE:-}" = 1 ] && terse=()
     exec just --justfile {{TOP}}/justfile _run build workspace cargo \
-        cargo build "${terse[@]}" --manifest-path {{TOP}}/Cargo.toml --workspace
+        cargo build "${terse[@]}" --manifest-path {{TOP}}/Cargo.toml --workspace {{flavour_features}}
 
 # Clippy, warnings denied, including the core's purity rules
 # (crates/core/clippy.toml), after `lint-os`: lefthook's `clippy` step. Clippy reads only the
@@ -76,7 +85,7 @@ lint:
     terse=(-q --message-format=short)
     [ "${VERBOSE:-}" = 1 ] && terse=()
     exec just --justfile {{TOP}}/justfile _run lint workspace cargo \
-        cargo clippy "${terse[@]}" --manifest-path {{TOP}}/Cargo.toml --workspace --all-targets -- -D warnings
+        cargo clippy "${terse[@]}" --manifest-path {{TOP}}/Cargo.toml --workspace --all-targets {{flavour_features}} -- -D warnings
 
 # Nothing in this workspace names an operating system (decision 4): that is
 # angzarr's os crate's alone: no cfg naming one, `cfg!(`, `std::os::`, `split_paths` or
@@ -110,10 +119,11 @@ check-windows:
 # TASKLOOM_RS_ROOT overrides it.
 install_root := env("TASKLOOM_RS_ROOT", home_directory() / ".local/share/taskloom-rs")
 
-# Build and install the taskloom binary into `install_root` (plan step 9).
+# Build and install the taskloom binary into `install_root` (plan step 9), in
+# the flavour `TASKLOOM_FLAVOUR` names (the default has no prune verb).
 [no-exit-message]
 install:
-    cargo install --locked --path {{TOP}}/crates/root/bin/taskloom --root {{install_root}}
+    cargo install --locked --path {{TOP}}/crates/root/bin/taskloom --root {{install_root}} {{flavour_features}}
     @echo "ok   install ({{install_root}}/bin/taskloom; it must come first on PATH, as ~/.zshrc puts it)"
 
 # Wire lefthook's git hooks into the repository's .git/hooks. Worktrees share

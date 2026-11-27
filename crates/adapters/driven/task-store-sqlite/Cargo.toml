@@ -43,6 +43,8 @@ os = { workspace = true, features = ["test-support"] }
 coded-diagnostic = { workspace = true, features = ["build"] }
 
 [features]
+# The purge capability of the store (`Purge for SqliteStore`). Off by default.
+purge = ["angzarr-embedded/purge", "ports/purge"]
 # `diagnostic_samples`, for other crates' catalog tests: their
 # dev-dependency turns it on, and no build of a binary does.
 test-support = []

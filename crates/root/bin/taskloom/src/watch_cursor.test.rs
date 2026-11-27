@@ -590,6 +590,7 @@ fn test_a_cursor_of_an_unknown_version_is_exit_48() {
     refused(&env, &["--since", &forged], 48);
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_cursor_whose_stream_was_pruned_is_reported_once_as_expired() {
     // PROPOSAL (pending owner review): a pruned stream is dropped from the
@@ -755,6 +756,7 @@ fn test_sigint_ends_a_watch_with_exit_0_between_heartbeats() {
 
 // ------------------------------------------------------------ 9. versioned
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_every_kind_of_line_carries_the_version() {
     let env = world();

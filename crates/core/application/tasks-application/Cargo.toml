@@ -43,6 +43,9 @@ mutants.workspace = true
 coded-diagnostic = { workspace = true, features = ["build"] }
 
 [features]
+# The prune use case: removing a task and purging its stream. Off by
+# default; a default build has no prune and no Purge API.
+purge = ["angzarr-embedded/purge", "ports/purge"]
 # `diagnostic_samples` and `dead_letter_sample`, for other crates' tests:
 # their dev-dependency turns it on, and no build of a binary does.
 test-support = []

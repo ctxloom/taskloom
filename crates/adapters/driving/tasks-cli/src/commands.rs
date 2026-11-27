@@ -6,19 +6,23 @@ use std::io::{self, Write};
 use clap::Args;
 use presentation::{Catalog, Format};
 use tasks_application::{
-    Declaration, ListQuery, Listing, NewTask, PermitChange, PermitService, PruneRequest,
-    PruneService, Reach, SchemaInit, SchemaService, Scope, ShowQuery, TagChange, TaskService,
-    TaskSet, Template, DEFAULT_OLDER_THAN, DEFAULT_PRUNE_STATUSES,
+    Declaration, ListQuery, Listing, NewTask, PermitChange, PermitService, Reach, SchemaInit,
+    SchemaService, Scope, ShowQuery, TagChange, TaskService, TaskSet, Template,
 };
+#[cfg(feature = "purge")]
+use tasks_application::{PruneRequest, PruneService, DEFAULT_OLDER_THAN, DEFAULT_PRUNE_STATUSES};
 
 use cli_support::Exit;
 
+#[cfg(feature = "purge")]
+use crate::dead_lettered;
+#[cfg(feature = "purge")]
 use crate::prune::{apply_command, PruneReport};
 use crate::render::{
     Added, Changed, Checked, Counted, DeclaredView, Detailed, Exported, Linted, Listed, Permits,
     Previewed, Schema, Summed, Tagged, Taxonomy, Virtuals, YesIgnored,
 };
-use crate::{dead_lettered, notify, output_failed, wrote, CliError, Notice, PROG};
+use crate::{notify, output_failed, wrote, CliError, Notice, PROG};
 
 /// What every task command is handed besides its own arguments: the
 /// global flags, the format, the catalog and the session.
@@ -620,7 +624,7 @@ fn init_command(init: &InitArgs) -> String {
     words.push(init.template.template().name().to_string());
     for area in &init.areas {
         words.push("--area".to_string());
-        words.push(crate::prune::shell_word(area));
+        words.push(crate::shell::shell_word(area));
     }
     words.push("--yes".to_string());
     words.join(" ")
@@ -632,7 +636,7 @@ fn declaration_command(declare: &DeclareArgs) -> String {
     for (flag, rules) in [("--add", &declare.add), ("--remove", &declare.remove)] {
         for rule in rules {
             words.push(flag.to_string());
-            words.push(crate::prune::shell_word(rule));
+            words.push(crate::shell::shell_word(rule));
         }
     }
     words.push("--yes".to_string());
@@ -751,6 +755,7 @@ pub(crate) async fn check(
     }
 }
 
+#[cfg(feature = "purge")]
 /// `prune`'s flags.
 #[derive(Args, Debug)]
 pub struct PruneArgs {
@@ -772,6 +777,7 @@ pub struct PruneArgs {
 /// Run the prune the flags ask for. Say on stderr when there is no
 /// project here, then render the report, and after a report that would
 /// take something, say nothing was taken and the command that takes it.
+#[cfg(feature = "purge")]
 pub(crate) async fn prune(
     args: PruneArgs,
     ctx: Ctx<'_>,

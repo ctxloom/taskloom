@@ -1,6 +1,6 @@
 //! [`Service`]: the ports the use cases run over, owned once, and the
 //! composition of the use-case units behind the traits a driving adapter
-//! calls ([`TaskService`], [`PruneService`], [`PermitService`],
+//! calls ([`TaskService`], [`PermitService`],
 //! [`SchemaService`], [`WatchService`]). Each call lends its unit only the
 //! ports it uses ([`Parts`]); the unit is the use case.
 
@@ -22,6 +22,7 @@ use crate::error::carrying;
 use crate::lists::Lists;
 use crate::permit::Permitting;
 use crate::project::Projects;
+#[cfg(feature = "purge")]
 use crate::prune::Pruner;
 use crate::read::Reading;
 use crate::rules::StoreRulesExt;
@@ -30,10 +31,9 @@ use crate::watch::Watching;
 use crate::write::Writes;
 use crate::{
     AppError, DeadLetter, Declaration, Declared, Details, Found, LintReport, ListQuery, Listing,
-    NewTask, PermitChange, PermitList, PermitService, Permitted, Positions, PruneRequest,
-    PruneService, Pruning, RuleFinding, SchemaInit, SchemaService, SchemaSummary, Scope, ShowQuery,
-    StatusChange, Statuses, Summary, TagChange, TextEdit, Vocabulary, Watch, WatchRequest,
-    WatchService, Written,
+    NewTask, PermitChange, PermitList, PermitService, Permitted, Positions, RuleFinding,
+    SchemaInit, SchemaService, SchemaSummary, Scope, ShowQuery, StatusChange, Statuses, Summary,
+    TagChange, TextEdit, Vocabulary, Watch, WatchRequest, WatchService, Written,
 };
 
 /// The use cases a driving adapter calls for a task: the writes (add,
@@ -212,6 +212,7 @@ impl<I, S, N, C, D, G> Service<I, S, N, C, D, G> {
         }
     }
 
+    #[cfg(feature = "purge")]
     fn pruner(&mut self) -> Pruner<'_, I, S, G, C, D> {
         let (writes, rest) = self.parts().writes();
         Pruner {
@@ -333,7 +334,8 @@ where
     }
 }
 
-impl<I, S, N, C, D, G> PruneService for Service<I, S, N, C, D, G>
+#[cfg(feature = "purge")]
+impl<I, S, N, C, D, G> crate::PruneService for Service<I, S, N, C, D, G>
 where
     I: ProjectIdentity + Send,
     S: TaskStores + Send,
@@ -342,7 +344,7 @@ where
     D: Delay + Jitter + Send,
     G: Configuration + Send,
 {
-    async fn prune(&mut self, request: PruneRequest) -> Result<Pruning, AppError> {
+    async fn prune(&mut self, request: crate::PruneRequest) -> Result<crate::Pruning, AppError> {
         let pruning = self.pruner().prune(request).await;
         carrying(pruning, &mut self.dead_letters)
     }

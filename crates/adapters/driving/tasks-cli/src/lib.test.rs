@@ -11,11 +11,12 @@ use coded_diagnostic::{code, Diagnostic, Report};
 use tasks_application::{
     AppError, Details, Finding, Hidden, ImportReport, ImportRequest, ImportService, LintReport,
     ListQuery, Listing, NewTask, PermitChange, PermitList, PermitService, Permitted, PriorityNote,
-    PriorityWarning, Project, ProjectImport, PruneRequest, PruneService, Pruning, Reach, Row,
-    RuleFinding, SchemaService, SchemaSummary, Scope, ShowQuery, StatusChange, StatusInfo,
-    Statuses, Summary, TagChange, TagCount, TargetSummary, Task, TaskService, TextEdit, Violation,
-    Vocabulary, Written,
+    PriorityWarning, Project, ProjectImport, Reach, Row, RuleFinding, SchemaService, SchemaSummary,
+    Scope, ShowQuery, StatusChange, StatusInfo, Statuses, Summary, TagChange, TagCount,
+    TargetSummary, Task, TaskService, TextEdit, Violation, Vocabulary, Written,
 };
+#[cfg(feature = "purge")]
+use tasks_application::{PruneRequest, PruneService, Pruning};
 
 use cli_support::Exit;
 use presentation::Catalog;
@@ -89,7 +90,9 @@ struct Fake {
     listed: Vec<ListQuery>,
     written: Option<Result<Written, AppError>>,
     listing: Option<Result<Listing, AppError>>,
+    #[cfg(feature = "purge")]
     prunes: Vec<PruneRequest>,
+    #[cfg(feature = "purge")]
     pruning: Option<Result<Pruning, AppError>>,
     permits: Vec<PermitChange>,
     revokes: Vec<PermitChange>,
@@ -182,6 +185,7 @@ impl ImportService for FakeImporter {
     }
 }
 
+#[cfg(feature = "purge")]
 impl PruneService for Fake {
     async fn prune(&mut self, request: PruneRequest) -> Result<Pruning, AppError> {
         self.prunes.push(request);
@@ -1584,6 +1588,7 @@ fn test_list_passes_its_filters() {
 
 // A filter given empty is given: passed on as given, for the use case to
 // refuse, never read as the filter left out.
+#[cfg(feature = "purge")]
 #[test]
 fn test_list_tags_and_prune_pass_a_filter_given_empty_on_as_given() {
     let mut fake = Fake {
@@ -2346,6 +2351,7 @@ fn tag(key: &str) -> tasks_application::Tag {
 
 // ------------------------------------------------------------ prune
 
+#[cfg(feature = "purge")]
 fn pruning(applied: bool, taken: &[&str]) -> Pruning {
     Pruning {
         dead_letters: Vec::new(),
@@ -2375,6 +2381,7 @@ fn pruning(applied: bool, taken: &[&str]) -> Pruning {
     }
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_prune_by_default_reports_done_tasks_older_than_seven_days() {
     let mut fake = Fake {
@@ -2396,6 +2403,7 @@ fn test_prune_by_default_reports_done_tasks_older_than_seven_days() {
     assert_eq!(ran.err, "", "nothing would be taken: nothing to say");
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_prune_passes_its_flags() {
     let mut fake = Fake {
@@ -2447,6 +2455,7 @@ fn test_prune_passes_its_flags() {
     );
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_prune_report_that_would_take_something_says_how_to_apply_it() {
     let mut fake = Fake {
@@ -2473,6 +2482,7 @@ fn test_a_prune_report_that_would_take_something_says_how_to_apply_it() {
     );
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_off_a_terminal_a_prune_is_one_json_document_and_its_notices_are_on_stderr() {
     let mut fake = Fake {
@@ -2489,6 +2499,7 @@ fn test_off_a_terminal_a_prune_is_one_json_document_and_its_notices_are_on_stder
     assert!(ran.err.contains("removed nothing"), "{}", ran.err);
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_prune_where_there_is_no_project_says_so_on_stderr() {
     let mut answer = pruning(false, &[]);
@@ -2507,6 +2518,7 @@ fn test_a_prune_where_there_is_no_project_says_so_on_stderr() {
     );
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_refused_prune_says_why_and_exits_48() {
     let refusal = Report::of(&tasks_application::PruneRefusal::AgeUnreadable {
@@ -2592,6 +2604,7 @@ fn test_a_failed_writes_dead_letters_are_said_on_stderr_before_its_error() {
     }
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_prunes_dead_letters_are_said_on_stderr() {
     let mut pruning = pruning(false, &[]);
@@ -3174,6 +3187,7 @@ fn test_no_help_teaches_the_retired_urgent_tag() {
         &["tasks", "tag", "add", "--help"],
         &["tasks", "list", "--help"],
         &["manage", "schema", "tags", "list", "--help"],
+        #[cfg(feature = "purge")]
         &["tasks", "prune", "--help"],
         &["manage", "schema", "permits", "add", "--help"],
         &["manage", "schema", "permits", "remove", "--help"],
@@ -3503,6 +3517,7 @@ fn test_a_declaration_preview_is_would_change_only_when_the_rules_would_change()
     assert_eq!(statuses_of(fake(true), &with(&["--yes"])), (0, 16));
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_prune_preview_is_would_change_only_when_it_would_take_a_task() {
     let fake = |taken: &'static [&'static str]| {

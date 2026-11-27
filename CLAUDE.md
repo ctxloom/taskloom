@@ -418,6 +418,32 @@ errors, the mutation verdict and survivors). Read the log for the rest;
 fmt-check` cover this workspace's crates only, never angzarr's crates
 or tagma, whether pinned or patched onto local checkouts.
 
+## Two flavours: default and `purge`
+
+Purging a stream is behind angzarr's cargo feature `purge` (off by default:
+a default angzarr build has no Purge API), and taskloom's own `purge`
+feature, off by default, turns it on through the chain `taskloom` ->
+`tasks-cli`, `tasks-lib` -> `tasks-application`, `task-store-sqlite` ->
+`ports`, `angzarr-embedded`. The default flavour has NO prune verb (`tasks
+prune` and the old `prune` are unknown subcommands, not refusals) and its
+`TaskStores::Store` has no Purge bound; the `purge` flavour has the verb.
+Gated: tasks-application's `prune` module (the use case, `PruneService`, its
+requests and reports), tasks-cli's `tasks prune` command and its report,
+and every test that purges a stream or runs the verb. Not gated: reading a
+tombstone (the list projection, the watch) and the vocabulary (`PruneRefusal`,
+the prune notices and their catalog messages, which every flavour's one
+catalog holds: coded-diagnostic builds a catalog from one text per crate).
+
+`TASKLOOM_FLAVOUR=purge just <build|lint|test|test-pkg|install>` runs a gate
+in the purge flavour (`--features purge`, and `feature_rules` for the test
+run); the default is `plain`. CI runs every suite in both (`.github/
+workflows/ci.yml`). The binary's acceptance tests build the binary they run
+with the flavour's feature (`main.test.rs`'s `binary()`), and
+`test_the_default_build_has_no_prune_verb` holds the default build to having
+none. Mutation runs are of the default flavour (gates.just refuses a feature
+rule there). There is no release machinery in this repository: `just
+install` installs the flavour asked for.
+
 ## This repository's tasks are in the Rust taskloom
 
 The Rust taskloom is the global taskloom (the owner's switch,

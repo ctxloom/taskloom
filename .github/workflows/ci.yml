@@ -48,6 +48,7 @@ jobs:
         with:
           tool: ${{ env.TOOLS }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # The default flavour (no prune verb, no Purge API) ...
       - run: just build
       - run: just fmt-check
       - run: just lint
@@ -55,6 +56,10 @@ jobs:
       - run: just lint-deps
       - run: just test
       - run: just check-windows
+      # ... and the purge flavour (the cargo feature `purge`), every suite in both.
+      - run: TASKLOOM_FLAVOUR=purge just build
+      - run: TASKLOOM_FLAVOUR=purge just lint
+      - run: TASKLOOM_FLAVOUR=purge just test
       - name: The gates' logs
         if: failure()
         run: shopt -s nullglob; for log in target/logs/*.log; do echo "::group::$log"; cat "$log"; echo "::endgroup::"; done
@@ -79,6 +84,8 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: just build
       - run: just test
+      - run: TASKLOOM_FLAVOUR=purge just build
+      - run: TASKLOOM_FLAVOUR=purge just test
       - name: The gates' logs
         if: failure()
         run: shopt -s nullglob; for log in target/logs/*.log; do echo "::group::$log"; cat "$log"; echo "::endgroup::"; done

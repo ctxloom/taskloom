@@ -212,6 +212,7 @@ const RULED_COMMANDS: &[&[&str]] = &[
     &["tasks", "tag", "add"],
     &["tasks", "tag", "remove"],
     &["tasks", "summary"],
+    #[cfg(feature = "purge")]
     &["tasks", "prune"],
     &["tasks", "check"],
     &["tasks", "watch"],
@@ -265,10 +266,15 @@ fn test_the_top_level_groups_are_exactly_tasks_plans_manage_loadout() {
 #[test]
 fn test_each_group_has_exactly_its_ruled_verbs() {
     let children = |path: &[&str]| names(&page(path).long.stdout);
-    assert_eq!(
-        children(&["tasks"]),
-        set(&["add", "list", "show", "set", "tag", "summary", "prune", "check", "watch"])
-    );
+    #[cfg(feature = "purge")]
+    let tasks_verbs = [
+        "add", "list", "show", "set", "tag", "summary", "prune", "check", "watch",
+    ];
+    #[cfg(not(feature = "purge"))]
+    let tasks_verbs = [
+        "add", "list", "show", "set", "tag", "summary", "check", "watch",
+    ];
+    assert_eq!(children(&["tasks"]), set(&tasks_verbs));
     assert_eq!(children(&["tasks", "tag"]), set(&["add", "remove"]));
     assert_eq!(
         children(&["manage"]),
@@ -330,6 +336,30 @@ fn removed(args: &[&str], instead: &str) {
     );
 }
 
+/// The default build has no prune verb at all: not a refusal of one, an
+/// unknown subcommand, in neither the old spelling nor the new, and none
+/// listed by `tasks --help`.
+#[cfg(not(feature = "purge"))]
+#[test]
+fn test_the_default_build_has_no_prune_verb() {
+    let env = Env::new(SESSION);
+    for args in [&["tasks", "prune", "--yes"][..], &["prune", "--yes"]] {
+        let ran = run_bounded(&env, args, Duration::from_secs(30));
+        assert_eq!(ran.code, 48, "{args:?}: {}{}", ran.stdout, ran.stderr);
+        assert!(
+            ran.stderr.contains("unrecognized subcommand 'prune'"),
+            "{args:?}: {}",
+            ran.stderr
+        );
+        assert!(
+            !ran.stderr.contains("removed: use"),
+            "{args:?}: no verb to point at: {}",
+            ran.stderr
+        );
+    }
+    assert!(!page(&["tasks"]).long.stdout.contains("prune"));
+}
+
 macro_rules! removed_verbs {
     ($($name:ident: [$($arg:expr),+] => $instead:expr;)+) => {$(
         #[test]
@@ -350,7 +380,6 @@ removed_verbs! {
     test_removed_summary_says_use_tasks_summary: ["summary"] => "tasks summary";
     test_removed_statuses_says_use_manage_schema_statuses_list: ["statuses"] => "manage schema statuses list";
     test_removed_lint_says_use_tasks_check: ["lint"] => "tasks check";
-    test_removed_prune_says_use_tasks_prune_and_prunes_nothing: ["prune", "--yes"] => "tasks prune";
     test_removed_permit_says_use_manage_schema_permits_add: ["permit", "area:cli"] => "manage schema permits add";
     test_removed_revoke_says_use_manage_schema_permits_remove: ["revoke", "area:cli"] => "manage schema permits remove";
     test_removed_permits_says_use_manage_schema_permits_list: ["permits"] => "manage schema permits list";
@@ -368,6 +397,11 @@ removed_verbs! {
     test_removed_plan_check_says_use_plans_check: ["plan", "check"] => "plans check";
     test_removed_watch_says_use_tasks_watch_and_does_not_watch: ["watch"] => "tasks watch";
     test_removed_version_says_use_manage_version: ["version"] => "manage version";
+}
+
+#[cfg(feature = "purge")]
+removed_verbs! {
+    test_removed_prune_says_use_tasks_prune_and_prunes_nothing: ["prune", "--yes"] => "tasks prune";
 }
 
 #[test]
@@ -757,6 +791,7 @@ fn test_tagging_with_a_tag_no_permit_admits_exits_48_and_changes_nothing() {
     assert_eq!(shown(&env, &harp)["tags"], json!([]));
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_arguments_refused_before_anything_ran_exit_48() {
     // Each is wrong on its face, whatever the store holds.
@@ -964,6 +999,7 @@ fn test_manage_migrate_has_two_children_tasks_and_schema() {
 
 // ------------------------------------------------------------ 8. confirmation
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_prune_previews_by_default_dry_run_applies_nothing_and_yes_applies() {
     let env = Env::new(SESSION);
@@ -1411,11 +1447,13 @@ fn test_dry_run_together_with_yes_is_absolute_applies_nothing_and_says_so() {
     // owner ruling 2026-11-03: --dry-run wins over --yes; it previews, exit
     // 0, and says that --yes was given and what it would otherwise do.
     let env = Env::new(SESSION);
+    #[cfg(feature = "purge")]
     let done = ok(&env, &["tasks", "add", "Finished", "--status", "Done"])["harp_id"]
         .as_str()
         .unwrap()
         .to_string();
     ok(&env, &["manage", "schema", "permits", "add", "repo:cli"]);
+    #[cfg(feature = "purge")]
     let prune = says_yes_was_ignored(
         &env,
         &[
@@ -1428,7 +1466,9 @@ fn test_dry_run_together_with_yes_is_absolute_applies_nothing_and_says_so() {
         ],
         &done,
     );
+    #[cfg(feature = "purge")]
     assert_eq!(prune["applied"], false);
+    #[cfg(feature = "purge")]
     assert_eq!(prune["pruned"][0]["harp_id"], done.as_str());
     says_yes_was_ignored(
         &env,
@@ -1470,11 +1510,15 @@ fn test_dry_run_together_with_yes_is_absolute_applies_nothing_and_says_so() {
         permitted_keys(&env, "zz").is_empty(),
         "nothing was declared"
     );
+    #[cfg(feature = "purge")]
+    let tasks_left = Some(1);
+    #[cfg(not(feature = "purge"))]
+    let tasks_left = Some(0);
     assert_eq!(
         ok(&env, &["tasks", "list", "--all"])
             .as_array()
             .map(Vec::len),
-        Some(1),
+        tasks_left,
         "nothing was pruned"
     );
 }
