@@ -62,6 +62,8 @@ plan-files = { workspace = true, features = ["test-support"] }
 coded-diagnostic = { workspace = true, features = ["build"] }
 
 [features]
+# The stores and use cases that purge. Off by default.
+purge = ["tasks-application/purge", "task-store-sqlite/purge"]
 # `diagnostic_samples`, for other crates' catalog tests: their
 # dev-dependency turns it on, and no build of a binary does.
 test-support = []

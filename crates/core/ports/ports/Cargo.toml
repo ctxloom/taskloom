@@ -13,6 +13,9 @@ coded-diagnostic.workspace = true
 prost-types.workspace = true
 
 [features]
+# The purge capability: `TaskStores::Store` is a store that purges. Off by
+# default; a default build has no Purge in its ports.
+purge = ["angzarr-ports/purge"]
 # `testing`: deterministic stand-ins for the time and waiting ports, for
 # the applications' tests; their dev-dependencies turn it on.
 test-support = []

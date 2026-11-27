@@ -18,5 +18,10 @@ tagma-core.workspace = true
 # tests run the kernel over.
 angzarr-embedded = { workspace = true, features = ["test-support"] }
 
+[features]
+# The tests that purge a stream (a prune's second half) run against a store
+# that has Purge. Off by default.
+purge = ["angzarr-embedded/purge"]
+
 [lints]
 workspace = true

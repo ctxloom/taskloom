@@ -9,8 +9,10 @@ use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::angzarr_ports::Cause;
 use angzarr_embedded::testing::FaultyStore;
 use angzarr_embedded::v1::{CommandBook, Cover};
+#[cfg(feature = "purge")]
+use angzarr_embedded::Purge;
 use angzarr_embedded::{
-    CommandBookExt, EventStore, Kernel, Purge, Sampled, Slice, StoreError, StreamRef, Watch,
+    CommandBookExt, EventStore, Kernel, Sampled, Slice, StoreError, StreamRef, Watch,
 };
 use coded_diagnostic::Report;
 use ports::{
@@ -151,6 +153,7 @@ pub fn declared(store: &MemoryStore, tags: &[&str]) {
 }
 
 /// Purge `harp`'s stream in `store` directly, as another process would.
+#[cfg(feature = "purge")]
 pub fn purge(store: &MemoryStore, harp: &str) -> u64 {
     let cover = crate::task_cover(harp);
     let stream = StreamRef::try_from(&cover).unwrap();
@@ -185,6 +188,7 @@ pub async fn read_from(
 
 /// Whether the stream `cover` names is destroyed: its last event is a
 /// purge's tombstone.
+#[cfg(feature = "purge")]
 pub async fn destroyed(store: &Flaky, cover: &Cover) -> bool {
     let stream = StreamRef::try_from(cover).unwrap();
     let slice = store.inner().read(stream, 0, None).await.unwrap();

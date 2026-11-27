@@ -215,6 +215,7 @@ fn test_a_store_opened_again_is_a_change_whatever_its_token() {
     assert!(!changed(&mut service, &mut watch), "and held after");
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_token_that_moved_with_no_task_changed_is_a_change() {
     // The owner's ruling (D7, 2026-10-30): the watch keeps no tasks to
@@ -227,6 +228,7 @@ fn test_a_token_that_moved_with_no_task_changed_is_a_change() {
     assert!(changed(&mut service, &mut watch));
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_prune_landing_between_polls_is_a_change() {
     let mut service = service(&["swift-amber", "quiet-heron"]);
@@ -425,6 +427,7 @@ fn test_a_position_beyond_a_streams_head_is_expired_and_read_again_from_its_star
     );
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_stream_purged_past_the_position_is_expired_once_and_resumes_after_its_tombstone() {
     let mut service = permitting(&["swift-amber", "quiet-heron"]);
@@ -446,6 +449,7 @@ fn test_a_stream_purged_past_the_position_is_expired_once_and_resumes_after_its_
     assert_eq!(after(&mut service, &watch, &resumed), []);
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_harp_minted_again_after_its_purge_is_expired_then_read_from_the_tombstone() {
     let mut service = permitting(&["swift-amber", "swift-amber"]);

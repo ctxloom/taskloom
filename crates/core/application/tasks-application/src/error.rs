@@ -375,7 +375,7 @@ pub fn diagnostic_samples() -> Vec<Box<dyn Diagnostic>> {
             .map(|f| Box::new(f) as Box<dyn Diagnostic>),
     );
     samples.extend(
-        crate::prune::samples()
+        crate::prune_refusal::samples()
             .into_iter()
             .map(|p| Box::new(p) as Box<dyn Diagnostic>),
     );

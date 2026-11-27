@@ -6,9 +6,9 @@
 use coded_diagnostic::Diagnostic;
 use tasks::schema::SchemaRejection;
 use tasks::TaskRejection;
-use tasks_application::{
-    AppError, NoJsonlLog, PruneRefusal, QueryError, RulesRefusal, TagRefusal, Why,
-};
+#[cfg(feature = "purge")]
+use tasks_application::PruneRefusal;
+use tasks_application::{AppError, NoJsonlLog, QueryError, RulesRefusal, TagRefusal, Why};
 
 /// `d`'s code, owned.
 fn of(d: &dyn Diagnostic) -> String {
@@ -90,6 +90,7 @@ pub fn permit_in_use() -> String {
     })
 }
 
+#[cfg(feature = "purge")]
 pub fn prune_age_unreadable() -> String {
     of(&PruneRefusal::AgeUnreadable { age: none() })
 }

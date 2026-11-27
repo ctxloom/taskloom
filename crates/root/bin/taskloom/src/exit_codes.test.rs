@@ -211,6 +211,7 @@ fn test_a_permit_removal_preview_exits_17_and_its_application_16() {
     exits(&env.run(&applied), 16, "applied");
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_prune_preview_exits_17_when_it_would_take_a_task_and_16_when_it_would_take_none() {
     let env = Env::new(SESSION);

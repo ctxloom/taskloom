@@ -33,6 +33,9 @@ tasks-application = { workspace = true, features = ["test-support"] }
 coded-diagnostic = { workspace = true, features = ["build"] }
 
 [features]
+# `prune`: the verb that removes finished tasks and purges their streams.
+# Off by default; a default build has no prune command at all.
+purge = ["tasks-application/purge"]
 # `diagnostic_samples`, for other crates' catalog tests: their
 # dev-dependency turns it on, and no build of a binary does.
 test-support = []

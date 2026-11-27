@@ -64,6 +64,7 @@ fn add(env: &Env, args: &[&str]) -> String {
         .to_string()
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_list_reads_one_moment_though_another_process_writes_and_purges_meanwhile() {
     let env = Arc::new(Env::new("snapshot-harp"));

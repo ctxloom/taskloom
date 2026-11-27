@@ -298,16 +298,17 @@ mod ticked {
 
     use angzarr_embedded::angzarr_store_sqlite::SqliteStore;
     use angzarr_embedded::v1::event_meta::Causation;
-    use angzarr_embedded::v1::{
-        command_page, Command, CommandBook, CommandPage, Cover, EventMeta, EventPage, Uuid,
-    };
-    use angzarr_embedded::{
-        ids, Any, EventStore, Kernel, Payload, Purge, Sampled, StreamRef, Timestamp, Write,
-    };
+    #[cfg(feature = "purge")]
+    use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage};
+    use angzarr_embedded::v1::{Cover, EventMeta, EventPage, Uuid};
+    #[cfg(feature = "purge")]
+    use angzarr_embedded::{ids, Kernel, Payload, Purge, Sampled};
+    use angzarr_embedded::{Any, EventStore, StreamRef, Timestamp, Write};
     use harp_names::HarpNames;
     use ports::{Project, ProjectIdentity};
     use system::System;
     use task_store_sqlite::SqliteStores;
+    #[cfg(feature = "purge")]
     use tasks::{AddTask, RemovalReason, RemoveTask, TaskAggregate, TaskCommand, TASK_DOMAIN};
     use tasks_application::{ListQuery, NewTask, Service, TaskService};
     use tasks_watch::{Settings, Ticks};
@@ -351,19 +352,24 @@ mod ticked {
         /// Nothing: a quiet tick.
         Quiet,
         /// A prune's removal of the task, without its purge.
+        #[cfg(feature = "purge")]
         Prune(String),
         /// A prune's purge of the task's stream, after its removal.
+        #[cfg(feature = "purge")]
         Purge(String),
         /// A prune whole: its removal, then its purge.
+        #[cfg(feature = "purge")]
         Pruned(String),
         /// A prune whole, then a task minted on the freed harp with this
         /// text: the harp's stream started again.
+        #[cfg(feature = "purge")]
         Reminted(String, String),
         /// A commit outside the task domain: the store's token moves, and
         /// no task changes.
         Elsewhere,
     }
 
+    #[cfg(feature = "purge")]
     fn task_stream(harp: &str) -> Cover {
         Cover {
             domain: TASK_DOMAIN.to_string(),
@@ -372,6 +378,7 @@ mod ticked {
         }
     }
 
+    #[cfg(feature = "purge")]
     /// Run `command` on `harp`'s stream in `store`, as command `id`.
     async fn command(store: &SqliteStore, harp: &str, command: TaskCommand, id: u8) {
         let book = CommandBook {
@@ -400,12 +407,14 @@ mod ticked {
         async fn apply(self, store: &SqliteStore, elsewhere: &mut u64) {
             match self {
                 Step::Quiet => {}
+                #[cfg(feature = "purge")]
                 Step::Prune(harp) => {
                     let removal = RemoveTask {
                         reason: RemovalReason::Pruned,
                     };
                     command(store, &harp, removal.into(), 0xee).await;
                 }
+                #[cfg(feature = "purge")]
                 Step::Reminted(harp, text) => {
                     Box::pin(Step::Pruned(harp.clone()).apply(store, elsewhere)).await;
                     let add = AddTask {
@@ -420,10 +429,12 @@ mod ticked {
                     };
                     command(store, &harp, add.into(), 0xdd).await;
                 }
+                #[cfg(feature = "purge")]
                 Step::Pruned(harp) => {
                     Box::pin(Step::Prune(harp.clone()).apply(store, elsewhere)).await;
                     Box::pin(Step::Purge(harp).apply(store, elsewhere)).await;
                 }
+                #[cfg(feature = "purge")]
                 Step::Purge(harp) => {
                     let stream = task_stream(&harp);
                     let stream = StreamRef::try_from(&stream).unwrap();
@@ -562,6 +573,7 @@ mod ticked {
         })
     }
 
+    #[cfg(feature = "purge")]
     #[test]
     fn test_a_prune_between_two_polls_is_one_line() {
         let (lines, tasks) = watched(|harp| vec![Step::Pruned(harp.to_string()), Step::Quiet]);
@@ -569,6 +581,7 @@ mod ticked {
         assert_eq!(tasks, ["Kept"]);
     }
 
+    #[cfg(feature = "purge")]
     #[test]
     fn test_a_poll_between_a_prunes_removal_and_its_purge_is_a_line_for_each() {
         // The purge moves the store's token though no task changes: a
@@ -603,6 +616,7 @@ mod ticked {
         assert_eq!(tasks, ["Pruned", "Kept"]);
     }
 
+    #[cfg(feature = "purge")]
     #[test]
     fn test_a_prune_and_a_mint_on_its_harp_as_long_as_before_is_seen_by_the_cursor() {
         // The harp freed and minted again unseen: the purge's tombstone is

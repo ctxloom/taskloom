@@ -18,7 +18,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 pub use angzarr_ports::angzarr_proto::v1::Uuid;
-use angzarr_ports::{ChangeToken, Processed, Purge, ReadStore, Store, StoreError, Watch};
+#[cfg(feature = "purge")]
+use angzarr_ports::Purge;
+use angzarr_ports::{ChangeToken, Processed, ReadStore, Store, StoreError, Watch};
 use coded_diagnostic::Report;
 /// An instant: prost's `Timestamp`, as every recorded event carries one.
 pub use prost_types::Timestamp;
@@ -79,10 +81,15 @@ pub trait ProjectIdentity {
 
 /// A project's store, opened where its project says.
 pub trait TaskStores {
-    /// A project's store: every base port, one-moment reads, a purge, a
-    /// change token, and the positions it holds, listed (what a catch-up
-    /// reads when it starts).
+    /// A project's store: every base port, one-moment reads, a change token,
+    /// and the positions it holds, listed (what a catch-up reads when it
+    /// starts); under the `purge` feature, also a purge.
+    #[cfg(feature = "purge")]
     type Store: Store + ReadStore + Processed + Purge + Watch + Send + Sync;
+    /// The project's store (see the `purge` flavour's: this one cannot purge
+    /// a stream).
+    #[cfg(not(feature = "purge"))]
+    type Store: Store + ReadStore + Processed + Watch + Send + Sync;
 
     /// The project's store, to write: opened (and created) on first use and
     /// held after.

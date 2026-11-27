@@ -122,6 +122,7 @@ pub(crate) fn rank_rows(
 
 /// Every live task of one project, ranked at `now` by `rules`' formulas:
 /// each one's priority by harp id.
+#[cfg(feature = "purge")]
 pub(crate) fn scores(
     tasks: &[tasks::TaskState],
     rules: &StoreRules,

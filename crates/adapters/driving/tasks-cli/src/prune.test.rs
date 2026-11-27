@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use presentation::{render, Format};
 use tasks_application::{Dangling, Project, Pruned, Pruning, Shown, Task, Timestamp, Via};
 
-use super::{apply_command, shell_word, PruneReport};
+use super::{apply_command, PruneReport};
 
 fn task(harp: &str, status: &str, text: &str) -> Task {
     Task {
@@ -212,22 +212,5 @@ fn test_the_apply_command_repeats_the_selection_then_yes() {
         ),
         "taskloom tasks prune --older-than 2026-01-01 --status Done --status 'To Do' \
          --tag-query urgent/release/and --yes"
-    );
-}
-
-#[test]
-fn test_a_word_is_quoted_only_where_a_shell_needs_it() {
-    assert_eq!(
-        shell_word("@terminal,a%b+c-d.e/f:g=h_i09"),
-        "@terminal,a%b+c-d.e/f:g=h_i09"
-    );
-    assert_eq!(shell_word("To Do"), "'To Do'");
-    assert_eq!(shell_word("level<=2"), "'level<=2'");
-    assert_eq!(shell_word("it's"), r"'it'\''s'");
-    assert_eq!(shell_word(""), "''");
-    assert_eq!(
-        shell_word("caf\u{e9}"),
-        "'caf\u{e9}'",
-        "ASCII alone is bare"
     );
 }

@@ -23,8 +23,10 @@ mod companion;
 mod error;
 mod import;
 mod notice;
+#[cfg(feature = "purge")]
 mod prune;
 mod render;
+mod shell;
 
 use std::ffi::OsString;
 use std::io::{self, Write};
@@ -35,9 +37,16 @@ use cli_support::{
 };
 use coded_diagnostic::Diagnostic;
 use presentation::{Catalog, CatalogError, Format, Render, Source, UnknownFormat};
+/// What a service serves beyond the always-there verbs: the prune verb in
+/// the `purge` flavour, nothing in the default one.
+#[cfg(feature = "purge")]
+pub use tasks_application::PruneService as PurgeVerbs;
+#[cfg(not(feature = "purge"))]
+pub trait PurgeVerbs {}
+#[cfg(not(feature = "purge"))]
+impl<T> PurgeVerbs for T {}
 use tasks_application::{
-    dead_letter_line, DeadLetter, PermitService, PruneService, RuleWarning, SchemaService,
-    TaskService, Written,
+    dead_letter_line, DeadLetter, PermitService, RuleWarning, SchemaService, TaskService, Written,
 };
 
 pub use companion::{Asked, LOADOUT};
@@ -47,7 +56,9 @@ pub use error::{CliError, EN_US};
 pub use import::{run_import, ImportGroup};
 
 use companion::VersionJson;
-use notice::Notice;
+/// Public so that the notices of the `purge` flavour's verbs, which every
+/// flavour's catalog holds, are no dead code in the default build.
+pub use notice::Notice;
 
 /// The program's name: every diagnostic's prefix.
 pub const PROG: &str = "taskloom";
@@ -120,9 +131,11 @@ pub enum Tasks {
     #[command(after_help = "Examples:\n  taskloom tasks summary")]
     Summary,
     /// Remove old finished tasks (a preview unless --yes)
+    #[cfg(feature = "purge")]
     #[command(
         after_help = "Examples:\n  taskloom tasks prune --older-than 30d\n  taskloom tasks prune --older-than 30d --yes"
     )]
+    #[cfg(feature = "purge")]
     Prune(commands::PruneArgs),
     /// Check every task's tags against the store's rules; exit 49 on a finding
     #[command(after_help = "Examples:\n  taskloom tasks check")]
@@ -402,6 +415,7 @@ pub fn removed(args: &[OsString]) -> Option<CliError> {
         ("summary", _) => "tasks summary",
         ("statuses", _) => "manage schema statuses list",
         ("lint", _) => "tasks check",
+        #[cfg(feature = "purge")]
         ("prune", _) => "tasks prune",
         ("permit", _) => "manage schema permits add",
         ("revoke", _) => "manage schema permits remove",
@@ -439,7 +453,7 @@ pub async fn run<S>(
     err: &mut dyn Write,
 ) -> Exit
 where
-    S: TaskService + PruneService + PermitService + SchemaService,
+    S: TaskService + PurgeVerbs + PermitService + SchemaService,
 {
     if let Command::Loadout = command {
         // Printed in its own format.
@@ -470,6 +484,7 @@ where
                 done(commands::tag(args, false, ctx, service, out, err).await)
             }
             Tasks::List(args) => done(commands::list(args, ctx, service, out, err).await),
+            #[cfg(feature = "purge")]
             Tasks::Prune(args) => commands::prune(args, ctx, service, out, err).await,
         },
         Command::Schema(Schema::Rules(command)) => {

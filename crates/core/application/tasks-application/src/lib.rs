@@ -10,7 +10,7 @@
 //!   ([`TaskService::list`] and the rest), and the store's rules
 //!   ([`TaskService::tag_schema`], [`TaskService::permits`],
 //!   [`SchemaService`]);
-//! - prune old finished ones ([`PruneService`]);
+//! - under the `purge` feature, prune old finished ones (`PruneService`);
 //! - grant and revoke tag permits, and declare the store's rules
 //!   ([`PermitService`], a person's, apart so a frontend can leave it out);
 //! - watch a project's store change ([`WatchService`]);
@@ -37,7 +37,9 @@ mod lists;
 mod permit;
 mod priority;
 mod project;
+#[cfg(feature = "purge")]
 mod prune;
+mod prune_refusal;
 mod query;
 mod read;
 mod request;
@@ -106,10 +108,12 @@ pub use permit::{PermitChange, PermitList, PermitService, Permitted};
 pub use ports::Timestamp;
 pub use ports::{NamespacePermit, Project, TagPermits};
 pub use priority::{PriorityNote, PriorityWarning};
+#[cfg(feature = "purge")]
 pub use prune::{
-    Dangling, PruneRefusal, PruneRequest, PruneService, Pruned, Pruning, Via, DEFAULT_OLDER_THAN,
+    Dangling, PruneRequest, PruneService, Pruned, Pruning, Via, DEFAULT_OLDER_THAN,
     DEFAULT_PRUNE_STATUSES,
 };
+pub use prune_refusal::PruneRefusal;
 pub use query::{QueryError, QueryRefusal};
 pub use read::{
     Details, Hidden, ListQuery, Listing, Reach, Scope, ShowQuery, Statuses, Summary, TagCount,
@@ -142,6 +146,7 @@ pub use watch::{Found, Positions, Seen, StreamKey, Watch, WatchRequest, WatchSer
 #[cfg(test)]
 pub(crate) use add::HARP_ATTEMPTS;
 pub(crate) use task::task_cover;
+#[cfg(feature = "purge")]
 pub(crate) use view::DONE;
 
 /// A store's failure, as the kernel reports one: its key and args.

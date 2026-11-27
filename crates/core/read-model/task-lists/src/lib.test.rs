@@ -8,9 +8,10 @@ use angzarr_embedded::angzarr_ports::memory::MemoryStore;
 use angzarr_embedded::testing::FaultyStore;
 use angzarr_embedded::v1::{command_page, Command, CommandBook, CommandPage, Cover, Uuid};
 use angzarr_embedded::{
-    ids, Any, CatchUp, EventStore, Kernel, OnRetryable, Payload, Purge, Registry, Sampled,
-    StreamRef, Timestamp,
+    ids, Any, CatchUp, Kernel, OnRetryable, Payload, Registry, Sampled, Timestamp,
 };
+#[cfg(feature = "purge")]
+use angzarr_embedded::{EventStore, Purge, StreamRef};
 use tasks::{AddTask, RemovalReason, RemoveTask, SetStatus, TaskAggregate, TaskCommand, TaskState};
 
 use super::{TaskList, TaskLists};
@@ -72,6 +73,7 @@ impl Project {
     }
 
     /// Purge task `harp`'s stream: what a prune does after its removal.
+    #[cfg(feature = "purge")]
     fn purge(&self, harp: &str) -> u64 {
         let cover = cover(harp);
         let stream = StreamRef::try_from(&cover).unwrap();
@@ -267,6 +269,7 @@ fn test_an_append_seen_at_a_catch_up_is_no_restart() {
 
 // ------------------------------------------------------------ pruning
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_task_minted_on_a_pruned_harp_is_listed_after_the_tombstone() {
     // Prune records the removal, then purges the stream, which keeps a
@@ -284,6 +287,7 @@ fn test_a_task_minted_on_a_pruned_harp_is_listed_after_the_tombstone() {
     assert_eq!(texts(&list), ["Again"], "the new task, not the pruned one");
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_list_caught_up_after_a_prune_holds_the_task_minted_since() {
     let mut project = Project::new();
@@ -297,6 +301,7 @@ fn test_a_list_caught_up_after_a_prune_holds_the_task_minted_since() {
     assert_eq!(texts(&list), ["Again"]);
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_task_pruned_and_purged_unseen_leaves_the_list_at_the_next_catch_up() {
     // A long-lived list (a watch's) catching up after a prune landed whole
@@ -323,6 +328,7 @@ fn test_a_task_pruned_and_purged_unseen_leaves_the_list_at_the_next_catch_up() {
     assert_eq!(texts(&list), ["Second", "Again"], "by harp");
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_task_the_list_does_not_hold_leaves_no_entry_when_its_stream_is_closed() {
     let mut project = Project::new();
@@ -371,6 +377,7 @@ fn test_a_pruned_stream_read_again_before_its_purge_changes_nothing() {
     assert_eq!(unpurged(&list), [FIRST], "still pruned, not purged");
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_harp_minted_again_after_its_purge_is_no_longer_unpurged() {
     let mut project = Project::new();
@@ -404,6 +411,7 @@ fn test_a_stream_that_replays_to_no_events_is_never_a_blank_task() {
 /// A prune's removal, its purge and a task minted again on the freed harp,
 /// all by another hand, in the store: what a long-lived list (a watch's)
 /// can miss whole between two catch-ups.
+#[cfg(feature = "purge")]
 fn prune_purge_and_mint_again(project: &mut Project, harp: &str, text: &str) {
     let mut elsewhere = every_task();
     project.run(&mut elsewhere, harp, pruned());
@@ -411,6 +419,7 @@ fn prune_purge_and_mint_again(project: &mut Project, harp: &str, text: &str) {
     project.run(&mut elsewhere, harp, add(harp, text));
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_stream_pruned_purged_and_minted_again_between_catch_ups_resets_at_its_tombstone() {
     let mut project = Project::new();
@@ -433,6 +442,7 @@ fn test_a_stream_pruned_purged_and_minted_again_between_catch_ups_resets_at_its_
     );
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_purge_unseen_beside_another_streams_change_lists_both_as_they_are() {
     // The list's position on the closed stream is below its tombstone,
@@ -460,6 +470,7 @@ fn test_a_purge_unseen_beside_another_streams_change_lists_both_as_they_are() {
     );
 }
 
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_stream_closed_and_written_again_read_by_another_process_is_the_new_task() {
     let mut project = Project::new();

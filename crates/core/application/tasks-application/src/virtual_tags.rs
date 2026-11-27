@@ -18,10 +18,13 @@
 use std::collections::BTreeSet;
 
 use ports::Timestamp;
+#[cfg(feature = "purge")]
 use tasks::TaskState;
 
 use crate::rules::TASKLOOM_NAMESPACE;
-use crate::view::{is_terminal, Task};
+#[cfg(feature = "purge")]
+use crate::view::is_terminal;
+use crate::view::Task;
 use coded_diagnostic::Arg;
 use duration_text::DurationError;
 
@@ -172,6 +175,7 @@ impl<'a> Facts<'a> {
     }
 
     /// A task as the store folds it (a prune reads these).
+    #[cfg(feature = "purge")]
     pub fn of_state(state: &'a TaskState) -> Facts<'a> {
         Facts {
             id: &state.harp_id,
@@ -256,6 +260,7 @@ pub(crate) fn derive(
 /// Whether a status last changed (`status_set_at`) before `cut`: what
 /// `prune --older-than` selects by, to the nanosecond; `in-status` is
 /// the whole seconds of the same span.
+#[cfg(feature = "purge")]
 pub(crate) fn changed_before(status_set_at: Timestamp, cut: Timestamp) -> bool {
     (status_set_at.seconds, status_set_at.nanos) < (cut.seconds, cut.nanos)
 }

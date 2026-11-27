@@ -10,6 +10,7 @@ use tasks_application::{Pruning, Timestamp};
 use tasks_presentation::{project_dir, rfc3339, spelled};
 
 use crate::render::{headline, project_label};
+use crate::shell::shell_word;
 use crate::PROG;
 
 /// A prune's report: JSON its fields in this order; text what was selected
@@ -184,20 +185,6 @@ pub fn apply_command(older_than: &str, statuses: &[String], tag_query: Option<&s
     }
     words.push("--yes".to_string());
     words.join(" ")
-}
-
-/// `word` as a POSIX shell reads it back: bare when every character is one
-/// a shell passes through literally, single-quoted otherwise, so `To Do`
-/// or `triage:level<=2` survives being pasted.
-pub(crate) fn shell_word(word: &str) -> String {
-    let plain = !word.is_empty()
-        && word
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "@%+,-./:=_".contains(c));
-    if plain {
-        return word.to_string();
-    }
-    format!("'{}'", word.replace('\'', r"'\''"))
 }
 
 #[cfg(test)]

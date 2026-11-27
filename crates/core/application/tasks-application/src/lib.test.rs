@@ -1720,6 +1720,7 @@ fn test_a_keyed_add_retried_after_a_probe_answers_with_the_task_it_added() {
 // past it: the retry still finds its own add on the next harp, every probed
 // position checked for it before anything is added, and adds nothing on the
 // freed one.
+#[cfg(feature = "purge")]
 #[test]
 fn test_a_keyed_add_retried_after_a_passed_harp_is_purged_answers_with_its_task() {
     let mut service = service(&["swift-amber"]);

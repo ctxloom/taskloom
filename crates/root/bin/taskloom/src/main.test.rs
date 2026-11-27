@@ -37,6 +37,10 @@ fn binary() -> &'static Path {
             .arg("--manifest-path")
             .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
             .env("CARGO_TARGET_DIR", target_dir);
+        // The flavour under test is the binary's: the purge flavour's has the
+        // prune verb, the default's has none.
+        #[cfg(feature = "purge")]
+        build.args(["--features", "purge"]);
         if profile_dir.file_name().is_some_and(|p| p == "release") {
             build.arg("--release");
         }
@@ -612,6 +616,7 @@ fn test_a_value_given_empty_is_refused_never_read_as_left_out() {
             codes::blank(),
         ),
         (vec!["--project", "", "tasks", "list"], codes::invalid_id()),
+        #[cfg(feature = "purge")]
         (
             vec![
                 "tasks",
@@ -1904,12 +1909,14 @@ mod tags;
 #[path = "schema.test.rs"]
 mod schema;
 
+#[cfg(feature = "purge")]
 #[path = "prune.test.rs"]
 mod prune;
 
 #[path = "refusals.test.rs"]
 mod refusals;
 
+#[cfg(feature = "purge")]
 #[path = "snapshot.test.rs"]
 mod snapshot;
 
