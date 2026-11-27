@@ -249,6 +249,21 @@ store or its directory changed. The message says how to archive it: move
 the next command creates a fresh store. `manage doctor`'s check refuses it
 the same way. The one SQL this crate runs is that read; it writes none.
 
+Every open of a store to write takes `state.db.lock`, beside it, SHARED, and
+holds it while the store is open, waiting up to 10 s for an exclusive holder;
+a migration takes it EXCLUSIVE (`ExclusiveLock`) and never waits. A refusal is
+`task-store-sqlite-held` (args `lock`, `holder`: the holder's pid and command
+line from `state.db.holder`, or `unknown`; the record is advisory and the
+latest taker's) inside the envelope's `angzarr-ports-store-unavailable`; a
+lock that cannot be taken at all is `task-store-sqlite-lock` (`path`,
+`ext_err_txt`). Read-only opens (`open_existing`, the check, the export) take
+no lock and make no file, and the lock is taken after the archive refusals,
+so an archive stays byte for byte. `flock` conflicts between open file
+descriptions even within one process: a process holding the exclusive lock
+opens the store through it (`SqliteStores::open_through`), never by taking it
+again. Stop every taskloom before a migration: a process of a build without
+the lock is not seen.
+
 `taskloom manage store export` writes a project's database whole to stdout
 as angzarr-store-transfer's JSONL (every row in proto3's JSON mapping, the
 tasks' payloads expanded through `tasks_lib::DESCRIPTOR_SETS`), for carrying

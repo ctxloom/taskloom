@@ -39,6 +39,16 @@
 //!   as it was: never migrated in place (the owner's ruling D2). Its
 //!   ledger is read before either open ([`SqliteStore::ledger_at`]), which
 //!   migrates nothing.
+//! - Every open to write holds the store's lock, `state.db.lock` beside it,
+//!   SHARED while the store is open, waiting up to 10 s
+//!   ([`SqliteStores::with_lock_wait`]) for an exclusive holder (a
+//!   migration, [`ExclusiveLock`], which never waits) to let go, else
+//!   refused [`StoreOpenError::Held`] naming the holder if it recorded one
+//!   (`state.db.holder`). It is taken after the archive refusals, so an
+//!   archive gets no lock file; a read-only open (`open_existing`, the
+//!   check, the export) takes none and makes none. A process holding the
+//!   exclusive lock opens through it ([`SqliteStores::open_through`]): the
+//!   lock conflicts between open file descriptions even in one process.
 //! - A store is its owner's alone (the owner's ruling, 2026-11-12): its
 //!   directory 0700 (each one the open makes, and the store's own made so
 //!   if it was not) and the file, with the `-wal` and `-shm` SQLite keeps
@@ -72,10 +82,12 @@
 //!   travel in it as a cause, its code and args.
 
 mod error;
+mod lock;
 
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use angzarr_embedded::angzarr_store_sqlite::{Integrity, SqlError, SqliteStore};
 use angzarr_ports::angzarr_proto::v1::EventPage;
@@ -94,6 +106,8 @@ use sqlx::{ConnectOptions, Connection};
 #[cfg(any(test, feature = "test-support"))]
 pub use error::diagnostic_samples;
 pub use error::{StoreOpenError, EN_US};
+pub use lock::ExclusiveLock;
+use lock::{take_shared, within, SharedLock, SHARED_WAIT};
 
 /// A directory only its owner may enter: a store's, and each one its open
 /// makes.
@@ -109,6 +123,8 @@ pub struct SqliteStores {
     held: Option<Held>,
     /// How many stores have been opened: the last one's handle.
     opened: u64,
+    /// How long an ordinary open waits for the store's lock.
+    lock_wait: Duration,
 }
 
 /// A store held open, and for what.
@@ -119,6 +135,10 @@ struct Held {
     /// Which opening this is, for its tokens ([`HeldToken::handle`]).
     handle: u64,
     store: SqliteStore,
+    /// The store's shared lock, held as long as the store is open and let
+    /// go after it closes. None for a read-only open (which takes none) and
+    /// for a store opened through the caller's exclusive lock.
+    _lock: Option<SharedLock>,
 }
 
 impl SqliteStores {
@@ -128,17 +148,66 @@ impl SqliteStores {
             fs,
             held: None,
             opened: 0,
+            lock_wait: SHARED_WAIT,
         }
     }
 
+    /// These stores with `wait` as how long an ordinary open waits for the
+    /// store's lock (10 s by default), so a test need not.
+    pub fn with_lock_wait(mut self, wait: Duration) -> SqliteStores {
+        self.lock_wait = wait;
+        self
+    }
+
+    /// The store `lock` holds exclusive, opened to write through it: taking
+    /// the store's lock again here would conflict with `lock` itself, even
+    /// in this process. `lock` must outlive the store.
+    pub async fn open_through(&mut self, lock: &ExclusiveLock) -> Result<&SqliteStore, StoreError> {
+        self.open_store(lock.store(), false).await
+    }
+
+    /// The store at `path` opened to write, under the shared lock unless
+    /// the caller holds the exclusive one (`shared` false). Held after.
+    async fn open_store(&mut self, path: &Path, shared: bool) -> Result<&SqliteStore, StoreError> {
+        if let Some(held) = self.held.take() {
+            if held.path == path && held.writable {
+                return Ok(&self.held.insert(held).store);
+            }
+            release(held).await?;
+        }
+        create_parent(&*self.fs, path).map_err(unavailable)?;
+        let real = real(&*self.fs, path).map_err(unavailable)?;
+        refuse_if_unusable(&*self.fs, &real, path)
+            .await
+            .map_err(unavailable)?;
+        // After the refusals: an archive is left byte for byte, no lock
+        // file made beside it.
+        let lock = if shared {
+            let pause = &mut within(path, self.lock_wait);
+            Some(take_shared(Arc::clone(&self.fs), path, pause).map_err(unavailable)?)
+        } else {
+            None
+        };
+        let store = SqliteStore::open(&real).await?;
+        let store = private(&*self.fs, path, store).await?;
+        Ok(&self.hold(path, true, store, lock).store)
+    }
+
     /// `store`, just opened, held for `path` under a handle of its own.
-    fn hold(&mut self, path: &Path, writable: bool, store: SqliteStore) -> &mut Held {
+    fn hold(
+        &mut self,
+        path: &Path,
+        writable: bool,
+        store: SqliteStore,
+        lock: Option<SharedLock>,
+    ) -> &mut Held {
         self.opened += 1;
         self.held.insert(Held {
             path: path.to_path_buf(),
             writable,
             handle: self.opened,
             store,
+            _lock: lock,
         })
     }
 
@@ -160,7 +229,7 @@ impl SqliteStores {
         match SqliteStore::open_existing(&real).await? {
             Some(store) => {
                 let store = private(&*self.fs, path, store).await?;
-                Ok(Some(self.hold(path, false, store)))
+                Ok(Some(self.hold(path, false, store, None)))
             }
             None => Ok(None),
         }
@@ -188,24 +257,11 @@ async fn release(held: Held) -> Result<(), StoreError> {
 impl TaskStores for SqliteStores {
     type Store = SqliteStore;
 
-    /// The store at `project`'s path, opened to write: its directory and
-    /// file created and migrated if need be. Held after.
+    /// The store at `project`'s path, opened to write under the store's
+    /// shared lock: its directory and file created and migrated if need
+    /// be. Held after.
     async fn open(&mut self, project: &Project) -> Result<&SqliteStore, StoreError> {
-        let path = &project.store;
-        if let Some(held) = self.held.take() {
-            if &held.path == path && held.writable {
-                return Ok(&self.held.insert(held).store);
-            }
-            release(held).await?;
-        }
-        create_parent(&*self.fs, path).map_err(unavailable)?;
-        let real = real(&*self.fs, path).map_err(unavailable)?;
-        refuse_if_unusable(&*self.fs, &real, path)
-            .await
-            .map_err(unavailable)?;
-        let store = SqliteStore::open(&real).await?;
-        let store = private(&*self.fs, path, store).await?;
-        Ok(&self.hold(path, true, store).store)
+        self.open_store(&project.store, true).await
     }
 
     /// The store at `project`'s path, held or opened read-only; `None` if
