@@ -56,6 +56,11 @@ pub type Tasks = tasks_application::Service<
     TaskloomConfig,
 >;
 
+/// The variable that names the account's home in place of the system's
+/// answer, for a test that runs the binary in a home of its own. Unset in
+/// every real run.
+pub const ACCOUNT_HOME_VARIABLE: &str = "TASKLOOM_ACCOUNT_HOME";
+
 /// The import of the JSONL task logs under HOME into each project's
 /// store, the only use case that reads them.
 pub type Import =
@@ -325,13 +330,28 @@ impl Builder {
     /// cannot be read: no fallback, and only what needs it fails), HOME,
     /// CTXLOOM_ROOT, CTXLOOM_PROJECT_ID, and the variables as given.
     pub fn from_process() -> Builder {
-        Builder::from_env(std::env::current_dir(), std::env::vars_os().collect())
+        Builder::from_env(
+            std::env::current_dir(),
+            std::env::vars_os().collect(),
+            os::host().user_home(),
+        )
     }
 
     /// Wiring as a process with the working directory `cwd` (or why it
     /// cannot be read) and the variables `vars` would give it: what
     /// [`Builder::from_process`] reads, assembled.
-    fn from_env(cwd: io::Result<PathBuf>, vars: Vec<(OsString, OsString)>) -> Builder {
+    ///
+    /// The home is the account's: the test override
+    /// ([`ACCOUNT_HOME_VARIABLE`]) if set, else `account`, the system's
+    /// own answer ([`os::Os::user_home`]: the account database, never a
+    /// variable), else HOME, the last resort. A process whose HOME was
+    /// moved (an agent's session home) so still finds the account's
+    /// stores.
+    fn from_env(
+        cwd: io::Result<PathBuf>,
+        vars: Vec<(OsString, OsString)>,
+        account: io::Result<PathBuf>,
+    ) -> Builder {
         let ground = match cwd {
             Ok(cwd) => Ground::Cwd(cwd),
             Err(why) => Ground::Fs(Arc::new(Os::without_cwd(os::host(), why))),
@@ -339,11 +359,17 @@ impl Builder {
         let flavor = os::host().flavor();
         let var = |name: &str| var(flavor, &vars, name).cloned();
         Builder {
-            // HOME, or USERPROFILE on Windows (as Go's os.UserHomeDir);
-            // set empty, unset.
-            home: var(flavor.home_var())
+            // The override, else the account's, else HOME (or USERPROFILE
+            // on Windows, as Go's os.UserHomeDir); set empty, unset.
+            home: var(ACCOUNT_HOME_VARIABLE)
                 .filter(|home| !home.is_empty())
-                .map(PathBuf::from),
+                .map(PathBuf::from)
+                .or_else(|| account.ok())
+                .or_else(|| {
+                    var(flavor.home_var())
+                        .filter(|home| !home.is_empty())
+                        .map(PathBuf::from)
+                }),
             root: var("CTXLOOM_ROOT").map(PathBuf::from),
             project_id: var("CTXLOOM_PROJECT_ID").and_then(|id| id.into_string().ok()),
             ..Builder::over(ground)

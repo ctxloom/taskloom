@@ -38,7 +38,7 @@ fn test_store_export_writes_the_projects_database_as_jsonl_and_leaves_it_as_it_w
     assert_eq!(header["store"], "angzarr-store-sqlite");
     assert_eq!(
         header["ledger"],
-        serde_json::json!([1, 2, 3, 4, 5, 6, 7, 8])
+        serde_json::json!([1, 2, 3, 4, 5, 6, 7, 8, 9])
     );
     let pages: Vec<&Value> = records.iter().filter_map(|r| r.get("page")).collect();
     let added: Vec<&Value> = pages

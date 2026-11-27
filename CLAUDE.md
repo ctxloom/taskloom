@@ -229,25 +229,38 @@ own. A read's connection is read-only, and SQLite leaves an empty log and
 index beside the file after it. A test looks at the files the moment the
 close returns, never polling for the log's removal.
 
-A store an older generation of the build wrote is an archive (the owner's
-ruling): its event pages are of an angzarr wire this build does not decode
-(`EventPage.payload`, now `body`), so it is read only by the build that
-wrote it, and this build never writes to a store it cannot read. Before any
-open (so before a migration, a backup, or a `-wal`/`-shm` made beside it),
-task-store-sqlite reads the file once on an `immutable` read-only
-connection (SQLite makes no sidecar and takes no lock where no log holds
-commits; the ledger is no mark, the migrations being the same for both
-generations) and tries to decode its first event page as this build's
-`EventPage`: every older page fails, since `payload` was a length-delimited
-field 3 and `sequence` is a varint there now. Such a store is refused with
-`task-store-sqlite-older-generation` (args `path`, `archive`), carried as
-the cause of the envelope's `angzarr-ports-store-unavailable`, exit 32 (a failure) like
-every store the build cannot use, with not one byte, entry or mtime of the
-store or its directory changed. The message says how to archive it: move
-`state.db` (and `state.db-wal`, `state.db-shm`) aside, e.g. to
-`state.db.archive-<date>`, and read it with the pre-port taskloom binary;
-the next command creates a fresh store. `manage doctor`'s check refuses it
-the same way. The one SQL this crate runs is that read; it writes none.
+A store an older generation of the build wrote is read, not refused. Its
+event pages are of angzarr's legacy wire (`io.angzarr.v0`: `payload` at
+field 3, `meta` at 8, `sequence` at 9; the current `EventPage` has `event`,
+`meta`, `sequence` at 1, 2, 3), and angzarr-store-sqlite owns the crossing:
+its migration 0009 adds each row's `wire` column and the store's stamp
+(oldest, newest), classifying every row by the shape of its bytes, and a
+read decodes a row as its own version and maps it to the current types. The
+page bytes are mapped on read and never rewritten; only the schema
+migration writes, and it backs the store up first like any migration
+(`state.db.pre-<applied level>-<UTC time>`). task-store-sqlite adds no
+decoder of its own. A store not yet stamped (its ledger lacks 0009) is
+surveyed before any open, by angzarr's `SqliteStore::detect_wire_at`, on a
+COPY of the file in a private directory under the temp directory (a
+read-only connection to a store in WAL mode makes its `-wal` and `-shm`
+beside it, and the store is to stay byte for byte as it was), and refused,
+untouched, with angzarr's refusal: `WireLegacyTransient`
+(`angzarr-ports-store-wire-legacy-transient`) when it holds outbox entries
+or dead letters of the old wire, `WireUnrecognised` when a row fits no wire.
+A store stamped with a newer wire than the build's is refused by the open
+(`WireNewerThanBuild`). A new store is stamped the current wire. The
+survey and the refusals are the crate's `refuse_if_unusable`; a store from
+before angzarr-embedded is still `task-store-sqlite-predates-embedded`.
+The one SQL this crate runs is the ledger read.
+
+The home (the registry, the stores, the home's config, the JSONL logs) is
+the ACCOUNT's, as the system keeps it (`Os::user_home`: the account
+database on unix, the profile folder on Windows), never `$HOME` alone: an
+agent's session sets HOME to a home of its own, where the stores are not,
+and a listing there was silently `[]`. `tasks_lib::Builder::from_process`
+takes, in order, `TASKLOOM_ACCOUNT_HOME` (a test's own home; unset in a
+real run, empty counts as unset), the account's home, then HOME (USERPROFILE
+on Windows) as the last resort where the account has none.
 
 Every open of a store to write takes `state.db.lock`, beside it, SHARED, and
 holds it while the store is open, waiting up to 10 s for an exclusive holder;
@@ -257,8 +270,8 @@ line from `state.db.holder`, or `unknown`; the record is advisory and the
 latest taker's) inside the envelope's `angzarr-ports-store-unavailable`; a
 lock that cannot be taken at all is `task-store-sqlite-lock` (`path`,
 `ext_err_txt`). Read-only opens (`open_existing`, the check, the export) take
-no lock and make no file, and the lock is taken after the archive refusals,
-so an archive stays byte for byte. `flock` conflicts between open file
+no lock and make no file, and the lock is taken after the refusals,
+so a refused store stays byte for byte. `flock` conflicts between open file
 descriptions even within one process: a process holding the exclusive lock
 opens the store through it (`SqliteStores::open_through`), never by taking it
 again. Stop every taskloom before a migration: a process of a build without
@@ -279,8 +292,7 @@ and the `StoreExport` port, which task-store-sqlite implements: core's
 `Export` port is the store's own (every row, as a list), and `StoreExport`
 is the path-level command around it (the refusals of every open, then the
 ledger, then the read-only open), so the two are not duplicates. Before it
-opens anything the export refuses what every open refuses (an older
-generation's store, one from before angzarr-embedded), and then a ledger
+opens anything the export refuses what every open refuses (a store the wire survey refuses, one from before angzarr-embedded), and then a ledger
 that is not exactly this build's migration set
 (`angzarr-store-transfer-ledger-not-the-builds`); it migrates, backs up and
 writes nothing. Run it on a copy (`VACUUM INTO`): a store with outbox
@@ -324,8 +336,8 @@ push order, and `just dev::pins-check` (pre-commit) and `just
 dev::pins-reachable` (pre-push) refuse a path-based commit and a pin that is
 not on its remote. This replaces the former `.cargo/local-deps.toml` copy.
 
-The angzarr pins are one commit of one repository, ed19b7e of
-github.com/angzarr-io/angzarr (ports, yaml, store-transfer, embedded and its
+The angzarr pins are one commit of one repository, 1d999d0 of
+github.com/angzarr-io/angzarr (main, the wire-versioning merge: ports, yaml, store-transfer, embedded and its
 router, angzarr-build). The generic substrate is rust-support's, every crate
 at one full commit, dcb930d: `coded-diagnostic`, `presentation`, `os`,
 `file-system`, `file-lock`, `cli-support`, `exit-code` and `duration-text`.

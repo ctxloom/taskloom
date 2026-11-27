@@ -613,7 +613,7 @@ fn test_an_export_writes_the_database_whole_and_leaves_it_as_it_was() {
     assert_eq!(header["store"], "angzarr-store-sqlite");
     assert_eq!(
         header["ledger"],
-        serde_json::json!([1, 2, 3, 4, 5, 6, 7, 8])
+        serde_json::json!([1, 2, 3, 4, 5, 6, 7, 8, 9])
     );
     let payload = &lines[1]["page"]["page"]["event"];
     assert_eq!(payload["@type"], "/ctxloom.tasks.v1.TaskAdded");
@@ -657,35 +657,6 @@ fn test_an_export_refuses_a_ledger_not_the_builds_and_leaves_the_file_untouched(
         .filter(|e| e.name.to_string_lossy().contains(".pre-"))
         .count();
     assert_eq!(backups, 0, "no backup taken");
-}
-
-/// A store an older generation wrote is an archive: its export is refused,
-/// keyed as every open of it is, before anything is opened, and not one
-/// byte, entry or mtime of it changes (its ledger is no mark of it).
-#[test]
-fn test_an_export_refuses_a_store_an_older_generation_wrote_and_leaves_it_exactly_as_it_was() {
-    use ports::StoreExport;
-    for migrated in [false, true] {
-        let home = Home::new();
-        let (path, _) = archive(&home, OLD_BEFORE_0005, &[]);
-        if migrated {
-            migrated_by_an_earlier_build(&home, &path);
-        }
-        let dir = path.parent().unwrap();
-        let before = tree(&home, dir);
-        let mut out = Vec::new();
-        let refused = home
-            .stores()
-            .export(&path, &[tasks_proto::FILE_DESCRIPTOR_SET], &mut out)
-            .expect_err("an older generation's store is refused");
-        assert_eq!(refused.code(), OLDER_GENERATION, "migrated: {migrated}");
-        assert!(out.is_empty(), "nothing written");
-        assert_eq!(
-            tree(&home, dir),
-            before,
-            "not a byte, entry or mtime (migrated: {migrated})"
-        );
-    }
 }
 
 /// A store from before angzarr-embedded is refused by the export as by
@@ -1242,7 +1213,7 @@ const BEFORE_0005: &[u8] = include_bytes!("../testdata/current-before-0005.db");
 /// 0004), `taskloom tasks add` twice in a project of its own, closed so the
 /// file holds everything (its log empty). Its event pages are `EventPage`s
 /// of the `payload` layout, which this build does not decode: it is an
-/// archive, read by the build that wrote it.
+/// legacy wire (v0), read through angzarr's mapping.
 const OLD_BEFORE_0005: &[u8] = include_bytes!("../testdata/before-0005.db");
 
 /// A store newer than this build: [`BEFORE_0005`] with a migration this
@@ -1313,7 +1284,7 @@ fn test_reading_a_store_with_a_migration_pending_migrates_it_and_reads_its_tasks
     assert!(!stores.held.as_ref().unwrap().writable, "held read-only");
     assert_eq!(
         ledger(&home, &path),
-        [1, 2, 3, 4, 5, 6, 7, 8],
+        [1, 2, 3, 4, 5, 6, 7, 8, 9],
         "every migration applied"
     );
 }
@@ -1396,7 +1367,7 @@ fn test_a_store_newer_than_the_build_is_refused_and_left_as_it_was() {
     let mut stores = home.stores();
     let refusal = StoreError::NewerThanBuild {
         applied: 99,
-        build: 8,
+        build: 9,
     };
     let read = block_on(stores.open_existing(&project("jolly-mute-magma", path.clone())))
         .map(|found| found.is_some());
@@ -1408,17 +1379,16 @@ fn test_a_store_newer_than_the_build_is_refused_and_left_as_it_was() {
     assert_eq!(backups(&home, &path), Vec::<PathBuf>::new(), "no backup");
 }
 
-// ------------------------------------- a store of an older generation
+// ------------------------------------------- a store of an older wire
 //
-// The owner ruled: a store an older build wrote, whose event pages are of
-// a wire this build does not decode, stays a read-only archive, read by the
-// build that wrote it; this build starts new stores. So it is never written
-// to: judged before any open, which would migrate it, back it up or make
-// the files beside it, and refused leaving not one byte, entry or mtime
-// changed.
-
-/// The key an older generation's store is refused with.
-const OLDER_GENERATION: &str = code!("older-generation");
+// A store whose event pages are of the legacy wire (`payload` field 3,
+// `meta` 8, `sequence` 9, angzarr's `io.angzarr.v0`) is read as any other:
+// angzarr-store-sqlite stamps it (migration 0009, backed up first like any
+// migration), decodes each of its rows as its own version and maps it to
+// the current types. The page bytes are never rewritten. A legacy store
+// holding transient messages of that wire (outbox entries, dead letters),
+// or rows that fit no wire this build knows, or a stamp newer than the
+// build's, is refused before anything is opened, leaving it as it was.
 
 /// What a directory holds: each entry's name, bytes and modification time.
 fn tree(home: &Home, dir: &Path) -> Vec<(std::ffi::OsString, Vec<u8>, std::time::SystemTime)> {
@@ -1447,122 +1417,279 @@ fn archive(home: &Home, bytes: &[u8], beside: &[(&str, &[u8])]) -> (PathBuf, Pro
     (path, project)
 }
 
-fn refused_as_older(refusal: Option<StoreError>, path: &Path) {
-    let refusal = refusal.expect("refused, never opened");
-    let mut args = keyed(&refusal, OLDER_GENERATION)
-        .unwrap_or_else(|| panic!("keyed {OLDER_GENERATION}: {refusal}"));
-    args.sort();
-    let archive = format!("{}.archive-<date>", path.display());
-    assert_eq!(
-        args,
-        [("archive", archive), ("path", path.display().to_string())]
-    );
+/// Every event row of the database at `real`, key and page bytes as
+/// stored, read as the file stands (`immutable`: nothing is made beside
+/// it): what "page bytes are never rewritten" is judged on.
+fn stored_pages(real: &Path) -> Vec<(String, Vec<u8>, i64, Vec<u8>)> {
+    use sqlx::sqlite::SqliteConnectOptions;
+    use sqlx::{ConnectOptions, Connection, Row};
+    block_on(async {
+        let mut conn = SqliteConnectOptions::new()
+            .filename(real)
+            .read_only(true)
+            .immutable(true)
+            .connect()
+            .await
+            .unwrap();
+        let rows = sqlx::query(
+            "SELECT domain, root, sequence, page FROM events ORDER BY domain, root, sequence",
+        )
+        .fetch_all(&mut conn)
+        .await
+        .unwrap();
+        let pages = rows
+            .iter()
+            .map(|r| (r.get(0), r.get(1), r.get(2), r.get(3)))
+            .collect();
+        conn.close().await.unwrap();
+        pages
+    })
+}
+
+/// `sql` run against the database at `real`, closed after.
+fn sql(real: &Path, sql: &str) {
+    use sqlx::sqlite::SqliteConnectOptions;
+    use sqlx::{ConnectOptions, Connection, Executor};
+    block_on(async {
+        let mut conn = SqliteConnectOptions::new()
+            .filename(real)
+            .connect()
+            .await
+            .unwrap();
+        conn.execute(sql).await.unwrap();
+        conn.close().await.unwrap();
+    });
+}
+
+/// The wire stamp of the store at `path`, read without opening it.
+fn stamp(home: &Home, path: &Path) -> Option<angzarr_ports::WireStamp> {
+    block_on(SqliteStore::wire_stamp_at(&home.real(path))).unwrap()
 }
 
 #[test]
-fn test_a_store_an_older_generation_wrote_is_refused_by_every_open_and_left_exactly_as_it_was() {
-    for beside in [
-        &[][..],
-        // A log and index of nothing: the store was closed, so they are empty.
-        &[("state.db-wal", &b""[..]), ("state.db-shm", &b""[..])][..],
-    ] {
-        let home = Home::new();
-        let (path, project) = archive(&home, OLD_BEFORE_0005, beside);
-        let dir = path.parent().unwrap();
-        let before = tree(&home, dir);
-        let mut stores = home.stores();
-
-        refused_as_older(block_on(stores.open(&project)).map(drop).err(), &path);
-        refused_as_older(
-            block_on(stores.open_existing(&project)).map(drop).err(),
-            &path,
-        );
-        refused_as_older(
-            block_on(stores.change_token(&project)).map(drop).err(),
-            &path,
-        );
-        assert!(stores.held.is_none(), "nothing held");
-        assert_eq!(tree(&home, dir), before, "not a byte, entry or mtime");
-        assert_eq!(backups(&home, &path), Vec::<PathBuf>::new(), "no backup");
-    }
-}
-
-/// The archive at `path` migrated by an earlier build: angzarr-store-sqlite's
-/// own open, its store closed (ruling 131), so the earlier build is done
-/// with the files when this returns.
-fn migrated_by_an_earlier_build(home: &Home, path: &Path) {
-    block_on(async { SqliteStore::open(&home.real(path)).await?.close().await }).unwrap();
-}
-
-#[test]
-fn test_an_earlier_builds_migration_is_over_before_its_archive_is_looked_at() {
-    // The earlier build's open put the archive in WAL mode, and the last
-    // connection's close checkpoints the log into the file and removes the
-    // log and its index from beside it. Dropped, that close landed whenever
-    // the driver's thread ran, so a snapshot taken first saw a tree the
-    // close then changed (0a949ec waited for it). Closed (ruling 131), it is
-    // over when the setup returns: looked at at once, with no wait, nothing
-    // is left beside the file for a late close to checkpoint or remove.
-    let home = Home::new();
-    let (path, _) = archive(&home, OLD_BEFORE_0005, &[]);
-    migrated_by_an_earlier_build(&home, &path);
-    assert_eq!(
-        beside(&home, &path),
-        Vec::<&str>::new(),
-        "the earlier build's close is over when the setup returns"
-    );
-    assert_eq!(ledger(&home, &path), [1, 2, 3, 4, 5, 6, 7, 8], "migrated");
-}
-
-#[test]
-fn test_an_older_generation_store_already_migrated_by_an_earlier_build_is_refused_too() {
-    // The ledger is no mark of the generation: the migrations are the same
-    // for both. Migrated in the test's setup (angzarr-store-sqlite's own
-    // open), the pages are still the old ones.
+fn test_a_legacy_wire_store_opens_to_write_and_lists_its_tasks() {
     let home = Home::new();
     let (path, project) = archive(&home, OLD_BEFORE_0005, &[]);
-    migrated_by_an_earlier_build(&home, &path);
-    assert_eq!(ledger(&home, &path), [1, 2, 3, 4, 5, 6, 7, 8]);
+    let original = stored_pages(&home.real(&path));
+    assert_eq!(original.len(), 3, "the schema stream and two tasks");
+    let mut stores = home.stores();
+    block_on(async {
+        let store = stores.open(&project).await.expect("read, not refused");
+        assert_eq!(tasks(store).await, 2, "both tasks read back");
+    });
+    block_on(stores.close()).unwrap();
+    assert_eq!(
+        stamp(&home, &path),
+        Some(angzarr_ports::WireStamp {
+            oldest: angzarr_ports::WireVersion::V0,
+            newest: angzarr_ports::WireVersion::V0,
+        }),
+        "stamped as the legacy wire alone"
+    );
+    assert_eq!(
+        stored_pages(&home.real(&path)),
+        original,
+        "the page bytes are mapped on read, never rewritten"
+    );
+}
+
+#[test]
+fn test_a_legacy_wire_store_opens_to_read_and_lists_its_tasks() {
+    let home = Home::new();
+    let (path, project) = archive(&home, OLD_BEFORE_0005, &[]);
+    let original = stored_pages(&home.real(&path));
+    let mut stores = home.stores();
+    block_on(async {
+        let store = stores
+            .open_existing(&project)
+            .await
+            .expect("read, not refused")
+            .expect("found");
+        assert_eq!(tasks(store).await, 2);
+    });
+    block_on(stores.close()).unwrap();
+    assert_eq!(stored_pages(&home.real(&path)), original);
+}
+
+#[test]
+fn test_a_legacy_wire_store_is_backed_up_whole_before_its_schema_migrates() {
+    let home = Home::new();
+    let (path, project) = archive(&home, OLD_BEFORE_0005, &[]);
+    let original = stored_pages(&home.real(&path));
+    let mut stores = home.stores();
+    block_on(stores.open_existing(&project)).unwrap().unwrap();
+    block_on(stores.close()).unwrap();
+    let backup = the_backup(&home, &path, 4);
+    assert_eq!(ledger(&home, &backup), [1, 2, 3, 4], "as it stood");
+    assert_eq!(
+        stored_pages(&home.real(&backup)),
+        original,
+        "the backup holds the legacy pages as they were"
+    );
+}
+
+#[test]
+fn test_a_legacy_wire_store_already_migrated_by_an_earlier_open_reads_too() {
+    let home = Home::new();
+    let (path, project) = archive(&home, OLD_BEFORE_0005, &[]);
+    block_on(async { SqliteStore::open(&home.real(&path)).await?.close().await }).unwrap();
+    let mut stores = home.stores();
+    block_on(async {
+        let store = stores.open(&project).await.expect("read");
+        assert_eq!(tasks(store).await, 2);
+    });
+    block_on(stores.close()).unwrap();
+    assert_eq!(
+        backups(&home, &path).len(),
+        1,
+        "the one backup, of the first open"
+    );
+}
+
+#[test]
+fn test_a_legacy_wire_store_with_outbox_entries_is_refused_and_left_as_it_was() {
+    let home = Home::new();
+    let (path, project) = archive(&home, OLD_BEFORE_0005, &[]);
+    sql(
+        &home.real(&path),
+        "INSERT INTO outbox (id, origin, message) VALUES (x'01', 'tasks', x'0a00')",
+    );
     let dir = path.parent().unwrap();
     let before = tree(&home, dir);
     let mut stores = home.stores();
-    refused_as_older(block_on(stores.open(&project)).map(drop).err(), &path);
-    refused_as_older(
+    let want = Some(StoreError::WireLegacyTransient {
+        outbox: 1,
+        dead_letters: 0,
+    });
+    assert_eq!(block_on(stores.open(&project)).map(drop).err(), want);
+    assert_eq!(
         block_on(stores.open_existing(&project)).map(drop).err(),
-        &path,
+        want
     );
+    assert_eq!(
+        block_on(stores.change_token(&project)).map(drop).err(),
+        want
+    );
+    assert!(stores.held.is_none(), "nothing held");
     assert_eq!(tree(&home, dir), before, "not a byte, entry or mtime");
+    assert_eq!(backups(&home, &path), Vec::<PathBuf>::new(), "no backup");
+    let check = home.stores().check(&path);
+    let Err(report) = check else {
+        panic!("refused: {check:?}");
+    };
+    assert_eq!(report.code(), "angzarr-ports-store-wire-legacy-transient");
+    assert_eq!(tree(&home, dir), before, "the check wrote nothing");
 }
 
 #[test]
-fn test_an_older_generation_page_still_in_the_log_is_found_and_refused() {
-    // A store this build made, held open by another connection that has
-    // committed an older generation's page (`payload`, field 3) to its
-    // log, not yet checkpointed into the file: the file alone holds no
-    // event, the log does, and the probe reads the log (it is not
-    // `immutable` where one holds commits).
-    use sqlx::{Connection, Executor};
+fn test_a_store_whose_rows_fit_no_wire_is_refused_and_left_as_it_was() {
+    let home = Home::new();
+    let (path, project) = archive(&home, OLD_BEFORE_0005, &[]);
+    sql(&home.real(&path), "UPDATE events SET page = x'ffffffff'");
+    let dir = path.parent().unwrap();
+    let before = tree(&home, dir);
+    let mut stores = home.stores();
+    let refusal = block_on(stores.open(&project)).map(drop).err();
+    assert!(
+        matches!(refusal, Some(StoreError::WireUnrecognised { .. })),
+        "{refusal:?}"
+    );
+    assert!(stores.held.is_none());
+    assert_eq!(tree(&home, dir), before, "not a byte, entry or mtime");
+    assert_eq!(backups(&home, &path), Vec::<PathBuf>::new(), "no backup");
+}
+
+#[test]
+fn test_a_store_stamped_with_a_newer_wire_is_refused_and_left_as_it_was() {
     let home = Home::new();
     let path = store_in(home.path(), "jolly-mute-magma");
-    block_on(async {
-        let project = project("jolly-mute-magma", path.clone());
-        home.stores().open(&project).await.map(drop).unwrap();
-        let mut conn =
-            sqlx::SqliteConnection::connect(&format!("sqlite://{}", home.real(&path).display()))
-                .await
-                .unwrap();
-        conn.execute("INSERT INTO events (domain, edition, root, sequence, page) VALUES ('tasks', '', x'01', 0, x'1a00')")
-            .await
-            .unwrap();
-        let log = path.with_file_name("state.db-wal");
-        assert!(
-            home.rooted.metadata(&log).unwrap().len > 0,
-            "the commit is in the log"
-        );
-        let refusal = home.stores().open_existing(&project).await.map(drop).err();
-        refused_as_older(refusal, &path);
-        conn.close().await.unwrap();
+    written(&home, &path);
+    sql(&home.real(&path), "UPDATE wire_stamp SET newest = 2");
+    let before = home.read(&path);
+    let project = project("jolly-mute-magma", path.clone());
+    let mut stores = home.stores();
+    let want = Some(StoreError::WireNewerThanBuild {
+        stamped: 2,
+        build: angzarr_ports::WireVersion::CURRENT.0,
     });
+    assert_eq!(block_on(stores.open(&project)).map(drop).err(), want);
+    assert_eq!(
+        block_on(stores.open_existing(&project)).map(drop).err(),
+        want
+    );
+    assert!(stores.held.is_none());
+    // The open connects before it reads the stamp, so SQLite may make and
+    // remove its log beside the file: the file itself is as it was.
+    assert_eq!(home.read(&path), before, "the file as it was");
+    assert_eq!(backups(&home, &path), Vec::<PathBuf>::new(), "no backup");
+}
+
+#[test]
+fn test_a_new_store_is_of_the_current_wire() {
+    let home = Home::new();
+    let path = store_in(home.path(), "brand-new");
+    let mut stores = home.stores();
+    block_on(stores.open(&project("brand-new", path.clone()))).expect("created");
+    block_on(stores.close()).unwrap();
+    let current = angzarr_ports::WireVersion::CURRENT;
+    assert_eq!(
+        stamp(&home, &path),
+        Some(angzarr_ports::WireStamp {
+            oldest: current,
+            newest: current,
+        })
+    );
+    assert_eq!(backups(&home, &path), Vec::<PathBuf>::new());
+}
+
+#[test]
+fn test_the_check_of_a_legacy_wire_store_reads_it_and_finds_it_intact() {
+    let home = Home::new();
+    let (path, _) = archive(&home, OLD_BEFORE_0005, &[]);
+    let checked = home.stores().check(&path).expect("checked, not refused");
+    assert!(matches!(checked, Checked::Intact), "{checked:?}");
+}
+
+#[test]
+fn test_an_export_of_a_legacy_wire_store_not_yet_migrated_is_refused_untouched() {
+    // Its ledger is older than the build's: the export migrates nothing.
+    use ports::StoreExport;
+    let home = Home::new();
+    let (path, _) = archive(&home, OLD_BEFORE_0005, &[]);
+    let before = home.read(&path);
+    let mut out = Vec::new();
+    let refused = home
+        .stores()
+        .export(&path, &[tasks_proto::FILE_DESCRIPTOR_SET], &mut out)
+        .expect_err("the ledger is not the build's");
+    assert_eq!(
+        refused.code(),
+        angzarr_store_transfer::ExportError::LedgerNotTheBuilds {
+            applied: String::new(),
+            build: String::new(),
+        }
+        .code()
+    );
+    assert!(out.is_empty());
+    assert_eq!(home.read(&path), before, "the file as it was: not migrated");
+    assert_eq!(backups(&home, &path), Vec::<PathBuf>::new(), "no backup");
+}
+
+#[test]
+fn test_an_export_of_a_migrated_legacy_wire_store_writes_every_page_in_the_current_shape() {
+    use ports::StoreExport;
+    let home = Home::new();
+    let (path, _) = archive(&home, OLD_BEFORE_0005, &[]);
+    block_on(async { SqliteStore::open(&home.real(&path)).await?.close().await }).unwrap();
+    let mut out = Vec::new();
+    let exported = home
+        .stores()
+        .export(&path, &[tasks_proto::FILE_DESCRIPTOR_SET], &mut out)
+        .expect("it exports")
+        .expect("a database");
+    assert_eq!(exported.records, 3);
+    let text = String::from_utf8(out).unwrap();
+    assert!(text.contains("TaskAdded"), "payloads expanded by name");
 }
 
 #[test]
@@ -1592,20 +1719,6 @@ fn test_a_ledger_of_the_first_migration_alone_is_a_store_from_before_angzarr_emb
         let refusal = refusal.expect("refused");
         assert!(keyed(&refusal, PREDATES).is_some(), "{refusal}");
     });
-}
-
-#[test]
-fn test_the_check_of_an_older_generation_store_refuses_it_and_writes_nothing() {
-    let home = Home::new();
-    let (path, _) = archive(&home, OLD_BEFORE_0005, &[]);
-    let dir = path.parent().unwrap();
-    let before = tree(&home, dir);
-    let checked = home.stores().check(&path);
-    let Err(report) = checked else {
-        panic!("refused: {checked:?}");
-    };
-    assert_eq!(report.code(), "task-store-sqlite-older-generation");
-    assert_eq!(tree(&home, dir), before, "not a byte, entry or mtime");
 }
 
 #[test]

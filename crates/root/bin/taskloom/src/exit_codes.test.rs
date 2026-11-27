@@ -5,7 +5,7 @@
 //! 32; a decline (the request or the state forbids it, a usage error among
 //! them) 48; a check that examined the store and found it unworkable 49.
 
-use super::{project_with_store, Env, Jq, Ran, OLD_GENERATION};
+use super::{project_with_store, Env, Jq, Ran, NEWER_THAN_THE_BUILD};
 
 const SESSION: &str = "exit-codes-harp";
 
@@ -77,8 +77,12 @@ fn test_a_request_the_state_forbids_exits_48_under_either_flag_setting() {
 #[test]
 fn test_a_store_that_cannot_be_used_is_a_failure_exiting_32() {
     let env = Env::new(SESSION);
-    project_with_store(&env, OLD_GENERATION);
-    exits(&env.run(&["tasks", "list"]), 32, "an archived store");
+    project_with_store(&env, NEWER_THAN_THE_BUILD);
+    exits(
+        &env.run(&["tasks", "list"]),
+        32,
+        "a store newer than the build",
+    );
     exits(
         &env.run(&["tasks", "list", "--detailed-exitcode"]),
         32,

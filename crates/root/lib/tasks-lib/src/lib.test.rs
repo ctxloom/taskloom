@@ -757,22 +757,70 @@ fn test_the_process_is_read_from_its_variables_and_working_directory() {
         ("CTXLOOM_PROJECT_ID".into(), "jolly-mute-magma".into()),
         ("PATH".into(), os::fixture("/bin").into()),
     ];
-    let builder = Builder::from_env(Ok(os::fixture(PROJECT)), vars.clone());
+    let builder = Builder::from_env(Ok(os::fixture(PROJECT)), vars.clone(), no_account());
     assert_eq!(builder.home, Some(os::fixture("/h")));
     assert_eq!(builder.root, Some(os::fixture("/r")));
     assert_eq!(builder.project_id.as_deref(), Some("jolly-mute-magma"));
     assert_eq!(builder.vars, vars);
     let taskloom = builder.build().unwrap();
     assert_eq!(taskloom.fs().cwd(), Ok(os::fixture(PROJECT).as_path()));
-    let gone = Builder::from_env(Err(io::Error::from_raw_os_error(2)), Vec::new())
-        .build()
-        .unwrap();
+    let gone = Builder::from_env(
+        Err(io::Error::from_raw_os_error(2)),
+        Vec::new(),
+        no_account(),
+    )
+    .build()
+    .unwrap();
     assert_eq!(
         gone.fs().cwd(),
         Err(CwdError {
             reason: no_such_file().to_string()
         })
     );
+}
+
+// The home is the ACCOUNT's, as the system keeps it, never `$HOME` alone: a
+// process whose HOME was moved (an agent's session home) still finds the
+// stores. HOME is the last resort, where the account has no home.
+fn no_account() -> io::Result<PathBuf> {
+    Err(io::Error::from_raw_os_error(2))
+}
+
+fn home_of(vars: &[(&str, &str)], account: io::Result<PathBuf>) -> Option<PathBuf> {
+    let vars = vars
+        .iter()
+        .map(|(n, v)| (OsString::from(n), OsString::from(v)))
+        .collect();
+    Builder::from_env(Ok(os::fixture(PROJECT)), vars, account).home
+}
+
+#[test]
+fn test_the_home_is_the_accounts_though_home_was_moved() {
+    let moved = os::fixture("/sessions/x/home");
+    let home = home_of(
+        &[(os::host().flavor().home_var(), moved.to_str().unwrap())],
+        Ok(os::fixture("/home/u")),
+    );
+    assert_eq!(home, Some(os::fixture("/home/u")));
+}
+
+#[test]
+fn test_the_test_override_names_the_account_home_over_the_systems() {
+    let home = home_of(
+        &[(ACCOUNT_HOME_VARIABLE, "/test/home")],
+        Ok(os::fixture("/home/u")),
+    );
+    assert_eq!(home, Some(PathBuf::from("/test/home")));
+    let empty = home_of(&[(ACCOUNT_HOME_VARIABLE, "")], Ok(os::fixture("/home/u")));
+    assert_eq!(empty, Some(os::fixture("/home/u")), "set empty, unset");
+}
+
+#[test]
+fn test_with_no_account_home_the_variable_is_the_last_resort() {
+    let var = os::host().flavor().home_var();
+    let home = home_of(&[(var, "/h")], no_account());
+    assert_eq!(home, Some(PathBuf::from("/h")));
+    assert_eq!(home_of(&[], no_account()), None);
 }
 
 // Tag permits, wired: `permit` declares them in the project's store, and

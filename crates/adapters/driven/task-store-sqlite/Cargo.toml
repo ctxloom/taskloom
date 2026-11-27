@@ -13,8 +13,6 @@ coded-diagnostic.workspace = true
 # (its `sqlite` feature), at the rev the kernel is built with.
 angzarr-embedded = { workspace = true, features = ["sqlite"] }
 angzarr-ports.workspace = true
-# Decodes the first event page: the generation probe.
-prost.workspace = true
 sqlx.workspace = true
 # The export's JSONL (store-export-import.plan.md): Export's rows checked
 # and written in proto3's JSON mapping.

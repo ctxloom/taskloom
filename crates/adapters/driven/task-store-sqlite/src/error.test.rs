@@ -35,11 +35,6 @@ fn test_each_error_displays_its_code_and_args_never_english() {
                 " path=/home/u/.ctxloom/projects/jolly-mute-magma/state.db \
              backup=/home/u/.ctxloom/projects/jolly-mute-magma/state.db.pre-embedded"
             ),
-            concat!(
-                code!("older-generation"),
-                " path=/home/u/.ctxloom/projects/jolly-mute-magma/state.db \
-             archive=/home/u/.ctxloom/projects/jolly-mute-magma/state.db.archive-<date>"
-            ),
             concat!(code!("no-output"), r#" ext_err_txt="broken pipe""#),
             concat!(
                 code!("restrict"),
@@ -83,24 +78,6 @@ fn test_the_catalog_says_a_store_predates_angzarr_embedded_with_its_path_and_bac
         .collect();
     used.sort_unstable();
     assert_eq!(used, ["backup", "path"]);
-}
-
-#[test]
-fn test_the_catalog_says_an_older_generation_store_is_an_archive_and_how_to_archive_it() {
-    let message = crate::EN_US
-        .1
-        .lines()
-        .find_map(|l| l.strip_prefix(concat!(code!("older-generation"), " = ")))
-        .expect("a message for the key");
-    for said in [
-        "{ $path }",
-        "{ $archive }",
-        "state.db-wal",
-        "state.db-shm",
-        "pre-port",
-    ] {
-        assert!(message.contains(said), "{said}: {message}");
-    }
 }
 
 #[test]

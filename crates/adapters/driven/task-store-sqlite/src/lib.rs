@@ -26,12 +26,17 @@
 //!   (`angzarr-ports-store-newer-than-build`, `-migration-failed`,
 //!   `-migration-changed`). ctxloom writes no SQL, and takes no backup of
 //!   its own.
-//! - A store an older generation wrote (its event pages in an angzarr wire
-//!   this build does not decode) is an archive: both opens and the check
-//!   refuse it, keyed [`StoreOpenError::OlderGeneration`] with its `path` and
-//!   the `archive` name to move it to, before anything is opened, so
-//!   nothing is migrated, backed up or made beside it, and the file and its
-//!   directory are left byte for byte as they were.
+//! - A store an older generation wrote (event pages of angzarr's legacy
+//!   wire, `io.angzarr.v0`) is read, not refused: the open's migration
+//!   (angzarr-store-sqlite's, backed up first like any) stamps each row
+//!   with the wire that wrote it, and a read decodes it as its own version
+//!   and maps it to the current types; page bytes are never rewritten.
+//!   Before anything is opened, a store not yet stamped is surveyed on a
+//!   read-only connection ([`SqliteStore::detect_wire_at`]) and refused,
+//!   untouched, if the open would refuse it: transient messages of the old
+//!   wire it holds (`WireLegacyTransient`) or rows that fit no wire
+//!   (`WireUnrecognised`). A store stamped with a newer wire than this
+//!   build's is refused by the open (`WireNewerThanBuild`).
 //! - A store written before angzarr-embedded (annals-store-sql's, its
 //!   ledger only its first migration) is refused by both, keyed
 //!   [`StoreOpenError::PredatesEmbedded`] with its `path` and the
@@ -90,16 +95,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use angzarr_embedded::angzarr_store_sqlite::{Integrity, SqlError, SqliteStore};
-use angzarr_ports::angzarr_proto::v1::EventPage;
 use angzarr_ports::{StoreError, Watch};
 use angzarr_store_transfer::{check_ledger, descriptor_pool};
 use coded_diagnostic::Report;
-use file_system::Fs;
+use file_system::{Fs, Perms};
 use os::Mode;
 use ports::{
     Checked, Exported, HeldToken, Project, StoreCheck, StoreExport, TaskStores, WatchedStores,
 };
-use prost::Message;
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{ConnectOptions, Connection};
 
@@ -179,7 +182,7 @@ impl SqliteStores {
         let real = real(&*self.fs, path).map_err(unavailable)?;
         refuse_if_unusable(&*self.fs, &real, path)
             .await
-            .map_err(unavailable)?;
+            .map_err(Refused::into_store_error)?;
         // After the refusals: an archive is left byte for byte, no lock
         // file made beside it.
         let lock = if shared {
@@ -225,7 +228,7 @@ impl SqliteStores {
         let real = real(&*self.fs, path).map_err(unavailable)?;
         refuse_if_unusable(&*self.fs, &real, path)
             .await
-            .map_err(unavailable)?;
+            .map_err(Refused::into_store_error)?;
         match SqliteStore::open_existing(&real).await? {
             Some(store) => {
                 let store = private(&*self.fs, path, store).await?;
@@ -311,11 +314,10 @@ impl StoreCheck for SqliteStores {
                         )
                     })?;
                 runtime.block_on(async {
-                    // An older generation's store is an archive: no open of
-                    // it, however read-only, is made.
+                    // A store this build must refuse is refused before any open.
                     refuse_if_unusable(fs, store, logical)
                         .await
-                        .map_err(|e| ported(&e.cause()))?;
+                        .map_err(Refused::into_report)?;
                     check(store).await.map_err(|e| report(&e))
                 })
             });
@@ -361,7 +363,7 @@ impl StoreExport for SqliteStores {
                     // before the ledger, and before any open.
                     refuse_if_unusable(fs, store, logical)
                         .await
-                        .map_err(|e| ported(&e.cause()))?;
+                        .map_err(Refused::into_report)?;
                     export(store, descriptors, &mut file).await
                 })
             });
@@ -441,6 +443,33 @@ async fn check(path: &Path) -> Result<Checked, StoreError> {
     })
 }
 
+/// Why a store is refused before it is opened: this crate's own refusal, or
+/// the store's, about its wire.
+enum Refused {
+    Open(StoreOpenError),
+    Wire(StoreError),
+}
+
+impl Refused {
+    fn into_store_error(self) -> StoreError {
+        match self {
+            Refused::Open(error) => unavailable(error),
+            Refused::Wire(error) => error,
+        }
+    }
+
+    fn into_report(self) -> Report {
+        match self {
+            Refused::Open(error) => ported(&error.cause()),
+            Refused::Wire(error) => report(&error),
+        }
+    }
+}
+
+/// The migration that stamps each row with its wire (angzarr-store-sqlite's
+/// 0009): a ledger holding it is a stamped store.
+const WIRE_STAMPED_FROM: i64 = 9;
+
 /// The store at `real` (`path` as the caller names it), judged before any
 /// open, which would migrate it, back it up or make files beside it, and
 /// refused, untouched, if this build cannot use it:
@@ -448,43 +477,99 @@ async fn check(path: &Path) -> Result<Checked, StoreError> {
 /// - annals-store-sql's, a store from before angzarr-embedded (ruling D2),
 ///   naming its backup: its ledger holds only the first migration, which
 ///   annals-store-sql's first is blob-identical to;
-/// - one an older generation wrote: its first event page does not decode
-///   as this build's `EventPage` ([`StoreOpenError::OlderGeneration`]).
-///   The migrations are the same for both generations, so the ledger is no
-///   mark of it; the page is: `payload` was field 3 (length-delimited),
-///   which is `sequence` (a varint) now, so every page the older wire wrote
-///   fails to decode, and this build's own never do.
+/// - one the open would refuse for its wire (see [`refuse_wire`]).
 ///
-/// The store is read once, on a connection that changes nothing, without
-/// the library's open: `immutable`, so SQLite makes no `-wal` or `-shm`
-/// beside a store in WAL mode and takes no lock, while no log holds
-/// anything (a store closed cleanly has none). Where a log holds
-/// commits, it is read as SQLite reads it (the files exist, so none is
-/// made). What cannot be read at all (no database, damage) is the
-/// store's own to refuse when it is opened.
-async fn refuse_if_unusable(fs: &dyn Fs, real: &Path, path: &Path) -> Result<(), StoreOpenError> {
+/// The store is read on a connection that changes nothing, without the
+/// library's open: `immutable` where no log holds commits, so SQLite makes
+/// no `-wal` or `-shm` beside a store in WAL mode and takes no lock. What
+/// cannot be read at all (no database, damage) is the store's own to
+/// refuse when it is opened.
+async fn refuse_if_unusable(fs: &dyn Fs, real: &Path, path: &Path) -> Result<(), Refused> {
     if !fs.exists(path).unwrap_or(true) {
         return Ok(());
     }
     let logged = fs
         .metadata(&sibling(path, "-wal"))
         .is_ok_and(|log| log.len > 0);
-    let Some(Probed { versions, page }) = probe(real, !logged).await else {
+    let Some(versions) = probe(real, !logged).await else {
         return Ok(());
     };
     if versions == [1] {
-        return Err(StoreOpenError::PredatesEmbedded {
+        return Err(Refused::Open(StoreOpenError::PredatesEmbedded {
             path: path.display().to_string(),
             backup: sibling(path, ".pre-embedded").display().to_string(),
-        });
+        }));
     }
-    if page.is_some_and(|bytes| EventPage::decode(bytes.as_slice()).is_err()) {
-        return Err(StoreOpenError::OlderGeneration {
-            path: path.display().to_string(),
-            archive: sibling(path, ".archive-<date>").display().to_string(),
-        });
+    if versions.is_empty() || versions.contains(&WIRE_STAMPED_FROM) {
+        return Ok(());
     }
-    Ok(())
+    refuse_wire(real).await.map_err(Refused::Wire)
+}
+
+/// A store not yet stamped with its wire (one a build before the stamp
+/// wrote, which the open is about to migrate) is surveyed by the shape of
+/// its rows ([`SqliteStore::detect_wire_at`], which writes nothing) and
+/// refused with the refusal the open would give, before anything is
+/// migrated or backed up. The survey reads a COPY of the store in a
+/// directory of its own, since a read-only connection to a store in WAL
+/// mode makes its `-wal` and `-shm` beside it, and the store is to stay
+/// byte for byte as it was. A store that cannot be surveyed is the
+/// store's own to refuse when it is opened. A stamped store is the open's
+/// to judge (it refuses a newer wire).
+async fn refuse_wire(real: &Path) -> Result<(), StoreError> {
+    let Ok(copy) = Copy::of(real) else {
+        return Ok(());
+    };
+    match SqliteStore::detect_wire_at(copy.database()).await {
+        Ok(detected) => detected.refusal.map_or(Ok(()), Err),
+        Err(_) => Ok(()),
+    }
+}
+
+/// A store's file (and its log, if it holds commits) copied into a
+/// directory made for it (its owner's alone), removed with it.
+struct Copy {
+    host: file_system::Os,
+    dir: PathBuf,
+    database: PathBuf,
+}
+
+impl Copy {
+    fn of(real: &Path) -> io::Result<Copy> {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let temp = std::env::temp_dir();
+        let host = file_system::Os::new(os::host(), &temp)?;
+        let dir = temp.join(format!("taskloom-wire-survey-{}-{n}", std::process::id()));
+        host.create_dir_all(&dir, PRIVATE_DIR)?;
+        let database = dir.join("state.db");
+        let copy = Copy {
+            host,
+            dir,
+            database,
+        };
+        let private = Perms::Exact(Mode::PRIVATE_FILE);
+        copy.host
+            .write_atomic(&copy.database, &copy.host.read(real)?, private)?;
+        match copy.host.read(&sibling(real, "-wal")) {
+            Ok(log) => copy
+                .host
+                .write_atomic(&sibling(&copy.database, "-wal"), &log, private)?,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+        Ok(copy)
+    }
+
+    fn database(&self) -> &Path {
+        &self.database
+    }
+}
+
+impl Drop for Copy {
+    fn drop(&mut self) {
+        let _ = self.host.remove_dir_all(&self.dir);
+    }
 }
 
 /// `path` with `suffix` appended to its file name.
@@ -494,18 +579,12 @@ fn sibling(path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
-/// What the store file holds that the judgement reads.
-struct Probed {
-    /// The ledger's versions, in order (none if it has no ledger).
-    versions: Vec<i64>,
-    /// The first event page's bytes; none if no event is stored.
-    page: Option<Vec<u8>>,
-}
-
-/// The ledger and an event page of the database at `real`, read-only; with
-/// `immutable` it is read as the file stands, touching nothing beside it.
-/// `None` if it cannot be opened or read at all.
-async fn probe(real: &Path, immutable: bool) -> Option<Probed> {
+/// The ledger's versions of the database at `real`, in order, read-only;
+/// with `immutable` it is read as the file stands, touching nothing beside
+/// it. `None` if it cannot be opened; none (empty) if it has no ledger: a
+/// table that is not there, or a file that is no database, is the store's
+/// own to refuse when it is opened.
+async fn probe(real: &Path, immutable: bool) -> Option<Vec<i64>> {
     let mut conn = SqliteConnectOptions::new()
         .filename(real)
         .read_only(true)
@@ -513,19 +592,12 @@ async fn probe(real: &Path, immutable: bool) -> Option<Probed> {
         .connect()
         .await
         .ok()?;
-    // A table that is not there, or a file that is no database, answers
-    // nothing: it is the store's to refuse when it is opened.
     let versions = sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
         .fetch_all(&mut conn)
         .await
         .unwrap_or_default();
-    let page = sqlx::query_scalar("SELECT page FROM events LIMIT 1")
-        .fetch_optional(&mut conn)
-        .await
-        .ok()
-        .flatten();
     let _ = conn.close().await;
-    Some(Probed { versions, page })
+    Some(versions)
 }
 
 /// `error` as angzarr-embedded's diagnostics report it: its code, and its
