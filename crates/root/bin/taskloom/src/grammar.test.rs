@@ -791,15 +791,13 @@ fn test_tagging_with_a_tag_no_permit_admits_exits_48_and_changes_nothing() {
     assert_eq!(shown(&env, &harp)["tags"], json!([]));
 }
 
-#[cfg(feature = "purge")]
 #[test]
 fn test_arguments_refused_before_anything_ran_exit_48() {
-    // Each is wrong on its face, whatever the store holds.
+    // Each is wrong on its face, whatever the store holds. Both flavours.
     let env = Env::new(SESSION);
     add_task(&env, "Seed");
     for args in [
         &["tasks", "list", "--limit", "0"][..],
-        &["tasks", "prune", "--older-than", "zzz"],
         &["tasks", "list", "--tag-query", "x/and"],
         &["tasks", "list", "--status", "@nonsense"],
         &["manage", "schema", "permits", "add", "*bad"],
@@ -809,6 +807,17 @@ fn test_arguments_refused_before_anything_ran_exit_48() {
     ] {
         refused(&env, args, 48);
     }
+}
+
+// The prune verb is compiled in only in the purge flavour; its bad argument is
+// refused there, and the plain flavour's refusal of the verb itself is
+// `test_the_default_build_has_no_prune_verb`'s.
+#[cfg(feature = "purge")]
+#[test]
+fn test_a_prune_argument_refused_before_anything_ran_exit_48() {
+    let env = Env::new(SESSION);
+    add_task(&env, "Seed");
+    refused(&env, &["tasks", "prune", "--older-than", "zzz"], 48);
 }
 
 #[test]
