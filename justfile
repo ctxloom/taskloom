@@ -22,16 +22,17 @@ mod? dev '.dev'
 # sibling checkouts instead of the commit's pinned dependencies.
 staged_tree := "../.{name}.staged"
 
-# The two flavours the product is built and tested in (and installed in): `plain` (the
-# default: no prune verb and no Purge API compiled in) and `purge` (the cargo
-# feature of that name, on every crate that has it). `TASKLOOM_FLAVOUR=purge
-# just <build|lint|test|...>` runs a gate in the purge flavour; CI runs every
-# gate in both.
-flavour := env("TASKLOOM_FLAVOUR", "plain")
+# The two flavours the product is built and tested in: `purge` (the local
+# default since owner ruling 2026-11-27: the cargo feature of that name, on
+# every crate that has it) and `plain` (no prune verb and no Purge API compiled
+# in). `TASKLOOM_FLAVOUR=plain just <build|lint|test|...>` runs a gate in the
+# plain flavour; CI runs every gate in both. `install` follows it: purge.
+flavour := env("TASKLOOM_FLAVOUR", "purge")
 flavour_features := if flavour == "purge" { "--features purge" } else if flavour == "plain" { "" } else { error("TASKLOOM_FLAVOUR must be plain or purge, not " + flavour) }
 
 # The flavour's feature, turned on for the tests (and refused for a mutation
-# run by gates.just: a mutation run is of the plain flavour).
+# run by gates.just: a mutation run is of the plain flavour, so it needs
+# `TASKLOOM_FLAVOUR=plain`).
 feature_rules := if flavour == "purge" { "taskloom=purge" } else { "" }
 features_prepare := ""
 
@@ -178,7 +179,8 @@ check-windows:
 install_root := env("TASKLOOM_RS_ROOT", home_directory() / ".local/share/taskloom-rs")
 
 # Build and install the taskloom binary into `install_root` (plan step 9), in
-# the flavour `TASKLOOM_FLAVOUR` names (the default has no prune verb).
+# the flavour `TASKLOOM_FLAVOUR` names, the purge one by default (owner ruling
+# 2026-11-27); the binary is `taskloom` either way, no suffix.
 [no-exit-message]
 install:
     cargo install --locked --path {{TOP}}/crates/root/bin/taskloom --root {{install_root}} {{flavour_features}}
@@ -208,3 +210,52 @@ selftest:
 test-pkg +packages:
     @just --justfile '{{TOP}}/justfile' _require-nextest test-pkg
     @just --justfile '{{TOP}}/justfile' _run test-pkg "{{packages}}" tests just --justfile '{{TOP}}/justfile' _tests {{packages}}
+
+# ===== Version (versionator, .versionator.yaml) =====
+# VERSION holds the version; the binary's build script stamps it
+# (crates/root/bin/taskloom/build.rs): v<MAJOR.MINOR.PATCH[-pre]> at its
+# release tag on a clean tree, else with -<short hash> after it, and on a tree
+# with a tracked change also -<YYYYMMDDTHHMMSS UTC> (no -dirty word).
+# A change of version also writes the binary's Cargo.toml (versionator's
+# `updates:`) and records it in Cargo.lock. No release recipe: a human cuts
+# releases.
+
+# Show the version VERSION holds.
+[group('version')]
+[doc("Show the version VERSION holds")]
+show-version:
+    @cd {{TOP}} && versionator output version
+
+# Set the version, e.g. `just set-version 0.2.0` or `0.2.0-rc.1`.
+[group('version')]
+[doc("Set the version: set-version <version>")]
+set-version version:
+    @cd {{TOP}} && versionator set {{ version }} && just --justfile {{TOP}}/justfile _version-lock
+
+# Bump the patch version (0.0.X).
+[group('version')]
+[doc("Bump the patch version (0.0.X)")]
+bump-patch:
+    @cd {{TOP}} && versionator bump patch inc && just --justfile {{TOP}}/justfile _version-lock
+
+# Bump the minor version (0.X.0).
+[group('version')]
+[doc("Bump the minor version (0.X.0)")]
+bump-minor:
+    @cd {{TOP}} && versionator bump minor inc && just --justfile {{TOP}}/justfile _version-lock
+
+# Bump the major version (X.0.0).
+[group('version')]
+[doc("Bump the major version (X.0.0)")]
+bump-major:
+    @cd {{TOP}} && versionator bump major inc && just --justfile {{TOP}}/justfile _version-lock
+
+# Bump by the conventional commits since the last tag (feat: minor, fix: patch).
+[group('version')]
+[doc("Bump by the conventional commits since the last tag")]
+bump:
+    @cd {{TOP}} && versionator bump && just --justfile {{TOP}}/justfile _version-lock
+
+# Cargo.lock records the binary's new version (versionator never touches it).
+_version-lock:
+    @cargo update --workspace --offline --quiet --manifest-path {{TOP}}/Cargo.toml

@@ -27,6 +27,20 @@ use cli_support::{Exit, ExitStatuses};
 use tasks_cli::Context;
 use tasks_lib::{Close, Taskloom};
 
+// build.rs composes the stamp; the program only checks it.
+#[cfg_attr(not(test), allow(dead_code))]
+mod stamp;
+mod unstamped;
+
+/// The build's version stamp (`build.rs`, `src/stamp.rs`).
+const STAMP: &str = env!("TASKLOOM_VERSION_STAMP");
+
+/// The binary's own en-US messages.
+const EN_US: (&str, &str) = (
+    env!("CARGO_PKG_NAME"),
+    include_str!("../locales/en-US/messages.ftl"),
+);
+
 /// The binary's en-US catalog: every diagnostic the wiring can raise
 /// (tasks-lib's), then each frontend's own.
 fn catalog() -> Result<presentation::Catalog, presentation::CatalogError> {
@@ -36,6 +50,7 @@ fn catalog() -> Result<presentation::Catalog, presentation::CatalogError> {
         tasks_watch::EN_US,
         plans_cli::EN_US,
         store_cli::EN_US,
+        EN_US,
     ])
 }
 
@@ -398,11 +413,11 @@ fn plan_group(
 }
 
 /// What the command line reads from the process besides its arguments.
-fn context() -> Context {
+fn context(version: &str) -> Context {
     Context {
         session: std::env::var("CTXLOOM_SESSION_HARP").unwrap_or_default(),
         stdout_is_terminal: io::stdout().is_terminal(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: version.to_string(),
         // True of every lock file taskloom takes, each through file-lock:
         // the project registry's `index.yaml.lock`. It takes none on a
         // JSONL task log (the importer reads without one); its store is
@@ -429,7 +444,15 @@ fn main() -> ExitCode {
             return ExitStatuses::new(false).process(Exit::FAILED);
         }
     };
-    let context = context();
+    // A binary whose build carried no whole stamp does not run.
+    let version = match unstamped::checked(STAMP) {
+        Ok(version) => version,
+        Err(refused) => {
+            eprintln!("{}: {}", tasks_cli::PROG, catalog.message(&refused));
+            return ExitStatuses::new(false).process(Exit::FAILED);
+        }
+    };
+    let context = context(version);
     // Stdout and stderr are locked for one call at a time.
     let (stdout, stderr) = (io::stdout(), io::stderr());
     let parsed = tasks_cli::parse(

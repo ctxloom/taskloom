@@ -44,7 +44,9 @@ jobs:
         with:
           tool: ${{ env.TOOLS }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: just mutants-all
+      - uses: ctxloom/ci/.github/actions/setup-versionator@fa01764571615bd3174313e84631bdd5c13a02e6 # main 2026-11-12
+      # A mutation run is of the plain flavour; the local default is purge.
+      - run: TASKLOOM_FLAVOUR=plain just mutants-all
       - name: The gate's log and surviving mutants
         if: always()
         run: |

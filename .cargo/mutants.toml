@@ -15,3 +15,7 @@ exclude_globs = ["crates/core/wire/**"]
 # thresholds judge whether a crate tests itself; a dependent's tests killing
 # a mutant would credit the crate with coverage it does not have.
 test_workspace = false
+
+# The binary's build script stamps it from git (a tag, HEAD, the index), which
+# a mutant's copy of the tree must hold too.
+copy_vcs = true

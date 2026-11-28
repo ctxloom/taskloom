@@ -48,6 +48,20 @@ fn predates_the_recheck(info: &Info) -> Option<String> {
     }
 }
 
+/// `version` is a whole stamp (the three forms: a tagged release, a clean
+/// build, a dirty one with its build time) of the version Cargo.toml says.
+fn assert_stamped(version: &str) {
+    assert!(
+        crate::stamp::valid(version),
+        "not a version stamp: {version:?}"
+    );
+    let release = format!("v{}", env!("CARGO_PKG_VERSION"));
+    assert!(
+        version == release || version.starts_with(&format!("{release}-")),
+        "{version:?} is not {release}[-...]"
+    );
+}
+
 /// ctxloom's probe: `<bin> version --format json`, its stdout, failing on
 /// a non-zero exit. Run with nothing but a temporary HOME and PATH.
 fn probe(home: &std::path::Path) -> Ran {
@@ -68,7 +82,7 @@ fn test_the_version_probe_parses_as_go_ctxloom_parses_it() {
     assert!(ran.ok, "the probe failed: {}", ran.stderr);
     let info = parse(ran.stdout.as_bytes()).unwrap_or_else(|e| panic!("{e}: {:?}", ran.stdout));
     assert_eq!(info.name, "taskloom");
-    assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
+    assert_stamped(&info.version);
     assert_eq!(predates_the_recheck(&info), None, "{info:?}");
     assert_eq!(info.lock_protocol, GO_LOCK_PROTOCOL);
     let written = disk::read_dir(home.path()).unwrap();
@@ -109,12 +123,13 @@ fn test_the_version_flag_prints_gos_line_the_extension_parses() {
             .expect("taskloom runs");
         let ran = Ran::of(output);
         assert!(ran.ok, "{flag} failed: {}", ran.stderr);
+        let version = extension_parse(&ran.stdout);
+        assert_stamped(&version);
         assert_eq!(
             ran.stdout,
-            format!("taskloom version {}\n", env!("CARGO_PKG_VERSION")),
+            format!("taskloom version {version}\n"),
             "{flag}"
         );
-        assert_eq!(extension_parse(&ran.stdout), env!("CARGO_PKG_VERSION"));
         assert_eq!(ran.stderr, "", "{flag}");
         let written = disk::read_dir(home.path()).unwrap();
         assert_eq!(written.len(), 0, "{flag} writes nothing: {written:?}");

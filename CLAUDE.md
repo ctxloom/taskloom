@@ -464,15 +464,42 @@ tombstone (the list projection, the watch) and the vocabulary (`PruneRefusal`,
 the prune notices and their catalog messages, which every flavour's one
 catalog holds: coded-diagnostic builds a catalog from one text per crate).
 
-`TASKLOOM_FLAVOUR=purge just <build|lint|test|test-pkg|install>` runs a gate
-in the purge flavour (`--features purge`, and `feature_rules` for the test
-run); the default is `plain`. CI runs every suite in both (`.github/
+THE LOCAL DEFAULT IS `purge` (owner ruling 2026-11-27): `just
+<build|lint|test|test-pkg>` build and test `--features purge` (and
+`feature_rules` for the test run); `TASKLOOM_FLAVOUR=plain just <...>` runs a
+gate in the plain flavour, which locally is for a diff that touches the
+purge/plain split (build-flavours: tests are built with purge by default and
+the plain flavour is tested on the purge diff). CI runs every suite in both (`.github/
 workflows/ci.yml`). The binary's acceptance tests build the binary they run
 with the flavour's feature (`main.test.rs`'s `binary()`), and
 `test_the_default_build_has_no_prune_verb` holds the default build to having
-none. Mutation runs are of the default flavour (gates.just refuses a feature
-rule there). There is no release machinery in this repository: `just
-install` installs the flavour asked for.
+none. Mutation runs are of the plain flavour (gates.just refuses a feature
+rule there), so they need `TASKLOOM_FLAVOUR=plain`. There is no release
+machinery in this repository: `just install` installs the flavour asked for,
+purge by default, as plain `taskloom` (no suffix).
+
+## The version is VERSION's, stamped by versionator
+
+`VERSION` (no prefix) and `.versionator.yaml` (prefix `v`,
+`dirty.ignoreUntracked: true`, `updates:` keeping the binary's
+`crates/root/bin/taskloom/Cargo.toml` `package.version` in step) hold it;
+`just show-version`, `set-version <v>`, `bump-patch|minor|major` and `bump`
+change it. The binary's `build.rs` runs versionator (v0.3.0 or newer: `go
+install github.com/benjaminabbitt/versionator@v0.3.0`) and passes the stamp to
+rustc as `TASKLOOM_VERSION_STAMP`, so THE BUILD NEEDS VERSIONATOR ON PATH. The
+stamp is the ctxloom family's one pattern (owner ruling 2026-11-27, a copy of
+ctxloom's `stamp.rs`, `build.rs` and `unstamped.rs`), three forms: `v0.1.0`
+for a TAGGED release (HEAD is the tag `v<VERSION>`, the tree clean);
+`v0.1.0-<ShortHash>` for an untagged clean tree; `v0.1.0-<ShortHash>-
+<YYYYMMDDTHHMMSS>` (the build's UTC time) for a tree with a TRACKED change (an
+untracked file is no change). No `-dirty` word. versionator names no tag, so
+`build.rs` also asks `git tag --points-at HEAD`. `taskloom --version` and
+`taskloom manage version` (text and json) say the stamp, and the binary
+refuses to start with one not of the shape (`taskloom-unstamped`, exit 32).
+Anything that compares versions reads the `MAJOR.MINOR.PATCH[-pre]` alone, not
+the hash or the time (ctxloom's `run_ports::newer`, its probe of this binary).
+CI installs versionator (ctxloom/ci's `setup-versionator`); cargo-mutants copies
+`.git` (`copy_vcs`) so a mutant's build can stamp.
 
 ## This repository's tasks are in the Rust taskloom
 

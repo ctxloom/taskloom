@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 clap.workspace = true
+coded-diagnostic.workspace = true
 cli-support.workspace = true
 file-lock.workspace = true
 os.workspace = true
@@ -27,7 +28,6 @@ tokio.workspace = true
 [dev-dependencies]
 angzarr-embedded = { workspace = true, features = ["sqlite", "test-support"] }
 angzarr-ports.workspace = true
-coded-diagnostic.workspace = true
 file-system = { workspace = true, features = ["test-support"] }
 fs4.workspace = true
 harp-names.workspace = true

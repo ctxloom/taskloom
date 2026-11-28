@@ -95,8 +95,9 @@ if said=$(judge "$dir" 1); then fail "a run cargo mutants ended before a verdict
 grep -q "failed before a verdict (exit 1)" "$dir/verdict.txt" || fail "broke verdict"
 
 # No feature rule reaches the mutation run; a crate turns its own features on
-# through a dev-dependency on itself.
-gate _mutants-no-features mutants-selftest >/dev/null 2>&1 || fail "an empty feature_rules was refused"
+# through a dev-dependency on itself. A mutation run is of the plain flavour,
+# which is no longer the local default (purge), so the flavour is named.
+TASKLOOM_FLAVOUR=plain gate _mutants-no-features mutants-selftest >/dev/null 2>&1 || fail "an empty feature_rules was refused"
 if said=$(gate --set feature_rules "tasks-cli=some-feature" _mutants-no-features mutants-selftest 2>&1); then
     fail "a feature rule was not refused: $said"
 fi
