@@ -74,11 +74,8 @@ impl Isolated for Command {
                 self.env(name, value);
             }
         }
-        // The account's home, as the system keeps it, is the real one: a
-        // test's own home is named through the seam.
-        let home = home.as_ref();
-        self.env(tasks_lib::ACCOUNT_HOME_VARIABLE, home)
-            .env(flavor.home_var(), home)
+        // A test's own home, as cargo's tests name theirs.
+        self.env(flavor.home_var(), home.as_ref())
     }
 
     fn working_in(&mut self, dir: impl AsRef<Path>) -> &mut Command {
@@ -670,6 +667,39 @@ fn seeded_project(env: &Env) -> String {
         .unwrap()
         .trim()
         .to_string()
+}
+
+// TASKLOOM_HOME names the data directory whatever HOME is: a process whose
+// HOME is a session's home still opens the real store.
+#[test]
+fn test_taskloom_home_is_the_data_directory_though_home_is_a_sessions() {
+    let env = Env::new("home-harp");
+    let real = Temp::new();
+    let data = real.path().join("data");
+    let data_text = data.to_str().unwrap();
+    let added = env.run_with(
+        &["tasks", "add", "kept in the real home"],
+        &[("TASKLOOM_HOME", data_text)],
+    );
+    assert!(added.ok, "{}", added.stderr);
+    assert!(
+        disk::exists(data.join("projects")),
+        "the store is in TASKLOOM_HOME"
+    );
+    assert!(
+        !disk::exists(env.home.path().join(".ctxloom")),
+        "nothing under HOME, the session's"
+    );
+    let listed = env.run_with(
+        &["tasks", "list", "--format", "json"],
+        &[("TASKLOOM_HOME", data_text)],
+    );
+    assert!(listed.ok, "{}", listed.stderr);
+    assert!(
+        listed.stdout.contains("kept in the real home"),
+        "{}",
+        listed.stdout
+    );
 }
 
 #[test]

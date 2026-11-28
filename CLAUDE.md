@@ -253,14 +253,17 @@ survey and the refusals are the crate's `refuse_if_unusable`; a store from
 before angzarr-embedded is still `task-store-sqlite-predates-embedded`.
 The one SQL this crate runs is the ledger read.
 
-The home (the registry, the stores, the home's config, the JSONL logs) is
-the ACCOUNT's, as the system keeps it (`Os::user_home`: the account
-database on unix, the profile folder on Windows), never `$HOME` alone: an
-agent's session sets HOME to a home of its own, where the stores are not,
-and a listing there was silently `[]`. `tasks_lib::Builder::from_process`
-takes, in order, `TASKLOOM_ACCOUNT_HOME` (a test's own home; unset in a
-real run, empty counts as unset), the account's home, then HOME (USERPROFILE
-on Windows) as the last resort where the account has none.
+The data directory (the registry, the stores, the JSONL logs) is
+`TASKLOOM_HOME` (`tasks_lib::HOME_VARIABLE`; empty counts as unset), as
+CARGO_HOME names `~/.cargo`: the directory that holds `projects/<id>/state.db`,
+`<HOME>/.ctxloom` when it is unset (HOME, USERPROFILE on Windows). The
+system's own answer for the account's home (`Os::user_home`) is used only
+where HOME itself is unset. An agent's session sets HOME to a home of its
+own, so a launcher that does that must pass TASKLOOM_HOME (ctxloom does);
+tests set TASKLOOM_HOME or HOME. The home's config (`~/.taskloom/config.yaml`)
+follows TASKLOOM_HOME's parent when it is set (so a relocated HOME moves neither), else HOME. `project_registry::Environment` carries `home` (config)
+and `data_dir`; `tasks_lib::Builder::home` implies `<home>/.ctxloom` unless
+`data_dir` names one.
 
 Every open of a store to write takes `state.db.lock`, beside it, SHARED, and
 holds it while the store is open, waiting up to 10 s for an exclusive holder;

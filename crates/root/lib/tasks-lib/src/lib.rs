@@ -26,7 +26,7 @@ mod error;
 
 use std::ffi::OsString;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use angzarr_embedded::angzarr_ports::StoreError;
@@ -56,10 +56,10 @@ pub type Tasks = tasks_application::Service<
     TaskloomConfig,
 >;
 
-/// The variable that names the account's home in place of the system's
-/// answer, for a test that runs the binary in a home of its own. Unset in
-/// every real run.
-pub const ACCOUNT_HOME_VARIABLE: &str = "TASKLOOM_ACCOUNT_HOME";
+/// The variable that names taskloom's own data directory (the one that
+/// holds `projects/<id>/state.db`), as CARGO_HOME names `~/.cargo`. Unset,
+/// the directory is `$HOME/.ctxloom`.
+pub const HOME_VARIABLE: &str = "TASKLOOM_HOME";
 
 /// The import of the JSONL task logs under HOME into each project's
 /// store, the only use case that reads them.
@@ -222,7 +222,7 @@ impl Taskloom {
             self.registry(HarpNames),
             SqliteStores::new(Arc::clone(&self.fs)),
             System,
-            JsonlTaskLogDir::in_home(Arc::clone(&self.fs), self.env.home.as_deref()),
+            JsonlTaskLogDir::in_data_dir(Arc::clone(&self.fs), self.env.data_dir.as_deref()),
         )
     }
 
@@ -281,6 +281,7 @@ pub struct Builder {
     /// The filesystem, or the working directory to make the real one over.
     ground: Ground,
     home: Option<PathBuf>,
+    data_dir: Option<PathBuf>,
     root: Option<PathBuf>,
     project_id: Option<String>,
     vars: Vec<(OsString, OsString)>,
@@ -317,6 +318,7 @@ impl Builder {
         Builder {
             ground,
             home: None,
+            data_dir: None,
             root: None,
             project_id: None,
             vars: Vec::new(),
@@ -341,12 +343,12 @@ impl Builder {
     /// cannot be read) and the variables `vars` would give it: what
     /// [`Builder::from_process`] reads, assembled.
     ///
-    /// The home is the account's: the test override
-    /// ([`ACCOUNT_HOME_VARIABLE`]) if set, else `account`, the system's
-    /// own answer ([`os::Os::user_home`]: the account database, never a
-    /// variable), else HOME, the last resort. A process whose HOME was
-    /// moved (an agent's session home) so still finds the account's
-    /// stores.
+    /// The data directory is [`HOME_VARIABLE`] when set non-empty, else
+    /// `<home>/.ctxloom`, the home being HOME (USERPROFILE on Windows),
+    /// else `account`, the system's own answer ([`os::Os::user_home`]),
+    /// used only where HOME itself is unset. A process whose HOME was
+    /// moved (an agent's session home) finds its data through
+    /// [`HOME_VARIABLE`], which the launch passes it.
     fn from_env(
         cwd: io::Result<PathBuf>,
         vars: Vec<(OsString, OsString)>,
@@ -358,18 +360,28 @@ impl Builder {
         };
         let flavor = os::host().flavor();
         let var = |name: &str| var(flavor, &vars, name).cloned();
+        let data_dir = var(HOME_VARIABLE)
+            .filter(|dir| !dir.is_empty())
+            .map(PathBuf::from);
+        // The home the config is under (`<home>/.taskloom/config.yaml`):
+        // the parent of TASKLOOM_HOME when it is given, so a relocated HOME
+        // moves neither the data nor the config; else HOME (or USERPROFILE
+        // on Windows, as Go's os.UserHomeDir), else the account's where HOME
+        // is unset; set empty, unset.
+        let home = data_dir
+            .as_deref()
+            .and_then(Path::parent)
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .map(Path::to_path_buf)
+            .or_else(|| {
+                var(flavor.home_var())
+                    .filter(|home| !home.is_empty())
+                    .map(PathBuf::from)
+            })
+            .or_else(|| account.ok());
         Builder {
-            // The override, else the account's, else HOME (or USERPROFILE
-            // on Windows, as Go's os.UserHomeDir); set empty, unset.
-            home: var(ACCOUNT_HOME_VARIABLE)
-                .filter(|home| !home.is_empty())
-                .map(PathBuf::from)
-                .or_else(|| account.ok())
-                .or_else(|| {
-                    var(flavor.home_var())
-                        .filter(|home| !home.is_empty())
-                        .map(PathBuf::from)
-                }),
+            home,
+            data_dir,
             root: var("CTXLOOM_ROOT").map(PathBuf::from),
             project_id: var("CTXLOOM_PROJECT_ID").and_then(|id| id.into_string().ok()),
             ..Builder::over(ground)
@@ -377,8 +389,17 @@ impl Builder {
         .vars(vars)
     }
 
-    /// HOME: where the registry, the stores, the home's config and the
-    /// JSONL task logs are.
+    /// The data directory: where the registry, the stores and the JSONL
+    /// task logs are, over the one [`Builder::home`] implies.
+    pub fn data_dir(self, dir: impl Into<PathBuf>) -> Builder {
+        Builder {
+            data_dir: Some(dir.into()),
+            ..self
+        }
+    }
+
+    /// HOME: where the home's config is, and, unless [`Builder::data_dir`]
+    /// names one, the data directory `<home>/.ctxloom`.
     pub fn home(self, home: impl Into<PathBuf>) -> Builder {
         Builder {
             home: Some(home.into()),
@@ -448,6 +469,9 @@ impl Builder {
             Ground::Fs(fs) => fs,
         };
         let env = Environment {
+            data_dir: self
+                .data_dir
+                .or_else(|| self.home.as_ref().map(|h| h.join(".ctxloom"))),
             home: self.home,
             root: self.root,
             project_id: self.project_id,

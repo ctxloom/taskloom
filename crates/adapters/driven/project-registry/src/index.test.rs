@@ -84,9 +84,9 @@ fn refused(text: &str) -> String {
 }
 
 #[test]
-fn test_the_registry_is_under_the_homes_ctxloom_projects() {
+fn test_the_registry_is_under_the_data_dirs_projects() {
     assert_eq!(
-        path("/home/u".as_ref()),
+        path("/home/u/.ctxloom".as_ref()),
         std::path::Path::new("/home/u/.ctxloom/projects/index.yaml")
     );
 }

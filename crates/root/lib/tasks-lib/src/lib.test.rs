@@ -779,48 +779,65 @@ fn test_the_process_is_read_from_its_variables_and_working_directory() {
     );
 }
 
-// The home is the ACCOUNT's, as the system keeps it, never `$HOME` alone: a
-// process whose HOME was moved (an agent's session home) still finds the
-// stores. HOME is the last resort, where the account has no home.
 fn no_account() -> io::Result<PathBuf> {
     Err(io::Error::from_raw_os_error(2))
 }
 
-fn home_of(vars: &[(&str, &str)], account: io::Result<PathBuf>) -> Option<PathBuf> {
+/// The data directory the builder resolves for these variables.
+fn data_dir_of(vars: &[(&str, &str)], account: io::Result<PathBuf>) -> Option<PathBuf> {
     let vars = vars
         .iter()
         .map(|(n, v)| (OsString::from(n), OsString::from(v)))
         .collect();
-    Builder::from_env(Ok(os::fixture(PROJECT)), vars, account).home
+    let builder = Builder::from_env(Ok(os::fixture(PROJECT)), vars, account);
+    builder
+        .data_dir
+        .or_else(|| builder.home.map(|h| h.join(".ctxloom")))
 }
 
 #[test]
-fn test_the_home_is_the_accounts_though_home_was_moved() {
-    let moved = os::fixture("/sessions/x/home");
-    let home = home_of(
-        &[(os::host().flavor().home_var(), moved.to_str().unwrap())],
+fn test_the_data_directory_is_taskloom_home_over_home() {
+    let home = os::host().flavor().home_var();
+    let got = data_dir_of(
+        &[(HOME_VARIABLE, "/data/dir"), (home, "/sessions/x/home")],
         Ok(os::fixture("/home/u")),
     );
-    assert_eq!(home, Some(os::fixture("/home/u")));
+    assert_eq!(got, Some(PathBuf::from("/data/dir")));
 }
 
 #[test]
-fn test_the_test_override_names_the_account_home_over_the_systems() {
-    let home = home_of(
-        &[(ACCOUNT_HOME_VARIABLE, "/test/home")],
-        Ok(os::fixture("/home/u")),
+fn test_with_no_taskloom_home_the_data_directory_is_under_home_though_the_account_differs() {
+    let home = os::host().flavor().home_var();
+    let got = data_dir_of(&[(home, "/h")], Ok(os::fixture("/home/u")));
+    assert_eq!(got, Some(PathBuf::from("/h/.ctxloom")));
+}
+
+#[test]
+fn test_the_config_home_is_the_parent_of_taskloom_home_though_home_was_moved() {
+    let home = os::host().flavor().home_var();
+    let builder = Builder::from_env(
+        Ok(os::fixture(PROJECT)),
+        vec![
+            (HOME_VARIABLE.into(), os::fixture("/u/.ctxloom").into()),
+            (home.into(), os::fixture("/sessions/x/home").into()),
+        ],
+        no_account(),
     );
-    assert_eq!(home, Some(PathBuf::from("/test/home")));
-    let empty = home_of(&[(ACCOUNT_HOME_VARIABLE, "")], Ok(os::fixture("/home/u")));
-    assert_eq!(empty, Some(os::fixture("/home/u")), "set empty, unset");
+    assert_eq!(builder.home, Some(os::fixture("/u")));
 }
 
 #[test]
-fn test_with_no_account_home_the_variable_is_the_last_resort() {
-    let var = os::host().flavor().home_var();
-    let home = home_of(&[(var, "/h")], no_account());
-    assert_eq!(home, Some(PathBuf::from("/h")));
-    assert_eq!(home_of(&[], no_account()), None);
+fn test_an_empty_taskloom_home_is_unset() {
+    let home = os::host().flavor().home_var();
+    let got = data_dir_of(&[(HOME_VARIABLE, ""), (home, "/h")], no_account());
+    assert_eq!(got, Some(PathBuf::from("/h/.ctxloom")));
+}
+
+#[test]
+fn test_the_account_is_the_fallback_only_where_home_is_unset() {
+    let got = data_dir_of(&[], Ok(os::fixture("/home/u")));
+    assert_eq!(got, Some(os::fixture("/home/u").join(".ctxloom")));
+    assert_eq!(data_dir_of(&[], no_account()), None);
 }
 
 // Tag permits, wired: `permit` declares them in the project's store, and

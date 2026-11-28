@@ -133,6 +133,7 @@ impl World {
     pub(crate) fn env(&self) -> Environment {
         Environment {
             home: Some(self.home()),
+            data_dir: Some(self.home().join(".ctxloom")),
             root: None,
             project_id: None,
         }
@@ -153,11 +154,16 @@ impl World {
     }
 
     pub(crate) fn index(&self) -> index::Index {
-        index::load(&*self.fs, &index::path(&self.home())).unwrap()
+        index::load(&*self.fs, &index::path(&self.home().join(".ctxloom"))).unwrap()
     }
 
     pub(crate) fn save(&self, index: &index::Index) {
-        index::save(&*self.fs, &index::path(&self.home()), index).unwrap();
+        index::save(
+            &*self.fs,
+            &index::path(&self.home().join(".ctxloom")),
+            index,
+        )
+        .unwrap();
     }
 
     pub(crate) fn marker(&self) -> Option<String> {
@@ -772,7 +778,7 @@ fn test_a_mint_registers_the_canonical_path() {
 #[test]
 fn test_an_unreadable_registry_fails_a_read() {
     let world = World::new();
-    let path = index::path(&world.home());
+    let path = index::path(&world.home().join(".ctxloom"));
     world.write(&path, "schema_version: 1\nprojects: [");
     let error = world.registry(&[]).for_read(None).unwrap_err();
     assert_eq!(
@@ -791,7 +797,7 @@ fn test_a_read_with_no_project_finds_none_and_writes_nothing() {
         None
     );
     assert_eq!(world.marker(), None);
-    assert!(!world.exists(&index::path(&world.home())));
+    assert!(!world.exists(&index::path(&world.home().join(".ctxloom"))));
 }
 
 #[test]
@@ -876,8 +882,12 @@ fn test_a_custom_lock_wait_is_the_one_a_write_waits_for() {
     // write must wait: it gives up after its short wait, long before the
     // default would have.
     let world = World::new();
-    let held =
-        index::lock_within(&*world.fs, &index::path(&world.home()), index::LOCK_WAIT).unwrap();
+    let held = index::lock_within(
+        &*world.fs,
+        &index::path(&world.home().join(".ctxloom")),
+        index::LOCK_WAIT,
+    )
+    .unwrap();
     let wait = std::time::Duration::from_millis(50);
     let mut registry = world.registry(&["never-minted"]).with_lock_wait(wait);
     let started = std::time::Instant::now();
@@ -898,7 +908,7 @@ fn test_without_a_home_there_is_no_store_and_no_registry() {
     let world = World::new();
     for home in [None, Some(PathBuf::new())] {
         let mut env = world.env();
-        env.home = home;
+        env.data_dir = home;
         let error = ProjectRegistry::new(world.fs(), env, names(&[]))
             .for_write(Some("pinned"))
             .unwrap_err();
@@ -1166,7 +1176,7 @@ fn test_every_project_is_none_before_any_and_creates_nothing() {
 fn test_every_project_without_a_home_fails() {
     let world = World::new();
     let mut env = world.env();
-    env.home = None;
+    env.data_dir = None;
     let error = ProjectRegistry::new(world.fs(), env, names(&[]))
         .every_project()
         .unwrap_err();

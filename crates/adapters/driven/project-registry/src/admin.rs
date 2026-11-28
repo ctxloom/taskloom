@@ -15,7 +15,7 @@ use crate::{id, index, read_marker, write_marker, ProjectRegistry, RegistryError
 impl<N> ProjectRegistry<N> {
     /// The directory projects' databases are kept in.
     fn projects_dir(&self) -> Result<PathBuf, RegistryError> {
-        Ok(self.home()?.join(".ctxloom").join("projects"))
+        Ok(self.data_dir()?.join("projects"))
     }
 
     /// What the working directory's identity rests on.

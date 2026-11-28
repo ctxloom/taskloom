@@ -213,7 +213,7 @@ fn test_a_change_without_registry_changes_leaves_the_registry_unwritten() {
     world
         .apply(&[Change::RemoveDatabase { id: s("stray-id") }])
         .unwrap();
-    assert!(!world.exists(&index::path(&world.home())));
+    assert!(!world.exists(&index::path(&world.home().join(".ctxloom"))));
 }
 
 #[test]
@@ -295,7 +295,7 @@ fn test_removing_what_is_not_a_database_directory_is_refused() {
 #[test]
 fn test_a_change_is_made_under_the_registry_lock() {
     let world = World::new();
-    let file = index::path(&world.home());
+    let file = index::path(&world.home().join(".ctxloom"));
     let held = index::lock_within(&*world.fs, &file, index::LOCK_WAIT).unwrap();
     let mut registry = world
         .registry(&[])

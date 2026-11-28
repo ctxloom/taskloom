@@ -60,8 +60,11 @@ pub const MINT_ATTEMPTS: u32 = 100;
 /// filesystem the registry is given, so the two cannot disagree.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Environment {
-    /// HOME.
+    /// HOME: where the home's config is.
     pub home: Option<PathBuf>,
+    /// taskloom's data directory (TASKLOOM_HOME, else `$HOME/.ctxloom`):
+    /// the directory that holds `projects/`.
+    pub data_dir: Option<PathBuf>,
     /// CTXLOOM_ROOT: the work root, overriding the search for `.git`.
     pub root: Option<PathBuf>,
     /// CTXLOOM_PROJECT_ID: the project, overriding the work root's.
@@ -206,9 +209,9 @@ impl<N> ProjectRegistry<N> {
             .map_err(|e| RegistryError::NoWorkingDirectory { detail: e.reason })
     }
 
-    pub(crate) fn home(&self) -> Result<&Path, RegistryError> {
+    pub(crate) fn data_dir(&self) -> Result<&Path, RegistryError> {
         self.env
-            .home
+            .data_dir
             .as_deref()
             .filter(|h| !h.as_os_str().is_empty())
             .ok_or(RegistryError::NoHome {
@@ -233,12 +236,7 @@ impl<N> ProjectRegistry<N> {
     /// The project `id` names, resolved for `root` (`None`: a pinned
     /// project the registry holds no path for).
     fn project(&self, id: String, root: Option<String>) -> Result<Project, RegistryError> {
-        let store = self
-            .home()?
-            .join(".ctxloom")
-            .join("projects")
-            .join(&id)
-            .join("state.db");
+        let store = self.data_dir()?.join("projects").join(&id).join("state.db");
         Ok(Project { id, root, store })
     }
 
@@ -316,8 +314,8 @@ impl<N> ProjectRegistry<N> {
             }
             return Ok(Some((id, IdSource::LegacyMarker)));
         }
-        let home = self.home()?;
-        let index = index::load(&*self.fs, &index::path(home))?;
+        let data_dir = self.data_dir()?;
+        let index = index::load(&*self.fs, &index::path(data_dir))?;
         Ok(index
             .id_for(&*self.fs, root)
             .map(|id| (id.to_string(), IdSource::Registry)))
@@ -329,7 +327,7 @@ impl<N: Names> ProjectRegistry<N> {
     /// Bind the work root to a project id under the registry's lock: the
     /// one another process bound while this one waited, else a new one.
     fn bind(&mut self, root: &Path) -> Result<String, RegistryError> {
-        let path = index::path(self.home()?);
+        let path = index::path(self.data_dir()?);
         let _locked = index::lock_within(&*self.fs, &path, self.lock_wait)?;
         if let Some((id, _)) = self.bound(root, true)? {
             return Ok(id);
@@ -345,7 +343,7 @@ impl<N: Names> ProjectRegistry<N> {
     /// A project id neither `index` nor a database holds: an orphan's
     /// database (no registry entry names it) still holds its id's tasks.
     fn mint(&mut self, index: &index::Index) -> Result<String, RegistryError> {
-        let projects = self.home()?.join(".ctxloom").join("projects");
+        let projects = self.data_dir()?.join("projects");
         for _ in 0..MINT_ATTEMPTS {
             let id = self.names.project_id();
             if !index.holds(&id) && !self.exists(&projects.join(&id)) {
@@ -369,7 +367,7 @@ impl<N: Names> ProjectRegistry<N> {
         write: bool,
     ) -> Result<Option<Project>, RegistryError> {
         if let Some((id, _)) = self.pinned(pinned)? {
-            let index = index::load(&*self.fs, &index::path(self.home()?))?;
+            let index = index::load(&*self.fs, &index::path(self.data_dir()?))?;
             let root = index.root_of(&*self.fs, &id);
             return self.project(id, root).map(Some);
         }

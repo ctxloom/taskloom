@@ -101,6 +101,7 @@ fn test_a_list_reads_one_moment_though_another_process_writes_and_purges_meanwhi
     // list reads their project whatever is above the directory.
     let environment = Environment {
         home: Some(env.home.path().to_path_buf()),
+        data_dir: Some(env.home.path().join(".ctxloom")),
         root: Some(env.project.path().to_path_buf()),
         project_id: None,
     };

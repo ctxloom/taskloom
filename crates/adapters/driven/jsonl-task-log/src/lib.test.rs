@@ -37,7 +37,7 @@ impl Home {
     }
 
     fn logs(&self) -> JsonlTaskLogDir {
-        JsonlTaskLogDir::in_home(self.fs(), Some(&self.path()))
+        JsonlTaskLogDir::in_data_dir(self.fs(), Some(&self.path().join(".ctxloom")))
     }
 
     fn mkdir(&self, path: &Path) {
@@ -300,7 +300,7 @@ fn test_bytes_that_are_not_utf8_are_replaced_as_go_replaces_them() {
 #[test]
 fn test_without_a_home_every_read_says_so() {
     for home in [None, Some(Path::new(""))] {
-        let mut logs = JsonlTaskLogDir::in_home(Home::new().fs(), home);
+        let mut logs = JsonlTaskLogDir::in_data_dir(Home::new().fs(), home);
         assert_eq!(logs.projects().unwrap_err().code(), code!("no-home"));
         assert_eq!(
             logs.records("able-calm-fox").unwrap_err().code(),

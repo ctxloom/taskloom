@@ -105,8 +105,8 @@ impl Index {
 }
 
 /// The registry file under `home`.
-pub fn path(home: &Path) -> PathBuf {
-    home.join(".ctxloom").join("projects").join("index.yaml")
+pub fn path(data_dir: &Path) -> PathBuf {
+    data_dir.join("projects").join("index.yaml")
 }
 
 /// The stamp of a registry with none: this version.

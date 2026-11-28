@@ -50,15 +50,15 @@ impl JsonlTaskLogDir {
         }
     }
 
-    /// The logs under `home` on `fs`, `<home>/.ctxloom/tasks`; with no home
-    /// (HOME, or USERPROFILE on Windows, unset or empty), every read fails
-    /// saying so.
-    pub fn in_home(fs: Arc<dyn Fs>, home: Option<&Path>) -> Self {
+    /// The logs under the data directory `data_dir` on `fs`,
+    /// `<data_dir>/tasks`; with no data directory (none resolved), every
+    /// read fails saying so.
+    pub fn in_data_dir(fs: Arc<dyn Fs>, data_dir: Option<&Path>) -> Self {
         JsonlTaskLogDir {
             fs,
-            dir: home
+            dir: data_dir
                 .filter(|h| !h.as_os_str().is_empty())
-                .map(|h| h.join(".ctxloom").join("tasks")),
+                .map(|h| h.join("tasks")),
         }
     }
 
